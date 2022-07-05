@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/compound_data_type/tuple/target/debug/tuple: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/compound_data_type/tuple/src/main.rs

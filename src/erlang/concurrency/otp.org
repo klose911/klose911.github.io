@@ -1,0 +1,933 @@
+#+TITLE: OTP库
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: distributed_programming.html   
+#+HTML_LINK_HOME: concurrency.html
+#+OPTIONS: num:nil timestamp:nil ^:nil 
+
+
+OTP代表 _Open Telecom Platform_ (开放电信平台)。这个名字其实有一些误导性,因为OTP比你想象的要通用得多。它是一个 *应用程序操作系统* ,包含了一组 _库_ 和 _实现_ 方式,可以构建 _大规模_ 、 _容错_ 和 _分布式_ 的应用程序
+
+#+BEGIN_EXAMPLE
+  它由瑞典电信公司爱立信开发,在爱立信内部用于构建容错式系统
+
+  标准的Erlang分发套装包含OTP库
+#+END_EXAMPLE
+
+OTP包含了许多强大的工具,例如一个完整的Web服务器,一个FTP服务器和一个 CORBA ORB 等,它们全都是用Erlang编写的
+
+#+BEGIN_EXAMPLE
+  OTP还包含了构建电信应用程序的最先进工具,能够实现 H248、SNMP和ASN.1/Erlang交叉编译器(这些是电信行业里常用的协议)
+
+  不会在这里讨论它们,你可以在Erlang网站 上找到和这些主题相关的大量信息
+#+END_EXAMPLE
+
+如果想用OTP编写自己的应用程序,你会发现一个很有用的核心概念是 _OTP行为_ 。 行为封装了常见的行为模式,可以把它看作是一个用 *回调函数* 作为 _参数_ 的 *应用程序框架* 。OTP的优势来自于 *行为本身就能提供 _容错性_ 、 _可扩展性_ 和 _动态代码升级_ 等* 属性
+
+#+BEGIN_EXAMPLE
+  换句话说，回调函数的编写者不必担心容错之类的事情,因为行为已经提供了它们
+
+  熟悉Java的读者可以把行为看作是一个J2EE容器
+#+END_EXAMPLE
+
+简单地说,行为负责解决问题的非业务部分,而回调函数负责解决业务部分
+
+#+BEGIN_EXAMPLE
+  问题的非业务部分(比如如何进行实时代码升级)对所有应用程序都是一样的，而业务部分(由回调函数提供)在每个问题里都是不同的
+#+END_EXAMPLE
+
+接下来将非常详细地介绍其中一种行为: _gen_server_ 模块。但是,在深入gen_server 工作方式的核心细节之前：
+1. 从一个简单的服务器(能想象的最简单的服务器)入手
+2. 一步步改进它，直到实现 gen_server 模块的完整功能
+3. 能切实理解 gen_server 是如何工作的,并为深入探索做好准备
+* 通用服务器之路
+  #+BEGIN_EXAMPLE
+    这是里最重要的一节,所以请读一遍,再读两遍,甚至读一百遍,确保能完全理解里面的内容
+  #+END_EXAMPLE
+
+  这一节是关于 *构建抽象* 的,将看到一个名为 _gen_server.erl_ 的服务器
+
+  #+BEGIN_EXAMPLE
+    gen server(通用服务器)是OTP系统里最常用的抽象,但很多人从来没有深入探寻过 gen_server.erl 是如何工作的
+
+    一旦理解了gen server是如何构建的,就能重复这个抽象过程来构建自己的抽象
+  #+END_EXAMPLE
+
+  接下来将编写四个小小的服务器: server1 、 server2 、 server3 和 server4 ,每一个服务器都与上一个稍有不同。 server4 会类似于Erlang分发套装里的gen server
+
+  #+BEGIN_EXAMPLE
+    我们的目标是把问题的非业务部分与业务部分完全分开
+
+    这句话现在也许对你没有什么意义,但是请别担心,很快就会有了。深呼吸!
+  #+END_EXAMPLE
+** 基本的服务器
+   以下代码是我们的首次尝试。它是一个小小的服务器,可以用 *回调模块* 作为它的 _参数_ 
+
+   #+BEGIN_SRC erlang 
+  -module(server1).
+  -export([start/2, rpc/2]).
+
+
+  start(ServerProcessName, Mod) ->
+      register(ServerProcessName, spawn(fun() -> loop(ServerProcessName, Mod, Mod:init()) end)).
+
+  rpc(ServerProcessName, Request) ->
+      ServerProcessName ! {self(), Request},
+      receive
+	  {ServerProcessName, Response} -> Response
+      end.
+
+  loop(ServerProcessName, Mod, State) ->
+      receive
+	  {FromProcess, Request} ->
+	      {Response, State1} = Mod:handle(Request, State),
+	      FromProcess ! {ServerProcessName, Response},
+	      loop(ServerProcessName, Mod, State1)
+      end.
+   #+END_SRC
+
+   这一小段代码凝聚了服务器的精华。下面给 server1 编写一个回调模块,它是一个 _名称服务器_ 回调模块:
+
+   #+BEGIN_SRC erlang 
+  -module(name_server).
+  -export([init/0, add/2, find/1, handle/2]).
+  -import(server1, [rpc/2]).
+
+  %% client routines
+  add(Key, Value) -> rpc(name_server, {add, Key, Value}).
+  find(Key)       -> rpc(name_server, {find, Key}).
+
+  %% callback routines
+  init() -> dict:new().
+  handle({add, Key, Value}, Dict) -> {ok, dict:store(Key, Value, Dict)};
+  handle({find, Key}, Dict)       -> {dict:find(Key, Dict), Dict}.
+   #+END_SRC
+
+   这段代码实际上执行两个任务：
+   + 首先充当被 _服务器框架代码_ *调用* 的 _回调模块_ ： init 和 handle 函数
+   + 它还包含了将被 _客户端_ *调用* 的 _接口方法_ ： add 和 find 函数
+
+   #+BEGIN_EXAMPLE
+     OTP的惯例是把这两类函数放在同一个模块里
+   #+END_EXAMPLE
+
+   为了证明它能工作,可以这么做:
+
+   #+BEGIN_SRC sh 
+  5> server1:start(name_server, name_server) .  
+  true
+
+  7> name_server:add(joe, "at_home") .  
+  ok
+  
+  8> name_server:find(joe) .             
+  {ok,"at_home"}
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     现在停下来想一想。这个回调模块没有用于并发的代码,没有创建进程,没有发送消息,没有接收消息,也没有注册进程
+
+     它是纯粹的顺序代码,别无其他。这就意味着我们可以在完全不了解底层并发模型的情况下编写客户端，服务器模型
+
+     这就是所有服务器的基本模式，一旦理解了基本的结构,就可以轻轻松松地“自主研发”了
+   #+END_EXAMPLE
+** 实现事务
+   下面的代码在查询产生异常错误时会让客户端崩溃：
+
+   #+BEGIN_SRC erlang 
+  -module(server2).
+  -export([start/2, rpc/2]).
+
+  start(Name, Mod) ->
+      register(Name, spawn(fun() -> loop(Name,Mod,Mod:init()) end)).
+
+  rpc(Name, Request) ->
+      Name ! {self(), Request},
+      receive
+	  {Name, crash} -> exit(rpc);
+	  {Name, ok, Response} -> Response
+      end.
+
+  loop(Name, Mod, OldState) ->
+      receive
+	  {From, Request} ->
+	      try Mod:handle(Request, OldState) of
+		  {Response, NewState} ->
+		      From ! {Name, ok, Response},
+		      loop(Name, Mod, NewState)
+	      catch
+		  _:Why ->
+		      log_the_error(Name, Request, Why),
+		      %% send a message to cause the client to crash
+		      From ! {Name, crash},
+		      %% loop with the *original* state
+		      loop(Name, Mod, OldState)
+	      end
+      end.
+
+  log_the_error(Name, Request, Why) ->
+      io:format("Server ~p request ~p ~n"
+		"caused exception ~p~n", 
+		[Name, Request, Why]).
+   #+END_SRC
+
+   这段代码在服务器里实现了 _事务语义_ ：
+   + 在处理函数抛出异常错误时用 State (状态)的初始值继续循环
+     + 当处理函数失败时,服务器会给发送问题消息的客户端发送一个消息,让它崩溃
+       + 这个客户端不能继续工作,因为它发送给服务器的请求导致了处理函数的崩溃
+       + 其他想要使用服务器的客户端不会受到影响
+   + 如果处理函数成功了,它就会用处理函数提供的 NewState 值继续循环 
+
+   请注意,这个服务器使用的回调模块和用于 server1 的回调模块一模一样。通过 _修改服务器_ 并 *保持* _回调模块不变_ ,就能 *修改回调模块的非业务行为* 
+
+   #+BEGIN_EXAMPLE
+     从 server1 转到 server2 时,必须对回调模块做一点小小的改动
+
+     也就是把 -import 声明里的 server1 改成 server2 。除此之外并无其他改动
+   #+END_EXAMPLE
+
+
+   为了测试把name_server修改如下：
+
+   #+BEGIN_SRC erlang 
+  -module(name_server).
+  -export([init/0, add/2, find/1, handle/2]).
+  -import(server2, [rpc/2]).
+
+  %% client routines
+  add(Key, Value) -> rpc(name_server, {add, Key, Value}).
+  find(Key)       -> rpc(name_server, {find, Key}).
+
+  %% callback routines
+  init() -> dict:new().
+  handle({add, Key, Value}, Dict) -> {ok, dict:store(Key, Value, Dict)};
+  handle({find, Key}, Dict)       -> {undefined:find(Key, Dict), Dict}.
+   #+END_SRC
+
+   测试下：
+
+   #+BEGIN_SRC sh 
+  1> server2:start(name_server, name_server) .   
+  true
+  2>   
+  2> name_server:find(abc) . 
+  Server name_server request {find,abc} 
+  caused exception undef
+  ,** exception exit: rpc
+       in function  server2:rpc/2 (server2.erl, line 18)
+  3> 
+  3> name_server:add(abc, 1) . 
+   #+END_SRC
+** 热代码交换
+   #+BEGIN_EXAMPLE
+     现在将添加热代码交换(hot code swapping)功能
+
+     大多数服务器都执行一个固定的程序,如果要修改服务器的行为,就必须先停止服务器,再用修改后的代码重启它
+   #+END_EXAMPLE
+   而要修改这个服务器的行为,不用停止它,只需要发送一个包含新代码的消息,它就会提取新代码,然后用新代码和老的会话数据继续工作。这一过程被称为 _热代码交换_ ：
+
+   #+BEGIN_SRC erlang 
+  -module(server3).
+  -export([start/2, rpc/2, swap_code/2]).
+
+  start(Name, Mod) ->
+      register(Name, 
+	       spawn(fun() -> loop(Name,Mod,Mod:init()) end)).
+
+  swap_code(Name, Mod) -> rpc(Name, {swap_code, Mod}).
+
+  rpc(Name, Request) ->
+      Name ! {self(), Request},
+      receive
+	  {Name, Response} -> Response
+      end.
+
+  loop(Name, Mod, OldState) ->
+      receive
+	  {From, {swap_code, NewCallBackMod}} ->
+	      From ! {Name, ack},
+	      loop(Name, NewCallBackMod, OldState);
+	  {From, Request} ->
+	      {Response, NewState} = Mod:handle(Request, OldState),
+	      From ! {Name, Response},
+	      loop(Name, Mod, NewState)
+      end.
+   #+END_SRC
+
+   如果向服务器发送一个交换代码消息,它就会把 _回调模块_ 改为 _消息里包含的新模块_  
+
+   #+BEGIN_EXAMPLE
+     可以演示这一点,做法是用某个回调模块启动 server3 ,然后动态交换这个回调模块
+
+     但不能用 name_server 作为回调模块,因为服务器名已经被硬编译进这个模块里了
+   #+END_EXAMPLE
+
+   因此,将制作一个名为 _name_server1_ 的副本,然后在里面修改服务器的名称：
+
+   #+BEGIN_SRC erlang 
+  -module(name_server1).
+  -export([init/0, add/2, find/1, handle/2]).
+  -import(server3, [rpc/2]).
+
+  %% client routines
+  add(Name, Place) -> rpc(name_server, {add, Name, Place}).
+  find(Name)       -> rpc(name_server, {find, Name}).
+
+  %% callback routines
+  init() -> dict:new().
+
+  handle({add, Name, Place}, Dict) -> {ok, dict:store(Name, Place, Dict)};
+  handle({find, Name}, Dict)       -> {dict:find(Name, Dict), Dict}.
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     现在假设想要找出这个名称服务器能提供的所有名称
+
+     API里没有函数能做到这一点,因为 name_server_1 模块只包含访问函数 add 和 find 
+   #+END_EXAMPLE
+   于是我们以闪电般的速度打开文本编辑器并编写一个新的回调模块：
+
+   #+BEGIN_SRC erlang 
+  -module(new_name_server).
+  -export([init/0, add/2, all_names/0, delete/1, find/1, handle/2]).
+  -import(server3, [rpc/2]).
+
+  %% interface
+  all_names()      -> rpc(name_server, allNames).
+  add(Name, Place) -> rpc(name_server, {add, Name, Place}).
+  delete(Name)     -> rpc(name_server, {delete, Name}).
+  find(Name)       -> rpc(name_server, {find, Name}).
+  %% callback routines
+  init() -> dict:new().
+    
+  handle({add, Name, Place}, Dict) -> {ok, dict:store(Name, Place, Dict)};
+  handle(allNames, Dict)           -> {dict:fetch_keys(Dict), Dict};
+  handle({delete, Name}, Dict)     -> {ok, dict:erase(Name, Dict)};
+  handle({find, Name}, Dict)       -> {dict:find(Name, Dict), Dict}.
+   #+END_SRC
+
+   编译这个模块并告知服务器交换它的回调模块：
+
+   #+BEGIN_SRC sh 
+  4> c (new_name_server) . 
+  {ok,new_name_server}
+  5> 
+  5> server3:swap_code(name_server, new_name_server) .  
+  ack
+   #+END_SRC
+
+   现在就可以运行服务器里的新函数了：
+
+   #+BEGIN_SRC sh 
+  6> new_name_server:all_names() . 
+  [joe,helen]
+   #+END_SRC
+
+   在这里实时更换了 _回调模块_ ,这就是 *动态代码升级* ,就发生在你的眼前,没有什么黑魔法
+
+   #+BEGIN_EXAMPLE
+     现在再停下来想一想。之前完成的两个任务通常都被认为很有难度,事实的确如此
+
+     编写能实现“事务语义”的服务器很困难,编写能实现动态代码升级的服务器也很困难,但这个方法让它们变得简单了
+   #+END_EXAMPLE
+
+   这个方法极其强大。传统上我们认为服务器是有状态的程序,当我们向它发送消息时会改变它的状态。服务器里的代码在首次调用时就固定了,如果想要修改服务器里的代码,就必须停止服务器并修改代码,然后重启服务器
+
+   #+BEGIN_EXAMPLE
+     在前面的例子中,修改服务器的代码就像修改服务器的状态那样简单
+
+     我们用这个方法编写了许多产品,它们从来不会因为软件维护升级而停止服务
+   #+END_EXAMPLE
+** 事务与热代码交换
+   #+BEGIN_EXAMPLE
+     在前两个服务器里,代码升级和事务语义是分开的
+   #+END_EXAMPLE
+   现在要把它们组合到一个服务器里：
+
+   #+BEGIN_SRC erlang 
+  -module(server4).
+  -export([start/2, rpc/2, swap_code/2]).
+
+  start(Name, Mod) ->
+      register(Name, spawn(fun() -> loop(Name,Mod,Mod:init()) end)).
+
+  swap_code(Name, Mod) -> rpc(Name, {swap_code, Mod}).
+
+  rpc(Name, Request) ->
+      Name ! {self(), Request},
+      receive
+	  {Name, crash} -> exit(rpc);
+	  {Name, ok, Response} -> Response
+      end.
+
+  loop(Name, Mod, OldState) ->
+      receive
+	  {From, {swap_code, NewCallbackMod}} ->
+	      From ! {Name, ok, ack},
+	      loop(Name, NewCallbackMod, OldState);
+	  {From, Request} ->
+	      try Mod:handle(Request, OldState) of
+		  {Response, NewState} ->
+		      From ! {Name, ok, Response},
+		      loop(Name, Mod, NewState)
+	      catch
+		  _: Why ->
+		      log_the_error(Name, Request, Why),
+		      From ! {Name, crash},
+		      loop(Name, Mod, OldState)
+	      end
+      end.
+
+  log_the_error(Name, Request, Why) ->
+      io:format("Server ~p request ~p ~n"
+		"caused exception ~p~n", 
+		[Name, Request, Why]).
+   #+END_SRC
+
+   这个服务器同时提供了热代码交换和事务语义,干净利落!
+** 更多乐趣
+   理解动态代码变换的概念之后,就能找到更多乐趣。这里有一个服务器,它不会做任何事,直到你 *通知* 它变成 _某一种类型_ 的服务器:
+
+   #+BEGIN_SRC erlang 
+  -module(server5).
+  -export([start/0, rpc/2]).
+  start() -> spawn(fun() -> wait() end).
+  wait() ->
+      receive
+	  {become, F} -> F()
+      end.
+  rpc(Pid, Q) ->
+      Pid ! {self(), Q},
+      receive
+	  {Pid, Reply} -> Reply
+      end.
+   #+END_SRC
+
+   如果启动它并向它 *发送* 一个 _{become, F}_ 消息,它就会变成一个 *执行* _F() 函数_ 的 _F 服务器_ 
+
+   #+BEGIN_SRC sh 
+  4> Pid = server5:start() . 
+  <0.50.0>
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     现在这个服务器不做任何事,只是在等待一个 become 消息
+   #+END_EXAMPLE
+
+   现在来定义一个服务器函数。没什么复杂的,只是计算阶乘而已：
+
+   #+BEGIN_SRC erlang 
+  -module(my_fac_server).
+  -export([loop/0]).
+
+  loop() ->
+      receive
+	  {From, {fac, N}} ->
+	      From ! {self(), fac(N)},
+	      loop();
+	  {become, Something} ->
+	      Something()
+      end.
+    
+  fac(0) -> 1;
+  fac(N) -> N * fac(N-1).
+   #+END_SRC
+   确保它成功编译之后,就可以通知进程 <0.50.0> 变成一个阶乘服务器了。
+   #+BEGIN_SRC sh 
+  5> Pid ! {become, fun my_fac_server:loop/0} . 
+  {become,#Fun<my_fac_server.loop.0>}
+   #+END_SRC
+
+   现在这个进程已经变成一个阶乘服务器了,试着来调用它：
+   #+BEGIN_SRC sh 
+  6> server5:rpc(Pid, {fac, 30}) . 
+  265252859812191058636308480000000
+   #+END_SRC
+   这个进程会一直扮演阶乘服务器的角色,直到向它发送一个 _{become, Something}_ 消息来告诉它做点别的什么 
+
+   #+BEGIN_EXAMPLE
+     几年前,当我还在做研究的时候,曾经与PlanetLab一起共事。我能访问PlanetLab网络(它是一个全球范围的研究网络:http://www.planet-lab.org),所以我在PlanetLab的所有(大约450台)机器上都安装了“空白”的Erlang服务器。当时我并不知道要拿这些机器来做什么,因此只是设立了服务器架构以供将来使用
+
+     让这层架构运行起来之后,我很容易就能向这些空白服务器发送消息来让它们变成真正的服务器
+
+     举个例子,通常的做法是启用一个Web服务器,然后安装Web服务器插件。我的做法是后退一步,先安装一个空白服务器,以后再让插件把它转变成Web服务器。当我们不再需要Web服务器时,就可以把它变成别的东西
+   #+END_EXAMPLE
+
+*** 思考
+    #+BEGIN_EXAMPLE
+      正如在前面这些例子中所看见的,可以制作各种不同类型的服务器,让它们具有不同的语义和一些相当惊人的属性
+
+      这个方法实在是太过强大,如果彻底发挥它的潜力,就能生成拥有惊人威力和美感的小程序
+
+      如果我们的项目是工业规模的,涉及成百上千个程序员,或许并不想让事情过于动态，既要兼顾通用性和威力,又要满足商业产品的需要
+
+      让代码能在运行时更换新版这一点很美好,但之后如果出了错则会成为调试者的噩梦。如果数十次动态改动代码,而它随后崩溃了,那么找出准确的错误原因可不是一件容易的事
+    #+END_EXAMPLE
+
+    Erlang的 gen_server 模块是不断强化的服务器(就像在本章里编写的那些)逐渐形成的逻辑成果
+
+    #+BEGIN_EXAMPLE
+      它从1998年起就被用于工业产品。一个产品可以包含数百个服务器,这些服务器正是程序员使用普通的顺序代码编写的
+
+      所有的错误处理和非业务行为都被排除在服务器的通用部分之外
+    #+END_EXAMPLE
+
+    现在将跨越想象,来看看真正的 gen_server 
+
+* gen_server 入门
+  我将直接把你扔进深水区。以下三点是编写 gen_server 回调模块的简要步骤。
+  1. 确定回调模块名
+  2. 编写接口函数
+  3. 在回调模块里编写六个必需的回调函数 
+
+  #+BEGIN_EXAMPLE
+    这真的很简单。不要多想,只需按步骤行事!
+  #+END_EXAMPLE
+
+** 确定回调模块名
+   接下来将制作一个简单的支付系统。把这个模块称为 my_bank:
+
+** 编写接口方法
+   定义五个接口方法,它们都在 my_bank 模块里：
+   1. start(): 打开银行
+   2. stop(): 关闭银行
+   3. new_account(Who): 创建一个新账户
+   4. deposit(Who, Amount): 把钱存入银行
+   5. withdraw(Who, Amount): 把钱取出来(如果有结余的话) 
+
+   每个函数都正好对应一个 gen_server 方法调用,代码如下:
+   #+BEGIN_SRC erlang 
+  start() -> gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+  stop()  -> gen_server:call(?MODULE, stop).
+
+  new_account(Who)      -> gen_server:call(?MODULE, {new, Who}). 
+
+  deposit(Who, Amount)  -> gen_server:call(?MODULE, {add, Who, Amount}). 
+
+  withdraw(Who, Amount) -> gen_server:call(?MODULE, {remove, Who, Amount}). 
+   #+END_SRC
+
+   _gen_server:start_link({local, Name}, Mod, ...)_ 会 *启动* 一个 _本地服务器_ ：
+   + 如果第一个参数是原子 _global_ ,它就会启动一个能被Erlang节点集群访问的 _全局服务器_
+   + 第二个参数是 _Mod_ ,也就是 *回调模块名* 
+     + 宏 _?MODULE_ 会 *展开* 成 _模块名_ my_bank 
+   #+BEGIN_EXAMPLE
+     目前我们将忽略gen_server:start_link 的其他参数
+   #+END_EXAMPLE
+   + _gen_server:call(?MODULE, Term)_ 被用来对 _服务器_ 进行 *远程过程调用*  
+
+** 编写回调方法
+   回调模块必须实现并导出六个回调方法: 
+   + init/1
+   + handle_call/3
+   + handle_cast/2
+   + handle_info/2
+   + terminate/2
+   + code_change/3 
+
+   为简单起见,可以使用一些模板来制作 gen_server 。下面是最简单的一种:
+
+   #+BEGIN_SRC erlang 
+  -module().
+  %% gen_server_mini_template
+  -behaviour(gen_server).
+  -export([start_link/0]).
+  %% gen_server callbacks
+  -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+	   terminate/2, code_change/3]).
+
+  start_link() -> gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+  init([]) -> {ok, State}.
+
+  handle_call(_Request, _From, State) -> {reply, Reply, State}.
+  handle_cast(_Msg, State) -> {noreply, State}.
+  handle_info(_Info, State) -> {noreply, State}.
+  terminate(_Reason, _State) -> ok.
+  code_change(_OldVsn, State, Extra) -> {ok, State}.
+   #+END_SRC
+
+   这个模板包含了一套简单的框架,可以填充它们来制作服务器：
+   + 如果忘记定义合适的回调函数,编译器就会根据关键字 -behaviour 来生成警告或错误消息
+   + start_link() 函数里的服务器名 _宏 ?SERVER_ 需要进行定义,因为它默认是没有定义的
+
+   #+BEGIN_EXAMPLE
+     如果正在使用Emacs,那么敲几下按键就能调入一个 gen_server 模板
+
+     在erlang-mode(Erlang模式)下编辑,则可以通过 Erlang > Skeletons 菜单生成的标签页来创建一个 gen_server 模板
+
+     接着就从模板入手,对它稍作修改：要做的就是让接口方法里的参数与模板里的参数保持一致
+   #+END_EXAMPLE
+
+   handle_call/3 函数最为重要。必须编写代码,让它匹配接口方法里定义的三种查询数据类型。也就是说,必须填写以下代码里的这些点:
+
+   #+BEGIN_SRC erlang 
+  handle_call({new, Who}, From, State) ->
+	  Reply = ...  
+	  State1 = ...  
+	  {reply, Reply, State1};
+  handle_call({add, Who, Amount}, From, State) ->
+	  Reply = ...  
+	  State1 = ...  
+	  {reply, Reply, State1};
+  handle_call({remove, Who, Amount}, From, State) ->
+	  Reply = ...  
+	  State1 = ...  
+	  {reply, Reply, State1};
+   #+END_SRC
+
+   这段代码：
+   + Reply ：作为 _远程过程调用_ 的 *返回值* 发回客户端
+   + State : 一个代表 _服务器全局状态_ 的 *变量* ,它会在 _服务器_ 里 *到处传递* 
+     + 在我们的银行模块里,这个状态永远不会发生变化,它只是一个 _ETS表的索引_ ,属于 *常量* (虽然表的内容会变化) 
+
+   填写模板并稍加改动之后,就形成了以下代码:
+
+   #+BEGIN_SRC erlang 
+  init([]) -> {ok, ets:new(?MODULE,[])}.
+
+  handle_call({new,Who}, _From, Tab) ->
+      Reply = case ets:lookup(Tab, Who) of
+		  []  -> ets:insert(Tab, {Who,0}), 
+			 {welcome, Who};
+		  [_] -> {Who, you_already_are_a_customer}
+	      end,
+      {reply, Reply, Tab};
+	
+  handle_call({add,Who,X}, _From, Tab) ->
+      Reply = case ets:lookup(Tab, Who) of
+		  []  -> not_a_customer;
+		  [{Who,Balance}] ->
+		      NewBalance = Balance + X,
+		      ets:insert(Tab, {Who, NewBalance}),
+		      {thanks, Who, your_balance_is,  NewBalance}	
+	      end,
+      {reply, Reply, Tab};
+	
+  handle_call({remove,Who, X}, _From, Tab) ->
+      Reply = case ets:lookup(Tab, Who) of
+		  []  -> not_a_customer;
+		  [{Who,Balance}] when X =< Balance ->
+		      NewBalance = Balance - X,
+		      ets:insert(Tab, {Who, NewBalance}),
+		      {thanks, Who, your_balance_is,  NewBalance};	
+		  [{Who,Balance}] ->
+		      {sorry,Who,you_only_have,Balance,in_the_bank}
+	      end,
+      {reply, Reply, Tab};
+	
+  handle_call(stop, _From, Tab) ->
+      {stop, normal, stopped, Tab}.
+  handle_cast(_Msg, State) -> {noreply, State}.
+  handle_info(_Info, State) -> {noreply, State}.
+  terminate(_Reason, _State) -> ok.
+  code_change(_OldVsn, State, _Extra) -> {ok, State}.
+   #+END_SRC
+
+   + 调用 gen_server:start_link(Name, CallBackMod, StartArgs, Opts) 来启动服务器：
+     + 第一个被调用的回调模块方法是 _Mod:init(StartArgs)_ ,它必须返回 _{ok, State}_
+     + State 的值作为 _handle_call_ 的 _第三个参数_ 重新出现
+   + 请注意是如何停止服务器的: handle_call(stop, From, Tab) 返回 {stop, normal, stopped, Tab} ,它会停止服务器
+     + 第二个参数 _normal_ 被用作 _my_bank:terminate/2_ 的 _首个参数_
+     + 第三个参数 _stopped_ 会成为 _my_bank:stop()_ 的 _返回值_ 
+
+   #+BEGIN_EXAMPLE
+     就是这样,我们的开发任务已经完成了
+   #+END_EXAMPLE
+
+** 测试
+   下面来访问一下银行：
+
+   #+BEGIN_SRC sh 
+  6> my_bank:start() .              
+  {ok,<0.46.0>}
+   
+  7> my_bank:new_account("joe") .  
+  {welcome,"joe"}
+  
+  8> my_bank:deposit("joe", 10) .   
+  {thanks,"joe",your_balance_is,10}
+   
+  9> my_bank:deposit("joe", 30) .    
+  {thanks,"joe",your_balance_is,40}
+    
+  10> my_bank:withdraw("joe", 15) .    
+  {thanks,"joe",your_balance_is,25}
+
+  11> my_bank:withdraw("joe", 45) .    
+  {sorry,"joe",you_only_have,25,in_the_bank}
+   #+END_SRC
+
+* gen_server 的回调结构
+  理解了相关概念之后,来详细了解一下 gen_server 的回调结构 
+
+** 启动服务器
+   _gen_server:start_link(Name, Mod, InitArgs, Opts)_ 这个调用是所有事物的起点：
+   + 它会创建一个名为 _Name_ 的通用服务器
+   + 回调模块是 _Mod_
+   + _Opts_ 则控制通用服务器的行为：在这里可以指定 _消息记录_ 、 _函数调试_ 和 _其他行为_ 
+   + 通用服务器通过调用 _Mod:init(InitArgs)_ 启动
+
+   #+BEGIN_SRC erlang 
+  %%--------------------------------------------------------------------
+  %% @private
+  %% @doc
+  %% Initializes the server
+  %%
+  %% @spec init(Args) -> {ok, State} |
+  %%                     {ok, State, Timeout} |
+  %%                     ignore |
+  %%                     {stop, Reason}
+  %% @end
+  %%--------------------------------------------------------------------
+  init([]) ->
+      {ok, #state{}}.
+   #+END_SRC
+
+   在通常的操作里,只会返回 _{ok, State}_ ：如果返回 {ok, State} ,就说明 *成功启动* 了服务器,它的 *初始状态* 是 _State_
+
+   #+BEGIN_EXAMPLE
+   要了解其他参数的含义,请参考 gen_server 的手册页
+   #+END_EXAMPLE
+
+** 调用服务器
+   要调用服务器,客户端程序需要执行 _gen_server:call(Name, Request)_ 。它最终调用的是回调模块里的 _handle_call/3_ : 
+
+   #+BEGIN_SRC erlang 
+  %%--------------------------------------------------------------------
+  %% @private
+  %% @doc
+  %% Handling call messages
+  %%
+  %% @spec handle_call(Request, From, State) ->
+  %%                                   {reply, Reply, State} |
+  %%                                   {reply, Reply, State, Timeout} |
+  %%                                   {noreply, State} |
+  %%                                   {noreply, State, Timeout} |
+  %%                                   {stop, Reason, Reply, State} |
+  %%                                   {stop, Reason, State}
+  %% @end
+  %%--------------------------------------------------------------------
+  handle_call(_Request, _From, State) ->
+      Reply = ok,
+      {reply, Reply, State}.
+   #+END_SRC
+
+   handle_call 函数：
+   + 参数：
+     + _Request 其实是 gen_server:call/2 的第二个参数Request
+     + _From 是发送请求的客户端进程的PID
+     + _State 则是客户端的当前状态。
+   + 返回值：
+     + 通常会返回 _{reply, Reply, NewState}_ 
+       + Reply 会返回客户端,成为 _gen_server:call_ 的返回值
+       + NewState 则是服务器接下来的状态。
+     + 其他的返回值( _{noreply, ..}_ 和 _{stop, ..}_ )相对不太常用
+       + no reply: 会让服务器继续工作,但客户端会等待一个回复,所以服务器必须把回复的任务委派给其他进程。用适当的参数调用
+       + stop 会停止服务器 
+
+*** 播发
+    #+BEGIN_EXAMPLE
+    刚才已经见过了 gen_server:call 和 handle_call 之间的交互,它的作用是实现远程过程调用
+    #+END_EXAMPLE
+    _gen_server:cast(Name, Msg)_ 则实现了一个 *播发* (cast),也就是 _没有返回值的调用_ 
+
+    #+BEGIN_EXAMPLE
+      实际上就是一个消息转发,但习惯上称它为播发来与远程过程调用相区分
+    #+END_EXAMPLE
+
+    #+BEGIN_SRC erlang 
+  %%--------------------------------------------------------------------
+  %% @private
+  %% @doc
+  %% Handling cast messages
+  %%
+  %% @spec handle_cast(Msg, State) -> {noreply, State} |
+  %%                                  {noreply, State, Timeout} |
+  %%                                  {stop, Reason, State}
+  %% @end
+  %%--------------------------------------------------------------------
+  handle_cast(_Msg, State) ->
+      {noreply, State}.
+    #+END_SRC
+
+    这个处理函数通常只返回 _{noreply, NewState}_ 或 _{stop, ...}_ ：
+    + noreply： *改变* 服务器的状态
+    + stop： *停止* 服务器
+
+*** 发给服务器的自发性消息
+    回调函数 _handle_info(Info, State)_ 被用来处理发给服务器的 *自发性消息* 。自发性消息是一切 *未经显式调用* _gen_server:call_ 或 _gen_server:cast_ 而到达服务器的消息
+
+    #+BEGIN_EXAMPLE
+      举个例子,如果服务器连接到另一个进程并捕捉退出信号,就可能会突然收到一个预料之外的 {'EXIT', Pid,What} 消息
+
+      除此之外,系统里任何知道通用服务器PID的进程都可以向它发送消息
+    #+END_EXAMPLE
+
+    这样的消息在服务器里表现为 _info 值_ ： 
+
+    #+BEGIN_SRC erlang 
+  %%--------------------------------------------------------------------
+  %% @private
+  %% @doc
+  %% Handling all non call/cast messages
+  %%
+  %% @spec handle_info(Info, State) -> {noreply, State} |
+  %%                                   {noreply, State, Timeout} |
+  %%                                   {stop, Reason, State}
+  %% @end
+  %%--------------------------------------------------------------------
+  handle_info(_Info, State) ->
+      {noreply, State}.
+    #+END_SRC
+
+** 终止
+   服务器会因为许多原因而终止：
+   + 某个以 handle_ 开头的函数也许会返回一个 _{stop, Reason, NewState}_ 
+   + 服务器也可能崩溃并生成 _{'EXIT', reason}_ 
+
+   在所有这些情况下,无论它们是怎样发生的,都会调用 _terminate(Reason, NewState)_  。它的模板项如下：
+
+   #+BEGIN_SRC erlang 
+  %%--------------------------------------------------------------------
+  %% @private
+  %% @doc
+  %% This function is called by a gen_server when it is about to
+  %% terminate. It should be the opposite of Module:init/1 and do any
+  %% necessary cleaning up. When it returns, the gen_server terminates
+  %% with Reason. The return value is ignored.
+  %%
+  %% @spec terminate(Reason, State) -> void()
+  %% @end
+  %%--------------------------------------------------------------------
+  terminate(_Reason, _State) ->
+      ok.
+   #+END_SRC
+   这段代码不能返回一个新状态,因为已经终止了，但是了解服务器在终止时的状态非常有用：
+   + 可以把状态保存到磁盘
+   + 把它放入消息发送给别的进程
+   + 根据应用程序的意愿丢弃它
+
+   #+BEGIN_EXAMPLE
+     如果想让服务器过后重启,就必须编写一个“我胡汉三又回来了”的函数,由 terminate/2 触发  
+   #+END_EXAMPLE
+
+** 代码更改
+   可以在服务器运行时动态更改它的状态。这个 _回调函数_ 会在 _系统执行软件升级_ 时由 _版本处理子系统_ 调用：
+
+   #+BEGIN_SRC erlang 
+  %%--------------------------------------------------------------------
+  %% @private
+  %% @doc
+  %% Convert process state when code is changed
+  %%
+  %% @spec code_change(OldVsn, State, Extra) -> {ok, NewState}
+  %% @end
+  %%--------------------------------------------------------------------
+  code_change(_OldVsn, State, _Extra) ->
+      {ok, State}.
+   #+END_SRC
+
+* 填写 gen_server 模板
+  编写 OTP gen_server 大致上就是用你的代码填充一个预制模板,下面是一个例子。前一节分别列出了 gen_server 的各个区块，通过填充模板生成了一个名为 my_bank 的银行模块: 
+
+  #+BEGIN_SRC erlang 
+  -module(my_bank).
+
+  -behaviour(gen_server).
+  -export([start/0]).
+  %% gen_server callbacks
+  -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+	   terminate/2, code_change/3]).
+  -compile(export_all).
+  -define(SERVER, ?MODULE). 
+
+  start() -> gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+  stop()  -> gen_server:call(?MODULE, stop).
+
+  new_account(Who)      -> gen_server:call(?MODULE, {new, Who}).
+  deposit(Who, Amount)  -> gen_server:call(?MODULE, {add, Who, Amount}).
+  withdraw(Who, Amount) -> gen_server:call(?MODULE, {remove, Who, Amount}).
+
+  init([]) -> {ok, ets:new(?MODULE,[])}.
+
+  handle_call({new,Who}, _From, Tab) ->
+      Reply = case ets:lookup(Tab, Who) of
+		  []  -> ets:insert(Tab, {Who,0}), 
+			 {welcome, Who};
+		  [_] -> {Who, you_already_are_a_customer}
+	      end,
+      {reply, Reply, Tab};
+
+  handle_call({add,Who,X}, _From, Tab) ->
+      Reply = case ets:lookup(Tab, Who) of
+		  []  -> not_a_customer;
+		  [{Who,Balance}] ->
+		      NewBalance = Balance + X,
+		      ets:insert(Tab, {Who, NewBalance}),
+		      {thanks, Who, your_balance_is,  NewBalance}	
+	      end,
+      {reply, Reply, Tab};
+
+  handle_call({remove,Who, X}, _From, Tab) ->
+      Reply = case ets:lookup(Tab, Who) of
+		  []  -> not_a_customer;
+		  [{Who,Balance}] when X =< Balance ->
+		      NewBalance = Balance - X,
+		      ets:insert(Tab, {Who, NewBalance}),
+		      {thanks, Who, your_balance_is,  NewBalance};	
+		  [{Who,Balance}] ->
+		      {sorry,Who,you_only_have,Balance,in_the_bank}
+	      end,
+      {reply, Reply, Tab};
+
+  handle_call(stop, _From, Tab) ->
+      {stop, normal, stopped, Tab}.
+  handle_cast(_Msg, State) -> {noreply, State}.
+  handle_info(_Info, State) -> {noreply, State}.
+  terminate(_Reason, _State) -> ok.
+  code_change(_OldVsn, State, _Extra) -> {ok, State}.
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    这段代码取自模板，移除了模板里的所有注释,这样就能清楚地看到代码的结构
+  #+END_EXAMPLE
+
+* OTP 总结
+  gen_server 其实相当简单
+  #+BEGIN_EXAMPLE
+    并未全面介绍 gen_server 里的接口函数,也没有解释这些函数的全部变量
+
+    一旦理解了基本的概念,就可以去 gen_server 的手册页里查找更多细节
+  #+END_EXAMPLE
+  这里只介绍了最简单的 gen_server 使用方式,但它应该足以应付大多数需求了。复杂程度更高的应用程序经常会让 gen_server 回复一个 noreply 返回值,并把真正的回复任务委派给另一个进程
+
+  #+BEGIN_EXAMPLE
+    要了解更多这方面的信息,请阅读“Design Principles” 1 (设计原则) 文档,以及 sys 和 proc_lib 模块的手册页
+  #+END_EXAMPLE
+
+  还介绍了把服务器行为抽象成两个部分这一概念: 
+  + 通用部分可以用于所有服务器,
+  + 特有部分(处理模块)可以用来对通用部分进行定制
+
+  #+BEGIN_EXAMPLE
+    这么做的主要优点是代码能整齐地一分为二
+
+    通用部分解决众多并发和错误处理问题,而处理模块只包含顺序代码
+  #+END_EXAMPLE
+
+  在此之后,介绍了OTP系统里的第一种主要行为: gen_server ,并展示了如何从一个相当简单且容易理解的服务器入手,通过逐步的转变来实现它。
+  #+BEGIN_EXAMPLE
+    gen_server 的用途很广,但它并不能包治百病，gen_server 的客户端-服务器交互模式有时候会让人感觉别扭,与你的问题不能良好兼容
+
+    如果是这样,就需要重新思考制作 gen_server 所需要的转变步骤,根据问题的特殊需要来修改它们
+  #+END_EXAMPLE
+
+  从单个服务器转向系统时,就会用到很多服务器。希望能以一致的方式监视它们、重启退出的服务器以及记录错误。这就是下面的主题
+
+  [[file:application.org][Next：OTP应用系统]]
+
+  [[file:distributed_programming.org][Previous：分布式编程]]
+
+  [[file:concurrency.org][Home：目录]]
+
+

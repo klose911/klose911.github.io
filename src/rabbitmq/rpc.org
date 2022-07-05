@@ -1,0 +1,159 @@
+#+TITLE: 远程调用
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: topic.html   
+#+HTML_LINK_HOME: rabbitmq.html
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+
+* RPC模式
+  生产者发送消息给Exchange, Exchange把消息推送给消费者，消费者接收，处理完消息，返回响应给生产者
+  
+** 客户端接口
+生产者创建一个FibonacciRpcClient的客户端，call方法会发送消息给rabbitMQ，阻塞当前程序直到收到响应为止
+  #+BEGIN_SRC python
+    fibonacci_rpc = FibonacciRpcClient()
+    result = fibonacci_rpc.call(4)
+    print("fib(4) is %r" % result)
+  #+END_SRC
+
+** 回调队列
+生产者在发送消息前会创建一个回调队列，用来接收消费者发回的响应,在发送消息的时候用reply_to属性标记回调队列，而当消费者处理完消息后把结果包装到响应内再发送给回调队列
+#+BEGIN_SRC python
+  result = channel.queue_declare(exclusive=True)
+  callback_queue = result.method.queue
+
+  channel.basic_publish(exchange='',
+                        routing_key='rpc_queue',
+                        properties=pika.BasicProperties(
+                            reply_to = callback_queue,
+                        ),
+                        body=request)
+#+END_SRC
+
+** correlation id
+同一个rpc客户端接口可能发送多次请求，而通过同一个回调队列也相应会接收到多次返回响应，为了标明哪个响应对应哪个请求，所以在发送请求的时候会带上一个id, 这个id就用correlation_id来标识
+
+#+BEGIN_SRC python
+    result = channel.queue_declare(exclusive=True)
+    callback_queue = result.method.queue
+    corr_id = 123456789
+    channel.basic_publish(exchange='',
+                          routing_key='rpc_queue',
+                          properties=pika.BasicProperties(
+                              reply_to = callback_queue,
+                              correlation_id = corr_id,
+                          ),
+                          body=request)
+#+END_SRC
+
+* 综合实例
+  # #+CAPTION: remote procedure call 
+  [[./pic/rpc.png]]
+
+** 生产者
+  #+BEGIN_SRC python
+    #!/usr/bin/env python
+    import pika
+    import uuid
+
+    class FibonacciRpcClient(object):
+        def __init__(self):
+            self.connection = pika.BlockingConnection(pika.ConnectionParameters(
+                    host='localhost'))
+
+            self.channel = self.connection.channel()
+
+            result = self.channel.queue_declare(exclusive=True)
+            self.callback_queue = result.method.queue
+
+            self.channel.basic_consume(self.on_response, no_ack=True,
+                                       queue=self.callback_queue)
+
+        def on_response(self, ch, method, props, body):
+            if self.corr_id == props.correlation_id:
+                self.response = body
+
+        def call(self, n):
+            self.response = None
+            self.corr_id = str(uuid.uuid4())
+            self.channel.basic_publish(exchange='',
+                                       routing_key='rpc_queue',
+                                       properties=pika.BasicProperties(
+                                             reply_to = self.callback_queue,
+                                             correlation_id = self.corr_id,
+                                             ),
+                                       body=str(n))
+            while self.response is None:
+                self.connection.process_data_events()
+            return int(self.response)
+
+    fibonacci_rpc = FibonacciRpcClient()
+
+    print(" [x] Requesting fib(30)")
+    response = fibonacci_rpc.call(30)
+    print(" [.] Got %r" % response)
+  #+END_SRC
+1. 建立与rabbitMQ服务器的connect, channel, 以及声明一个回调队列callback_queue
+2. self.channel.basic_consume：注册callback队列，监听响应
+3. 'on_response'：检查响应中的correlation_id是否和发送的一致，如果一致把响应的body保存下来
+4. call：产生唯一的correletion_id, 发送消息给rabbitMQ服务器，盲等待响应到了，返回最后结果
+
+** 消费者
+
+    #+BEGIN_SRC python
+      #!/usr/bin/env python
+      import pika
+
+      connection = pika.BlockingConnection(pika.ConnectionParameters(
+              host='localhost'))
+
+      channel = connection.channel()
+
+      channel.queue_declare(queue='rpc_queue')
+
+      def fib(n):
+          if n == 0:
+              return 0
+          elif n == 1:
+              return 1
+          else:
+              return fib(n-1) + fib(n-2)
+
+      def on_request(ch, method, props, body):
+          n = int(body)
+
+          print(" [.] fib(%s)" % n)
+          response = fib(n)
+
+          ch.basic_publish(exchange='',
+                           routing_key=props.reply_to,
+                           properties=pika.BasicProperties(correlation_id = \
+                                                               props.correlation_id),
+                           body=str(response))
+          ch.basic_ack(delivery_tag = method.delivery_tag)
+
+      channel.basic_qos(prefetch_count=1)
+      channel.basic_consume(on_request, queue='rpc_queue')
+
+      print(" [x] Awaiting RPC requests")
+      channel.start_consuming()
+    #+END_SRC
+消费者接受消息，解析计算参数，计算结果，包装响应，发送消息给回调队列。注意：routing_key=props.rely_to, correlation_id = props.correlation_id
+
+** 测试
+启动消费者
+    #+BEGIN_SRC sh
+      $ python rpc_server.py
+
+      [x] Awaiting RPC requests
+    #+END_SRC
+
+发送rpc请求，等待计算结果
+#+BEGIN_SRC sh
+  $ python rpc_client.py
+
+  [x] Requesting fib(30)
+#+END_SRC
+
+[[file:topic.org][Previous：模式匹配]]
+
+[[file:rabbitmq.org][Home：目录]]

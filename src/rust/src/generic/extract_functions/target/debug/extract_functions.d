@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/generic/extract_functions/target/debug/extract_functions: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/generic/extract_functions/src/main.rs

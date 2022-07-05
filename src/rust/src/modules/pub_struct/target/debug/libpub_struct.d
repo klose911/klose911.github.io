@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/modules/pub_struct/target/debug/libpub_struct.rlib: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/modules/pub_struct/src/lib.rs

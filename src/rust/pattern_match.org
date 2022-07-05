@@ -1,0 +1,656 @@
+#+TITLE: 枚举和模式
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: struct.html   
+#+HTML_LINK_HOME: rust.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+本章介绍 *枚举* ，也被称作 _enums_ 。枚举允许通过列举 _可能的成员_ 来定义一个类型：
+1. 定义并使用一个枚举来展示它是如何连同数据一起编码信息的
+2. 探索一个特别有用的枚举 Option: 它代表一个值要么是某个值要么什么都不是
+3. 在 match 表达式中用模式匹配，针对不同的枚举值编写相应要执行的代码
+4. 介绍 if let，另一个简洁方便处理代码中枚举的结构
+
+#+BEGIN_EXAMPLE
+  枚举是一个很多语言都有的功能，不过不同语言中其功能各不相同
+
+  Rust 的枚举与 F#、OCaml 和 Haskell 这样的函数式编程语言中的”代数数据类型“最为相似
+#+END_EXAMPLE
+* 枚举
+  #+BEGIN_EXAMPLE
+    首先看一个需要诉诸于代码的场景，来考虑为何此时使用枚举更为合适且实用
+
+    假设我们要处理 IP 地址。目前被广泛使用的两个主要 IP 标准：IPv4 和 IPv6
+    这是我们的程序可能会遇到的所有可能的 IP 地址类型：所以可以 枚举 出所有可能的值，这也正是此枚举名字的由来
+
+    任何一个 IP 地址要么是 IPv4 的要么是 IPv6 的，而且不能两者都是
+
+    IP 地址的这个特性使得枚举数据结构非常适合这个场景，因为枚举值只可能是其中一个成员
+    IPv4 和 IPv6 从根本上讲仍是 IP 地址，所以当代码在处理适用于任何类型的 IP 地址的场景时应该把它们当作相同的类型
+  #+END_EXAMPLE
+
+  通过在代码中定义一个 _IpAddrKind_ *枚举* 来表现这个概念并列出可能的 IP 地址类型， _V4_ 和 _V6_ 。这被称为枚举的 *成员* ：
+
+  #+BEGIN_SRC rust 
+  enum IpAddrKind {
+      V4,
+      V6,
+  }
+  #+END_SRC
+
+  现在 IpAddrKind 就是一个可以在代码中使用的 *自定义数据类型* 了
+** 枚举值
+   可以像这样 *创建* IpAddrKind 两个不同成员的 *实例* ： 
+   #+BEGIN_SRC rust 
+  let four = IpAddrKind::V4;
+  let six = IpAddrKind::V6;
+   #+END_SRC
+
+   注意：枚举的 _成员_ 位于其 _标识符的命名空间_ 中，并使用 *两个冒号* 分开
+
+   #+BEGIN_EXAMPLE
+     这么设计的益处是现在 IpAddrKind::V4 和 IpAddrKind::V6 都是 IpAddrKind 类型的
+   #+END_EXAMPLE
+
+   接着可以定义一个 _函数_ 来 *获取任何 IpAddrKind* ：
+
+   #+BEGIN_SRC rust 
+  fn route(ip_type: IpAddrKind) { }
+   #+END_SRC
+
+   现在可以使用任一成员来调用这个函数：
+
+   #+BEGIN_SRC rust 
+  route(IpAddrKind::V4);
+  route(IpAddrKind::V6);
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     进一步考虑一下 IP 地址类型，目前没有一个存储实际 IP 地址 数据 的方法：只知道它是什么 类型 的
+   #+END_EXAMPLE
+   考虑到已经学习过结构体了，可能会像下面那样处理这个问题：
+
+   #+BEGIN_SRC rust 
+  enum IpAddrKind {
+      V4,
+      V6,
+  }
+
+  struct IpAddr {
+      kind: IpAddrKind,
+      address: String,
+  }
+
+  let home = IpAddr {
+      kind: IpAddrKind::V4,
+      address: String::from("127.0.0.1"),
+  };
+
+  let loopback = IpAddr {
+      kind: IpAddrKind::V6,
+      address: String::from("::1"),
+  };
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这里定义了一个有两个字段的结构体 IpAddr：
+     1. IpAddrKind（之前定义的枚举）类型的 kind 字段
+     2. String 类型 address 字段
+
+     同时有这个结构体的两个实例：
+     1. home：它的 kind 的值是 IpAddrKind::V4 与之相关联的地址数据是 127.0.0.1
+     2. loopback：kind 的值是 IpAddrKind 的另一个成员，V6，关联的地址是 ::1
+
+     这里使用了一个结构体来将 kind 和 address 打包在一起，现在枚举成员就与值相关联了
+   #+END_EXAMPLE
+
+   可以使用一种更简洁的方式来表达相同的概念，仅仅使用枚举并 *将 _数据_ 直接放进每一个枚举成员* 而不是将枚举作为结构体的一部分。IpAddr 枚举的新定义表明了 V4 和 V6 成员都关联了 String 值：
+   #+BEGIN_SRC rust 
+  enum IpAddr {
+      V4(String),
+      V6(String),
+  }
+
+  let home = IpAddr::V4(String::from("127.0.0.1"));
+
+  let loopback = IpAddr::V6(String::from("::1"));
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     直接将数据附加到枚举的每个成员上，这样就不需要一个额外的结构体了
+   #+END_EXAMPLE
+
+   用枚举替代结构体还有另一个优势： _每个成员_ 可以处理 *不同类型和数量* 的数据
+
+   #+BEGIN_EXAMPLE
+     IPv4 版本的 IP 地址总是含有四个值在 0 和 255 之间的数字部分
+
+     如果我们想要将 V4 地址存储为四个 u8 值而 V6 地址仍然表现为一个 String，这就不能使用结构体了
+   #+END_EXAMPLE
+
+   枚举则可以轻易处理的这个情况：
+   #+BEGIN_SRC rust 
+  enum IpAddr {
+      V4(u8, u8, u8, u8),
+      V6(String),
+  }
+
+  let home = IpAddr::V4(127, 0, 0, 1);
+
+  let loopback = IpAddr::V6(String::from("::1"));
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这些代码展示了使用枚举来存储两种不同 IP 地址的几种可能的选择
+
+     然而，标准库提供了一个开箱即用的定义
+   #+END_EXAMPLE
+
+   标准库定义 IpAddr ：
+   + 它正有着跟我们定义和使用的一样的枚举和成员
+   + 不过它将 _成员中的地址数据_ *嵌入* 到了两个 _不同形式的结构体_ 中，它们对不同的成员的定义是不同的：
+
+   #+BEGIN_SRC rust 
+  struct Ipv4Addr {
+      // --snip--
+  }
+
+  struct Ipv6Addr {
+      // --snip--
+  }
+
+  enum IpAddr {
+      V4(Ipv4Addr),
+      V6(Ipv6Addr),
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这些代码展示了可以将任意类型的数据放入枚举成员中：例如字符串、数字类型或者结构体。甚至可以包含另一个枚举！
+
+     另外，标准库中的类型通常并不比你设想出来的要复杂多少
+
+     注意：虽然标准库中包含一个 IpAddr 的定义，仍然可以创建和使用自己的定义而不会有冲突
+     这是因为并没有将标准库中的定义引入作用域
+   #+END_EXAMPLE
+
+   来看看另一个枚举的例子：它的成员中内嵌了多种多样的类型：
+
+   #+BEGIN_SRC rust 
+  enum Message {
+      Quit,
+      Move { x: i32, y: i32 },
+      Write(String),
+      ChangeColor(i32, i32, i32),
+  }
+   #+END_SRC
+
+   这个枚举有四个含有不同类型的成员：
+   + Quit：没有关联任何数据
+   + Move:  包含一个 _匿名结构体_
+   + Write:  包含 _单独一个 String_
+   + ChangeColor: 包含 _三个 i32_ 
+
+   #+BEGIN_EXAMPLE
+     定义一个这样的有关联值的枚举的方式和定义多个不同类型的结构体的方式很相像
+
+     除了枚举不使用 struct 关键字以及其所有成员都被组合在一起位于 Message 类型中
+   #+END_EXAMPLE
+
+   下面这些结构体可以包含与之前枚举成员中相同的数据：
+   #+BEGIN_SRC rust 
+  struct QuitMessage; // 类单元结构体
+  struct MoveMessage {
+      x: i32,
+      y: i32,
+  }
+  struct WriteMessage(String); // 元组结构体
+  struct ChangeColorMessage(i32, i32, i32); // 元组结构体
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     不过，如果使用不同的结构体，则它们都有不同的类型，
+
+     这样就不能轻易地定义一个能够“处理这些不同类型的结构体”的函数，反之枚举就可以
+   #+END_EXAMPLE
+
+   结构体和枚举还有另一个相似点：可以使用 _impl_ 来为结构体定义方法那样，也可以在 *枚举上定义方法* 。这是一个定义在 Message 枚举上的叫做 _call_ 的方法：
+
+   #+BEGIN_SRC rust 
+  impl Message {
+      fn call(&self) {
+	  // 在这里定义方法体
+      }
+  }
+
+  let m = Message::Write(String::from("hello"));
+  m.call();
+   #+END_SRC
+
+   方法体使用了 _self_ 来获取调用方法的值：
+   + 创建了一个值为  _Message::Write(String::from("hello"))_ 的变量 _m_
+   + _m_ 就是当 m.call() 运行时 call 方法中的 _self_ 的值
+
+   #+BEGIN_EXAMPLE
+     现在来看看标准库中的另一个非常常见且实用的枚举：Option
+   #+END_EXAMPLE
+** Option 枚举
+   #+BEGIN_EXAMPLE
+     在之前的部分，看到了 IpAddr 枚举如何利用 Rust 的类型系统在程序中编码更多信息而不单单是数据
+
+     接下来分析一个 Option 的案例，Option 是标准库定义的另一个枚举
+     Option 类型应用广泛因为它编码了一个非常普遍的场景，即一个值要么有值要么没值
+
+     从类型系统的角度来表达这个概念就意味着编译器需要检查是否处理了所有应该处理的情况
+     这样就可以避免在其他编程语言中非常常见的 bug
+   #+END_EXAMPLE
+
+   #+BEGIN_EXAMPLE
+     编程语言的设计经常要考虑包含哪些功能，但考虑排除哪些功能也很重要
+
+     Rust 并没有很多其他语言中有的空值(NULL)功能
+   #+END_EXAMPLE
+   _空值_ 是一个值，它 *代表没有值* 。在有空值的语言中，变量总是这两种状态之一： _空值_ 和 _非空值_ 
+
+   #+BEGIN_EXAMPLE
+     空值的问题在于当你尝试像一个非空值那样使用一个空值，会出现某种形式的错误
+
+     因为空和非空的属性无处不在，非常容易出现这类错误
+   #+END_EXAMPLE
+
+   然而，空值尝试表达的概念仍然是有意义的：空值是一个 *因为某种原因目前无效或缺失的值* 
+
+   #+BEGIN_EXAMPLE
+   问题不在于概念而在于具体的实现
+   #+END_EXAMPLE
+   Rust 并没有空值，不过它确实拥有一个可以编码 *存在或不存在概念的枚举* 。这个枚举是 _Option<T>_ ，而且它定义于标准库中，如下:
+
+   #+BEGIN_SRC rust 
+  enum Option<T> {
+      Some(T),
+      None,
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     Option<T> 枚举是如此有用以至于它甚至被包含在了 prelude 之中，不需要将其显式引入作用域
+
+     另外，它的成员也是如此，可以不需要 Option:: 前缀来直接使用 Some 和 None
+
+     即便如此 Option<T> 也仍是常规的枚举，Some(T) 和 None 仍是 Option<T> 的成员
+
+     <T> 语法一个泛型类型参数：意味着 Option 枚举的 Some 成员可以包含任意类型的数据
+   #+END_EXAMPLE
+
+   这里是一些包含数字类型和字符串类型 Option 值的例子：
+   #+BEGIN_SRC rust 
+  let some_number = Some(5);
+  let some_string = Some("a string");
+
+  let absent_number: Option<i32> = None;
+   #+END_SRC
+
+   如果使用 _None_ 而不是 Some，需要告诉 Rust Option<T> 是什么 *类型* 的，因为编译器只通过 None 值无法推断出 Some 成员保存的值的类型
+
+   #+BEGIN_EXAMPLE
+     当有一个 Some 值时，就知道存在一个值，而这个值保存在 Some 中
+
+     当有个 None 值时，在某种意义上，它跟空值具有相同的意义：并没有一个有效的值
+
+     那么，Option<T> 为什么就比空值要好呢？
+   #+END_EXAMPLE
+
+   简而言之，因为 _Option<T>_ 和  _T_ 是不同的类型，编译器 *不允许* 像一个 _肯定有效的值_ 那样使用 _Option<T>_ 。例如，这段代码不能编译，因为它尝试将 Option<i8> 与 i8 相加：
+
+   #+BEGIN_SRC rust 
+  let x: i8 = 5;
+  let y: Option<i8> = Some(5);
+
+  let sum = x + y;
+   #+END_SRC
+
+   如果运行这段代码，将会编译报错：
+
+   #+BEGIN_SRC sh 
+  error[E0277]: the trait bound `i8: std::ops::Add<std::option::Option<i8>>` is
+  not satisfied
+   -->
+    |
+  5 |     let sum = x + y;
+    |                 ^ no implementation for `i8 + std::option::Option<i8>`
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     错误信息意味着 Rust 不知道该如何将 Option<i8> 与 i8 相加，因为它们的类型不同
+
+     当在 Rust 中拥有一个像 i8 这样类型的值时，编译器确保它总是有一个有效的值。可以自信使用而无需做空值检查
+     只有当使用 Option<i8>（或者任何用到的类型）的时候需要担心可能没有值，而编译器会确保在使用值之前处理了为空的情况。
+
+     换句话说，在对 Option<T> 进行 T 的运算之前必须将其转换为 T
+     通常这能帮助捕获到空值最常见的问题之一：假设某值不为空但实际上为空的情况
+
+     不再担心会错误的假设一个非空值，会对代码更加有信心：
+     为了拥有一个可能为空的值，必须要显式的将其放入对应类型的 Option<T> 中，当使用这个值时，必须明确的处理值为空的情况
+     只要一个值不是 Option<T> 类型，就 可以 安全的认定它的值不为空
+
+     这是 Rust 的一个经过深思熟虑的设计决策，来限制空值的泛滥以增加 Rust 代码的安全性
+   #+END_EXAMPLE
+
+   那么当有一个 Option<T> 的值时，如何从 Some 成员中取出 T 的值来使用它呢？Option<T> 枚举拥有大量用于各种情况的方法：可以查看它的文档
+
+   #+BEGIN_EXAMPLE
+     总的来说，为了使用 Option<T> 值，需要编写处理每个成员的代码：
+     1. 想要一些代码只当拥有 Some(T) 值时运行，允许这些代码使用其中的 T
+     2. 也希望一些代码在值为 None 时运行，这些代码并没有一个可用的 T 值
+
+     match 表达式就是这么一个处理枚举的控制流结构：
+     它会根据枚举的成员运行不同的代码，这些代码可以使用匹配到的值中的数据
+   #+END_EXAMPLE
+* match 表达式
+  Rust 有一个叫做 _match_ 的极为强大的 *控制流运算符* ，它允许将 _一个值_ 与 _一系列的模式_ 相比较，并根据 *相匹配的模式执行相应代码* 。模式可由：
+  + 字面值
+  + 变量
+  + 通配符
+  + 许多其他内容构成 
+
+  match 的力量来源于模式的表现力以及编译器检查，它确保了所有可能的情况都得到处理
+
+  #+BEGIN_EXAMPLE
+    可以把 match 表达式想象成某种硬币分类器：
+    硬币滑入有着不同大小孔洞的轨道，每一个硬币都会掉入符合它大小的孔洞
+
+    同样地，值也会通过 match 的每一个模式，并且在遇到第一个 “符合” 的模式时，值会进入相关联的代码块并在执行中被使用
+  #+END_EXAMPLE
+
+  编写一个函数来获取一个未知的（美元）硬币，并以一种类似验钞机的方式，确定它是何种硬币并返回它的美分值，如下所示：
+
+  #+BEGIN_SRC rust 
+  enum Coin {
+      Penny,
+      Nickel,
+      Dime,
+      Quarter,
+  }
+
+  fn value_in_cents(coin: Coin) -> u8 {
+      match coin {
+	  Coin::Penny => 1,
+	  Coin::Nickel => 5,
+	  Coin::Dime => 10,
+	  Coin::Quarter => 25,
+      }
+  }
+  #+END_SRC
+
+  拆开 value_in_cents 函数中的 match 来看：
+  + 列出 match 关键字后跟一个表达式：例子中是 _coin 的值_ 
+  #+BEGIN_EXAMPLE
+    这看起来非常像 if 使用的表达式，不过这里有一个非常大的区别：
+    对于 if，表达式必须返回一个布尔值，而这里它可以是任何类型的
+
+    例子中的 coin 的类型是定义的 Coin 枚举
+  #+END_EXAMPLE
+  + 接下来是 match 的分支。一个分支有两个部分：一个模式和一些代码 
+    + 第一个分支的模式是值 _Coin::Penny_
+    + 之后的 _=>_ 运算符将模式和将要 *运行的代码* 分开：这里的代码就仅仅是值 1
+      + 每个分支相关联的代码是一个表达式，而 _表达式的结果值_ 将作为 *整个 match 表达式的返回值* 
+    + 每一个分支之间使用 _逗号_ 分隔 
+  + 当 match 表达式执行时，它将结果值按顺序与每一个分支的模式相比较：
+    + 如果模式 *匹配* 了这个值，这个模式相关联的 *代码将被执行* 
+    + 如果模式并 *不匹配* 这个值，将继续 *执行下一个分支* 
+
+  #+BEGIN_EXAMPLE
+    这非常类似一个硬币分类器。可以拥有任意多的分支：示例中的 match 有四个分支
+  #+END_EXAMPLE
+
+  如果分支代码较短的话通常不使用大括号，正如上面示例中每个分支都只是返回一个值。如果想要在分支中运行多行代码，可以使用大括号： 
+  #+BEGIN_SRC rust 
+  fn value_in_cents(coin: Coin) -> u8 {
+      match coin {
+	  Coin::Penny => {
+	      println!("Lucky penny!");
+	      1
+	  },
+	  Coin::Nickel => 5,
+	  Coin::Dime => 10,
+	  Coin::Quarter => 25,
+      }
+  }
+  #+END_SRC
+
+  每次使用Coin::Penny 调用时都会打印出 “Lucky penny!”，同时仍然返回代码块最后的值 1
+** 绑定值的模式
+   匹配分支的另一个有用的功能：可以 *绑定* 匹配的 _模式的部分值_ 。这也就是如何从枚举成员中提取值的
+
+   #+BEGIN_EXAMPLE
+     1999 年到 2008 年间，美国在 25 美分的硬币的一侧为 50 个州的每一个都印刷了不同的设计
+
+     其他的硬币都没有这种区分州的设计，所以只有这些 25 美分硬币有特殊的价值
+   #+END_EXAMPLE
+
+   可以将这些信息加入 enum，通过改变 Quarter 成员来包含一个 State 值，下面中完成了这些修改：
+   #+BEGIN_SRC rust 
+  #[derive(Debug)] // 这样可以可以立刻看到州的名称
+  enum UsState {
+      Alabama,
+      Alaska,
+      // --snip--
+  }
+
+  enum Coin {
+      Penny,
+      Nickel,
+      Dime,
+      Quarter(UsState),
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     想象一下有一个朋友尝试收集所有 50 个州的 25 美分硬币
+
+     在根据硬币类型分类零钱的同时，也可以报告出每个 25 美分硬币所对应的州名称。这样如果他没有的话，可以将其加入收藏
+   #+END_EXAMPLE
+
+   在匹配 _Coin::Quarter_ 成员的分支的模式中增加了一个叫做 _state_ 的变量。当匹配到 Coin::Quarter 时，变量 state 将会 *绑定* _25美分硬币所对应州的值_ 。接着在那个分支的代码中使用 state，如下：
+   #+BEGIN_SRC rust 
+  fn value_in_cents(coin: Coin) -> u8 {
+      match coin {
+	  Coin::Penny => 1,
+	  Coin::Nickel => 5,
+	  Coin::Dime => 10,
+	  Coin::Quarter(state) => {
+	      println!("State quarter from {:?}!", state);
+	      25
+	  },
+      }
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     如果调用 value_in_cents(Coin::Quarter(UsState::Alaska))，coin 将是 Coin::Quarter(UsState::Alaska)
+
+     当将值与每个分支相比较时，没有分支会匹配，直到遇到 Coin::Quarter(state)，这时，state 绑定的将会是值 UsState::Alaska
+
+     接着就可以在 println! 表达式中使用这个绑定了，像这样就可以获取 Coin 枚举的 Quarter 成员中内部的州的值
+   #+END_EXAMPLE
+** 匹配 Option<T> 
+   #+BEGIN_EXAMPLE
+     在之前的部分中使用 Option<T> 时，是为了从 Some 中取出其内部的 T 值；还可以像处理 Coin 枚举那样使用 match 处理 Option<T>！
+
+     与其直接比较硬币，将比较 Option<T> 的成员，不过 match 表达式的工作方式保持不变
+
+     比如想要编写一个函数，它获取一个 Option<i32> 并且如果其中有一个值，将其加一。如果其中没有值，函数应该返回 None 值并不尝试执行任何操作
+   #+END_EXAMPLE
+   得益于 match，编写这个函数非常简单：
+
+   #+BEGIN_SRC rust 
+  fn plus_one(x: Option<i32>) -> Option<i32> {
+      match x {
+	  None => None,
+	  Some(i) => Some(i + 1),
+      }
+  }
+
+  let five = Some(5);
+  let six = plus_one(five);
+  let none = plus_one(None);
+   #+END_SRC
+*** 匹配 Some(T) 
+    更仔细地检查 plus_one 的第一行操作。当调用 plus_one(five) 时，plus_one 函数体中的 x 将会是值 Some(5)。接着将其与每个分支比较：
+
+    #+BEGIN_SRC rust 
+  None => None,
+    #+END_SRC
+
+    值 Some(5) 并不匹配模式 None，所以继续进行下一个分支：
+
+    #+BEGIN_SRC rust 
+  Some(i) => Some(i + 1),
+    #+END_SRC
+
+    Some(5) 与 Some(i) 匹配吗？当然匹配！它们是相同的成员。i 绑定了 Some 中包含的值，所以 _i_ 的值是 _5_ 。接着匹配分支的代码被执行，所以将 i 的值加一并返回一个 _含有值 6 的新 Some_ 
+
+    接着考虑 plus_one 的第二个调用，这里 x 是 None。进入 match 并与第一个分支相比较：
+    #+BEGIN_SRC rust 
+  None => None,
+    #+END_SRC
+    匹配上了！这里没有值来加一，所以程序结束并返回 => _右侧的值 None_ ，因为第一个分支就匹配到了，其他的分支将不再比较
+
+    #+BEGIN_EXAMPLE
+      将 match 与枚举相结合在很多场景中都是有用的
+
+      会在 Rust 代码中看到很多这样的模式：match 一个枚举，绑定其中的值到一个变量，接着根据其值执行代码
+
+      这在一开始有点复杂，不过一旦习惯了，会希望所有语言都拥有它！这一直是用户的最爱
+    #+END_EXAMPLE
+*** 匹配是穷尽的
+    考虑一下 plus_one 函数的这个版本，它有一个 bug 并不能编译：
+    #+BEGIN_SRC rust 
+  fn plus_one(x: Option<i32>) -> Option<i32> {
+      match x {
+	  Some(i) => Some(i + 1),
+      }
+  }
+    #+END_SRC
+
+    因为没有处理 None 的情况，所以这些代码会造成一个 bug。幸运的是，这是一个 Rust 知道如何处理的 bug。如果尝试编译这段代码，会得到这个错误：
+
+    #+BEGIN_SRC sh 
+  error[E0004]: non-exhaustive patterns: `None` not covered
+   -->
+    |
+  6 |         match x {
+    |               ^ pattern `None` not covered
+    #+END_SRC
+
+    Rust 知道没有覆盖所有可能的情况甚至知道哪些模式被忘记了！Rust 中的匹配是 *穷尽* 的：必须穷举到最后的可能性来使代码有效
+
+    #+BEGIN_EXAMPLE
+      特别的在这个 Option<T> 的例子中，Rust 防止忘记明确的处理 None 的情况
+
+      这使免于假设拥有一个实际上为空的值
+    #+END_EXAMPLE
+** 通配符
+   Rust 也提供了一个模式用于 *不想列举出所有可能值* 的场景：
+   #+BEGIN_EXAMPLE
+     例如，u8 可以拥有 0 到 255 的有效的值，如果只关心 1、3、5 和 7 这几个值，就并不想必须列出 0、2、4、6、8、9 一直到 255 的值
+   #+END_EXAMPLE
+   这时候可以使用特殊的模式 *_* 替代：
+
+   #+BEGIN_SRC rust 
+  let some_u8_value = 0u8;
+  match some_u8_value {
+      1 => println!("one"),
+      3 => println!("three"),
+      5 => println!("five"),
+      7 => println!("seven"),
+      _ => (),
+  }
+   #+END_SRC
+
+   _ 模式会匹配所有的值。通过将其放置于其他分支之后，_ 将会匹配所有之前没有指定的可能的值。() 就是 unit 值，所以 _ 的情况什么也不会发生，也不会做任何处理
+
+   #+BEGIN_EXAMPLE
+     然而，match 在只关心 一个 情况的场景中可能就有点啰嗦，所以 Rust 提供了 if let
+   #+END_EXAMPLE
+* if let 
+  _if let_ 语法以一种不那么冗长的方式结合 if 和 let，来处理 *只匹配* _一个模式的值_ 而 *忽略* _其他模式_ 的情况。下面程序中：它匹配一个 Option<u8> 值并只希望当值为 3 时执行代码：
+
+  #+BEGIN_SRC rust 
+  let some_u8_value = Some(0u8);
+  match some_u8_value {
+      Some(3) => println!("three"),
+      _ => (),
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    这里想要对 Some(3) 匹配进行操作但是不想处理任何其他 Some<u8> 值或 None 值
+
+    为了满足 match 表达式（穷尽性）的要求，必须在处理完这唯一的成员后加上 _ => ()，这样也要增加很多样板代码
+  #+END_EXAMPLE
+
+  可以使用 _if let_ 这种更短的方式编写：
+
+  #+BEGIN_SRC rust 
+  if let Some(3) = some_u8_value {
+      println!("three");
+  }
+  #+END_SRC
+
+  if let 获取通过 _等号_ 分隔的一个 _模式_ 和一个 _表达式_ ，它的工作方式与 match 相同 
+
+  #+BEGIN_EXAMPLE
+    换句话说，可以认为 if let 是 match 的一个语法糖，它当值匹配某一模式时执行代码而忽略所有其他值
+
+    使用 if let 意味着编写更少代码，更少的缩进和更少的样板代码，然而，这样会失去 match 强制要求的穷尽性检查
+
+    match 和 if let 之间的选择依赖特定的环境以及增加简洁度和失去穷尽性检查的权衡取舍
+  #+END_EXAMPLE
+
+  可以在 if let 中包含一个 _else_ 。else 块中的代码与 match 表达式中的 _ 分支块中的代码相同，这样的 match 表达式就等同于 if let 和 else
+
+  #+BEGIN_EXAMPLE
+    回忆一下 Coin 枚举的定义，其 Quarter 成员也包含一个 UsState 值
+
+    如果想要计数所有不是 25 美分的硬币，同时也报告 25 美分硬币所属的州
+  #+END_EXAMPLE
+  当然可以使用这样一个 match 表达式：
+
+  #+BEGIN_SRC rust 
+  let mut count = 0;
+  match coin {
+      Coin::Quarter(state) => println!("State quarter from {:?}!", state),
+      _ => count += 1,
+  }
+  #+END_SRC
+
+  当然使用这样的 if let 和 else 表达式更简洁：
+
+  #+BEGIN_SRC rust 
+  let mut count = 0;
+  if let Coin::Quarter(state) = coin {
+      println!("State quarter from {:?}!", state);
+  } else {
+      count += 1;
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    如果程序遇到一个使用 match 表达起来过于啰嗦， if let 也在你的 Rust 工具箱中
+  #+END_EXAMPLE
+* 总结
+  这章涉及到了如何使用枚举来创建有一系列 *可列举值的自定义类型* ：
+  + 展示了标准库的 _Option<T>_ 类型是如何利用类型系统来避免出错的
+  + 当枚举值包含数据时，可以根据需要处理多少情况来选择使用 _match_ 或 _if let_  来获取并使用这些值
+
+  #+BEGIN_EXAMPLE
+    如今你的 Rust 程序能够使用结构体和枚举在自己的作用域内表现其内容了，并且在 API 中使用自定义类型保证了类型安全：编译器会确保你的函数只会得到它期望的类型的值
+
+    但是为了提供一个组织良好的 API，它使用起来很直观并且只向用户暴露他们确实需要的部分，那么现在就转向 Rust 的“模块”系统吧
+  #+END_EXAMPLE
+
+  [[file:module.org][Next：模块]]
+
+  [[file:struct.org][Previous：结构体]]
+
+  [[file:rust.org][Home: 目录]]

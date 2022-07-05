@@ -1,0 +1,1401 @@
+#+TITLE: 智能指针
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: cargo.html   
+#+HTML_LINK_HOME: rust.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+_指针_ 是一个包含 *内存地址* 的 *变量* 的通用概念。这个地址 _引用_ ，或 _指向_ 一些其他数据
+
+#+BEGIN_EXAMPLE
+  Rust 中最常见的指针是前面所介绍的“引用”。引用以 & 符号为标志并借用了他们所指向的值
+
+  除了引用数据没有任何其他特殊功能，它们也没有任何额外开销，所以应用的最多
+#+END_EXAMPLE
+
+_智能指针_ 是另一类数据结构，他们的表现类似指针，但是也拥有额外的 *元数据* 和 *功能* 
+
+#+BEGIN_EXAMPLE
+  智能指针的概念并不为 Rust 所独有；其起源于 C++ 并存在于其他语言中
+
+  Rust 标准库中不同的智能指针提供了多于引用的额外功能
+
+  本章将会探索的一个例子便是 引用计数智能指针类型，其允许数据有多个所有者。引用计数智能指针记录总共有多少个所有者，并当没有任何所有者时负责清理数据
+#+END_EXAMPLE
+
+在 Rust 中，普通引用和智能指针的一个额外的区别：
++ 引用是一类只借用数据的指针
++ 在大部分情况下，智能指针 *拥有* 他们指向的数据
+
+#+BEGIN_EXAMPLE
+  实际已经出现过一些智能指针，比如String 和 Vec<T>，虽然当时并不这么称呼它们
+
+  这些类型都属于智能指针因为它们拥有一些数据并允许你修改它们
+
+  它们也带有元数据（比如他们的容量）和额外的功能或保证（String 的数据总是有效的 UTF-8 编码）
+#+END_EXAMPLE
+智能指针通常使用 _结构体_ 实现。智能指针区别于常规结构体的显著特性在于其实现了 _Deref_ 和 _Drop_ trait:
++ Deref trait : 允许智能指针结构体实例表现的像 _引用_ 一样，这样就可以编写既用于引用、又用于智能指针的代码
++ Drop trait : 允许自定义当智能指针 _离开作用域_ 时运行的代码
+
+#+BEGIN_EXAMPLE
+  接下来会讨论这些 trait 以及为什么对于智能指针来说他们很重要
+#+END_EXAMPLE
+
+
+这章也会讲到的是来自标准库中最常用的一些: 
++ Box<T>，用于在堆上分配值
++ Rc<T>，一个引用计数类型，其数据可以有多个所有者
++ Ref<T> 和 RefMut<T>，通过 RefCell<T> 访问，一个在运行时而不是在编译时执行借用规则的类型
+#+BEGIN_EXAMPLE
+  考虑到智能指针是一个在 Rust 经常被使用的通用设计模式，本章并不会覆盖所有现存的智能指针
+
+  很多库都有自己的智能指针，而你也可以编写属于你自己的智能指针
+#+END_EXAMPLE
+
+
+另外会涉及 _内部可变性_ 模式，这时不可变类型暴露出改变其内部值的 API。同时也会讨论 _引用循环_ 会如何 *泄露内存* ，以及如何避免
+
+* Box <T>
+  最简单直接的智能指针是 box，其类型是 _Box<T>_ 。 box 允许将一个值放在 *堆上* 而不是栈上。留在栈上的则是 *指向堆数据的指针* 。除了数据被储存在堆上而不是栈上之外，box 没有性能损失。不过也没有很多额外的功能。它们多用于如下场景：
+  + 当有一个在 _编译时未知大小_ 的类型，而又想要在需要确切大小的上下文中使用这个类型值的时候
+  + 当有大量数据并希望在确保数据 _不被拷贝_ 的情况下 *转移所有权* 的时候
+  + 当希望拥有一个值并只关心它的类型是否实现了特定 trait 而不是其具体类型的时候
+
+  #+BEGIN_EXAMPLE
+    接下来 “box 允许创建递归类型” 部分展示第一种场景
+
+    在第二种情况中，转移大量数据的所有权可能会花费很长的时间，因为数据在栈上进行了拷贝。为了改善这种情况下的性能，可以通过 box 将这些数据储存在堆上。接着，只有少量的指针数据在栈上被拷贝
+
+    第三种情况被称为 trait 对象，以后会讲述
+  #+END_EXAMPLE
+
+** 使用 Box<T> 在堆上储存数据
+   下面展示了如何使用 box 在堆上储存一个 i32：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let b = Box::new(5);
+      println!("b = {}", b);
+  }
+   #+END_SRC
+
+   这里定义了变量 b，其值是一个指向被分配在堆上的值 5 的 Box。这个程序会打印出 b = 5；
+   + 可以像数据是储存在栈上的那样访问 box 中的数据，正如任何拥有数据所有权的值那样
+   + 当像 b 这样的 box 在 main 的末尾离开作用域时，它将被释放。这个释放过程作用于 box本身（位于栈上）和它所指向的数据（位于堆上）
+
+   #+BEGIN_EXAMPLE
+     将一个单独的值存放在堆上并不是很有意义，所以像示例这样单独使用 box 并不常见
+
+     将像单个 i32 这样的值储存在栈上，也就是其默认存放的地方在大部分使用场景中更为合适
+   #+END_EXAMPLE
+
+** Box 允许创建递归类型
+   Rust 需要在编译时知道类型占用多少空间。一种无法在编译时知道大小的类型是 _递归类型_ ，其值的一部分可以是相同类型的另一个值。这种值的嵌套理论上可以无限的进行下去，所以 Rust 不知道递归类型需要多少空间。不过 box 有一个已知的大小，所以通过在循环类型定义中插入 box，就可以创建递归类型了
+
+
+   #+BEGIN_EXAMPLE
+     探索一下 cons list，一个函数式编程语言中的常见类型，来展示这个概念
+
+     除了递归之外，将要定义的 cons list 类型是很直白的，所以这个例子中的概念，在任何遇到更为复杂的涉及到递归类型的场景时都很实用
+   #+END_EXAMPLE
+
+*** cons list 
+    cons list 是一个来源于 Lisp 编程语言及其方言的数据结构。在 Lisp 中，cons 函数利用两个参数来构造一个新的列表，他们通常是一个单独的值和另一个列表：“将 x 与 y 连接” 通常意味着构建一个新的容器而将 x 的元素放在新容器的开头，其后则是容器 y 的元素
+    + cons list 的每一项都包含两个元素：当前项的值和下一项。其最后一项值包含一个叫做 Nil 的值且没有下一项
+    + cons list 通过递归调用 cons 函数产生。代表递归的终止条件的规范名称是 Nil，它宣布列表的终止
+      + 注意这不同于Rust的 “null” 或 “nil” 的概念，他们代表无效或缺失的值
+
+    #+BEGIN_EXAMPLE
+      注意虽然函数式编程语言经常使用 cons list，但是它并不是一个 Rust 中常见的类型，大部分在 Rust 中需要列表的时候，Vec<T> 是一个更好的选择
+
+      其他更为复杂的递归数据类型 确实 在 Rust 的很多场景中很有用，不过通过以 cons list 作为开始，可以探索如何使用 box 毫不费力的定义一个递归数据类型
+    #+END_EXAMPLE
+
+    下面包含一个 cons list 的枚举定义。注意这还不能编译因为这个类型没有已知的大小：
+
+    #+BEGIN_SRC rust 
+  enum List {
+      Cons(i32, List),
+      Nil,
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      注意：出于示例的需要选择实现一个只存放 i32 值的 cons list，也可以用泛型来定义一个可以存放任何类型值的 cons list 类型
+    #+END_EXAMPLE
+
+    使用这个 cons list 来储存列表 1, 2, 3 ：
+
+    #+BEGIN_SRC rust 
+  use crate::List::{Cons, Nil};
+
+  fn main() {
+      let list = Cons(1, Cons(2, Cons(3, Nil)));
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      1. 第一个 Cons 储存了 1 和另一个 List 值
+      2. 这个 List 是另一个包含 2 的 Cons 值和下一个 List 值
+      3. 接着又有另一个存放了 3 的 Cons 值
+      4. 最后一个值为 Nil 的 List，非递归成员代表了列表的结尾
+    #+END_EXAMPLE
+    如果尝试编译代码，会得到编译错误：
+
+    #+BEGIN_SRC sh 
+  error[E0072]: recursive type `List` has infinite size
+   --> src/main.rs:1:1
+    |
+  1 | enum List {
+    | ^^^^^^^^^ recursive type has infinite size
+  2 |     Cons(i32, List),
+    |               ----- recursive without indirection
+    |
+    = help: insert indirection (e.g., a `Box`, `Rc`, or `&`) at some point to
+    make `List` representable
+    #+END_SRC
+
+    这个错误表明这个类型 “有无限的大小”。其原因是 List 的一个成员被定义为是递归的：它直接存放了另一个相同类型的值。这意味着 Rust 无法计算为了存放 List 值到底需要多少空间。让我们一点一点来看：首先了解一下 Rust 如何决定需要多少空间来存放一个非递归类型
+
+** 计算非递归类型的大小
+   回忆一下讨论枚举定义时中定义的 Message 枚举：
+
+   #+BEGIN_SRC rust 
+  enum Message {
+      Quit,
+      Move { x: i32, y: i32 },
+      Write(String),
+      ChangeColor(i32, i32, i32),
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     当 Rust 需要知道要为 Message 值分配多少空间时，它可以检查每一个成员并发现
+     1. Message::Quit 并不需要任何空间
+     2. Message::Move 需要足够储存两个 i32 值的空间
+     3. 依此类推
+
+     因此Message 值所需的空间等于储存其最大成员的空间大小
+   #+END_EXAMPLE
+
+   与此相对当 Rust 编译器检查像前面中的 List 这样的递归类型时会发生什么呢。编译器尝试计算出储存一个 List 枚举需要多少内存，并开始检查 Cons 成员，那么 Cons 需要的空间等于 i32 的大小加上 List 的大小。为了计算 List 需要多少内存，它检查其成员，从 Cons 成员开始。Cons成员储存了一个 i32 值和一个List值，这样的计算将无限进行下去，如图所示：
+
+   #+ATTR_HTML: image :width 5% 
+   [[file:pic/trpl15-01.svg]] 
+
+
+** 使用 Box<T> 给递归类型一个已知的大小
+   Rust 无法计算出要为定义为递归的类型分配多少空间，所以编译器给出了报错。这个错误也包括了有用的建议：
+
+   #+BEGIN_SRC sh 
+  = help: insert indirection (e.g., a `Box`, `Rc`, or `&`) at some point to make `List` representable
+   #+END_SRC
+
+   在建议中， _indirection_ 意味着不同于直接储存一个值，而是间接的储存一个 _指向值的指针_ 。
+
+   #+BEGIN_EXAMPLE
+     因为 Box<T> 是一个指针，总是知道它需要多少空间：指针的大小并不会根据其指向的数据量而改变
+
+     这意味着可以将 Box 放入 Cons 成员中而不是直接存放另一个 List 值。Box 会指向另一个位于堆上的 List 值，而不是存放在 Cons 成员中
+
+     从概念上讲，仍然有一个通过在其中 “存放” 其他列表创建的列表，不过现在实现这个概念的方式更像是一个项挨着另一项，而不是一项包含另一项
+   #+END_EXAMPLE
+
+   修改前面示例，这是可以编译的：
+
+   #+BEGIN_SRC rust 
+  enum List {
+      Cons(i32, Box<List>),
+      Nil,
+  }
+
+  use crate::List::{Cons, Nil};
+
+  fn main() {
+      let list = Cons(1,
+	  Box::new(Cons(2,
+	      Box::new(Cons(3,
+		  Box::new(Nil))))));
+  }
+   #+END_SRC
+
+   Cons 成员将会需要一个 i32 的大小加上储存 box 指针数据的空间。Nil 成员不储存值，所以它比 Cons 成员需要更少的空间。现在我们知道了任何 List 值最多需要一个 i32 加上 box 指针数据的大小。通过使用 box ，打破了这无限递归的连锁，这样编译器就能够计算出储存 List 值需要的大小了。下面展示了现在 Cons 成员看起来像什么：
+
+   #+ATTR_HTML: image :width 5% 
+   [[file:pic/trpl15-02.svg]] 
+
+   Box<T> 类型是一个智能指针：
+   + 因为它实现了 Deref trait，它允许 Box<T> 值被当作引用对待
+   + 当 Box<T> 值离开作用域时，由于 Box<T> 类型 Drop trait 的实现，box 所指向的堆数据也会被清除
+
+   #+BEGIN_EXAMPLE
+     box 只提供了间接存储和堆分配；相比将会见到的其他智能指针，他们并没有任何其他特殊的功能
+
+     它们也没有这些特殊功能带来的性能损失，所以他们可以用于像 cons list 这样间接存储是唯一所需功能的场景
+   #+END_EXAMPLE
+
+* 通过 Deref trait 将智能指针当作常规引用处理
+  实现 Deref trait 允许 *重载* _解引用运算符_ *（与乘法运算符或通配符相区别）。通过这种方式实现 Deref trait 的智能指针可以被当作常规引用来对待，可以编写操作引用的代码并用于智能指针
+
+** 通过解引用运算符追踪指针的值
+   常规引用是一个指针类型，一种理解指针的方式是将其看成指向储存在其他某处值的箭头。下面创建了一个 i32 值的引用，接着使用解引用运算符来跟踪所引用的数据：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let x = 5;
+      let y = &x;
+
+      assert_eq!(5, x);
+      assert_eq!(5, *y);
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     变量 x 存放了一个 i32 值 5，y 等于 x 的一个引用
+
+     可以断言 x 等于 5。然而，如果希望对 y 的值做出断言，必须使用 *y 来追踪引用所指向的值（也就是 解引用）
+
+     一旦解引用了 y，就可以访问 y 所指向的整型值并可以与 5 做比较
+   #+END_EXAMPLE
+
+   相反如果尝试编写 assert_eq!(5, y);，则会得到如下编译错误：
+
+   #+BEGIN_SRC sh 
+  error[E0277]: can't compare `{integer}` with `&{integer}`
+   --> src/main.rs:6:5
+    |
+  6 |     assert_eq!(5, y);
+    |     ^^^^^^^^^^^^^^^^^ no implementation for `{integer} == &{integer}`
+    |
+    = help: the trait `std::cmp::PartialEq<&{integer}>` is not implemented for `{integer}`
+   #+END_SRC
+
+   不允许比较数字的引用与数字，因为它们是不同的类型。必须使用解引用运算符追踪引用所指向的值
+
+** 像引用一样使用 Box<T>
+   可以使用 Box<T> 代替引用来重写上面的代码，解引用运算符也一样能工作：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let x = 5;
+      let y = Box::new(x);
+
+      assert_eq!(5, x);
+      assert_eq!(5, *y);
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     唯一不同的地方就是将 y 设置为一个指向 x 值的 box 实例，而不是指向 x 值的引用
+
+     在最后的断言中，可以使用解引用运算符以 y 为引用时相同的方式追踪 box 的指针
+   #+END_EXAMPLE
+
+** 自定义智能指针
+   #+BEGIN_EXAMPLE
+   为了体会默认情况下智能指针与引用的不同，让我们创建一个类似于标准库提供的 Box<T> 类型的智能指针。接着学习如何增加使用解引用运算符的功能
+   #+END_EXAMPLE
+   从根本上说，Box<T> 被定义为 *包含一个元素* 的 _元组结构体_ ，所以下面以相同的方式定义了 MyBox<T> 类型。还定义了 new 函数来对应定义于 Box<T> 的 new 函数：
+
+   #+BEGIN_SRC rust 
+  struct MyBox<T>(T);
+
+  impl<T> MyBox<T> {
+      fn new(x: T) -> MyBox<T> {
+	  MyBox(x)
+      }
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这里定义了一个结构体 MyBox 并声明了一个泛型参数 T，因为希望其可以存放任何类型的值
+
+     MyBox 是一个包含 T 类型元素的元组结构体
+
+     MyBox::new 函数获取一个 T 类型的参数并返回一个存放传入值的 MyBox 实例
+   #+END_EXAMPLE
+
+   尝试使用自定义的 MyBox<T> 类型代替 Box<T>。下面的代码不能编译，因为 Rust 不知道如何解引用 MyBox：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let x = 5;
+      let y = MyBox::new(x);
+
+      assert_eq!(5, x);
+      assert_eq!(5, *y);
+  }
+   #+END_SRC
+
+   得到的编译错误是：
+   #+BEGIN_SRC sh 
+  error[E0614]: type `MyBox<{integer}>` cannot be dereferenced
+    --> src/main.rs:14:19
+     |
+  14 |     assert_eq!(5, *y);
+     |                   ^^
+   #+END_SRC
+
+** 通过实现 Deref trait 将某类型像引用一样处理
+   Deref trait，由标准库提供，要求实现名为 deref 的方法，其借用 self 并返回一个内部数据的引用。下面包含定义于 MyBox 之上的 Deref 实现：
+
+   #+BEGIN_SRC rust 
+  use std::ops::Deref;
+
+
+  impl<T> Deref for MyBox<T> {
+      type Target = T;
+
+      fn deref(&self) -> &T {
+	  &self.0
+      }
+  }
+   #+END_SRC
+
+   type Target = T; 语法定义了用于此 trait 的 _关联_ 类型
+
+   #+BEGIN_EXAMPLE
+   关联类型是一个稍有不同的定义泛型参数的方式，现在还无需过多的担心它
+   #+END_EXAMPLE
+
+   deref 方法体中写入了 _&self.0_ ，这样 deref 返回了希望通过 * 运算符访问的值的引用
+
+   #+BEGIN_EXAMPLE
+     没有 Deref trait 的话，编译器只会解引用 & 引用类型
+
+     deref 方法向编译器提供了获取任何实现了 Deref trait 的类型的值，并且调用这个类型的 deref 方法来获取一个它知道如何解引用的 & 引用的能力
+   #+END_EXAMPLE
+
+
+   在示例中输入 *y 时，Rust 事实上在底层运行了如下代码：
+
+   #+BEGIN_SRC rust 
+  *(y.deref())
+   #+END_SRC
+
+   Rust 将 * 运算符替换为先调用 deref 方法再进行普通解引用的操作，如此便不用担心是否还需手动调用 deref 方法了。Rust 的这个特性可以写出行为一致的代码，无论是面对的是常规引用还是实现了 Deref 的类型
+
+   #+BEGIN_EXAMPLE
+     注意，每次在代码中使用 * 时， * 运算符都被替换成了先调用 deref 方法再接着使用 * 解引用的操作，但只会发生一次，不会对 * 操作符无限递归替换
+
+     解引用出上面 i32 类型的值就停止了，这个值与示例 15-9 中 assert_eq! 的 5 相匹配
+   #+END_EXAMPLE
+
+   deref 方法返回 _值的引用_ ，以及 *(y.deref()) 括号外边的普通解引用仍为必须的原因在于所有权。如果 deref 方法直接返回值而不是值的引用，其值（的所有权）将被移出 self。在这里以及大部分使用解引用运算符的情况下并不希望获取 MyBox<T> 内部值的所有权
+
+** 函数和方法的隐式解引用强制多态
+   _解引用强制多态_ 是 Rust 在函数或方法传参上的一种便利。其将实现了 Deref 的类型的引用转换为原始类型通过 Deref 所能够转换的类型的引用。当这种特定类型的引用作为实参传递给和形参类型不同的函数或方法时，解引用强制多态将自动发生。这时会有一系列的 deref 方法被调用，把我们提供的类型转换成了参数所需的类型。
+
+   #+BEGIN_EXAMPLE
+     解引用强制多态的加入使得 Rust 程序员编写函数和方法调用时无需增加过多显式使用 & 和 * 的引用和解引用
+
+     这个功能也使得可以编写更多同时作用于引用或智能指针的代码
+   #+END_EXAMPLE
+   作为展示解引用强制多态的实例，先添加一个有着字符串 slice 参数的函数定义：
+
+   #+BEGIN_SRC rust 
+  fn hello(name: &str) {
+      println!("Hello, {}!", name);
+  }
+   #+END_SRC
+
+   可以使用字符串 slice 作为参数调用 hello 函数，比如 hello("Rust");。解引用强制多态使得用 MyBox<String> 类型值的引用调用 hello 成为可能：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let m = MyBox::new(String::from("Rust"));
+      hello(&m);
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这里使用 &m 调用 hello 函数，其为 MyBox<String> 值的引用
+
+     因为 MyBox<T> 上实现了 Deref trait，Rust 可以通过 deref 调用将 &MyBox<String> 变为 &String
+
+     标准库中提供了 String 上的 Deref 实现，其会返回字符串 slice，这可以在 Deref 的 API 文档中看到
+
+     Rust 再次调用 deref 将 &String 变为 &str，这就符合 hello 函数的定义了
+   #+END_EXAMPLE
+
+   如果 Rust 没有实现解引用强制多态，为了使用 &MyBox<String> 类型的值调用 hello，则不得不编写成：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let m = MyBox::new(String::from("Rust"));
+      hello(&(*m)[..]);
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     (*m) 将 MyBox<String> 解引用为 String
+
+     接着 & 和 [..] 获取了整个 String 的字符串 slice 来匹配 hello 的签名
+
+     没有解引用强制多态所有这些符号混在一起将更难以读写和理解，解引用强制多态使得 Rust 自动的处理这些转换
+   #+END_EXAMPLE
+
+   当所涉及到的类型定义了 Deref trait，Rust 会分析这些类型并使用任意多次 Deref::deref 调用以获得匹配参数的类型。这些解析都发生在编译时，所以利用解引用强制多态并没有运行时惩罚！
+
+*** 解引用强制多态如何与可变性交互
+    类似于如何使用 Deref trait 重载不可变引用的 * 运算符，Rust 提供了 DerefMut trait 用于重载可变引用的 * 运算符。Rust 在发现类型和 trait 实现满足三种情况时会进行解引用强制多态：
+    1. 当 T: Deref<Target=U> 时从 &T 到 &U
+    2. 当 T: DerefMut<Target=U> 时从 &mut T 到 &mut U
+    3. 当 T: Deref<Target=U> 时从 &mut T 到 &U
+
+    #+BEGIN_EXAMPLE
+      头两个情况除了可变性之外是相同的：
+
+      第一种情况表明如果有一个 &T，而 T 实现了返回 U 类型的 Deref，则可以直接得到 &U
+
+      第二种情况表明对于可变引用也有着相同的行为
+    #+END_EXAMPLE
+
+    第三个情况有些微妙：Rust 也会将 _可变_ 引用强转为 _不可变_ 引用。但是反之是 *不可能* 的：不可变引用永远也不能强转为可变引用
+    #+BEGIN_EXAMPLE
+      因为根据借用规则，如果有一个可变引用，其必须是这些数据的唯一引用（否则程序将无法编译）
+
+      将一个可变引用转换为不可变引用永远也不会打破借用规则，将不可变引用转换为可变引用则需要数据只能有一个不可变引用，而借用规则无法保证这一点
+
+      因此，Rust 无法假设将不可变引用转换为可变引用是可能的
+    #+END_EXAMPLE
+
+* 使用 Drop Trait 运行清理代码
+  对于智能指针模式来说第二个重要的 trait 是 Drop，其允许在 _值要离开作用域_ 时执行一些代码。可以为任何类型提供 Drop trait 的实现，同时所指定的代码被用于释放类似于文件或网络连接的资源
+
+  #+BEGIN_EXAMPLE
+    在智能指针上下文中讨论 Drop 是因为其功能几乎总是用于实现智能指针。例如，Box<T> 自定义了 Drop 用来释放 box 所指向的堆空间
+
+    在其他一些语言中，不得不记住在每次使用完智能指针实例后调用清理内存或资源的代码。如果忘记的话，运行代码的系统可能会因为负荷过重而崩溃
+
+    在 Rust 中，可以指定每当值离开作用域时被执行的代码，编译器会自动插入这些代码。于是就不需要在程序中到处编写在实例结束时清理这些变量的代码，而且还不会泄露资源
+  #+END_EXAMPLE
+
+  指定在值离开作用域时应该执行的代码的方式是实现 Drop trait。Drop trait 要求实现一个叫做 _drop_ 的方法，它获取一个 _self 的可变引用_ 。为了能够看出 Rust 何时调用 drop，暂时使用 println! 语句实现 drop。下面展示了唯一定制功能就是当其实例离开作用域时，打印出 Dropping CustomSmartPointer! 的结构体 CustomSmartPointer。这会演示 Rust 何时运行 drop 函数：
+
+  #+BEGIN_SRC rust 
+  struct CustomSmartPointer {
+      data: String,
+  }
+
+  impl Drop for CustomSmartPointer {
+      fn drop(&mut self) {
+	  println!("Dropping CustomSmartPointer with data `{}`!", self.data);
+      }
+  }
+
+  fn main() {
+      let c = CustomSmartPointer { data: String::from("my stuff") };
+      let d = CustomSmartPointer { data: String::from("other stuff") };
+      println!("CustomSmartPointers created.");
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+  Drop trait 包含在 prelude 中，所以无需导入它
+  #+END_EXAMPLE
+
+  在 main 中，新建了两个 CustomSmartPointer 实例并打印出了 CustomSmartPointer created.。在 main 的结尾，CustomSmartPointer 的实例会离开作用域，而 Rust 会调用放置于 drop 方法中的代码，打印出最后的信息。当运行这个程序，会出现如下输出：
+
+  #+BEGIN_SRC sh 
+  CustomSmartPointers created.
+  Dropping CustomSmartPointer with data `other stuff`!
+  Dropping CustomSmartPointer with data `my stuff`!
+  #+END_SRC
+
+  当实例离开作用域 Rust 会自动调用 drop，并调用指定的代码。变量以被 *创建时相反的顺序* 被丢弃，所以 d 在 c 之前被丢弃
+
+  #+BEGIN_EXAMPLE
+    这个例子刚好给了一个 drop 方法如何工作的可视化指导，不过通常需要指定类型所需执行的清理代码而不是打印信息
+
+    注意：不需要手动调用drop 
+  #+END_EXAMPLE
+
+** 通过 std::mem::drop 提早丢弃值
+   #+BEGIN_EXAMPLE
+     不幸的是，并不能直截了当的禁用 drop 这个功能。通常也不需要禁用 drop ；整个 Drop trait 存在的意义在于其是自动处理的
+
+     然而，有时可能需要提早清理某个值。一个例子是当使用智能指针管理锁时；你可能希望强制运行 drop 方法来释放锁以便作用域中的其他代码可以获取锁
+   #+END_EXAMPLE
+
+   如果尝试调用 Drop trait 的 drop 方法：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let c = CustomSmartPointer { data: String::from("some data") };
+      println!("CustomSmartPointer created.");
+      c.drop();
+      println!("CustomSmartPointer dropped before the end of main.");
+  }
+   #+END_SRC
+
+   如果尝试编译代码会得到如下错误：
+
+   #+BEGIN_SRC sh 
+  error[E0040]: explicit use of destructor method
+    --> src/main.rs:14:7
+     |
+  14 |     c.drop();
+     |       ^^^^ explicit destructor calls not allowed
+   #+END_SRC
+
+   错误信息表明不允许显式调用 drop
+
+   #+BEGIN_EXAMPLE
+     错误信息使用了术语 析构函数，这是一个清理实例的函数的通用编程概念，析构函数 对应创建实例的 构造函数。Rust 中的 drop 函数就是这么一个析构函数
+
+     Rust 不允许显式调用 drop 因为 Rust 仍然会在 main 的结尾对值自动调用 drop，这会导致一个 double free 错误，因为 Rust 会尝试清理相同的值两次
+   #+END_EXAMPLE
+
+   如果仍然需要强制提早清理值，可以使用 _std::mem::drop_ 函数。std::mem::drop 函数不同于 Drop trait 中的 drop 方法。可以通过传递 _希望提早强制丢弃的值_ 作为参数。std::mem::drop 位于 prelude，所以可以修改一下 main 来调用 drop 函数：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let c = CustomSmartPointer { data: String::from("some data") };
+      println!("CustomSmartPointer created.");
+      drop(c);
+      println!("CustomSmartPointer dropped before the end of main.");
+  }
+   #+END_SRC
+
+   这会打印出：
+   #+BEGIN_SRC sh 
+  CustomSmartPointer created.
+  Dropping CustomSmartPointer with data `some data`!
+  CustomSmartPointer dropped before the end of main.
+   #+END_SRC
+
+   Dropping CustomSmartPointer with data `some data`! 出现在 CustomSmartPointer created. 和 CustomSmartPointer dropped before the end of main. 之间，表明了 drop 方法被调用了并在此丢弃了 c
+
+   #+BEGIN_EXAMPLE
+     Drop trait 实现中指定的代码可以用于许多方面，来使得清理变得方便和安全：比如可以用其创建自己的内存分配器！
+
+     通过 Drop trait 和 Rust 所有权系统，无需担心之后的代码清理，Rust 会自动考虑这些问题
+
+     也无需担心意外的清理掉仍在使用的值，这会造成编译器错误：所有权系统确保引用总是有效的，也会确保 drop 只会在值不再被使用时被调用一次
+   #+END_EXAMPLE
+
+* Rc<T> 引用计数智能指针
+  大部分情况下所有权是非常明确的：可以准确地知道哪个变量拥有某个值。然而，有些情况单个值可能会有多个所有者。例如，在图数据结构中，多个边可能指向相同的结点，而这个结点从概念上讲为所有指向它的边所拥有。结点直到没有任何边指向它之前都不应该被清理
+
+  为了启用多所有权，Rust 有一个叫做 _Rc<T>_ 的类型。其名称为 _引用计数_ 的缩写。引用计数意味着记录一个值引用的数量来知晓这个值是否仍在被使用。如果某个值有零个引用，就代表没有任何有效引用并可以被清理
+
+  #+BEGIN_EXAMPLE
+    可以将其想象为客厅中的电视：
+
+    当一个人进来看电视时，他打开电视。其他人也可以进来看电视
+
+    当最后一个人离开房间时，他关掉电视因为它不再被使用了
+
+    如果某人在其他人还在看的时候就关掉了电视，正在看电视的人肯定会抓狂的！
+  #+END_EXAMPLE
+  Rc<T> 用于希望在堆上分配一些内存供程序的多个部分读取，而且无法在编译时确定程序的哪一部分会最后结束使用它的时候。如果确实知道哪部分是最后一个结束使用的话，就可以令其成为数据的所有者，正常的所有权规则就可以在编译时生效
+
+  #+BEGIN_EXAMPLE
+  注意 Rc<T> 只能用于单线程场景；以后会涉及到如何在多线程程序中进行引用计数
+  #+END_EXAMPLE
+
+** 使用 Rc<T> 共享数据 
+   回到前面 Box<T> 定义 cons list 的例子。这一次，希望创建两个共享第三个列表所有权的列表，其概念将会看起来如图所示：
+
+   #+ATTR_HTML: image :width 5% 
+   [[file:pic/trpl15-03.svg]] 
+
+
+   #+BEGIN_EXAMPLE
+     列表 a 包含 5 之后是 10，之后是另两个列表：b 从 3 开始而 c 从 4 开始，b 和 c 会接上包含 5 和 10 的列表 a
+
+     换句话说，这两个列表会尝试共享第一个列表所包含的 5 和 10
+   #+END_EXAMPLE
+
+   尝试使用 Box<T> 定义的 List 实现：
+
+   #+BEGIN_SRC rust 
+  enum List {
+      Cons(i32, Box<List>),
+      Nil,
+  }
+
+  use crate::List::{Cons, Nil};
+
+  fn main() {
+      let a = Cons(5,
+	  Box::new(Cons(10,
+	      Box::new(Nil))));
+      let b = Cons(3, Box::new(a));
+      let c = Cons(4, Box::new(a));
+  }
+   #+END_SRC
+
+   编译会得出如下错误：
+
+   #+BEGIN_SRC sh 
+  error[E0382]: use of moved value: `a`
+    --> src/main.rs:13:30
+     |
+  12 |     let b = Cons(3, Box::new(a));
+     |                              - value moved here
+  13 |     let c = Cons(4, Box::new(a));
+     |                              ^ value used here after move
+     |
+     = note: move occurs because `a` has type `List`, which does not implement the `Copy` trait
+   #+END_SRC
+
+   Cons 成员拥有其储存的数据，所以当创建 b 列表时，a 被移动进了 b 这样 b 就拥有了 a。接着当再次尝使用 a 创建 c 时，这不被允许因为 a 的所有权已经被移动
+
+   #+BEGIN_EXAMPLE
+     可以改变 Cons 的定义来存放一个引用，不过接着必须指定生命周期参数
+
+     通过指定生命周期参数，表明列表中的每一个元素都至少与列表本身存在的一样久
+
+     例如，借用检查器不会允许 let a = Cons(10, &Nil); 编译，因为临时值 Nil 会在 a 获取其引用之前就被丢弃了
+   #+END_EXAMPLE
+
+   也可以修改 List 的定义为使用 Rc<T> 代替 Box<T>
+   #+BEGIN_SRC rust 
+  enum List {
+      Cons(i32, Rc<List>),
+      Nil,
+  }
+
+  use crate::List::{Cons, Nil};
+  use std::rc::Rc;
+
+  fn main() {
+      let a = Rc::new(Cons(5, Rc::new(Cons(10, Rc::new(Nil)))));
+      let b = Cons(3, Rc::clone(&a));
+      let c = Cons(4, Rc::clone(&a));
+  }
+   #+END_SRC
+
+   现在每一个 Cons 变量都包含一个值和一个指向 List 的 Rc: 
+   + 当创建 b 时，不同于获取 a 的所有权，这里会克隆 a 所包含的 Rc，这会将引用计数从 1 增加到 2 并允许 a 和 b 共享 Rc 中数据的所有权
+   + 创建 c 时也会克隆 a，这会将引用计数从 2 增加为 3
+   + 每次调用 Rc::clone，Rc 中数据的引用计数都会增加，直到有零个引用之前其数据都不会被清理
+
+   #+BEGIN_EXAMPLE
+     需要使用 use 语句将 Rc<T> 引入作用域，因为它不在 prelude 中
+
+     在 main 中创建了存放 5 和 10 的列表并将其存放在 a 的新的 Rc<List> 中
+
+     接着当创建 b 和 c 时，调用 Rc::clone 函数并传递 a 中 Rc<List> 的引用作为参数
+   #+END_EXAMPLE
+
+   也可以调用 a.clone() 而不是 Rc::clone(&a)，不过在这里 Rust 的习惯是使用 Rc::clone
+
+   #+BEGIN_EXAMPLE
+     Rc::clone 的实现并不像大部分类型的 clone 实现那样对所有数据进行深拷贝
+
+     Rc::clone 只会增加引用计数，这并不会花费多少时间，深拷贝可能会花费很长时间
+
+     通过使用 Rc::clone 进行引用计数，可以明显的区别深拷贝类的克隆和增加引用计数类的克隆
+
+     当查找代码中的性能问题时，只需考虑深拷贝类的克隆而无需考虑 Rc::clone 调用
+   #+END_EXAMPLE
+
+** 克隆 Rc<T> 会增加引用计数
+   下面修改了 main 以便将列表 c 置于内部作用域中，这样就可以观察当 c 离开作用域时引用计数如何变化：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let a = Rc::new(Cons(5, Rc::new(Cons(10, Rc::new(Nil)))));
+      println!("count after creating a = {}", Rc::strong_count(&a));
+      let b = Cons(3, Rc::clone(&a));
+      println!("count after creating b = {}", Rc::strong_count(&a));
+      {
+	  let c = Cons(4, Rc::clone(&a));
+	  println!("count after creating c = {}", Rc::strong_count(&a));
+      }
+      println!("count after c goes out of scope = {}", Rc::strong_count(&a));
+  }
+   #+END_SRC
+
+   在程序中每个引用计数变化的点，会打印出引用计数，其值可以通过调用 _Rc::strong_count_ 函数获得
+
+   #+BEGIN_EXAMPLE
+     这个函数叫做 strong_count 而不是 count 是因为 Rc<T> 也有 weak_count
+
+     在 “避免引用循环：将 Rc<T> 变为 Weak<T>” 部分会讲解 weak_count 的用途
+   #+END_EXAMPLE
+
+   这段代码会打印出：
+   #+BEGIN_SRC sh 
+  count after creating a = 1
+  count after creating b = 2
+  count after creating c = 3
+  count after c goes out of scope = 2
+   #+END_SRC
+
+   能够看到 a 中 Rc<List> 的初始引用计数为1，接着每次调用 clone，计数会增加1。当 c 离开作用域时，计数减1。不必像调用 Rc::clone 增加引用计数那样调用一个函数来减少计数；Drop trait 的实现当 Rc<T> 值离开作用域时自动减少引用计数
+
+   #+BEGIN_EXAMPLE
+     从这个例子所不能看到的是，在 main 的结尾当 b 然后是 a 离开作用域时，此处计数会是 0，同时 Rc 被完全清理
+
+     使用 Rc 允许一个值有多个所有者，引用计数则确保只要任何所有者依然存在其值也保持有效
+   #+END_EXAMPLE
+   通过 _不可变引用_ ， Rc<T> 允许在程序的多个部分之间 *只读地共享数据* 
+
+   #+BEGIN_EXAMPLE
+     如果 Rc<T> 也允许多个可变引用，则会违反第四章讨论的借用规则之一：相同位置的多个可变借用可能造成数据竞争和不一致
+
+     不过可以修改数据是非常有用的！在下一部分，将讨论内部可变性模式和 RefCell<T> 类型，它可以与 Rc<T> 结合使用来处理不可变性的限制
+   #+END_EXAMPLE
+
+* RefCell<T> 和内部可变性模式
+  内部可变性是 Rust 中的一个设计模式，它允许你即使在有不可变引用时也可以改变数据，这通常是借用规则所不允许的。为了改变数据，该模式在数据结构中使用 unsafe 代码来模糊 Rust 通常的可变性和借用规则
+  #+BEGIN_EXAMPLE
+    现在未讲到不安全代码；以后会学习它们
+
+    当可以确保代码在运行时会遵守借用规则，即使编译器不能保证的情况，可以选择使用那些运用内部可变性模式的类型
+
+    所涉及的 unsafe 代码将被封装进安全的 API 中，而外部类型仍然是不可变的
+  #+END_EXAMPLE
+
+  现在通过遵循内部可变性模式的 RefCell<T> 类型来开始探索
+
+** 通过 RefCell<T> 在运行时检查借用规则
+   不同于 Rc<T>， _RefCell<T>_  代表其数据的 *唯一* 的 _所有权_ 
+
+   #+BEGIN_EXAMPLE
+     那么是什么让 RefCell<T> 不同于像 Box<T> 这样的类型呢？回忆一下所学的借用规则：
+
+     1. 在任意给定时间，只能拥有一个可变引用或任意数量的不可变引用之一（而不是全部）
+     2. 引用必须总是有效的
+   #+END_EXAMPLE
+
+   + 对于引用和 Box<T>，借用规则的不可变性作用于 *编译* 时，如果违反这些规则，会得到一个编译错误
+   + 对于 RefCell<T>，这些不可变性作用于 *运行* 时。如果违反这些规则程序会 panic 并退出
+
+   #+BEGIN_EXAMPLE
+     在编译时检查借用规则的优势是这些错误将在开发过程的早期被捕获，同时对运行时没有性能影响，因为所有的分析都提前完成了。为此，在编译时检查借用规则是大部分情况的最佳选择，这也正是其为何是 Rust 的默认行为
+
+     运行时检查借用规则的好处则是允许出现特定内存安全的场景，而它们在编译时检查中是不允许的。静态分析，正如 Rust 编译器，是天生保守的。但代码的一些属性不可能通过分析代码发现：其中最著名的就是 停机问题，这超出了本书的范畴，不过如果你感兴趣的话这是一个值得研究的有趣主题
+   #+END_EXAMPLE
+
+   因为一些分析是不可能的，如果 Rust 编译器不能通过所有权规则编译，它可能会拒绝一个正确的程序；从这种角度考虑它是保守的。如果 Rust 接受不正确的程序，那么用户也就不会相信 Rust 所做的保证了。然而，如果 Rust 拒绝正确的程序，虽然会给程序员带来不便，但不会带来灾难。RefCell<T> 正是用于当你确信代码遵守借用规则，而编译器不能理解和确定的时候
+
+   #+BEGIN_EXAMPLE
+     类似于 Rc<T>，RefCell<T> 只能用于单线程场景
+
+     如果尝试在多线程上下文中使用RefCell<T>，会得到一个编译错误
+
+     以后会介绍如何在多线程程序中使用 RefCell<T> 的功能
+   #+END_EXAMPLE
+
+   选择 Box<T>，Rc<T> 或 RefCell<T> 的理由：
+   + 所有权
+     + Rc<T> 允许相同数据有 _多个_ 所有者
+     + Box<T> 和 RefCell<T> 有 _单一_ 所有者
+   + 借用检查
+     + Box<T> 允许在 _编译_ 时执行 _不可变_ 或 _可变_ 借用检查
+     + Rc<T> 仅允许在编译时执行 _不可变_ 借用检查
+     + RefCell<T> 允许在运行时执行 _不可变_ 或 _可变_ 借用检查
+
+   因为 RefCell<T> 允许在运行时执行可变借用检查，所以可以在即便 RefCell<T> 自身是不可变的情况下修改其内部的值。在不可变值内部改变值，这就是 _内部可变性_ 模式
+
+** 内部可变性：不可变值的可变借用
+   借用规则的一个推论是当有一个不可变值时，不能可变地借用它。例如，如下代码不能编译：
+   #+BEGIN_SRC rust 
+  fn main() {
+      let x = 5;
+      let y = &mut x;
+  }
+   #+END_SRC
+
+   如果尝试编译，会得到如下错误：
+
+   #+BEGIN_SRC sh 
+  error[E0596]: cannot borrow immutable local variable `x` as mutable
+   --> src/main.rs:3:18
+    |
+  2 |     let x = 5;
+    |         - consider changing this to `mut x`
+  3 |     let y = &mut x;
+    |                  ^ cannot borrow mutably
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     然而，特定情况下在值的方法内部能够修改自身是很有用的，而不是在其他代码中，此时值仍然是不可变的，值方法外部的代码不能修改其值
+
+     RefCell<T> 是一个获得内部可变性的方法
+
+     RefCell<T> 并没有完全绕开借用规则，编译器中的借用检查器允许内部可变性并相应地在运行时检查借用规则，如果违反了这些规则，会得到 panic! 而不是编译错误
+   #+END_EXAMPLE
+
+*** 内部可变性的用例：mock 对象
+    _测试替身_ 是一个通用编程概念，它代表一个在 _测试_ 中 *替代* 某个类型的类型。mock 对象 是特定类型的测试替身，它们记录测试过程中发生了什么以便可以断言操作是正确的
+
+    #+BEGIN_EXAMPLE
+      如下是一个想要测试的场景：
+
+      想要编写一个记录某个值与最大值的差距的库，并根据当前值与最大值的差距来发送消息。例如，这个库可以用于记录用户所允许的 API 调用数量限额
+
+      该库只提供记录与最大值的差距，以及何种情况发送什么消息的功能
+
+      使用此库的程序则期望提供实际发送消息的机制：程序可以选择记录一条消息、发送 email、发送短信等等
+
+      库本身无需知道这些细节；只需实现其提供的 Messenger trait 即可
+    #+END_EXAMPLE
+    虽然 Rust 没有与其他语言中的对象完全相同的对象，Rust 也没有像其他语言那样在标准库中内建 mock 对象功能，不过确实可以创建一个与 mock 对象有着相同功能的结构体：
+
+    #+BEGIN_SRC rust 
+  pub trait Messenger {
+      fn send(&self, msg: &str);
+  }
+
+  pub struct LimitTracker<'a, T: Messenger> {
+      messenger: &'a T,
+      value: usize,
+      max: usize,
+  }
+
+  impl<'a, T> LimitTracker<'a, T>
+      where T: Messenger {
+      pub fn new(messenger: &T, max: usize) -> LimitTracker<T> {
+	  LimitTracker {
+	      messenger,
+	      value: 0,
+	      max,
+	  }
+      }
+
+      pub fn set_value(&mut self, value: usize) {
+	  self.value = value;
+
+	  let percentage_of_max = self.value as f64 / self.max as f64;
+
+	  if percentage_of_max >= 1.0 {
+	      self.messenger.send("Error: You are over your quota!");
+	  } else if percentage_of_max >= 0.9 {
+	       self.messenger.send("Urgent warning: You've used up over 90% of your quota!");
+	  } else if percentage_of_max >= 0.75 {
+	      self.messenger.send("Warning: You've used up over 75% of your quota!");
+	  }
+      }
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      这些代码中一个重要部分是拥有一个方法 send 的 Messenger trait，其获取一个 self 的不可变引用和文本信息，这是我们的 mock 对象所需要拥有的接口
+
+      另一个重要的部分是需要测试 LimitTracker 的 set_value 方法的行为。可以改变传递的 value 参数的值，不过 set_value 并没有返回任何可供断言的值
+
+      也就是说，如果使用某个实现了 Messenger trait 的值和特定的 max 创建 LimitTracker，当传递不同 value 值时，消息发送者应被告知发送合适的消息。
+    #+END_EXAMPLE
+
+    所需的 mock 对象是，调用 send 不同于实际发送 email 或短息，其只记录信息被通知要发送了。可以新建一个 mock 对象示例，用其创建 LimitTracker，调用 LimitTracker 的 set_value 方法，然后检查 mock 对象是否有期望的消息。下面展示了一个如此尝试的 mock 对象实现，不过借用检查器并不允许：
+
+    #+BEGIN_SRC rust 
+  #[cfg(test)]
+  mod tests {
+      use super::*;
+
+      struct MockMessenger {
+	  sent_messages: Vec<String>,
+      }
+
+      impl MockMessenger {
+	  fn new() -> MockMessenger {
+	      MockMessenger { sent_messages: vec![] }
+	  }
+      }
+
+      impl Messenger for MockMessenger {
+	  fn send(&self, message: &str) {
+	      self.sent_messages.push(String::from(message));
+	  }
+      }
+
+      #[test]
+      fn it_sends_an_over_75_percent_warning_message() {
+	  let mock_messenger = MockMessenger::new();
+	  let mut limit_tracker = LimitTracker::new(&mock_messenger, 100);
+
+	  limit_tracker.set_value(80);
+
+	  assert_eq!(mock_messenger.sent_messages.len(), 1);
+      }
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      Mock部分代码:
+      1. 定义了一个 MockMessenger 结构体, 其 sent_messages 字段为一个 String 值的 Vec 用来记录被告知发送的消息
+      2. 还定义了一个关联函数 new 以便于新建从空消息列表开始的 MockMessenger 值
+      3. 为 MockMessenger 实现 Messenger trait 这样就可以为 LimitTracker 提供一个 MockMessenger
+      4. 在 send 方法的定义中，获取传入的消息作为参数并储存在 MockMessenger 的 sent_messages 列表中
+
+      在测试中，测试了当 LimitTracker 被告知将 value 设置为超过 max 值 75% 的某个值
+      1. 新建一个 MockMessenger，其从空消息列表开始
+      2. 新建一个 LimitTracker 并传递新建 MockMessenger 的引用和 max 值 100
+      3. 使用值 80 调用 LimitTracker 的 set_value 方法，这超过了 100 的 75%
+      4. 断言 MockMessenger 中记录的消息列表应该有一条消息
+    #+END_EXAMPLE
+
+    然而，这个测试编译是有问题的：
+
+    #+BEGIN_SRC sh 
+  error[E0596]: cannot borrow immutable field `self.sent_messages` as mutable
+    --> src/lib.rs:52:13
+     |
+  51 |         fn send(&self, message: &str) {
+     |                 ----- use `&mut self` here to make mutable
+  52 |             self.sent_messages.push(String::from(message));
+     |             ^^^^^^^^^^^^^^^^^^ cannot mutably borrow immutable field
+    #+END_SRC
+
+    不能修改 MockMessenger 来记录消息，因为 send 方法获取了 *self 的不可变引用* 
+
+    #+BEGIN_EXAMPLE
+      也不能参考错误文本的建议使用 &mut self 替代，因为这样 send 的签名就不符合 Messenger trait 定义中的签名了
+    #+END_EXAMPLE
+
+    可以通过 RefCell 来储存 sent_messages，然后 send 将能够修改 sent_messages 并储存消息：
+
+    #+BEGIN_SRC rust 
+  #[cfg(test)]
+  mod tests {
+      use super::*;
+      use std::cell::RefCell;
+
+      struct MockMessenger {
+	  sent_messages: RefCell<Vec<String>>,
+      }
+
+      impl MockMessenger {
+	  fn new() -> MockMessenger {
+	      MockMessenger { sent_messages: RefCell::new(vec![]) }
+	  }
+      }
+
+      impl Messenger for MockMessenger {
+	  fn send(&self, message: &str) {
+	      self.sent_messages.borrow_mut().push(String::from(message));
+	  }
+      }
+
+      #[test]
+      fn it_sends_an_over_75_percent_warning_message() {
+	  // --snip--
+
+	  assert_eq!(mock_messenger.sent_messages.borrow().len(), 1);
+      }
+  }
+    #+END_SRC
+
+    + 现在 sent_messages 字段的类型是 RefCell<Vec<String>> 而不是 Vec<String>。在 new 函数中新建了一个 RefCell 示例替代空 vector
+    + 对于 send 方法的实现，第一个参数仍为 self 的不可变借用，这是符合方法定义的:调用 self.sent_messages 中 RefCell 的 _borrow_mut_ 方法来获取 RefCell 中值的可变引用，这是一个 vector。接着可以对 vector 的可变引用调用 push 以便记录测试过程中看到的消息
+    + 最后必须做出的修改位于断言中：为了看到其内部 vector 中有多少个项，需要调用 RefCell 的 _borrow_ 以获取 vector 的不可变引用
+
+    现在见识了如何使用 RefCell<T>，研究一下它怎样工作的！
+
+** RefCell<T> 在运行时记录借用
+   当创建不可变和可变引用时，分别使用 & 和 &mut 语法。对于 RefCell<T> 来说，则是 _borrow_ 和 _borrow_mut_ 方法，这属于 RefCell<T> 安全 API 的一部分：
+   + borrow 方法返回 _Ref_ 类型的智能指针
+   + borrow_mut 方法返回 _RefMut_ 类型的智能指针
+   + 这两个类型都实现了 _Deref_ ，所以可以当作常规引用对待
+
+   RefCell<T> 记录当前有多少个活动的 Ref<T> 和 RefMut<T> 智能指针：
+   + 每次调用 _borrow_ ，RefCell<T> 将 _活动的_ _不可变借用_ *计数加一*
+   + 当 Ref 值 _离开作用域_ 时， _不可变借用_  *计数减一*
+   + 就像编译时借用规则一样，RefCell<T> 在任何时候只允许有 _多个不可变借用_ 或 _一个可变借用_ 
+
+   如果尝试违反这些规则，相比引用时的编译时错误，RefCell<T> 的实现会在运行时 panic!。这里故意尝试在相同作用域创建两个可变借用以便演示 RefCell<T> 不允许在运行时这么做：
+
+   #+BEGIN_SRC rust 
+  impl Messenger for MockMessenger {
+      fn send(&self, message: &str) {
+	  let mut one_borrow = self.sent_messages.borrow_mut();
+	  let mut two_borrow = self.sent_messages.borrow_mut();
+
+	  one_borrow.push(String::from(message));
+	  two_borrow.push(String::from(message));
+      }
+  }
+   #+END_SRC
+
+   这里为 borrow_mut 返回的 RefMut 智能指针创建了 one_borrow 变量。接着用相同的方式在变量 two_borrow 创建了另一个可变借用。这会在相同作用域中创建两个可变引用，这是不允许的。这段代码在编译时不会有任何错误，不过测试会失败：
+
+   #+BEGIN_SRC sh 
+  ---- tests::it_sends_an_over_75_percent_warning_message stdout ----
+      thread 'tests::it_sends_an_over_75_percent_warning_message' panicked at
+  'already borrowed: BorrowMutError', src/libcore/result.rs:906:4
+  note: Run with `RUST_BACKTRACE=1` for a backtrace.
+   #+END_SRC
+
+   注意代码 panic 和信息 already borrowed: BorrowMutError。这也就是 RefCell<T> 如何在运行时处理违反借用规则的情况
+
+   #+BEGIN_EXAMPLE
+     在运行时捕获借用错误而不是编译时意味着将会在开发过程的后期才会发现错误，甚至有可能发布到生产环境才发现，还会因为在运行时而不是编译时记录借用而导致少量的运行时性能惩罚
+
+     然而，使用 RefCell 使得在只允许不可变值的上下文中编写修改自身以记录消息的 mock 对象成为可能。虽然有取舍，但是可以选择使用 RefCell<T> 来获得比常规引用所能提供的更多的功能
+   #+END_EXAMPLE
+** 结合 Rc<T> 和 RefCell<T> 来拥有多个可变数据所有者
+   RefCell<T> 的一个常见用法是与 Rc<T> 结合。回忆一下 Rc<T> 允许对相同数据有多个所有者，不过只能提供数据的不可变访问。如果有一个储存了 RefCell<T> 的 Rc<T> 的话，就可以得到有 _多个所有者_ 并且 _可以修改_ 的值了！
+
+   例如，回忆 cons list 的例子中使用 Rc<T> 使得多个列表共享另一个列表的所有权。因为 Rc<T> 只存放不可变值，所以一旦创建了这些列表值后就不能修改。现在加入 RefCell<T> 来获得修改列表中值的能力：
+
+   #+BEGIN_SRC rust 
+  #[derive(Debug)]
+  enum List {
+      Cons(Rc<RefCell<i32>>, Rc<List>),
+      Nil,
+  }
+
+  use crate::List::{Cons, Nil};
+  use std::rc::Rc;
+  use std::cell::RefCell;
+
+  fn main() {
+      let value = Rc::new(RefCell::new(5));
+
+      let a = Rc::new(Cons(Rc::clone(&value), Rc::new(Nil)));
+
+      let b = Cons(Rc::new(RefCell::new(6)), Rc::clone(&a));
+      let c = Cons(Rc::new(RefCell::new(10)), Rc::clone(&a));
+
+      ,*value.borrow_mut() += 10;
+
+      println!("a after = {:?}", a);
+      println!("b after = {:?}", b);
+      println!("c after = {:?}", c);
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这里创建了一个 Rc<RefCell<i32>> 实例并储存在变量 value 中以便之后直接访问。接着在 a 中用包含 value 的 Cons 成员创建了一个 List。需要克隆 value 以便 a 和 value 都能拥有其内部值 5 的所有权，而不是将所有权从 value 移动到 a 或者让 a 借用 value
+
+     接着将列表 a 封装进了 Rc<T> 这样当创建列表 b 和 c 时，他们都可以引用 a
+
+     一旦创建了列表 a、b 和 c，将 value 的值加 10。为此对 value 调用了 borrow_mut，这里使用了自动解引用功能来解引用 Rc<T> 以获取其内部的 RefCell<T> 值。borrow_mut 方法返回 RefMut<T> 智能指针，可以对其使用解引用运算符并修改其内部值
+   #+END_EXAMPLE
+
+   打印出 a、b 和 c 时，可以看到他们都拥有修改后的值 15 而不是 5：
+   #+BEGIN_SRC sh 
+  a after = Cons(RefCell { value: 15 }, Nil)
+  b after = Cons(RefCell { value: 6 }, Cons(RefCell { value: 15 }, Nil))
+  c after = Cons(RefCell { value: 10 }, Cons(RefCell { value: 15 }, Nil))
+   #+END_SRC
+
+   这是非常巧妙的！通过使用 RefCell<T>，可以拥有一个表面上不可变的 List，不过可以使用 RefCell<T> 中提供内部可变性的方法来在需要时修改数据。RefCell<T> 的运行时借用规则检查也确实保护免于出现数据竞争，有时为了数据结构的灵活性而付出一些性能是值得的
+
+   #+BEGIN_EXAMPLE
+     标准库中也有其他提供内部可变性的类型，比如 Cell<T>，它有些类似 RefCell<T>，除了提供内部值的引用，其值还会被拷贝进和拷贝出 Cell<T>
+
+     还有 Mutex<T>，其提供线程间安全的内部可变性，将在下一章中讨论其用法
+   #+END_EXAMPLE
+* 引用循环与内存泄漏
+  Rust 的内存安全性保证很难产生内存泄露，但并不是不可能
+
+  #+BEGIN_EXAMPLE
+    与在编译时拒绝数据竞争不同， Rust 并不保证完全地避免内存泄露，这意味着内存泄露在 Rust 被认为是内存安全的
+
+    这一点可以通过 Rc<T> 和 RefCell<T> 看出：创建引用循环的可能性是存在的。这会造成内存泄露，因为每一项的引用计数永远也到不了 0，其值也永远也不会被丢弃
+  #+END_EXAMPLE
+** 制造引用循环
+   先看看引用循环是如何发生的以及如何避免它。从 List 枚举和 tail 方法的定义开始：
+
+   #+BEGIN_SRC rust 
+  use std::rc::Rc;
+  use std::cell::RefCell;
+  use crate::List::{Cons, Nil};
+
+  #[derive(Debug)]
+  enum List {
+      Cons(i32, RefCell<Rc<List>>),
+      Nil,
+  }
+
+  impl List {
+      fn tail(&self) -> Option<&RefCell<Rc<List>>> {
+	  match self {
+	      Cons(_, item) => Some(item),
+	      Nil => None,
+	  }
+      }
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这里采用了 List 定义的另一种变体
+
+     现在 Cons 成员的第二个元素是 RefCell<Rc<List>>，这意味着不同于前面那样能够修改 i32 的值，希望能够修改 Cons 成员所指向的 List
+
+     这里还增加了一个 tail 方法来方便在有 Cons 成员的时候访问其第二项
+   #+END_EXAMPLE
+
+   现在增加了一个 main 函数，其使用了上面中的定义。这些代码在 a 中创建了一个列表，一个指向 a 中列表的 b 列表，接着修改 b 中的列表指向 a 中的列表，这会创建一个引用循环。在这个过程的多个位置有 println! 语句展示引用计数
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let a = Rc::new(Cons(5, RefCell::new(Rc::new(Nil))));
+
+      println!("a initial rc count = {}", Rc::strong_count(&a));
+      println!("a next item = {:?}", a.tail());
+
+      let b = Rc::new(Cons(10, RefCell::new(Rc::clone(&a))));
+
+      println!("a rc count after b creation = {}", Rc::strong_count(&a));
+      println!("b initial rc count = {}", Rc::strong_count(&b));
+      println!("b next item = {:?}", b.tail());
+
+      if let Some(link) = a.tail() {
+	  ,*link.borrow_mut() = Rc::clone(&b);
+      }
+
+      println!("b rc count after changing a = {}", Rc::strong_count(&b));
+      println!("a rc count after changing a = {}", Rc::strong_count(&a));
+
+      // Uncomment the next line to see that we have a cycle;
+      // it will overflow the stack
+      // println!("a next item = {:?}", a.tail());
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这里在变量 a 中创建了一个 Rc<List> 实例来存放初值为 5, Nil 的 List 值
+
+     接着在变量 b 中创建了存放包含值 10 和指向列表 a 的 List 的另一个 Rc<List> 实例
+
+     最后，修改 a 使其指向 b 而不是 Nil，这就创建了一个循环：
+     为此需要使用 tail 方法获取 a 中 RefCell<Rc<List>> 的引用，并放入变量 link 中
+     接着使用 RefCell<Rc<List>> 的 borrow_mut 方法将其值从存放 Nil 的 Rc 修改为 b 中的 Rc<List>
+   #+END_EXAMPLE
+
+   运行代码，会得到如下输出：
+   #+BEGIN_SRC sh 
+  a initial rc count = 1
+  a next item = Some(RefCell { value: Nil })
+  a rc count after b creation = 2
+  b initial rc count = 1
+  b next item = Some(RefCell { value: Cons(5, RefCell { value: Nil }) })
+  b rc count after changing a = 2
+  a rc count after changing a = 2
+   #+END_SRC
+
+   可以看到将 a 修改为指向 b 之后，a 和 b 中都有的 Rc<List> 实例的引用计数为 2。在 main 的结尾，Rust 会尝试首先丢弃 b，这会使 a 和 b 中 Rc 实例的引用计数减 1。然而，因为 a 仍然引用 b 中的 Rc<List>，Rc<List> 的引用计数是 1 而不是 0，所以 Rc<List> 在堆上的内存不会被丢弃。其内存会因为引用计数为 1 而永远停留。为了更形象的展示，创建了一个如图所示的引用循环：
+
+   #+ATTR_HTML: image :width 5% 
+   [[file:pic/trpl15-04.svg]] 
+
+
+   如果取消最后 println! 的注释并运行程序，Rust 会尝试打印出 a 指向 b 指向 a 这样的循环直到栈溢出
+
+   #+BEGIN_EXAMPLE
+     这个特定的例子中，创建了引用循环之后程序立刻就结束了，这个循环的结果并不可怕
+
+     如果在更为复杂的程序中并在循环里分配了很多内存并占有很长时间，这个程序会使用多于它所需要的内存，并有可能压垮系统并造成没有内存可供使用
+   #+END_EXAMPLE
+   创建引用循环并不容易，但也不是不可能。如果有包含 _Rc<T>_ 的 _RefCell<T>_ 值或类似的嵌套结合了内部可变性和引用计数的类型，请务必小心确保没有形成一个引用循环；无法指望 Rust 帮你捕获它们。创建引用循环是一个程序上的逻辑 bug，你应该使用 _自动化测试_ 、 _代码评审_ 和其他软件开发最佳实践来使其最小化。
+
+   另一个解决方案是 *重新组织* _数据结构_ ，使得一部分引用拥有所有权而另一部分没有
+
+   #+BEGIN_EXAMPLE
+     换句话说，循环将由一些拥有所有权的关系和一些无所有权的关系组成，只有所有权关系才能影响值是否可以被丢弃
+
+     然而在示例中，总是希望 Cons 成员拥有其列表，所以重新组织数据结构是不可能的
+
+     接下来看看一个由父结点和子结点构成的图的例子，观察何时是使用无所有权的关系来避免引用循环的合适时机
+   #+END_EXAMPLE
+** 创建树形数据结构：带有子结点的 Node
+   首先构建一个带有子节点的树，一个用于存放其拥有所有权的 i32 值和其子节点引用的 Node：
+
+   #+BEGIN_SRC rust 
+  use std::rc::Rc;
+  use std::cell::RefCell;
+
+  #[derive(Debug)]
+  struct Node {
+      value: i32,
+      children: RefCell<Vec<Rc<Node>>>,
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     希望 Node 能够拥有其子结点，同时也希望通过变量来共享所有权，以便可以直接访问树中的每一个 Node，为此 Vec<T> 的项的类型被定义为 Rc<Node>
+
+     还希望能修改其他结点的子结点，所以 children 中 Vec<Rc<Node>> 被放进了 RefCell<T>
+   #+END_EXAMPLE
+   接下来，使用此结构体定义来创建一个叫做 leaf 的带有值 3 且没有子结点的 Node 实例，和另一个带有值 5 并以 leaf 作为子结点的实例 branch：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let leaf = Rc::new(Node {
+	  value: 3,
+	  children: RefCell::new(vec![]),
+      });
+
+      let branch = Rc::new(Node {
+	  value: 5,
+	  children: RefCell::new(vec![Rc::clone(&leaf)]),
+      });
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这里克隆了 leaf 中的 Rc<Node> 并储存在了 branch 中，这意味着 leaf 中的 Node 现在有两个所有者：leaf和branch
+
+     可以通过 branch.children 从 branch 中获得 leaf，不过无法从 leaf 到 branch，因为 leaf 没有到 branch 的引用且并不知道他们相互关联
+
+     当然希望 leaf 知道 branch 是其父结点。稍后会这么做
+   #+END_EXAMPLE
+*** 增加从子到父的引用
+    #+BEGIN_EXAMPLE
+      为了使子结点知道其父结点，需要在 Node 结构体定义中增加一个 parent 字段。问题是 parent 的类型应该是什么？
+
+      我们知道其不能包含 Rc<T>，因为这样 leaf.parent 将会指向 branch 而 branch.children 会包含 leaf 的指针，这会形成引用循环，会造成其 strong_count 永远也不会为 0
+
+      现在换一种方式思考这个关系：
+      父结点应该拥有其子结点：如果父结点被丢弃了，其子结点也应该被丢弃
+      然而子结点不应该拥有其父结点：如果丢弃子结点，其父结点应该依然存在
+
+      这正是弱引用的例子！
+    #+END_EXAMPLE
+
+    所以 parent 使用 _Weak<T>_ 类型而不是 Rc<T>，具体来说是 _RefCell<Weak<Node>>_ 。现在 Node 结构体定义看起来像这样：
+
+    #+BEGIN_SRC rust 
+  use std::rc::{Rc, Weak};
+  use std::cell::RefCell;
+
+  #[derive(Debug)]
+  struct Node {
+      value: i32,
+      parent: RefCell<Weak<Node>>,
+      children: RefCell<Vec<Rc<Node>>>,
+  }
+    #+END_SRC
+
+    这样，一个结点就能够 _引用_ 其父结点，但 *不拥有* 其父结点。更新 main 来使用新定义以便 leaf 结点可以通过 branch 引用其父结点：
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      let leaf = Rc::new(Node {
+	  value: 3,
+	  parent: RefCell::new(Weak::new()),
+	  children: RefCell::new(vec![]),
+      });
+
+      println!("leaf parent = {:?}", leaf.parent.borrow().upgrade());
+
+      let branch = Rc::new(Node {
+	  value: 5,
+	  parent: RefCell::new(Weak::new()),
+	  children: RefCell::new(vec![Rc::clone(&leaf)]),
+      });
+
+      ,*leaf.parent.borrow_mut() = Rc::downgrade(&branch);
+
+      println!("leaf parent = {:?}", leaf.parent.borrow().upgrade());
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+    创建 leaf 结点类似于前面中如何创建 leaf 结点的，除了 parent 字段有所不同：leaf 开始时没有父结点，所以新建了一个空的 Weak 引用实例
+    #+END_EXAMPLE
+    此时，当尝试使用 upgrade 方法获取 leaf 的父结点引用时，会得到一个 None 值。如第一个 println! 输出所示：
+
+    #+BEGIN_SRC sh 
+  leaf parent = None
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      当创建 branch 结点时，其也会新建一个 Weak<Node> 引用，因为 branch 并没有父结点，leaf 仍然作为 branch 的一个子结点
+
+      一旦在 branch 中有了 Node 实例，就可以修改 leaf 使其拥有指向父结点的 Weak<Node> 引用，这里使用了 leaf 中 parent 字段里的 RefCell<Weak<Node>> 的 borrow_mut 方法，接着使用了 Rc::downgrade 函数来从 branch 中的 Rc 值创建了一个指向 branch 的 Weak<Node> 引用
+    #+END_EXAMPLE
+    当再次打印出 leaf 的父结点时，这一次将会得到存放了 branch 的 Some 值：现在 leaf 可以访问其父结点了！当打印出 leaf 时，也避免了如示例 15-26 中最终会导致栈溢出的循环：Weak<Node> 引用被打印为 (Weak)：
+
+    #+BEGIN_SRC sh 
+  leaf parent = Some(Node { value: 5, parent: RefCell { value: (Weak) },
+  children: RefCell { value: [Node { value: 3, parent: RefCell { value: (Weak) },
+  children: RefCell { value: [] } }] } })
+    #+END_SRC
+
+    没有无限的输出表明这段代码并没有造成引用循环。这一点也可以从观察 Rc::strong_count 和 Rc::weak_count 调用的结果看出
+*** 可视化 strong_count 和 weak_count 的改变
+    创建了一个新的内部作用域并将 branch 的创建放入其中，来观察 Rc<Node> 实例的 strong_count 和 weak_count 值的变化。这会展示当 branch 创建和离开作用域被丢弃时会发生什么：
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      let leaf = Rc::new(Node {
+	  value: 3,
+	  parent: RefCell::new(Weak::new()),
+	  children: RefCell::new(vec![]),
+      });
+
+      println!(
+	  "leaf strong = {}, weak = {}",
+	  Rc::strong_count(&leaf),
+	  Rc::weak_count(&leaf),
+      );
+
+      {
+	  let branch = Rc::new(Node {
+	      value: 5,
+	      parent: RefCell::new(Weak::new()),
+	      children: RefCell::new(vec![Rc::clone(&leaf)]),
+	  });
+
+	  ,*leaf.parent.borrow_mut() = Rc::downgrade(&branch);
+
+	  println!(
+	      "branch strong = {}, weak = {}",
+	      Rc::strong_count(&branch),
+	      Rc::weak_count(&branch),
+	  );
+
+	  println!(
+	      "leaf strong = {}, weak = {}",
+	      Rc::strong_count(&leaf),
+	      Rc::weak_count(&leaf),
+	  );
+      }
+
+      println!("leaf parent = {:?}", leaf.parent.borrow().upgrade());
+      println!(
+	  "leaf strong = {}, weak = {}",
+	  Rc::strong_count(&leaf),
+	  Rc::weak_count(&leaf),
+      );
+  }
+    #+END_SRC
+
+    代码运行结果：
+
+    #+BEGIN_SRC sh 
+  leaf strong = 1, weak = 0
+  branch strong = 1, weak = 1
+  leaf strong = 2, weak = 0
+  leaf parent = None
+  leaf strong = 1, weak = 0
+    #+END_SRC
+
+    1. 一旦创建了 leaf，其 Rc<Node> 的强引用计数为 1，弱引用计数为 0
+    2. 在内部作用域中创建了 branch 并与 leaf 相关联：
+       + 此时 branch 中 Rc<Node> 的强引用计数为 1，弱引用计数为 1：因为 leaf.parent 通过 Weak<Node> 指向 branch
+       + 这里 leaf 的强引用计数为 2，因为现在 branch 的 branch.children 中储存了 leaf 的 Rc<Node> 的拷贝，不过弱引用计数仍然为 0
+    3. 当内部作用域结束时，branch 离开作用域:
+       + Rc<Node> 的强引用计数减少为 0，所以其 Node 被丢弃
+       + 来自 leaf.parent 的 _弱引用计数 1_ 与 _Node_ 是否 *被丢弃* 无关，所以并没有产生任何内存泄露！
+    4. 如果在内部作用域结束后尝试访问 leaf 的父结点，会再次得到 None
+       + 在程序的结尾，leaf 中 Rc<Node> 的强引用计数为 1，弱引用计数为 0，因为现在 leaf 又是 Rc<Node> 唯一的引用了
+
+    #+BEGIN_EXAMPLE
+      这些管理计数和值的逻辑都内建于 Rc<T> 和 Weak<T> 以及它们的 Drop trait 实现中
+
+      通过在 Node 定义中指定从子结点到父结点的关系为一个Weak<T>引用，就能够拥有父结点和子结点之间的双向引用而不会造成引用循环和内存泄露
+    #+END_EXAMPLE
+* 总结
+  这一章涵盖了如何使用智能指针来做出不同于 Rust 常规引用默认所提供的保证与取舍：
+  + Box<T> 有一个已知的大小并指向分配在堆上的数据
+  + Rc<T> 记录了堆上数据的引用数量以便可以拥有多个所有者
+  + RefCell<T> 和其内部可变性提供了一个可以用于当需要不可变类型但是需要改变其内部值能力的类型，并在运行时而不是编译时检查借用规则。
+
+  还介绍了提供了很多智能指针功能的 trait Deref 和 Drop。同时探索了会造成内存泄露的引用循环，以及如何使用 Weak<T> 来避免它们
+
+[[file:concurrency.org][Next：并发]]
+
+[[file:cargo.org][Previous：包管理器]]
+
+[[file:rust.org][Home: 目录]]

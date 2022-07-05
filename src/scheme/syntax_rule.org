@@ -1,0 +1,191 @@
+#+TITLE: Syntax宏
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil 
+
+_宏_ 是 *用户自定义的语法* ，而Lisp/Scheme 提供的宏远比其他编程语言要强大的多。 使用宏可以让代码漂亮和紧凑
+
+本质上来说宏就是一种 *代码转换器* : 代码在被解释或编译前被转换成另外一种形式去执行
+
+在 Scheme 语言中， 在 _R5R5_ 规范以后简单的宏可以被方便地使用 _syntax-rules_ 形式来定义，作为对比 Common Lisp 的宏显得要复杂许多：
++ 使用 _syntax-rules_ 可以更 *直接* 地定义宏，而不需要考虑诸如 _变量捕捉_ 等细节
++ 定义复杂的宏，使用 syntax-rules 比起 Common Lisp 的宏来说会困难得多（某些 Scheme 实现提供了 _define-macro_ ）
+
+* 简单宏
+把某个变量赋值为 _'()_  
+#+BEGIN_SRC scheme
+  (define-syntax nil!
+    (syntax-rules ()
+      ;; 转换前和转换后的列表
+      ((_ x) ;; 转换前的代码，_ 表示 宏的名字
+       (set! x '())))) ;; 转换后的代码
+
+  ;; (define a 1)
+  ;; a ; => 1
+  ;; (nil! a)
+  ;; a ; => () 
+#+END_SRC
+
+_syntax-rules_ 的 _第二个参数_ 是一个两个元素的 _列表_ ：
+1. 第一个元素：转换前的代码，其中 ___ 代表宏的名字
+2. 第二个元素：转换后的代码
+
+注意：如果把上面的代码可以写成函数，但是因为闭包的原因，传递进去的参数实际上是不会改变的
+#+BEGIN_SRC scheme
+  (define (f-nil! x)
+    (set! x '())) 
+
+  ;; (define a 1)
+  ;; a ; => 1
+  ;; (f-nil! a) ; => () 
+  ;; a ; => 1
+  ;; (set! a '())
+  ;; a ; => () 
+#+END_SRC
+
+当谓词为真的时候，对接下来的表达式求值：
+#+BEGIN_SRC scheme
+  (define-syntax when
+    (syntax-rules ()
+      ((_ pred b1 ...) ; ... 含义是任意个表达式，可以是0个
+       (if pred (begin b1 ...)))))
+
+  ;; (let ((i 0))
+  ;;   (when (= i 0)
+  ;;     (display "i == 0")
+  ;;     (newline)))
+
+  ;; => i == 0
+  ;; ;Unspecified return value
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  上面的代码无法用函数来写，因为这是把代码转换到另外一种形式
+#+END_EXAMPLE
+
+可以用定义好的宏来再次定义宏：
+#+BEGIN_SRC scheme 
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; while宏：表示条件成立的循环 ;;
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  (define-syntax while
+    (syntax-rules ()
+      ((_ pred b1 ...)
+       (let loop () (when pred b1 ... (loop))))))
+
+  ;; (let ((i 0))
+  ;;   (while (< i 10)
+  ;;     (display i)
+  ;;     (display #\Space)
+  ;;     (set! i (+ i 1))))
+  ;; => 0 1 2 3 4 5 6 7 8 9 
+  ;; ;Unspecified return value
+#+END_SRC
+
+#+BEGIN_SRC scheme
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; for宏：表示数字在范围之内的循环 ;;
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  (define-syntax for
+    (syntax-rules ()
+      ((_ (i from to) b1 ...)
+       (let loop((i from))
+	 (when (< i to)
+	    b1 ...
+	    (loop (1+ i)))))))
+
+  ;; (for (i 0 10)
+  ;;   (display i)
+  ;;   (display #\Space))
+  ;; => 0 1 2 3 4 5 6 7 8 9 
+  ;; ;Unspecified return value
+#+END_SRC
+
+** 多种模式
+_syntax-rules_ 可以支持定义多种模式。incf宏是增加变量的值，如果不传入增加的值，就默认增加 1, 如果给定，就增加给定的值：
+
+#+BEGIN_SRC scheme
+  ;; incf宏
+  (define-syntax incf
+    (syntax-rules ()
+      ((_ x) (begin (set! x (+ x 1)) x)) ; 如果不给增加参数，默认增加1
+      ((_ x i) (begin (set! x (+ x i)) x))))
+
+  ;; (let ((i 0) (j 0))
+  ;;   (incf i)
+  ;;   (incf j 3)
+  ;;   (display (list 'i '= i))
+  ;;   (newline)
+  ;;   (display (list 'j '= j)))
+
+  ;; => (i = 1)
+  ;; (j = 3)
+  ;; ;Unspecified return value
+#+END_SRC
+
+** 递归定义
+syntax-rules 支持递归定义宏：
+
+#+BEGIN_SRC scheme 
+  (define-syntax my-and
+    (syntax-rules ()
+      ((_) #t)
+      ((_ e) e)
+      ((_ e1 e2 ...)
+       (if e1
+	   (my-and e2 ...)
+	   #f))))
+
+  ;; (my-and) ; => #t 
+  ;; (my-and #f) ; => #f 
+  ;; (my-and (> 2 1)) ; => #t
+  ;; (my-and #t #f) ; => #f
+  ;; (my-and #t (> 2 1)) ; => #t
+  ;; (my-and #t (> 2 1) (< 3 2) (= 1 1))
+#+END_SRC
+
+#+BEGIN_SRC scheme
+  (define-syntax my-or
+    (syntax-rules ()
+      ((_) #f)
+      ((_ e) e)
+      ((_ e1 e2 ...)
+       (let ((t e1))
+	 (if t t (my-or e2 ...)))))) 
+
+  ;; (my-or) ; => #f 
+  ;; (my-or #t) ; => #t 
+  ;; (my-or (< 2 1)) ; => #f
+  ;; (my-or #f #f) ; => #f
+  ;; (my-or #f (> 2 1)) ; => #t
+  ;; (my-or #f (> 2 1) (< 3 2) (= 1 1)) ; => #t 
+#+END_SRC
+
+** 保留关键字
+_syntax-rules_ 的第一个参数是一组 _保留关键字_ 的列表，这些关键字在转换的时候不会被替换。下面是自定义的 _my-cond_ 宏， _else_ 就是这个宏的保留关键字：
+#+BEGIN_SRC scheme
+  (define-syntax my-cond
+    (syntax-rules (else)
+      ((_ (else e1 ...))
+       (begin e1 ...))
+      ((_ (e1 e2 ...))
+       (when e1 e2 ...))
+      ((_ (e1 e2 ...) c1 ...)
+       (if e1 
+	   (begin e2 ...)
+	   (cond c1 ...)))))
+
+  ;; (my-cond (else (+ 1 2))) ; => 3
+
+  ;; (my-cond ((> 1 0) (+ 1 2))) ; => 3
+  ;; (my-cond ((< 1 0) (+ 1 2))) ; => ;Unspecified return value
+
+  ;; (my-cond ((< 1 0) (+ 1 2))
+  ;; 	 ((> 1 0) (+ 2 3))) ; => 5 
+  ;; (my-cond ((< 1 0) (+ 1 2))
+  ;; 	 (else (+ 2 3))) ; => 5 
+#+END_SRC
+
+** 局部宏
+_let-syntax_ 和 _letrec-syntax_ 可以被用来定义函数中的 *局部宏* 
+
+

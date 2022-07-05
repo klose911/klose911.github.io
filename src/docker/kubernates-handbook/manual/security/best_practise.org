@@ -1,0 +1,34 @@
+#+TITLE: Kubernetes 集群安全性配置最佳实践
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: strategy.html
+#+HTML_LINK_HOME: security.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+* 端口
+  请注意管理好以下端口：
+
+  #+ATTR_HTML: :border 1 :rules all :frame boader
+  | 端口      | 进程           | 描述                                               |
+  | 4149/TCP  | kubelet        | 用于查询容器监控指标的 cAdvisor 端口               |
+  | 10250/TCP | kubelet        | 访问节点的 API 端口                                |
+  | 10255/TCP | kubelet        | 未认证的只读端口，允许访问节点状态                 |
+  | 10256/TCP | kube-proxy     | kube-proxy 的健康检查服务端口                      |
+  | 9099/TCP  | calico-felix   | calico 的健康检查服务端口（如果使用 calico/canal） |
+  | 6443/TCP  | kube-apiserver | Kubernetes API 端口                                |
+* Kubernetes 安全扫描工具 kube-bench
+  kube-bench 可以消除大约 kubernetes 集群中 95％的配置缺陷。通过应用 CIS Kubernetes Benchmark 来检查 master 节点、node 节点及其控制平面组件，从而确保集群设置了特定安全准则
+* API 设置
+** 授权模式和匿名认证
+   #+begin_example
+     像 kops 这样的一些安装程序会为集群使用 AlwaysAllow 授权模式，这将授予任何经过身份验证的实体拥有完全访问集群的权限
+   #+end_example
+   应该使用 RBAC 基于角色的访问控制：
+   + 检查 kube-apiserver 进程的 --authorization-mode 参数
+   + 要强制进行身份验证，请确保通过设置 --anonymous-auth = false 禁用匿名身份验证
+
+   #+begin_example
+     注意这不影响 Kubelet 授权模式
+
+     kubelet 本身公开了一个 API 来执行命令，通过它可以完全绕过 Kubernetes API
+   #+end_example
+
+   | [[file:strategy.org][Previous：认证策略]] | [[file:security.org][Home：安全]] |

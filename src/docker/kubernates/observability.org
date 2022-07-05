@@ -1,0 +1,131 @@
+#+TITLE: 可观察性
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil
+* 探针
+** 存活性
+   使用一条命令来确定何时重启容器：
+
+   #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-liveness-pod
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', "echo Hello, Kubernetes! && sleep 3600"]
+      livenessProbe:
+        exec:
+          command:
+          - echo
+          - testing
+        initialDelaySeconds: 5
+        periodSeconds: 5
+   #+END_SRC
+
+   + initialDelaySeconds：容器启动后第一次执行探测是需要等待多少秒
+   + periodSeconds：执行探测的频率。默认是10秒，最小1秒
+
+** 就绪性
+   使用一个http请求(get)来确定容器是否 *已经就绪可以接受流量* ： 
+
+   #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-readiness-pod
+  spec:
+    containers:
+    - name: myapp-container
+      image: nginx
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 80
+        initialDelaySeconds: 5
+        periodSeconds: 5
+   #+END_SRC
+
+* 日志
+
+  获取容器日志：
+
+  #+BEGIN_SRC sh 
+  kubectl logs counter
+  #+END_SRC
+
+  对于多容器的pod来说：
+
+  #+BEGIN_SRC sh 
+  kubectl logs <pod name> -c <container name>
+  #+END_SRC
+
+  保存日志到文件：
+
+  #+BEGIN_SRC sh 
+  kubectl logs counter > counter.log
+  #+END_SRC
+
+* 指标
+  安装metrics服务器： 
+
+  #+BEGIN_SRC sh 
+  cd ~/
+  git clone https://github.com/linuxacademy/metrics-server
+
+  kubectl apply -f ~/metrics-server/deploy/1.8+/
+  #+END_SRC
+
+  验证：
+
+  #+BEGIN_SRC sh 
+  kubectl get --raw /apis/metrics.k8s.io/
+  #+END_SRC
+
+* 监控
+  使用 _kubectl top_ 命令可以监控资源使用:
+
+  #+BEGIN_SRC sh 
+  kubectl top pods
+
+  kubectl top nodes
+  #+END_SRC
+
+  按资源消耗排序：
+
+  #+BEGIN_SRC sh 
+  kubectl top pod resource-consumer-big
+  #+END_SRC
+
+* 调试
+** 差错
+   #+BEGIN_SRC sh 
+  kubectl get pods
+
+  kubectl get namespace
+
+  kubectl get pods --all-namespaces
+
+  kubectl describe pod nginx -n nginx-ns
+   #+END_SRC
+
+** 修复
+*** 直接编辑
+    #+BEGIN_SRC sh 
+  kubectl edit pod nginx -n nginx-ns
+    #+END_SRC
+
+*** 导出文件
+    #+BEGIN_SRC sh 
+  kubectl get pod nginx -n nginx-ns -o yaml --export > nginx-pod.yml
+    #+END_SRC
+
+    重启容器
+
+    #+BEGIN_SRC sh 
+  kubectl delete pod nginx -n nginx-ns
+
+  kubectl apply -f nginx-pod.yml -n nginx-ns
+    #+END_SRC
+

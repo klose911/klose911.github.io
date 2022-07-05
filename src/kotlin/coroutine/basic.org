@@ -1,0 +1,275 @@
+#+TITLE: 基础
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: ./coroutine.html
+#+OPTIONS: num:nil timestamp:nil 
+* 第一个协程程序
+
+  运行以下代码：
+
+  #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.*
+
+  fun main() {
+      GlobalScope.launch { // 在后台启动一个新的协程并继续
+			   delay(1000L) // 非阻塞的等待 1 秒钟（默认时间单位是毫秒）
+			   println("World!") // 在延迟后打印输出
+      }
+      println("Hello,") // 协程已在等待时主线程还在继续
+      Thread.sleep(2000L) // 阻塞主线程 2 秒钟来保证 JVM 存活
+  }
+  #+END_SRC
+
+  代码运行的结果：
+
+  #+BEGIN_SRC sh
+    Hello,
+    World!
+  #+END_SRC 
+
+  本质上， _协程_ 是 *轻量级* 的 _线程_ 。 它们在某些 _CoroutineScope_ *上下文* 中与 _launch_ *协程构建器( 一起启动
+
+  #+BEGIN_EXAMPLE
+    这里在 GlobalScope 中启动了一个新的协程，这意味着新协程的生命周期只受整个应用程序的生命周期限制 
+  #+END_EXAMPLE
+
+  可以将 _GlobalScope.launch { …… }_ 替换为 thread { …… }，将 _delay(……)_ 替换为 Thread.sleep(……) 达到同样目的
+
+  #+BEGIN_EXAMPLE
+    不要忘记导入 kotlin.concurrent.thread
+  #+END_EXAMPLE
+
+  如果首先将 GlobalScope.launch 替换为 thread，编译器会报以下错误：
+
+  #+BEGIN_SRC sh
+    Error: Kotlin: Suspend functions are only allowed to be called from a coroutine or another suspend function
+  #+END_SRC
+
+  这是因为 _delay_ 是一个特殊的 *挂起* 函数 ，它不会造成线程阻塞，但是会 _挂起_ 协程，并且 *只能* 在 _协程_ 中使用 
+** 阻塞与非阻塞
+
+   #+BEGIN_EXAMPLE
+     上个示例在同一段代码中混用了 非阻塞的 delay(……) 与 阻塞的 Thread.sleep(……)
+
+     这容易记混哪个是阻塞的、哪个是非阻塞的
+   #+END_EXAMPLE
+   显式使用 _runBlocking_ 协程构建器来阻塞：
+
+   #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.GlobalScope
+  import kotlinx.coroutines.delay
+  import kotlinx.coroutines.launch
+  import kotlinx.coroutines.runBlocking
+
+  fun main() = runBlocking { // 开始执行主协程
+      GlobalScope.launch { // 在后台启动一个新的协程并继续
+	  delay(1000L)
+	  println("World!")
+      }
+      println("Hello,") // 主协程在这里会立即执行
+      delay(2000L)
+  }
+   #+END_SRC
+
+   这里的 _runBlocking<Unit> { …… }_ 作为用来 *启动* _顶层主协程_ 的 _适配器_ ， 调用了 runBlocking 的主线程会一直 *阻塞* 直到 runBlocking 内部的协程执行完毕 
+
+   #+BEGIN_EXAMPLE
+     显式指定了其返回类型 Unit，因为在 Kotlin 中 main 函数必须返回 Unit 类型
+   #+END_EXAMPLE
+
+   这也是为挂起函数编写单元测试的一种方式：
+
+   #+BEGIN_SRC kotlin 
+  class MyTest {
+      @Test
+      fun testMySuspendingFunction() = runBlocking {
+	  //...
+      }
+  }
+   #+END_SRC
+** 等待一个作业
+   #+BEGIN_EXAMPLE
+     延迟一段时间来等待另一个协程运行并不是一个好的选择
+   #+END_EXAMPLE
+
+   显式（以非阻塞方式）等待所启动的后台 Job 执行结束：
+
+   #+BEGIN_SRC kotlin 
+  fun main() = runBlocking {
+      val job = GlobalScope.launch { // 启动一个新协程并保持对这个作业的引用
+	  delay(1000L)
+	  println("World!")
+      }
+      println("Hello,")
+      job.join() // 等待直到子协程执行结束
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     现在，结果仍然相同，但是主协程与后台作业的持续时间没有任何关系了。好多了
+   #+END_EXAMPLE
+** 结构化的并发
+   #+BEGIN_EXAMPLE
+     协程的实际使用还有一些需要改进的地方：当使用 GlobalScope.launch 时，会创建一个顶层协程。虽然它很轻量，但它运行时仍会消耗一些内存资源
+
+     如果忘记保持对新启动的协程的引用，它还会继续运行。如果协程中的代码挂起了会怎么样（例如，错误地延迟了太长时间）
+
+     如果启动了太多的协程并导致内存不足会怎么样？ 必须手动保持对所有已启动协程的引用并 join 是很容易出错
+   #+END_EXAMPLE
+
+   有一个更好的解决办法。可以在代码中使用结构化并发：在 _执行操作_ 所在的 *指定作用域* 内启动协程， 而不是像通常使用线程（线程总是全局的）那样在 GlobalScope 中启动 
+
+   #+BEGIN_SRC kotlin 
+  fun main() = runBlocking { // this: CoroutineScope
+      launch { // 在 runBlocking 作用域中启动一个新协程
+	  delay(1000L)
+	  println("World!")
+      }
+      println("Hello,")
+  }
+   #+END_SRC
+   在示例中，使用 runBlocking 协程构建器将 main 函数转换为协程。 包括 runBlocking 在内的每个协程构建器都将 CoroutineScope 的实例添加到其代码块所在的作用域中
+
+   #+BEGIN_EXAMPLE
+     可以在这个作用域中启动协程而无需显式 join 之，因为外部协程（示例中的 runBlocking）直到在其作用域中启动的所有协程都执行完毕后才会结束
+   #+END_EXAMPLE
+** 作用域构建器
+
+   除了由不同的构建器提供协程作用域之外，还可以使用 _coroutineScope_ 构建器声明自己的作用域。它会 *创建* 一个 _协程作用域_ 并且在 *所有* _已启动子协程_ *执行完毕* 之前 *不会* _结束_ 。runBlocking 与 coroutineScope 可能看起来很类似，因为它们都会等待其协程体以及所有子协程结束。 这两者的主要区别在于：
+   + runBlocking 方法会 *阻塞* 当前线程来等待
+   + coroutineScope 只是 *挂起* ，会释放底层线程用于其他用途
+
+   #+BEGIN_EXAMPLE
+     由于存在这点差异，runBlocking 是常规函数，而 coroutineScope 是挂起函数
+   #+END_EXAMPLE
+
+   可以通过以下示例来演示：
+
+   #+BEGIN_SRC kotlin 
+     import kotlinx.coroutines.coroutineScope
+     import kotlinx.coroutines.delay
+     import kotlinx.coroutines.launch
+     import kotlinx.coroutines.runBlocking
+
+     fun main() = runBlocking { // this: CoroutineScope
+	 launch {
+	     delay(200L)
+	     println("Task from runBlocking")
+	 }
+	 coroutineScope { // 创建一个协程作用域
+	     launch {
+		 delay(500L)
+		 println("Task from nested launch")
+	     }
+	     delay(100L)
+	     println("Task from coroutine scope") // 这一行会在内嵌 launch 之前输出
+	 }
+	     println ("Coroutine scope is over")
+     }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     请注意，当等待内嵌 launch 时，紧挨“Task from coroutine scope”消息之后， 就会执行并输出“Task from runBlocking”，尽管 coroutineScope 尚未结束，正好说明非阻塞
+   #+END_EXAMPLE
+
+** 提取函数重构
+   将 _launch { …… }_ 内部的代码块提取到独立的函数中。当对这段代码执行 _提取函数_ 重构时，会得到一个带有 _suspend_ 修饰符的新函数
+
+   #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.coroutineScope
+  import kotlinx.coroutines.delay
+  import kotlinx.coroutines.launch
+  import kotlinx.coroutines.runBlocking
+
+  fun main() = runBlocking { // this: CoroutineScope
+      launch {
+	  delay(200L)
+	  println("Task from runBlocking")
+      }
+      doWorld()
+      println ("Coroutine scope is over")
+  }
+
+  suspend fun doWorld() {
+      coroutineScope { // 创建一个协程作用域
+	  launch {
+	      delay(500L)
+	      println("Task from nested launch")
+	  }
+	  delay(100L)
+	  println("Task from coroutine scope") // 这一行会在内嵌 launch 之前输出
+      }
+  }
+   #+END_SRC
+   这是第一个挂起函数。在协程内部可以像普通函数一样使用挂起函数， 不过其额外特性是，可以使用 *其他* _挂起_ 函数（如本例中的 delay）来挂起协程的执行
+
+
+   #+BEGIN_EXAMPLE
+     但是如果提取出的函数包含一个在当前作用域中调用的协程构建器的话，该怎么办？ 在这种情况下，所提取函数上只有 suspend 修饰符是不够的
+
+     为 CoroutineScope 写一个 doWorld 扩展方法是其中一种解决方案，但这可能并非总是适用，因为它并没有使 API 更加清晰
+
+     惯用的解决方案是要么显式将 CoroutineScope 作为包含该函数的类的一个字段， 要么当外部类实现了 CoroutineScope 时隐式取得
+
+     作为最后的手段，可以使用 CoroutineScope(coroutineContext)，不过这种方法结构上不安全， 因为不能再控制该方法执行的作用域
+
+     只有私有 API 才能使用这个构建器 
+   #+END_EXAMPLE
+
+** 协程很轻量
+   运行以下代码：
+
+   #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.delay
+  import kotlinx.coroutines.launch
+  import kotlinx.coroutines.runBlocking
+
+  fun main() = runBlocking {
+      repeat(100_000) {
+      // 启动大量的协程
+	  launch {
+	      delay(1000L)
+	      print(".")
+	  }
+      }
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     它启动了 10 万个协程，并且在一秒钟后，每个协程都输出一个点
+
+     现在，尝试使用线程来实现。会发生什么？（很可能代码会产生某种内存不足的错误）
+   #+END_EXAMPLE
+* 全局协程
+  以下代码在 GlobalScope 中启动了一个长期运行的协程，该协程每秒输出“I'm sleeping”两次，之后在主函数中延迟一段时间后返回
+
+  #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.GlobalScope
+  import kotlinx.coroutines.delay
+  import kotlinx.coroutines.launch
+  import kotlinx.coroutines.runBlocking
+
+
+  fun main() = runBlocking {
+      GlobalScope.launch {
+	  repeat(1000) { i ->
+	      println("I'm sleeping $i ...")
+	      delay(500L)
+	  }
+      }
+      delay(1300L)
+  }
+  #+END_SRC
+
+
+  运行这个程序并看到它输出了以下三行后终止：
+  #+BEGIN_SRC sh 
+  I'm sleeping 0 ...
+  I'm sleeping 1 ...
+  I'm sleeping 2 ...
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    在 GlobalScope 中启动的活动协程并不会使进程保活。它们就像守护线程
+  #+END_EXAMPLE
+
+  | [[file:cancel.org][Next：取消和超时]] | [[file:coroutine.org][Home：协程]] |

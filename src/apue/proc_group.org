@@ -1,0 +1,871 @@
+#+TITLE: 进程关系
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: process.html   
+#+HTML_LINK_HOME: apue.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+BEGIN_EXAMPLE
+  本章将详细地说明 进程组 以及 POSIX.1 引进的 对话期新概念
+
+  还将介绍登录shell(登录时所调用的)和所有从登录shell起动的进程之间的关系 
+
+  在说明这些关系时不可能不谈及信号，而谈论信号又需要很多本章介绍的概念
+#+END_EXAMPLE
+
+* 登录
+** 终端登录
+   #+BEGIN_EXAMPLE
+     在早期的UNIX系统中，例如V7，用户用哑终端(通过RS-232连到主机)进行登录
+
+     终端或者是本地的(直接连接)或者是远程的(通过调制解调器连接)
+
+     在这两种情况下登录都经由内核中的终端设备驱动程序，例如在PDP-11上常用的设备是DH-11和DZ-11
+
+     因为连到主机上的终端设备数已经确定，所以同时的登录数也就有了已知的上限
+   #+END_EXAMPLE
+   下面说明的登录过程适用于使用一个 _RS-232_ 终端登录到UNIX系统中
+*** 4.3+BSD
+    登录过程在历史上并没有多少改变：
+    + 系统管理者创建一个通常名为 _/etc/ttys_ 的文件：其中 *每个终端设备有一行* 
+      + _设备名_
+      + 传到 *getty* 程序的 _参数_ ： 说明了终端的 _波特率_ 等
+    + 当系统启动时，内核创建进程 _ID1_ ，也就是 *init* 进程
+    + init进程使系统进入 _多用户_ 状态
+    + init *读文件*  _/etc/ttys_
+      + 对每一个 *允许登录的终端设备* ，init *调用* 一次 _fork_
+	+ 它所生成的 _子进程_ 则 *执行* 程序 _getty_ 
+
+    #+ATTR_HTML: image :width 50% 
+    [[file:pic/console-login.png]]
+
+    #+BEGIN_EXAMPLE
+      图中各个进程的 实际用户ID 和 有效用户ID 都是0 (也就是它们都具有超级用户特权)
+
+      init以 空环境 执行getty程序
+    #+END_EXAMPLE
+
+    + getty对 _终端设备_ 调用 *open* 函数，以 _读 、 写_ 方式将终端打开
+      + 如果设备是调制解调器，则 _open_ 可能会在 _设备驱动程序_ 中 *滞留* ，直到 _用户拨号调制解调器_ ，并且 _线路被接通_ 
+    + 一旦设备被打开，则 _文件描述符_ 0、1、2就被 *设置* 到 _该设备_
+    + getty *输出* _login:_ 之类的信息，并 *等待用户* _键入用户名_ 
+      + 如果终端 *支持多种速度* ，则getty可以 *测试特殊字符* 以便适当地 _更改终端速度_ (波特率)
+    + 当 _用户键入了用户名_ 后getty就完成了，然后它以类似于下列的方式 *调用login* 程序：
+    #+BEGIN_SRC C
+  //在gettytab文件中可能会有一些选择项使其调用其他程序，但系统默认是login程序
+  execle("/usr/bin/login", "login", "-p", username, (char*)0, envp);
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      getty以终端名(例如TERM=foo，其中终端foo的类型取自gettytab文件)和 在 gettytab 中的 环境字符串 为login创建一个环境(envp参数)
+
+      -p 标志：通知login保留传给它的环境，也可将其他环境字符串加到该环境中，但是不要替换它
+    #+END_EXAMPLE
+
+    下图显示了login刚被调用后这些进程的状态：
+    #+ATTR_HTML: image :width 50% 
+    [[file:pic/login-begin.png]]
+
+
+    #+BEGIN_EXAMPLE
+      因为最初的init进程具有超级用户优先权，所以图9-2中的所有进程都有超级用户优先权
+
+      图9-2中底部三个进程的进程ID相同，因为进程ID不会因执行exec而改变
+
+      并且除了最初的init进程，所有的进程均有一个父进程ID
+    #+END_EXAMPLE
+
+    login能处理多项工作：
+    + 因为它得到了 _用户名_ ，所以能调用 _getpwnam_ 取得相应 *用户的口令文件登录项*
+    + 调用 _getpass(3)_ 以显示提示 _Password_
+    + *读* _用户键入的口令_  (自然 *禁止回送用户键入的口令* )
+    + 调用 _crypt(3)_ 将 _用户键入的口令_ *加密*
+    + 与该 _用户口令文件_ 中 _登录项_ 的 *pw_passwd字段* 相 *比较* 
+      + 如果用户几次键入的口令都无效，则 _login_ 以 _参数 1_  调用 _exit_ 表示 *登录过程失败* 
+	+ 父进程 _init_ 了解到 _子进程的终止情况_ 后
+	  + 再次调用 _fork_ ，其后又跟随着执行 _getty_ ，对此 *终端重复上述过程* 
+      + 如果用户 _正确登录_ 
+	+ _login_ 就将 _当前工作目录_ 更改为 *该用户的起始目录* (chdir)
+	+ 调用 _chown_  改变 *该终端的所有权* ，使该用户成为所有者和组所有者
+	+ 将对该 _终端设备_ 的 _存取许可权_ 改变成： *用户读、写和组写*
+	+ 调用 _setgid_ 及 _initgroups_ 设置 _进程的组ID_
+	+ 用login所得到的所有信息 *初始化环境* ：
+	  + HOME: 起始目录
+	  + SHELL: shell
+	  + USER和LOGNAME : 用户名
+	  + PATH:  _系统默认路径_ 
+	+ login进程用 _setuid_ 改变为 *登录用户* 的 _用户ID_ 
+	+ 调用 *该用户的登录shell* ，其方式类似于:
+    #+BEGIN_SRC C
+  //argv[0]的第一个字符-是一个标志，表示该shell被调用为登录shell。shell可以查看此字符，并相应地修改其起动过程
+  execl("/bin/sh", "-sh", (char *) 0);
+    #+END_SRC
+    #+BEGIN_EXAMPLE
+      login所做的比上面说的要多。它可选地打印 message-of-the-day文件，检查新邮件以及其他一些功能
+
+      因为setuid是由超级用户调用的，它更改所有三个用户ID: 实际、有效和保存的用户ID
+
+      login在较早时间调用的setgid对所有三个组ID也有同样效果
+    #+END_EXAMPLE
+
+    到此为止登录用户的登录shell开始运行：
+    + 其 _父进程ID_ 是 _init_ 进程ID(进程ID 1)
+    + 当此登录shell _终止_ 时， _init_ 会 *得到通知* (接到 _SIGCHLD_ 信号)
+      + 它会对该终端重复全部上述过程
+    + 登录 _shell_ 的 *文件描述符* _0，1和2_ 设置为 *终端设备*  。图9-3显示了这种安排：
+    #+ATTR_HTML: image :width 50% 
+    [[file:pic/finish-login.png]]
+
+    #+BEGIN_EXAMPLE
+      现在登录shell读对应的启动文件(Bourneshell和KornShell是.profile，Cshell是.cshrc和.login)
+
+      这些配置文件通常改变某些环境变量，加上一些环境变量
+
+      例如很多用户设置他们自己的PATH，常常提示实际终端类型(TERM)
+
+      当执行完启动文件后，用户最后得到shell的提示符，并能键入命令
+    #+END_EXAMPLE
+
+*** SVR4
+    SVR4支持两种形式的终端登录：
+    + _getty_ ：这与上面所说明的一样，通常用于控制台
+    + _ttymon_ ：用于 _其他终端_ 的登录
+
+    #+BEGIN_EXAMPLE
+      ttymon是名为服务存取设施(ServiceAccessFacility，SAF)的一部分。简单说明从init到登录shell之间工作过程
+
+      1. init是sac(服务存取控制器)的父进程，sac调用fork，然后其子进程执行ttymon程序，此时系统进入多用户状态
+      2. ttymon监视列于配置文件中的所有终端端口，当用户键入登录名时，它调用一次fork
+      3. 子进程又执行登录用户的登录shell，于是到达了图9-3中所示的位置
+
+      一个区别是登录shell的父进程现在是ttymon，而在getty登录中，登录shell的父进程是init
+    #+END_EXAMPLE
+** 网络登录 
+   #+BEGIN_EXAMPLE
+     终端登录中 init 知道哪些终端设备可用来进行登录，并为每个设备生成一个getty进程
+
+     但是对网络登录则情况有所不同，所有登录都经由内核的网络界面驱动程序(例如以太网驱动程序)，事先并不知道将会有多少这样的登录
+   #+END_EXAMPLE
+   不是 _使一个进程_ *等待* _每一个可能的登录_ ，而是 *必须等待一个网络连接请求* 的到达
+
+   #+BEGIN_EXAMPLE
+     在4.3+BSD中，有一个称为 "inetd" 的进程，它等待大多数网络连接
+   #+END_EXAMPLE
+*** 4.3+BSD
+    + 作为系统起动的一部分 _init_ 调用一个 _shell_ ，使其 *执行* shell脚本 _etc/rc_ 
+      + shell脚本起动一个后台进程 _inetd_
+	+ 一旦此shell脚本终止，inetd的父进程就变成init
+	+ inetd: *等待TCP/IP连接请求* 到达主机
+	  + 一个连接请求到达时，它 *执行一次* _fork_ 
+	  + 子进程执行适当的程序
+
+    #+BEGIN_EXAMPLE
+      假定到达了一个对于 TELNET 服务器的TCP连接请求，TELNET是使用TCP协议的远程登录应用程序
+
+      在另一个主机(它通过某种形式的网络，连接到服务器主机上)上的用户
+      或在同一个主机上的一个用户籍起动TELNET客户进程(client)起动登录过程：
+
+      $ telnet hostname
+
+      该客户进程打开一个到名为hostname的主机的TCP连接，在hostname主机上起动的程序被称为TELNET服务器
+
+      然后客户进程和服务器进程之间使用TELNET应用协议通过TCP连接交换数据
+    #+END_EXAMPLE
+    起动 _telnet客户进程的用户_ 现在 *登录* 到了 _服务器进程所在的主机_ 。(自然需要在 _服务器进程主机_ 上有一个 _有效的账号_ )。图9-4显示了在执行telnet务器进程(称为telnetd)中所涉及的进程序列
+    #+ATTR_HTML: image :width 50% 
+    [[file:pic/telnetd.png]]
+
+    + _telnetd进程_ *打开* 一个 _伪终端设备_
+    + 用fork生成一个 _子进程_ 。子进程则执行 *login*  程序
+    + _父进程_ 处理通过 *网络连接的通信* 
+    + 父、子进程通过 *伪终端* 相连接
+
+    #+BEGIN_EXAMPLE
+      在调用exec之前，子进程使其文件描述符0，1，2与伪终端相连
+
+      如果登录正确，login就执行9.2节中所述的同样步骤：
+      1. 更改当前工作目录为起始目录
+      2. 设置登录用户的组ID和用户ID
+      3. 登录用户的初始环境
+
+      login用exec将其自身替换为登录用户的登录shell
+    #+END_EXAMPLE
+    图9-5显示了到达这一点时的进程安排：
+    #+ATTR_HTML: image :width 50% 
+    [[file:pic/network-login.png]]
+
+    #+BEGIN_EXAMPLE
+      很明显在伪终端设备驱动程序和终端实际用户之间有很多事情在进行着
+
+      以后说明伪终端时，再介绍与这种安排相关的所有进程
+    #+END_EXAMPLE
+*** SVR4
+    #+BEGIN_EXAMPLE
+      SVR4中网络登录的情况与4.3+BSD中的几乎一样，同样使用了inetd服务器进程
+
+      但是在SVR4中inetd是作为一种服务由服务存取控制器sac调用的，其父进程不是init
+
+      最后得到的结果与图9-5中一样
+    #+END_EXAMPLE
+
+** 总结
+   登录需要理解的重点是： 当通过 _终端_ 或 _网络登录_ 时得到一个 _登录shell_ ，其 _标准输入_ 、 _标准输出_ 和 _标准出错_ *连接* 到一个 *终端设备* 或者 *伪终端设备* 上
+
+   #+BEGIN_EXAMPLE
+     接着会了解到这一登录shell 是一个POSIX.1 “对话期”的开始，而此终端或伪终端则是会话期的“控制终端”
+   #+END_EXAMPLE
+* 进程组
+  #+BEGIN_EXAMPLE
+    每个进程除了有一个进程ID之外还属于一个进程组
+  #+END_EXAMPLE
+  _进程组_ ： *一个或多个进程* 的 *集合* 
+  + 每个进程组有一个 *唯一的* _进程组ID_ ，类似于进程ID
+    + 它是一个 _正整数_ ，并可存放在 *pid_t* 数据类型中
+  + 每个进程组有一个 *组长进程* 
+    + 组长进程的标识：其 _进程组ID_ *等于* 其 _进程ID_ 
+
+  #+BEGIN_EXAMPLE
+    在讨论信号时，将说明如何将一个信号送给一个进程(由其进程ID标识)或送给一个进程组(由进程组ID标识)
+
+    同样waitpid则可被用来等待一个进程或者指定进程组中的一个进程
+  #+END_EXAMPLE
+
+** getpgrp
+   _getpgrp_ ：返回  _调用进程_ 的 *进程组ID* 
+   #+BEGIN_SRC C
+  #include <sys/types.h>
+  #include <unistd.h>
+
+  /**
+   ,* 返回调用进程的进程组ID
+   ,*
+   ,* pid: 进程ID
+   ,*
+   ,* return: pid所属 进程组的组ID
+   ,*
+   ,*/
+  pid_t getpgid(pid_t pid);
+   #+END_SRC
+   _进程组组长_ 可以 *创建* 一个 _进程组_ ， *创建* _该组中的进程_ ，然后 *终止* 
+
+   #+BEGIN_EXAMPLE
+     只要在某个进程组中有一个进程存在，则该进程组就存在，这与其组长进程是否终止无关
+   #+END_EXAMPLE
+
+   从 _进程组创建开始_ 到其中 _最后一个进程离开_ 为止的 _时间区间_ 称为 *进程组的生命期* 
+
+   #+BEGIN_EXAMPLE
+     某个进程组中的最后一个进程可以终止，也可以参加另一个进程组
+   #+END_EXAMPLE
+
+** setgpid
+   _setgpid_ : *参加* 一个 _现存的进程组_ 或者 *创建* 一个 _新进程组_ 
+   #+BEGIN_SRC C
+  #include <sys/types.h>
+  #include <unistd.h>
+
+  /**
+   ,* 设置pid进程的进程组ID为pgid
+   ,*
+   ,* pid: 进程ID
+   ,* pgid: 进程组ID
+   ,*
+   ,* return: 若成功则为 0，出错为 -1
+   ,* 
+   ,*/
+  int setpgid(pid_t pid, pid_t pgid);
+   #+END_SRC
+   将 _pid进程_ 的 _进程组ID_ 设置为 _pgid_ 
+
+   一个进程只能为 _它自己_ 或 _它的子进程_ 设置 _进程组ID_ ：
+   + 如果 _pid_ 是 _0_ ，则让 _调用者的进程ID_ 成为进程组ID
+   + 如果 _pgid_ 是 _0_ ，则由 _pid指定的进程ID_ 成为进程组ID
+   + 如果 _这两个参数相等_ ，则由 _pid指定的进程_ 变成 _进程组组长_ 
+   + 在它的 _子进程_ 调用了 _exec_ 后，就 *不能再设置 _该子进程_ 的进程组ID* 
+   + 如果系统 _不支持作业控制_ ，此函数返回出错，errno设置为 _ENOSYS_ 
+
+   #+BEGIN_EXAMPLE
+     在大多数作业控制shell中，在fork之后调用此函数
+     1. 使父进程设置其子进程的进程组ID
+     2. 使子进程设置其自己的进程组ID
+
+     虽然这些调用中有一个是冗余的，但这样做可以保证父、子进程在进一步操作之前，子进程都进入了该进程组
+
+     如果不这样做的话，就会产生一个竞态条件，因为它依赖于哪一个进程先执行！！！
+   #+END_EXAMPLE
+
+* 会话期
+  *对话期* 是 _一个或多个_ *进程组的集合* ，图9.6中一个会话期有三个进程组：
+  #+ATTR_HTML: image :width 90% 
+  [[file:pic/session.png]]
+
+  通常是由 _shell的管道线_ 将 *几个进程编成一组的* ，例如上图中的安排可能是由下列形式的shell命令形成的：
+  #+BEGIN_SRC sh
+$ proc1 | proc2 & 
+$ proc3 | proc4 | proc5
+  #+END_SRC
+
+** setsid
+   _setsid_ ： *创建* 一个 _新的会话期_ 
+
+   #+BEGIN_SRC C
+  #include <sys/types.h>
+  #include <unistd.h>
+
+  /**
+   ,* 创建一个新的会话期
+   ,*
+   ,* return: 若成功则为 进程组ID，若出错则为 -1
+   ,*
+   ,*/
+  pid_t setsid(void);
+   #+END_SRC 
+   + 如果 _调用此函数的进程_ 不是 _一个进程组的组长_ ，则此函数 *创建* 一个 _新对话期_ ：
+     1. 此进程变成该 _新对话期_ 的 *对话期首进程* (创建该对话期的进程)
+	+ 是 _该新对话期_ 中的 *唯一进程* 
+     2. 此进程成为一个 _新进程组_ 的 *组长进程* 
+	+ _新进程组ID_ 也是 _此调用进程的进程ID_ 
+     3. 此进程没有 _控制终端_ 
+	+ 如果在 _调用setsid之前_ 此进程 _有一个控制终端_ ，那么这种 *关系也被解除* 
+   + 如果此调用进程 *已经是* 一个进程组的组长，则此函数 *返回出错* 
+
+   #+BEGIN_EXAMPLE
+     为了保证不出错，通常先调用fork，然后使其父进程终止，而子进程则继续
+
+     因为子进程继承了父进程的进程组ID，而其进程ID则是新分配的，两者不可能相等，所以这就保证了子进程不是一个进程组的组长
+   #+END_EXAMPLE
+
+* 控制终端
+  _对话期_ 和 _进程组_ 有一些其他特性:
+  + 一个 _对话期_ 可以有一个 *单独的控制终端* ，这通常是在其上 _登录的终端设备_ 或 _伪终端设备_ 
+  + _控制进程_ ： *建立* 与 _控制终端_ *连接的* _对话期首进程_ 
+  + 一个 _对话期中的几个进程组_ 可被分成 _一个前台进程组_ 以及 _一个或几个后台进程组_ 
+  + 无论何时键入 _中断键_ (常常是 *Ctrl-C* )或 _退出键_ (常常是 *Ctrl-\* )，就会造成将 _中断信号_ 或 _退出信号_ *送至* _前台进程组的所有进程_ 
+  + 如果 _终端界面_ *检测到* _调制解调器已经脱开连接_ ，则将 _挂断信号_ *送至* _控制进程_ (对话期首进程)
+
+  这些特性示于图9-7中：
+  #+ATTR_HTML: image :width 90% 
+  [[file:pic/terminal.png]]
+
+  通常不必担心控制终端， _登录时_ 将 *自动建立* _控制终端_ 。有时不管 _标准输入_ 、 _标准输出_ *是否重新定向* ，程序都要与 _控制终端_ *交互作用*
+
+  #+BEGIN_EXAMPLE
+    保证程序读写控制终端的方法是打开文件/dev/tty，在内核中，此特殊文件是控制终端的同义语
+
+    自然，如果程序没有控制终端，则打开此设备将失败
+
+    典型的例子是用于读口令的getpass(3)函数(终端回送被关闭)，这一函数由crypt(1)程序调用，而此程序则可用于管道中
+
+    例如将文件salaries解密，然后经由管道将输出送至打印程序：
+  #+END_EXAMPLE
+  #+BEGIN_SRC sh
+$ crypt < salaries | lpr
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    因为crypt从其标准输入读取salaries文件，所以标准输入不能用于输入口令
+
+    但是crypt的一个设计特征是每次运行此程序时，都会从控制终端/dev/tty读取加密口令，这样也就不需要将口令存放在文件中
+  #+END_EXAMPLE
+
+** tcgetpgrp, tcsetpgrp
+   + _tcgetpgrp_ ：返回 _拥有控制终端_ 的 _前台进程组_ 的 _组ID_ 
+   + _tcsetpgrp_ ： 设置 _控制终端_ 的 _前台进程组_ 的 _组ID_ 
+   #+BEGIN_SRC C
+  #include <sys/types.h>
+  #include <unistd.h>
+
+  /**
+   ,* 返回某个文件描述符相关联的控制终端的前台进程组的组ID
+   ,*
+   ,* filedes: 文件描述符
+   ,*
+   ,* return: 若成功则为 前台进程组ID，若出错则为 -1
+   ,*
+   ,*/
+  pid_t tcgetpgrp(int filedes);
+
+  /**
+   ,* 设置filedes所打开的控制终端的前台进程组ID为pgrpid
+   ,*
+   ,* filedes: 与某个 tty 相关联的文件描述符
+   ,* pgrpid: 某个 tty 下的一个对话期中的一个进程组的ID
+   ,*
+   ,* return: 成功返回 0，失败返回 -1
+   ,*
+   ,*/
+  int tcsetpgrp(int filedes, pid_t pgrpid);
+   #+END_SRC
+   这两个函数用来 *通知内核* 哪一个进程组是 _前台进程组_ ，而内核中的 _终端设备驱动程序_ 也能知道将 _终端输入_ 和 _终端产生_ 的 _信号_ *送到何处* 
+   #+BEGIN_EXAMPLE
+     只有支持作业控制，这两个函数才被定义，否则直接报错
+   #+END_EXAMPLE
+
+* 作业控制
+  作业控制是伯克利在1980年左右加到UNIX的一个新特性
+
+  它允许在 _一个终端上_ *起动* _多个作业(进程组)_ ， *控制*  _哪一个作业_ *可以存取* _该终端_ ，以及 _哪些作业_ 在 *后台运行* 。作业控制要求三种形式的支持：
+  1.  *支持作业控制* 的 _shell_ 
+  2. _内核中_ 的 *终端驱动程序* 必须 _支持作业控制_ 
+  3. 必须提供对某些 *作业控制信号* 的支持
+
+  从shell使用作业控制功能角度观察，可以在前台或后台起动一个作业，而 _一个作业_ 只是 *几个进程的集合* ，通常是一个 _进程管道_ 
+
+  +  _前台_ 起动了 _只有一个进程_ 的 _一个作业_ ：
+  #+BEGIN_SRC sh
+  $ vi main.c
+  #+END_SRC
+
+  + 在 _后台_ 起动了 _两个作业_ ，这两个后台作业所调用的进程 _都在后台运行_ 着
+  #+BEGIN_SRC sh
+  $ pr *.c | lpr &
+
+  $ make all &
+  #+END_SRC
+
+  当起动一个后台作业时， _shell_ *赋与* 它一个 _作业标识_ ，并 *打印* _一个或几个进程ID_ 
+
+  + 下面的操作过程显示了Bash Shell是如何处理的：
+  #+BEGIN_SRC sh
+  $ make all > Make.out &
+  [1] 1475
+
+  $ pr *.c | lpr &
+  [2] 1490
+
+  $ 键入回车
+  [2] + Done pr *.c | lpr &
+  [1] + Done make all > Make.out &
+  #+END_SRC
+  + _make_ 是 _作业号1_ ，所起动的 _进程ID_ 是 _1475_
+  + _下一个管道线_ 是 _作业号2_ ，其 *第一个进程的进程ID* 是 _1490_ 
+  #+BEGIN_EXAMPLE
+    当作业已完成而且键入回车时，shell通知我们作业已经完成
+
+    键入回车是为了让shell打印其提示符，shell并不在任何随意的时间打印后台作业的状态改变，它只在打印其提示符之前这样做
+
+    如果不这样处理，则当我们正输入一行时，它也可能输出
+  #+END_EXAMPLE
+
+** 信号
+   可以 *键入* 一个 *影响前台作业* 的 _特殊字符_ ，比如 _挂起键_ (一般采用 *Ctrl-z* )与终端进行交互作用。键入此字符使 _终端驱动程序_ 将 _信号SIGTSTP_ 送至 _前台进程组_ 中的 _所有进程_ ， *后台进程组作业则不受影响* 。实际上有三个特殊字符可使终端驱动程序产生信号，并将它们送至前台进程组:
+   + _中断_ 字符 (一般采用 _DELETE_ 或 _Ctrl-c_ )产生 _SIGINT_ 
+   + _退出_ 字符(一般采用 _Ctrl-\_ )产生 _SIGQUIT_ 
+   + _挂起_ 字符(一般采用 _Ctrl-z_ )产生 _SIGTSTP_ 
+
+*** 后台进程读取终端输入
+    *只有 _前台作业_ 接收终端输入* ，如果 _后台作业_ 试图 _读终端_ ，那么这并不是一个错误，但是 _终端驱动程序_ 检测这种情况，会 *发送* 一个 _特定信号SIGTTIN_ 给 _后台作业_ 。这通常会 *停止此后台作业* ，而 _有关用户_ 则会得到这种情况的通知，然后就可将此作业 *转为前台作业运行* ，使得它可以读终端输入。下列操作过程显示了这一点：
+    #+BEGIN_SRC sh
+  $ cat > temp.foo & #在后台启动,但将从标准输入读
+  [1] 1681
+
+  $ 键入回车
+  [1] + Stopped (tty input) cat > temp.foo &
+
+  $ fg %1 #使1号作业成为前台作业
+  cat > temp.foo #shell告诉我们现在哪一个作业在前台
+  hello, world #输入1行
+  ˆD #键入文件结束符
+
+  $ cat temp.foo #检查该行已送入文件
+  hello, world
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      shell在后台起动cat进程，但是当cat试图读其标准输入(控制终端)时
+
+      1. 终端驱动程序知道它是个后台作业，于是将SIGTTIN信号送至该后台作业
+      2. shell检测到其子进程的状态改变，并通知用户该作业已被停止
+      3. 用shell的fg命令将此停止的作业送入前台运行，这样使shell将此作业转为前台进程组(tcsetpgrp)
+      4. 将继续信号(SIGCONT)送给该进程组
+
+      因为该作业现在前台进程组中，所以它可以读控制终端
+    #+END_EXAMPLE    
+*** 后台进程向终端输出
+    这是一个 *可以允许或禁止* 的 _选择项_ 。通常可以用 _stty(1)_ 命令改变这一选择项。下面显示了这种操作过程：
+    
+    #+BEGIN_SRC sh
+  $ cat temp.foo & #在后台执行
+  [1] 1719
+  $ hello, world #在提示符后出现后台作业的输出
+                 #键入回车
+  [1] + Done   cat temp.foo &
+
+  $ stty tostop #禁止后台作业向控制终端输出
+
+  $ cat temp.foo & #在后台再次执行
+  [1] 1721 
+  $ #键入回车,发现作业已停止
+  [1] + Stopped(tty output) cat temp.foo &
+
+  $ fg %1 #将停止的作业恢复为前台作业
+  cat temp.foo #shell告诉我们现在哪一个作业在前台
+  hello, world #该作业的输出
+    #+END_SRC
+    
+** 总结
+   图9-8摘录了已说明的作业控制的某些功能：
+   + *穿过终端驱动程序框* 的 _实线_ ： _终端I/O_ 和 _终端产生的信号_ 总是从 _前台进程组_ *连接到* _实际终端_
+   +  *SIGTTOU信号* 的 _虚线_ ： _后台进程组进程的输出_ 是否 _出现在终端_ 是 *可选择的* 
+     #+ATTR_HTML: image :width 60% 
+     [[file:pic/job-controll.png]]
+
+* shell执行程序
+  #+BEGIN_EXAMPLE
+    注意：关于管道的内容已经过时
+
+    在现在的sh和bash几乎都是看到先执行第一个命令，再依次执行每一条命令！！！
+  #+END_EXAMPLE
+
+** Bourne shell 
+   #+BEGIN_EXAMPLE
+     Bourne shell不支持作业控制
+   #+END_EXAMPLE   
+
+*** 前台进程
+    #+BEGIN_SRC sh
+    $ ps -xj
+    #父进程ID 进程ID 进程组ID 会话期ID 终端进程组ID 命令
+    PPID PID PGID SID TPGID COMMAND
+    1    163 163  163 163   -sh
+    163  163 163  163 163   ps 
+    #+END_SRC
+    _shell_ 和 _ps_ 命令两者位于 *同一对话期* 和 *前台进程组* _163_ 中
+    + _163_ 是在 _TPGID列_ 中显示的 _进程组_ ，所以称其为 _前台进程组_ 
+    + _ps的父进程_ 是 _shell_
+    + _登录shell_ 是由 _login_ 作为其 _父进程_  
+
+
+    #+BEGIN_EXAMPLE
+      "进程与终端进程组ID(TPGID列)"相关联是用词不当，进程并没有终端进程组
+
+      进程属于一个进程组，而进程组属于一个对话期。对话期可能有，也可能没有控制终端
+
+      如果它确有一个控制终端，则此终端设备知道其前台进程的进程组ID，这一值可以用tcsetpgrp函数在终端驱动程序中设置
+
+      前台进程组ID是终端的一个属性，而不是进程的属性，取自终端设备驱动程序的该值是ps在TPGID列中打印的值
+
+      如果ps发现此对话期没有控制终端，则它在该列打印 -1 
+    #+END_EXAMPLE    
+
+*** 后台进程
+    #+BEGIN_SRC sh
+      $ ps -xj &
+
+      PPID  PID  PGID  SID  TPGID  COMMAND
+      1     163  163   163  163    -sh
+      163   169  163   163  163    ps
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      由于Bourne shell不支持作业控制，所以唯一改变的只有ps命令的进程ID
+    #+END_EXAMPLE    
+
+*** 管道
+    #+BEGIN_EXAMPLE
+      管道中的 最后一个进程 ： shell的子进程
+
+      管道中的 第一个进程： 最后一个进程的子进程
+    #+END_EXAMPLE
+
+    #+BEGIN_SRC sh
+      $ ps -xj | cat1
+
+      PPID  PID  PGID  SID  TPGID  COMMAND
+      1     163  163   163  163    -sh
+      163   200  163   163  163    cat1
+      200   201  163   163  163    ps 
+    #+END_SRC
+    
+    1. _shell_ 首先会 _fork一个sh副本_
+    2. _exec_ 执行 *管道中最后一个命令*
+    3.  _fork后的sh副本_ 再为 _管道线中的每条命令_ 各 _fork一个sh进程_
+    4. 再依次 _exec_ *执行管道中每个命令* 。例如，在一条管道中执行三个进程：
+       #+BEGIN_SRC sh
+     $ ps -xj | cat1 | cat2
+
+     PPID  PID  PGID  SID  TPGID  COMMAND
+     1     163  163   163  163    -sh
+     163   202  163   163  163    cat2
+     202   203  163   163  163    ps
+     202   204  163   163  163    cat1
+       #+END_SRC
+
+       图9-9显示了上面所发生的情况：
+       #+ATTR_HTML: image :width 80% 
+       [[file:pic/bourne-pipeline.png]]
+
+    #+BEGIN_EXAMPLE
+      对Bourne shell来说后台执行管道线的唯一区别：进程ID发生变化
+    #+END_EXAMPLE    
+*** 后台进程读取控制终端
+    #+BEGIN_SRC sh
+      $ cat > temp.foo &
+    #+END_SRC
+    如果 _该进程自己_ _不重新定向标准输入_ ，则Bourne shell *自动* 将 _后台进程的标准输入_ *重新定向* 到 _/dev/null_ ：
+    + _读/dev/null_ 则产生一个 *文件结束* 
+
+    #+BEGIN_EXAMPLE
+      这意味着后台 cat 进程立即读到文件尾，并正常结束 
+    #+END_EXAMPLE
+
+    如果一个 _后台进程_  *打开/dev/tty* 并且 *读该控制终端* 
+    #+BEGIN_EXAMPLE
+      这种情况依赖系统实现。但是这很可能不是想要的
+    #+END_EXAMPLE
+    例如：
+    #+BEGIN_SRC sh
+  $ crypt < salaries | lpr &
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      有可能当执行这条后台管道时，crypt在终端上打印提示符“Password:”
+      但是shell读取了我们所输入的加密码口令，并企图执行其中一条命令
+
+      我们输送给shell的下一行，则被crypt进程取为口令行，于是salaries也就不能正确地被译码，结果将一堆没有用的信息送到了打印机
+
+      在这里，我们有了两个进程，它们试图同时读同一设备，其结果则依赖于系统
+    #+END_EXAMPLE
+
+    这也正好说明： _作业控制_ 以 *较好的方式处理 _一个终端_ 在 _多个进程间_ 的转接* 
+** Bash
+   Bash支持作业控制，依次执行刚才的命令：
+*** 前台进程
+    #+BEGIN_SRC sh
+      $ ps -xj
+
+      PPID PID PGID SID TPGID COMMAND
+      1    700 700  700 708   -bash
+      700  708 708  700 708   ps
+    #+END_SRC
+
+    + _Bash_ 将 *前台作业*  _ps_ 放入了它 *自己的进程组*  _708_ 
+      + _ps命令_ 是 _进程组_ *组长进程* ，并是 *该进程组的唯一进程*
+      + 此进程组具有 _控制终端_ ，所以它是 *前台进程*
+      + _登录shell_ 在 _执行ps命令时_ 是 *后台进程组* 
+    +  _登录shell_ 和 _ps_ 这两个进程组 _700_ 和 _708_ 都是 *同一对话期的成员* 
+*** 后台进程
+    #+BEGIN_SRC sh
+      $ ps -xj &
+
+      PPID PID PGID SID TPGID COMMAND
+      1    700 700  700 700   -bash
+      700  709 709  700 700   ps
+    #+END_SRC
+    + _ps命令_ 被放入它 _自己的进程组_
+      +  _进程组_ (709) *不再是前台进程组* 。这是一个 _后台进程组_ 
+    + _TPGID_ 为 _700_ ： _前台进程组_ 是 _登录shell_ 
+*** 前台管道
+    #+BEGIN_SRC sh
+      $ ps -xj | cat1
+
+      PPID  PID  PGID  SID  TPGID  COMMAND
+      1     700  700   700  710    -bash
+      700   710  710   700  710    ps
+      710   711  710   700  710    cat1
+    #+END_SRC
+
+    _ps_ 和 _cat1_ 都在一个 *新进程组* _710_ 中，这是一个 _前台进程组_ 
+
+    #+BEGIN_EXAMPLE
+      和Bourne shell实例之间能另一个区别是：
+
+      Bourne shell首先创建将执行管道线中“最后一条命令”的进程
+
+      bash是fork bash的副本并 exec 执行 “第一个命令”
+    #+END_EXAMPLE
+*** 后台管道
+
+    #+BEGIN_EXAMPLE
+      Bash以Bourne shell相同的方式产生后台管道进程
+    #+END_EXAMPLE
+
+    #+BEGIN_SRC sh
+      $ ps -xj | cat1 &
+
+      PPID  PID  PGID  SID  TPGID  COMMAND
+      1     700  700   700  700    -bash
+      700   712  712   700  700    cat1
+      712   713  712   700  700    ps
+    #+END_SRC
+
+    _cat1_ 和 _ps_ 都处在 *后台进程组* _712_ 中：
+    + _创建_  *最后一个命令* _cat1_
+    + _创建_ 命令 _ps_ 
+
+* 孤儿进程组
+  +  _孤儿进程_ ：一个 _父进程_ *已终止* 的进程
+    + 这种进程由 _init进程_ *托管* 
+  + 孤儿进程组：该组中 _每个成员的父进程_ 要么是 *该组的一个成员* ，要么 *不是该组所属 _对话期_ 的成员* 
+    + 孤儿进程组将被置于 *后台* 执行
+  #+BEGIN_EXAMPLE
+    一个进程组不是孤儿进程组的条件是：
+
+    该组中存在一个进程，其父进程在同一会话的其它进程组中
+  #+END_EXAMPLE
+
+  如果进程组 _不是孤儿进程组_ ，那么在 _属于同一对话期_ 的 _另一个组中的父进程_ 就有机会 *重新起动* _该组中停止的进程_ 
+** 实例
+   考虑一个进程：
+   + 它 _fork了一个子进程_ 然后 _终止_ 。这在系统中是经常发生的，并无异常之处
+   + 在父进程终止时，如果该 *子进程停止* (作业控制)，则 _子进程_ 就成了 *孤儿进程组* 
+
+     #+BEGIN_SRC C
+     #include <sys/types.h>
+     #include <errno.h>
+     #include <fcntl.h>
+     #include <signal.h>
+     #include "apue.h"
+
+     static void sig_hup(int);
+     static void pr_ids(char *);
+
+     int main(void)
+     {
+	     char c;
+	     pid_t pid;
+
+	     pr_ids("parent");
+	     if( (pid = fork()) < 0)
+		     err_sys("fork error");
+
+	     else if(pid > 0) { 
+		     sleep(5);//父进程先休眠，使得子进程有机会先运行
+		     exit(0); 
+	     } else {
+		     pr_ids("child");
+		     signal(SIGHUP, sig_hup); //处理挂断信号
+		     kill(getpid(), SIGTSTP); //发送信号使得子进程停止
+		     pr_ids("child"); //变成孤儿进程组后，转入后台运行
+		     if(read(STDIN_FILENO, &c, 1) != 1)
+			     //后台进程组读取控制终端输入会产生SIGTTIN信号，导致读取报错errno=EIO
+			     printf("read error from control terminal, errno = %d\n", errno
+				    exit(0);
+				    }        
+	     }
+
+	     static void sig_hup(int signo)
+	     {
+		     printf("SIGHUP received, pid = %d\n", getpid());
+		     return;
+
+	     }
+
+	     static void pr_ids(char *name)
+	     {
+		     printf("%s: pid = %d, ppid = %d, pgrp = %d\n",
+			    name, getpid(), getppid(), tcgetpgrp(STDIN_FILENO));
+		     fflush(stdout);
+	     }
+     #+END_SRC
+
+     图9-10显示了父进程已经fork了子进程后的情况：
+     #+ATTR_HTML: image :width 50% 
+     [[file:pic/orphan-process-group.png]]
+
+     假定使用了一个作业控制shell。shell将 _前台进程_ 放在一个 _进程组中_ (本例中是 _512_ )， _shell_ 则留在自己的 _组内_ ( _442_ )。 _子进程_ *继承* 其 _父进程_ ( _512_ )的 _进程组_ 。在fork之后:
+     1. _父进程_ *睡眠5秒钟* ：
+	+ 让子进程在父进程终止之前运行
+     2.  _子进程_ 为 *挂断信号* ( _SIGHUP_ ) *建立* _信号处理程序_ ：
+	+ 这样就能观察到SIGHUP信号是否已送到子进程
+     3. _子进程_ 用 *kill函数* 向其 *自身发送* _停止信号_ ( _SIGTSTP_ )：
+	+ 停止了子进程，类似于用终端挂起字符(Ctrl-Z)停止一个前台作业
+     4. 当 _父进程_ *终止* 时：
+	+ 该 _子进程_ 成为 _孤儿进程_ ， _父进程ID_ 成为 *1* ，也就是 _init进程_ 
+     5. _子进程_ 成为一个 *孤儿进程组* 的 _成员_ ：
+	+ 因为 _进程组中所有进程_ 的 _父进程_ (如进程513的父进程1) *属于另一个对话期* ，所以此进程组是孤儿进程组
+     6. POSIX.1要求向 _新孤儿进程组_ 中处于 _停止状态_ 的 _每一个进程_ *发送* _挂断信号_ ( _SIGHUP_ )，接着又向其 *发送* _继续信号_ ( _SIGCONT_ )
+     7. 在 *处理了挂断信号* 后， *子进程继续* 
+	+ 对 _挂断信号_ 的系统 *默认* 动作是 _终止该进程_ ，所以 *提供一个信号处理程序* 以捕捉该信号
+
+	测试结果：
+	#+BEGIN_SRC sh
+     $ a.out
+     parent: pid = 512, ppid = 442, pgrp = 512
+     child: pid = 513, ppid = 512, pgrp = 512
+     $ SIGHUP received, pid = 513
+     child: pid = 513, ppid = 1, pgrp = 512
+     read error from control terminal, errno = 5
+	#+END_SRC
+
+   #+BEGIN_EXAMPLE
+     注意：
+
+     因为两个进程登录shell和子进程都写向终端，所以shell提示符和子进程的输出一起出现
+
+     子进程的父进程ID变成1，成为了孤儿进程
+
+     父进程终止时，子进程变成后台进程组，而父进程是由shell作为前台作业执行的
+
+     sig_hup函数中的printf会在pr_ids函数中的printf之前执行
+
+     在子进程中调用pr_ids后，程序企图读标准输入
+     当后台进程组试图读控制终端时，则对该后台进程组产生SIGTTIN，这导致read返回出错，其errno设置为EIO(其值是5)
+   #+END_EXAMPLE
+
+* BSD实现
+  图9-11显示了BSD中 _进程_ ， _进程组_ ， _会话期_ ， _控制终端_ 等各种数据结构：
+  #+ATTR_HTML: image :width 80% 
+  [[file:pic/proc-group-bsd.jpg]]
+
+** session结构
+   每个 *对话期* 都分配了一个 *session* 结构：
+   + s_count：该对话期中的 _进程组数_ 。当此计数器减至 _0_ 时，则可 *释放此结构* 
+   + s_leader：指向 *对话期首进程* _proc_ 结构的指针
+     + 4.3+BSD不保持 _对话期ID_ 字段
+     + SVR4则保持此字段
+   + s_ttyvp ：指向 *控制终端* _vnode_ 结构的指针
+   + s_ttyp：指向 *控制终端* _tty_ 结构的指针 
+
+   #+BEGIN_EXAMPLE
+     在调用setsid时，在内核中分配一个新的对话期结构：
+
+     1. s_count设置为1
+     2. s_leader设置为调用进程的proc结构的指针
+     3. 因为新对话期没有控制终端，所以s_ttyvp和s_ttyp设置为空指针
+   #+END_EXAMPLE
+
+** tty结构
+   每个 *终端设备* 和每个 *伪终端设备* 均在内核中分配这样一个 *tty*  结构：
+   + t_session：指向将此终端作为 *控制终端* 的 _session_ 结构
+     + _session_ 结构也会 *指向* _tty_ 结构
+     + 终端在 _失去载波信号_ 时需要使用此指针 *将挂起信号* 送给 _对话期首进程_ 
+   + t_pgrp：指向 *前台进程组* 的 _pgrp_ 结构
+     + _终端驱动程序_ 用此字段 *将信号* 送向 _前台进程组_ 
+       + 由 *输入特殊字符* ( _中断_ 、 _退出_ 和 _挂起_ )而产生的三个信号被送至 _前台进程组_ 
+   + t_termios：包含所有这些 *特殊字符* 和与该 *终端有关信息* 的结构
+   + t_winsize：包含 *终端窗口当前尺寸* 的 _winsize_ 结构
+
+   #+BEGIN_EXAMPLE
+      注意：为了找到特定对话期的前台进程组，内核从session结构开始
+
+     然后用s_ttyp得到控制终端的tty结构，然后用t_pgrp得到前台进程组的pgrp结构
+   #+END_EXAMPLE
+
+** pgrp结构
+   *pgrp* 结构包含一个 *进程组* 的信息：
+   + pg_id： _进程组ID_ 
+   + pg_session：指向此 _进程组_ 所属的 _session_ 结构
+   + pg_mem：是指向此 _进程组_ *第一个进程* _proc_ 结构的指针
+
+** proc结构
+   _proc_ 结构包含一个 *进程* 的所有信息：
+   + p_pid： _进程ID_ 
+   + p_pptr：指向 _父进程_ proc结构的指针
+   + p_pgrp：指向本进程 *所属的进程组* 的 _pgrp_ 结构
+   + p_pgrpnxt：指向 _进程组_ 中 *下一个进程* 的指针
+     + _进程组_ 中 *最后一个进程* 的p_pgrpnxt为 _NULL_ 指针
+
+** vnode结构
+   在 *打开* _控制终端设备_ 时 *分配vnode结构* ， _进程_ 对 _/dev/tty_ 的所有 _访问_ 都通过 _vnode_ 结构
+
+   #+BEGIN_EXAMPLE
+     在BSD中实际 i 节点是 v 节点的一部分
+
+     而SVR4实现中 v节点 存在 i节点 中
+   #+END_EXAMPLE
+
+   [[file:signal.org][Next：信号]]
+
+   [[file:process.org][Previous：进程控制]]
+
+   [[file:apue.org][Home：目录]]

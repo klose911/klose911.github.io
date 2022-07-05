@@ -1,0 +1,333 @@
+#+TITLE: Gradle入门
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+Gradle在语法上是基于Groovy语言的，在项目管理上是基于Ant和Maven概念的项目自动化建构工具
+
+#+BEGIN_EXAMPLE
+  Groovy 是一种基于JVM的敏捷开发语言
+
+  可以简单的理解为强类型语言java的弱类型版本
+#+END_EXAMPLE
+
+
+* 环境
+1. Gradle 运行依赖JVM，也就是java运行的环境。所以要安装jdk和jre
+2. 到Gradle官网现在Gradle的压缩包
+3. 下载压缩包后，解压，然后配置环境变量
+
+MacOS 下配置。在 _~/.bash_profile_ 中添加如下代码
+
+#+BEGIN_SRC sh 
+  #gradle  注意gradle-2.14.1是自己解压的路径
+  export GRADLE_HOME=${HOME}/gradle-2.14.1
+  PATH=${PATH}:${GRADLE_HOME}/bin
+  export PATH
+#+END_SRC
+
+命令行输入 _gradle -v_ 查看是否安装成功
+
+#+BEGIN_SRC sh 
+  $ gradle -v
+
+  ------------------------------------------------------------
+  Gradle 2.14.1
+  ------------------------------------------------------------
+
+  Build time:   2016-07-18 06:38:37 UTC
+  Revision:     d9e2113d9fb05a5caabba61798bdb8dfdca83719
+
+  Groovy:       2.4.4
+  Ant:          Apache Ant(TM) version 1.9.6 compiled on June 29 2015
+  JVM:          1.8.0_111 (Oracle Corporation 25.111-b14)
+  OS:           Mac OS X 10.12.2 x86_64
+#+END_SRC
+
+* hello world
+创建一个 _test_gralde_ 文件夹。然后在文件夹里面创建一个 _build.gradle_ 文件。在build.gradle中添加如下代码：
+
+#+BEGIN_SRC sh 
+  task helloworld{
+      doLast{
+	  println'Hello World!'
+      }
+  }
+  #后者等同于下面的代码,
+  task helloworld2 <<{
+      println "Hello World!"
+  }
+#+END_SRC
+
++ 这个构建脚本定义一个 *任务* _Task_ ，任务名字叫 _helloworld_
++ 任务helloworld添加了一个 *动作* _Action_ 
+  + 这是一段Groovy语言实现的闭包， _doLast_ 就意味着在 _Task执行完毕之后_ 要 *回调doLast的这部分闭包* 的代码实现
+  + 第二个方法中的 _<<_ 表示向 *helloworld中加入执行代码* 
++ 语法部分，基本是Groovy语法，加上一些DSL的约定
+
+#+BEGIN_EXAMPLE
+  文件名不要乱起，因为执行gradle命令的时候，会默认加当前目录下的build.gradle脚本文件
+
+  当然可以通过 -b 参数指定想要加载执行的文件
+#+END_EXAMPLE
+
+* 执行流程
+Gradle是一种 *声明式* 的 _构建工具_ 。在执行时，Gradle并不会一开始便顺序执行build.gradle文件中的内容，而是分为两个阶段：
+1. 第一个阶段是配置阶段：Gradle将读取所有build.gradle文件的所有内容来配置Project和Task等，比如
+   + 设置Project和Task的Property
+   + 处理Task之间的依赖关系
+   + ......
+2. 第二个阶段才是实际的执行阶段
+
+
+#+BEGIN_EXAMPLE
+  和Maven一样，Gradle只是提供了构建项目的一个框架，真正起作用的是Plugin
+
+  Gradle在默认情况下提供了许多常用的Plugin，其中包括有构建Java项目的Plugin，还有Android等
+
+  与Maven不同的是，Gradle不提供内建的项目生命周期管理，只是java Plugin向Project中添加了许多Task，这些Task依次执行，营造了一种如同Maven般项目构建周期
+#+END_EXAMPLE
+
+现在来看一个基本结构的Android多Moudule（也就是gradle中的多Project Multi-Projects Build）的基本项目结构：
+
+#+BEGIN_SRC sh 
+  ├── app #Android App目录
+  │   ├── app.iml
+  │   ├── build #构建输出目录
+  │   ├── build.gradle #构建脚本
+  │   ├── libs #so相关库
+  │   ├── proguard-rules.pro #proguard混淆配置
+  │   └── src #源代码，资源等
+  ├── module #Android 另外一个module目录
+  │   ├── module.iml
+  │   ├── build #构建输出目录
+  │   ├── build.gradle #构建脚本
+  │   ├── libs #so相关库
+  │   ├── proguard-rules.pro #proguard混淆配置
+  │   └── src #源代码，资源等
+  ├── build
+  │   └── intermediates
+  ├── build.gradle #工程构建文件
+  ├── gradle
+  │   └── wrapper
+  ├── gradle.properties #gradle的配置
+  ├── gradlew #gradle wrapper linux shell脚本
+  ├── gradlew.bat
+  ├── LibSqlite.iml
+  ├── local.properties #配置Androod SDK位置文件
+  └── settings.gradle #工程配置
+#+END_SRC
+
+如果抽象成Gradle多Project的样子： 
+
+#+BEGIN_SRC sh 
+  ├── app 
+  │   ├── build.gradle #构建脚本
+  ├── module 
+  │   ├── build.gradle #构建脚本
+  ├── build.gradle #工程构建文件
+  ├── gradle
+  │   └── wrapper    #先不去管它
+  ├── gradle.properties #gradle的配置
+  ├── gradlew #gradle wrapper linux shell脚本
+  ├── gradlew.bat
+  └── settings.gradle #工程配置
+#+END_SRC
+
++ Gradle为每个项目都创建了一个 _build.gradle_ 文件，Gradle提供了强大的多Project构建支持。
++ 要创建多Project的Gradle项目，需要在 _根Project_ 中加入名为 _settings.gradle_ 的配置文件
+  + 该文件应该包含各个子Project的名称
+  + Gradle中的Project可以简单的映射为Maven中的module
++ 在最外层的build.gradle。一般干得活是： *配置其他子Project的* 
+   + 比如：为子Project添加一些属性
+
+* 配置语法
+#+BEGIN_EXAMPLE
+  Gradle提供了一整套DSL，所以在很多时候写的代码似乎已经脱离了groovy
+
+  但是在底层依然是执行的groovy所以很多语法还是Groovy的语法规则
+#+END_EXAMPLE
+
+看一个androidStudio中app下的build.gradle的配置：
+
+#+BEGIN_SRC groovy
+  apply plugin: 'com.android.application'
+
+  android {
+      compileSdkVersion 25
+      buildToolsVersion "25.0.0"
+      defaultConfig {
+	  applicationId "me.febsky.demo"
+	  minSdkVersion 15
+	  targetSdkVersion 25
+	  versionCode 1
+	  versionName "1.0"
+	  testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+      }
+      buildTypes {
+	  release {
+	      minifyEnabled false
+	      proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+	  }
+      }
+  }
+
+  dependencies {
+      compile fileTree(dir: 'libs', include: ['*.jar'])
+      compile 'com.android.support:appcompat-v7:25.1.0'
+  }
+#+END_SRC
+
++ _apply plugin: 'com.android.application'_ 这里的apply是一个函数，实际上调用的是 _apply(plugin: 'com.android.application')_
+  +  _plugin: 'com.android.application'_ 表示的是一个map类型，实际上应该是 _[plugin: 'com.android.application']_ 
+
+#+BEGIN_EXAMPLE
+  1. 方法调用，圆括号可以省略
+
+  2. 如果方法参数是个Map，方括号可以省略
+#+END_EXAMPLE
+** 闭包
+上面的dependencies实际上也是个方法调用，调用的是Project的dependcies方法，但是参数也是一个函数。所以还能写成这样： 
+
+#+BEGIN_SRC groovy 
+  #所以代码还能写成这样
+  dependencies (){
+      compile fileTree(dir: 'libs', include: ['*.jar'])
+      compile 'com.android.support:appcompat-v7:25.1.0'
+  }
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  如果闭包是方法的最后一个参数，那么闭包可以放在圆括号外面
+#+END_EXAMPLE
+** Getter 和 Setter 
+Groovy动态的为每一个字段都会自动生成getter和setter，并且可以通过像访问字段本身一样调用getter和setter
+
+#+BEGIN_SRC groovy
+  println project.version // Groovy  
+
+  println(project.getVersion()) // Groovy
+#+END_SRC
+** Project, Task, Action 
+Gradle的 _Project之间的依赖关系_ 是基于 _Task_ 的，而不是整个Project的
++ Project: build.gradle脚本的全部作用，其实就是配置一个Project实例
+  + build.gradle 中可以隐式的操纵Project实例，比如，apply插件、声明依赖、定义Task等
+    + apply、dependencies、task等实际上是Project的方法，参数是一个代码块
+  + 如果需要，也可以显示的操纵Project实例
+    + 比如：project.ext.myProp = 'myValue'
++ Task: 被组织成了一个 _有向无环图_ 
+  + 要么是由不同的Plugin引入的，要么是自己在build.gradle文件中直接创建的
+  + Gradle保证Task按照 *依赖顺序* 执行，并且每个Task *最多只被执行一次* 
+
+#+BEGIN_EXAMPLE
+  Gradle在默认情况下提供了几个常用的Task，比如查看Project的Properties、显示当前Project中定义的所有Task等
+
+  可以通过一下命令行查看Project中所有的Task：$ gradle tasks
+
+  可以看到，Gradle默认提供了dependencies、projects和properties等Task
+
+  dependencies用于显示Project的依赖信息，projects用于显示所有Project，包括根Project和子Project，而properties则用于显示一个Project所包含的所有Property
+#+END_EXAMPLE
+
+*** 自定义Task
+可以自定义一个Task：
+
+#+BEGIN_SRC groovy 
+  task myTask {  
+      doFirst {  
+	  println 'hello'  
+      }  
+      doLast {  
+	  println 'world'  
+      }  
+  }  
+#+END_SRC
+
+也显示声明一个Task的类型： 
+#+BEGIN_SRC groovy 
+  #2 Test文件夹下建一个src目录，建一个dst目录，src目录下建立一个文件，命名为test.txt
+  task copyFile(type: Copy){
+      from "src"
+      into "dst"
+  }
+#+END_SRC
+
+也可以定义成一段脚本： 
+
+#+BEGIN_SRC groovy
+  #1
+  task helloWorld << {
+      println "Hello World"
+  }
+#+END_SRC
+
+如果task声明在根Project的build.gradle中的allprojects()方法中，那么这个Task会应用于所有的Project
+
+*** Task的依赖关系
+#+BEGIN_SRC groovy 
+  task taskA << {
+     println 'this is taskA from project 1'
+  }
+
+  task taskB << {
+     println 'this is taskB from project 1'
+  }
+
+  taskA.dependsOn taskB
+#+END_SRC
+
+这样如果执行taskA的话，就会先执行taskB
+
+#+BEGIN_EXAMPLE
+  如果是Muliti-Project的模式，依赖关系要带着所属的Project
+
+  如taskA.dependsOn ':other-project:taskC' 其中taskC位于和taskA不同的Project中，other-project就是为另外一个项目的名字
+#+END_EXAMPLE
+
+* GradleWrapper 
+Wrapper其实就是对Gradle的一层包装，便于在团队开发过程中 *统一Gradle构建的版本* 
+
+#+BEGIN_EXAMPLE
+  提交到git上，然后别人可以下载下来，这样大家都可以使用统一的Gradle版本进行构建，避免因为Gradle版本不统一带来的不必要的问题
+#+END_EXAMPLE
+
+** 生成wrapper
+gradle内置了生成wrapper的task，可以命令行执行：
+
+#+BEGIN_SRC sh 
+  $ gradle wrapper
+#+END_SRC
+
+生成后的目录结构如下： 
+#+BEGIN_EXAMPLE
+  ├── gradle
+  │   └── wrapper
+  │       ├── gradle-wrapper.jar
+  │       └── gradle-wrapper.properties
+  ├── gradlew
+  └── gradlew.bat
+#+END_EXAMPLE
+
++ _gradlew_ 和 _gradlew.bat_ 分别是Linux和Window下的 *可执行脚本* ：他们的用法和gradle原生命令是一样的
++ _gradle-wrapper.jar_ 是 *具体业务逻辑实现的jar包* ：gradlew最终还是使用 _java执行_ 的这个 _jar包_ 来执行相关gradle操作。
++ _gradle-wrapper.properties_ 是 *配置文件* ：用于配置使用哪个版本的gradle等
+
+** gradle-wrapper.properties配置文件
+#+BEGIN_EXAMPLE
+  #Sat Jan 21 14:02:40 CST 2017
+  distributionBase=GRADLE_USER_HOME
+  distributionPath=wrapper/dists
+  zipStoreBase=GRADLE_USER_HOME
+  zipStorePath=wrapper/dists
+  distributionUrl=https\://services.gradle.org/distributions/gradle-2.14.1-bin.zip
+#+END_EXAMPLE
+
++ distributionBase: 下载的gradle压缩包解压后存储的主目录
++ distributionPath: 相对于distributionBase的解压后的gradle压缩包的路径
++ zipStoreBase: 同distributionBase，只不过是存放zip压缩包的
++ zipStorePath: 同distributionPath，只不过是存放zip压缩包的
++ distributionUrl: gradle发行版压缩包的下载地址，也就是你现在这个项目将要依赖的gradle的版本
+
+#+BEGIN_EXAMPLE
+  生成wrapper时候可以通过指定参数的方式来指定gradle-wrapper.properties内容。
+#+END_EXAMPLE
+

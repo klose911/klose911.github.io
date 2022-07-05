@@ -1,0 +1,427 @@
+#+TITLE: 范型
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: class_interface.html   
+#+HTML_LINK_HOME: effj.html
+#+OPTIONS: num:nil timestamp:nil
+
+* 新代码不要再使用原生态类
+** 范型术语
+   #+CAPTION: 范型术语
+   #+ATTR_HTML: :border 1 :rules all :frame boader　
+   | 术语             | 示例                             | 说明                                            |
+   | 原生态类型       | List                             | 不带任何类型参数的List                          |
+   | 参数化类型       | List<String>                     | 元素类型为String的List                          |
+   | 实际类型参数     | String                           |                                                 |
+   | 范型             | List<E>                          | 元素为E类型的List                               |
+   | 无限制通配符类型 | List<?>                          | 元素为任意类型的List                            |
+   | 有限制通配符类型 | List<? extends Number>           | 元素为任意类型但是继承Number类的List              |
+   | 有限制类型参数   | List<E extends Number>           | 元素为某个继承Number类的List                       |
+   | 递归类型限制     | List<T extends Comparable<T>>    | 元素为继承Comparable范型的List                 |
+   | 范型方法         | static <E> List<E> asList(E[] a) | 参数：元素为Ｅ类型的数组，返回值：元素类型为E的List　   |
+   | 类型令牌         | String.class                     |                                                 |
+   
+** 范型的优势
++ 安全，提供了编译前检查
++ 方便，不用显示类型转换
+  
+原生态类型唯一存在的目的：兼容性
+
+** List和List<Object>的区别
+   原生态类型逃避了编译器类型检查
+   #+BEGIN_SRC java
+     public static void main(String[] args) {
+             List<String> strings = new ArrayList<String>();
+             // 使用原生态类型，只有在运行时候才会抛错
+             unsafeAdd(strings, new Integer(42));
+             String s = strings.get(0); // Compiler-generated cast
+     }
+
+     private static void unsafeAdd(List list, Object o) {
+             list.add(o);
+     }
+   #+END_SRC
+   哪怕使用List<Object>都会进行编译期类型检查
+   #+BEGIN_SRC java
+     public static void main(String[] args) {
+             List<String> strings = new ArrayList<String>();
+     // unsafeAdd(List<Object>,Object) cannot be applied
+     // to (List<String>,Integer)
+     // unsafeAdd(strings, new Integer(42));
+             unsafeAdd(strings, new Integer(42));
+             String s = strings.get(0); // Compiler-generated cast
+     }
+
+     private static void unsafeAdd(List<Object> list, Object o) {
+             list.add(o);
+     }
+   #+END_SRC
+** 无限制通配符范型
+   统计任意两个Set的相同元素
+   #+BEGIN_SRC java
+     // Use of raw type for unknown element type - don't do this!
+     static int numElementsInCommon(Set s1, Set s2) {
+             int result = 0;
+             for (Object o1 : s1)
+                     if (s2.contains(o1))
+                             result++;
+             return result;
+     }
+   #+END_SRC
+   无限制通配符类型表示s1, s2可以存放任意类型的元素
+   #+BEGIN_SRC java
+     // Unbounded wildcard type - typesafe and flexible
+     static int numElementsInCommon(Set<?> s1, Set<?> s2) {
+             int result = 0;
+             for (Object o1 : s1)
+                     if (s2.contains(o1))
+                             result++;
+             return result;
+     }
+   #+END_SRC
+   使用无限制通配符类型是为了安全：无法把任意非null的对象放入Collections<?>中，否则会有编译报错
+** 原生态类型的作用
+1. 类型令牌：List.class, String[].class, int.class是合法的，但是List<?>.class是非法的
+2. instance of: 运行期所有的范型标记会被去除，所以对于范型使用instance of是非法的
+   
+推荐的做法：
+#+BEGIN_SRC java
+  // 为了使用instance of使用原生态类型
+  if (o instanceof Set) {
+          // 转换成无限制通配符类型
+          Set<?> m = (Set<?>) o;
+  //...  
+  }
+#+END_SRC
+
+* 消除非受检查警告
++ 要尽可能地消除每一个非受检警告，比如非受检强制转化警告、非受检方法调用警告、非受检普通数组创建警告，以及非受检转换警告
++ 如果无法消除警告，只有在可以证明引起警告的代码是类型安全的情况下用一个@SuppressWarnings("unchecked")注释来禁止这条警告
++ 始终在尽可能小的范围中使用SuppressWarnings注释
++ 每当使用SuppressWarnings注释时，都要添加一条注释，说明为什么这么做是安全的
+  
+* 列表优先于数组
+** 数组和列表的区别
++ 数组是协变的，范型是不可变的
+  #+BEGIN_SRC java
+    //这是被允许的
+    Object[] objectArray = new Long[1];
+    //运行时候抛出java.lang.ArrayStoreException
+    objectArray[0] = "hello world";
+
+    //编译不通过：Type mismatch: cannot convert from LinkedList<Long> to List<Object>
+    List<Object> list = new LinkedList<Long>();
+  #+END_SRC
++ 数组是具体化的，因此数组会在运行时才知道并检查他们的元素类型约束。泛型是通过擦除来实现的，因此泛型只在编译时强化类型信息，并在运行时擦除元素的类型信息
+** 数组和列表不兼容
+   #+BEGIN_SRC java
+     // 为什么范型数组是非法的，代码第一行就会编译报错
+     List<String>[] stringLists = new List<String>[1]; // (1)　如果这是合法的
+     List<Integer> intList = Arrays.asList(42); // (2)　
+     Object[] objects = stringLists; // (3)　数组是协变的，这是合法的
+     objects[0] = intList; // (4)　这也是合法的
+     String s = stringLists[0].get(0); // (5)　如果第一行是编译通过，到这里运行时才会报错
+   #+END_SRC
+   范型数组是非法的，比如E[],List<E>[],List<String>[]都是非法的
+** 使用列表代替数组
+   reduce方法没有范型，而且是线程不安全的
+   #+BEGIN_SRC java
+  interface Function {
+          Object apply(Object arg1, Object arg2);
+  }
+
+  // Reduction without generics, and with concurrency flaw!
+  static Object reduce(List list, Function f, Object initVal) {
+          synchronized(list) {
+                  Object result = initVal;
+                  for (Object o : list)
+                          result = f.apply(result, o);
+                  return result;
+          }
+  }
+   #+END_SRC
+   
+   下面代码会编译报错：list.toArray()的返回值是一个Object[] 
+   #+BEGIN_SRC java
+  interface Function<T> {
+          T apply(T arg1, T arg2);
+  }
+
+  static <E> E reduce(List<E> list, Function<E> f, E initVal) {
+          // Naive generic version of reduction - won't compile!
+          E[] snapshot = list.toArray(); // Locks list
+          E result = initVal;
+          for (E e : snapshot)
+                  result = f.apply(result, e);
+          return result;
+  }
+   #+END_SRC
+   
++ 手动转换类型
+
+#+BEGIN_SRC java
+  E[] snapshot = (E[]) list.toArray();//Locks List
+#+END_SRC
+
++ 使用列表代替数组
+   
+   #+BEGIN_SRC java
+     // List-based generic reduction
+     static <E> E reduce(List<E> list, Function<E> f, E initVal) {
+             List<E> snapshot;
+             synchronized(list) {
+                     snapshot = new ArrayList<E>(list);
+             }
+             E result = initVal;
+             for (E e : snapshot)
+                     result = f.apply(result, e);
+             return result;
+     }
+   #+END_SRC
+   
+* 优先考虑范型类型
+  无法初始化范型数组，数组在初始化的时候具体类型必须是确定的
+  #+BEGIN_SRC java
+    // Initial attempt to generify Stack = won’t compile!
+    public class Stack<E> {
+            private E[] elements;
+            private int size = 0;
+            private static final int DEFAULT_INITIAL_CAPACITY = 16;
+            public Stack() {
+                    //这里会编译报错，无法初始化范型数组
+                    elements = new E[DEFAULT_INITIAL_CAPACITY];
+            }
+            public void push(E e) {
+                    ensureCapacity();
+                    elements[size++] = e;
+            }
+            public E pop() {
+                    if (size==0)
+                            throw new EmptyStackException();
+                    E result = elements[--size];
+                    elements[size] = null; // Eliminate obsolete reference
+                    return result;
+            }
+            ... // no changes in isEmpty or ensureCapacity
+    }
+  #+END_SRC
+  
+1. 初始化数组的时候类型转换
+   #+BEGIN_SRC java
+     //warning: [unchecked] unchecked cast
+     elements = (E[]) new Object[DEFAULT_INITIAL_CAPACITY];
+   #+END_SRC
+   
+2. 把数组声明为Object[]，在取出元素后做类型转换
+   #+BEGIN_SRC java
+     private Object[] elements;
+
+     public E pop() {
+             //...;
+             E result = (E) elements[--size];
+             //...
+             return result;
+     }
+   #+END_SRC
+   
+第二种做法比较安全，但是更繁琐
+* 优先考虑范型方法
+** 简单的范型方法
+   #+BEGIN_SRC java
+  // Generic method
+  public static <E> Set<E> union(Set<E> s1, Set<E> s2) {
+          Set<E> result = new HashSet<E>(s1);
+          result.addAll(s2);
+          return result;
+  }
+
+  // Simple program to exercise generic method
+  public static void main(String[] args) {
+          Set<String> guys = new HashSet<String>(
+                  Arrays.asList("Tom", "Dick", "Harry"));
+          Set<String> stooges = new HashSet<String>(
+                  Arrays.asList("Larry", "Moe", "Curly"));
+          Set<String> aflCio = union(guys, stooges);
+          System.out.println(aflCio);
+  }
+   #+END_SRC
+** 范型单例模式
+   由于identityFunction本身是无状态的，而且范型会在运行时抹去类型信息，所以可以为任意的类提供一个相同的identityFunction
+   #+BEGIN_SRC java
+     public final class IdentityFunction {
+         private static interface UnaryFunction<T> {
+
+             T apply(T arg);
+         }
+
+         private IdentityFunction() {
+         }
+
+         // Generic singleton factory pattern
+         private static final UnaryFunction<Object> IDENTITY_FUNCTION
+                 = new UnaryFunction<Object>() {
+             @Override
+             public Object apply(Object arg) {
+                 return arg;
+             }
+         };
+
+         @SuppressWarnings("unchecked")
+         public static <T> UnaryFunction<T> identityFunction() {
+             // IDENTITY_FUNCTION is stateless and its type parameter is
+             // unbounded so it's safe to share one instance across all types.
+             return (UnaryFunction<T>) IDENTITY_FUNCTION;
+         }
+
+         public static void main(String[] args) {
+             String[] strings = {"jute", "hemp", "nylon"};
+             UnaryFunction<String> sameString = identityFunction();
+             for (String s : strings) {
+                 System.out.println(sameString.apply(s));
+             }
+             Number[] numbers = {1, 2.0, 3L};
+             UnaryFunction<Number> sameNumber = identityFunction();
+             for (Number n : numbers) {
+                 System.out.println(sameNumber.apply(n));
+             }
+         }
+     }
+   #+END_SRC
+* 利用通配符来提升灵活性
+普通范型的类型是不可变的
+** extends通配符
+  #+BEGIN_SRC java
+    // pushAll method without wildcard type - deficient!
+    public void pushAll(Iterable<E> src) {
+            for (E e : src)
+                    push(e);
+    }
+
+    //pushAll(Iterable<Number>) in Stack<Number>
+    // cannot be applied to (Iterable<Integer>)
+    // numberStack.pushAll(integers);
+    Stack<Number> numberStack = new Stack<Number>();
+    Iterable<Integer> integers = ... ;
+    numberStack.pushAll(integers);
+  #+END_SRC
+
+extends通配符：匹配某个类以及它的任意子类
+#+BEGIN_SRC java
+  // Wildcard type for parameter that serves as an E producer
+  public void pushAll(Iterable<? extends E> src) {
+          for (E e : src)
+                  push(e);
+  }
+#+END_SRC
+** super通配符
+   #+BEGIN_SRC java
+     // popAll method without wildcard type - deficient!
+     public void popAll(Collection<E> dst) {
+             while (!isEmpty())
+                     dst.add(pop());
+     }
+
+     //compile error! 
+     Stack<Number> numberStack = new Stack<Number>();
+     Collection<Object> objects = ... ;
+     numberStack.popAll(objects);
+   #+END_SRC
+
+super通配符：匹配某个类以及它的任意父类
+#+BEGIN_SRC java
+  // Wildcard type for parameter that serves as an E consumer
+  public void popAll(Collection<? super E> dst) {
+          while (!isEmpty())
+                  dst.add(pop());
+  }
+#+END_SRC
+** PECS
+producer- extends, consumer- super 
+
++ 生产者(产生范型的元素)-extends：pushAll(Iterable<? extends E> src)
++ 消费者(使用范型的元素)-super：popAll(Collection<? super E> dst)
++ 即是生产者又是消费者则使用普通范型：static <E> E reduce(... Function<E> f ...)
+
+不要在返回值上使用通配符范型，迫使使用接口的人必须考虑范型，设计良好的范型应该是透明的！
+
+** 递归匹配
+有时候类型参数必须和自身绑定的约束相匹配
+#+BEGIN_SRC java
+  public interface Comparable<T> {
+  int compareTo(T o);
+  }
+#+END_SRC
+只有能和自身类型进行大小比较的类才能用于max方法，换句话说这个类必须实现Comparable<T>接口。最后形成了T,Comaprable<T>的递归匹配
+#+BEGIN_SRC java
+  // Returns the maximum value in a list - uses recursive type bound
+  public static <T extends Comparable<T>> T max(List<T> list) {
+          Iterator<T> i = list.iterator();
+          T result = i.next();
+          while (i.hasNext()) {
+                  T t = i.next();
+                  if (t.compareTo(result) > 0)
+                          result = t;
+          }
+          return result;
+  }
+#+END_SRC
+
+*** 递归通配符匹配
+Comparable/Comparator永远都是消费者！
+    #+BEGIN_SRC java
+      public static <T extends Comparable<? super T>> T max(List<? extends T> list) {
+              //这里不能在使用Iterator<T>，不然会编译报错
+              Iterator<? extends T> i = list.iterator();
+              T result = i.next();
+              while (i.hasNext()) {
+                      T t = i.next();
+                      if (t.compareTo(result) > 0) {
+                              result = t;
+                      }
+              }
+              return result;
+      }
+    #+END_SRC
+
+* 优先考虑类型安全的异构容器
+在特定情况下可能出现一个容器需要存放不同类型的元素，比如说数据库的一条记录中各个字段，每个字段可能有不同的数据类型
+
+** 使用key,value构建异构容器
+使用Map存放：用一个键值对来表示一个元素，并且键和值之间有类型关系，键的范型跟值的class类型是相同的。让键参数化，而不是值参数化
+
+#+BEGIN_SRC java
+  //使用map的key来做范型，value的class类型就是key
+  private final Map<Class<?>, Object> favorites
+        = new ConcurrentHashMap<>();
+
+  public <T> void putFavorite(Class<T> type, T instance) {
+          if (type == null) {
+                  throw new NullPointerException("Type is null");
+          }
+          favorites.put(type, instance);
+  }
+
+  public <T> T getFavorite(Class<T> type) {
+          return type.cast(favorites.get(type));
+  }
+
+  // Typesafe heterogeneous container pattern - client
+  public static void main(String[] args) {
+          Favorites f = new Favorites();
+          f.putFavorite(String.class, "Java");
+          f.putFavorite(Integer.class, 0xcafebabe);
+          f.putFavorite(Class.class, Favorites.class);
+          String favoriteString = f.getFavorite(String.class);
+          int favoriteInteger = f.getFavorite(Integer.class);
+          Class<?> favoriteClass = f.getFavorite(Class.class);
+          //Java cafebabe klose.effj.generics.Favorites
+          System.out.printf("%s %x %s%n", favoriteString,
+                            favoriteInteger, favoriteClass.getName());
+  }
+      
+#+END_SRC
+
+[[file:enum_annotation.org][Next：枚举和注解]]
+
+[[file:class_interface.org][Previous：类和接口]]
+
+[[file:effj.org][Home：目录]]

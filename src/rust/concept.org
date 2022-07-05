@@ -1,0 +1,539 @@
+#+TITLE: 基础概念
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: start.html   
+#+HTML_LINK_HOME: rust.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+BEGIN_EXAMPLE
+  本章介绍一些几乎所有编程语言都有的概念，以及它们在 Rust 中是如何工作的
+
+  很多编程语言的核心概念都是共通的，本章中展示的概念都不是 Rust 所特有的，不过会在 Rust 上下文中讨论它们，并解释使用这些概念的惯例
+#+END_EXAMPLE
+
+具体来说，将会学习 _变量_ 、 _基本类型_ 、 _函数_ 、 _注释_ 和 _控制流_ 
+
+#+BEGIN_EXAMPLE
+  每一个 Rust 程序中都会用到这些基础知识，提早学习这些概念会让人在起步时就打下坚实的基础
+#+END_EXAMPLE
+* 变量
+
+** 不变性
+   #+BEGIN_EXAMPLE
+     前面提到过，变量默认是不可改变的。这是推动充分利用 Rust 提供的安全性和简单并发性来编写代码的众多方式之一
+
+     不过，仍然可以使用可变变量。先来探讨一下 Rust 拥抱不可变性的原因及方法，以及何时不想使用不可变性
+   #+END_EXAMPLE
+
+   当变量不可变时，一旦值被绑定一个名称上，就不能改变这个值。为了对此进行说明，使用 _cargo new variables_ 命令在 projects 目录生成一个叫做 variables 的新项目。
+
+   接着，在新建的 variables 目录，打开 src/main.rs 并将代码替换为如下代码，这些代码还不能编译：
+
+   #+BEGIN_SRC rust
+  fn main() {
+      let x = 5;
+      println!("The value of x is: {}", x);
+      x = 6;
+      println!("The value of x is: {}", x);
+  }
+   #+END_SRC
+
+   保存并使用 cargo build 运行程序。应该会看到一条错误信息，如下输出所示：
+   #+BEGIN_SRC sh 
+  $ cargo build
+     Compiling variables v0.1.0 (/home/i514692/Documents/programming/html/klose911.github.io/src/rust/src/variables)
+  error[E0384]: cannot assign twice to immutable variable `x`
+   --> src/main.rs:4:5
+    |
+  2 |     let x = 5;
+    |         -
+    |         |
+    |         first assignment to `x`
+    |         help: make this binding mutable: `mut x`
+  3 |     println!("The value of x is: {}", x);
+  4 |     x = 6;
+    |     ^^^^^ cannot assign twice to immutable variable
+
+  error: aborting due to previous error
+
+  For more information about this error, try `rustc --explain E0384`.
+  error: could not compile `variables`.
+
+  To learn more, run the command again with --verbose.
+   #+END_SRC
+
+   错误信息指出错误的原因是 *不能对不可变变量 x 二次赋值* (cannot assign twice to immutable variable x)
+
+   #+BEGIN_EXAMPLE
+     Rust 编译器保证，如果声明一个值不会变，它就真的不会变
+
+     这意味着当阅读和编写代码时，不需要追踪一个值如何和在哪可能会被改变，从而使得代码易于推导
+   #+END_EXAMPLE
+
+   不过可变性也是非常有用的。变量只是默认不可变：可以在变量名之前加 _mut_ 来使其可变
+
+   #+BEGIN_EXAMPLE
+     除了允许改变值之外，mut 向代码阅读者表明了其他代码将会改变这个变量值的意图
+   #+END_EXAMPLE
+
+   例如，将 src/main.rs 修改为如下代码：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let mut x = 5;
+      println!("The value of x is: {}", x);
+      x = 6;
+      println!("The value of x is: {}", x);
+  }
+   #+END_SRC
+
+   现在运行这个程序：
+
+   #+BEGIN_SRC sh 
+  $ cargo run
+     Compiling variables v0.1.0 (/home/i514692/Documents/programming/html/klose911.github.io/src/rust/src/variables)
+      Finished dev [unoptimized + debuginfo] target(s) in 0.81s
+       Running `target/debug/variables`
+  The value of x is: 5
+  The value of x is: 6
+   #+END_SRC
+
+   通过 mut，允许把绑定到 x 的值从 5 改成 6。在一些情况下，会想用可变变量，因为与只用不可变变量相比，它会让 *代码更容易编写* 
+
+   #+BEGIN_EXAMPLE
+     除了防止出现 bug 外，还有很多地方需要权衡取舍
+
+     例如，使用大型数据结构时，适当地使用可变变量，可能比复制和返回新分配的实例更快
+     对于较小的数据结构，总是创建新实例，采用更偏向函数式的编程风格，可能会使代码更易理解，为可读性而牺牲性能或许是值得的。
+   #+END_EXAMPLE
+
+** 变量和常量的区别
+   #+BEGIN_EXAMPLE
+     不允许改变值的变量，可能会使你想起另一个大部分编程语言都有的概念：常量
+   #+END_EXAMPLE
+
+   类似于不可变变量，常量是绑定到一个名称的不允许改变的值，不过常量与变量还是有一些区别：
+   + *不允许对常量使用 mut* ：常量不光默认不能变，它 *总是不能变*
+   + 声明常量使用 *const* 关键字而不是 _let_ ，并且 *必须注明值的类型* 
+   #+BEGIN_EXAMPLE
+     在下一部分，“数据类型” 中会介绍类型和类型注解
+   #+END_EXAMPLE
+   + 常量可以在 *任何作用域中声明* ，包括 _全局作用域_ ，这在一个值需要被很多部分的代码用到时很有用
+   + 常量只能 *被设置为常量表达式* ，而不能是 _函数调用的结果_ ，或任何其他 _只能在运行时计算出的值_ 
+
+
+   下面是一个声明常量的例子，它的名称是 MAX_POINTS，值是 100,000：
+   #+BEGIN_SRC rust 
+  const MAX_POINTS: u32 = 100_000;
+   #+END_SRC
+
+   在声明它的作用域之中，常量在 *整个程序生命周期中都有效* ，这使得常量可以作为 _多处代码使用的全局范围的值_ ，例如一个游戏中所有玩家可以获取的最高分或者光速
+
+   #+BEGIN_EXAMPLE
+     将遍布于应用程序中的硬编码值声明为常量，能帮助后来的代码维护人员了解值的意图
+
+     如果将来需要修改硬编码值，也只需修改汇聚于一处的硬编码值
+   #+END_EXAMPLE
+
+** 隐藏
+   可以定义一个与之前变量同名的新变量，而新变量会 *隐藏* 之前的变量。Rustacean 们称之为第一个变量被第二个 隐藏 了，这意味着使用这个变量时会看到第二个值。可以用相同变量名称来隐藏一个变量，以及重复使用 _let_ 关键字来多次隐藏，如下所示：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let x = 5;
+
+      let x = x + 1;
+
+      let x = x * 2;
+
+      println!("The value of x is: {}", x);
+  }
+   #+END_SRC
+
+   这个程序首先将 x 绑定到值 5 上。接着通过 let x = 隐藏 x，获取初始值并加 1，这样 x 的值就变成 6 了。第三个 let 语句也隐藏了 x，将之前的值乘以 2，x 最终的值是 12。运行这个程序，它会有如下输出：
+
+   #+BEGIN_SRC sh 
+  $ cargo run
+     Compiling shadowing v0.1.0 (/home/i514692/Documents/programming/html/klose911.github.io/src/rust/src/shadowing)
+      Finished dev [unoptimized + debuginfo] target(s) in 0.61s
+       Running `target/debug/shadowing`
+  The value of x is: 12
+   #+END_SRC
+
+   _隐藏_ 与将变量 _标记为 mut_ 是有区别的：
+   + 当不小心尝试对变量重新赋值时：
+     + 如果 _没有使用 let_ 关键字，就会导致 *编译时错误* 
+     + 通过 _使用 let_ ，可以用这个值进行一些计算，不过 *计算完之后变量仍然是不变的* 
+   + 当再次使用 let 时，实际上 *创建了一个新变量* ，可以 *改变值的类型* ，但复用这个名字
+     + 例如，假设程序请求用户输入空格字符来说明希望在文本之间显示多少个空格，然而真正需要的是将输入存储成数字（多少个空格）：
+
+   #+BEGIN_SRC rust 
+  let spaces = "   ";
+  let spaces = spaces.len();
+   #+END_SRC
+
+   这里允许第一个 spaces 变量是字符串类型，而第二个 spaces 变量，它是一个恰巧与第一个变量同名的崭新变量，是数字类型。 *隐藏使我们不必使用不同的名字，如 spaces_str 和 spaces_num* ；相反，可以复用 spaces 这个更简单的名字。然而，如果尝试使用 mut：
+
+   #+BEGIN_SRC rust 
+  let mut spaces = "   ";
+  spaces = spaces.len();
+   #+END_SRC
+
+   将会得到一个编译时错误，如下所示：
+   #+BEGIN_SRC sh 
+  error[E0308]: mismatched types
+   --> src/main.rs:3:14
+    |
+  3 |     spaces = spaces.len();
+    |              ^^^^^^^^^^^^ expected &str, found usize
+    |
+    = note: expected type `&str`
+	       found type `usize`
+   #+END_SRC
+
+   这说明 mut 不能改变变量的类型
+
+   #+BEGIN_EXAMPLE
+     现在已经了解了变量如何工作，接下来看看变量可以拥有的更多数据类型
+   #+END_EXAMPLE
+
+* 基本数据类型
+  在 Rust 中，每一个值都属于某一个 *数据类型* ，这告诉 Rust 它被指定为何种数据，以便明确数据处理方式。将看到两类数据类型子集： _标量_ 和 _复合_ 
+
+  #+BEGIN_EXAMPLE
+    记住，Rust 是静态类型 (statically typed) 语言，也就是说在编译时就必须知道所有变量的类型
+
+  #+END_EXAMPLE
+  根据 _值_ 及其 _使用方式_ ， *编译器通常可以推断出想要用的类型* 。当 _多种类型均有可能_ 时，必须 *增加类型注解* ，像这样：
+
+  #+BEGIN_SRC rust 
+  let guess: u32 = "42".parse().expect("Not a number!");
+  #+END_SRC
+
+  如果不添加类型注解，Rust 会显示如下错误，这说明编译器需要提供更多信息，来了解想要的类型：
+
+  #+BEGIN_SRC sh 
+  error[E0282]: type annotations needed
+   --> src/main.rs:2:9
+    |
+  2 |     let guess = "42".parse().expect("Not a number!");
+    |         ^^^^^
+    |         |
+    |         cannot infer type for `_`
+    |         consider giving `guess` a type
+  #+END_SRC
+
+** 标量
+   _标量_ 类型代表 *一个单独的值* 。Rust 有四种基本的标量类型： _整型_ 、 _浮点型_ 、 _布尔_ 类型和 _字符_ 类型
+
+*** 整形
+    _整数_ 是一个 *没有小数部分的数字* 
+    #+BEGIN_EXAMPLE
+      以前使用过 u32 整数类型
+
+      该类型声明表明，它关联的值应该是一个占据 32 比特位的无符号整数
+      有符号整数类型以 i 开头而不是 u
+    #+END_EXAMPLE
+    下面表格展示了 Rust 内建的整数类型。在有符号列和无符号列中的每一个变体（例如，i16）都可以用来声明整数值的类型：
+
+    #+CAPTION: Rust 中的整型
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 长度    | 有符号 | 无符号 |
+    | 8-bit   | i8     | u8     |
+    | 16-bit  | i16    | u16    |
+    | 32-bit  | i32    | u32    |
+    | 64-bit  | i64    | u64    |
+    | 128-bit | i128   | u128   |
+    | arch    | isize  | usize  |
+
+    每一个变体都可以是有符号或无符号的，并有一个明确的大小：
+    + 有符号 和 无符号 代表数字能否为负值，换句话说，数字是否需要有一个符号（有符号数），或者永远为正而不需要符号（无符号数）
+    #+BEGIN_EXAMPLE
+      这有点像在纸上书写数字：当需要考虑符号的时候，数字以加号或减号作为前缀
+      然而，可以安全地假设为正数时，加号前缀通常省略
+
+      有符号数以补码形式存储
+    #+END_EXAMPLE
+    每一个有符号的变体可以储存包含从 -2^(n - 1) 到 2^(n - 1) - 1 在内的数字，这里 n 是变体使用的位数
+    #+BEGIN_EXAMPLE
+      所以 i8 可以储存从 -(2^7) 到 2^7 - 1 在内的数字，也就是从 -128 到 127
+    #+END_EXAMPLE
+
+    无符号的变体可以储存从 0 到 (2^n - 1) 的数字
+    #+BEGIN_EXAMPLE
+      所以 u8 可以储存从 0 到 2^8 - 1 的数字，也就是从 0 到 255
+    #+END_EXAMPLE
+
+    _isize_ 和 _usize_ 类型依赖 *运行程序的计算机架构* ：64 位架构上它们是 64 位的， 32 位架构上它们是 32 位的
+
+    可以使用下面表格中的任何一种形式编写数字字面值：
+    | 数字字面值     | 例子        |
+    | Decimal        | 98_222      |
+    | Hex            | 0xff        |
+    | Octal          | 0o77        |
+    | Binary         | 0b1111_0000 |
+    | Byte (u8 only) | b'A'        |
+
+    #+BEGIN_EXAMPLE
+      注意除 byte 以外的所有数字字面值允许使用类型后缀，例如 57u8
+
+      同时也允许使用 _ 做为分隔符以方便读数，例如1_000
+    #+END_EXAMPLE
+
+**** 整形溢出 
+     比方说有一个 u8 ，它可以存放从零到 255 的值。那么当你将其修改为 256 时会发生什么呢？这被称为 _整型溢出_ 
+
+     #+BEGIN_EXAMPLE
+       关于这一行为 Rust 有一些有趣的规则
+
+       当在 debug 模式编译时，Rust 检查这类问题并使程序 panic，这个术语被 Rust 用来表明程序因错误而退出
+       在 release 构建中，Rust 不检测溢出，相反会进行一种被称为二进制补码包装的操作
+       简而言之，256 变成 0，257 变成 1，依此类推
+
+       依赖整型溢出被认为是一种错误，即便可能出现这种行为。如果你确实需要这种行为，标准库中有一个类型显式提供此功能，Wrapping
+     #+END_EXAMPLE
+
+*** 浮点型
+    Rust 也有两个原生的 _浮点数_ 类型，它们是 *带小数点的数字* 。Rust 的浮点数类型是 _f32_ 和 _f64_ ，分别占 32 位和 64 位。 默认类型是 f64
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      let x = 2.0; // f64
+
+      let y: f32 = 3.0; // f32
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      浮点数采用 IEEE-754 标准表示：f32 是单精度浮点数，f64 是双精度浮点数
+
+      在现代 CPU 中，f64 与 f32 速度几乎一样，不过精度更高
+    #+END_EXAMPLE
+
+*** 数值运算
+    Rust 中的所有数字类型都支持基本数学运算： _加法_ 、 _减法_ 、 _乘法_ 、 _除法_ 和 _取余_ 。下面的代码展示了如何在 let 语句中使用它们：
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      // 加法
+      let sum = 5 + 10;
+
+      // 减法
+      let difference = 95.5 - 4.3;
+
+      // 乘法
+      let product = 4 * 30;
+
+      // 除法
+      let quotient = 56.7 / 32.2;
+
+      // 取余
+      let remainder = 43 % 5;
+  }
+    #+END_SRC
+
+    这些语句中的每个表达式使用了一个数学运算符并计算出了一个值，然后绑定给一个变量
+
+*** 布尔型
+    Rust 中的布尔类型有两个可能的值： _true_ 和 _false_ 。Rust 中的布尔类型使用 _bool_ 表示。例如：
+    #+BEGIN_SRC rust 
+  fn main() {
+      let t = true;
+
+      let f: bool = false; // 显式指定类型注解
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      使用布尔值的主要场景是条件表达式，例如 if 表达式
+    #+END_EXAMPLE
+
+*** 字符类型
+    目前为止只使用到了数字，不过 Rust 也支持字母。Rust 的 _char_ 类型是语言中 *最原生的字母类型* ，如下代码展示了如何使用它：
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      let c = 'z';
+      let z = 'ℤ';
+      let heart_eyed_cat = '😻';
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      注意 char 由单引号指定，不同于字符串使用双引号
+    #+END_EXAMPLE
+
+    Rust 的 char 类型的大小为 *四个字节* ，并代表了一个 *Unicode 标量值* ，这意味着它可以比 ASCII 表示更多内容
+
+    #+BEGIN_EXAMPLE
+      在 Rust 中，拼音字母，中文、日文、韩文等字符，emoji以及零长度的空白字符都是有效的 char 值
+
+      Unicode 标量值包含从 U+0000 到 U+D7FF 和 U+E000 到 U+10FFFF 在内的值
+
+      不过，“字符” 并不是一个 Unicode 中的概念，所以人直觉上的 “字符” 可能与 Rust 中的 char 并不符合
+    #+END_EXAMPLE
+
+** 复合类型
+   _复合类型_ 可以将 *多个值组合成一个类型* 。Rust 有两个原生的复合类型： _元组_ 和 _数组_ 
+
+*** 元组
+    _元组_ 是一个将 _多个其他类型的值_ *组合* 进一个 _复合类型_ 的主要方式
+    + 元组 *长度固定* ：一旦声明，其长度不会增大或缩小
+    + 使用包含在 _圆括号中的逗号分隔_ 的值列表来创建一个元组
+    + 元组中的每一个位置都有一个类型，而且这些 *不同值的类型也不必是相同的*
+
+    下面例子中使用了可选的类型注解：
+    #+BEGIN_SRC rust 
+  fn main() {
+      let tup: (i32, f64, u8) = (500, 6.4, 1);
+  }
+    #+END_SRC
+
+    tup 变量绑定到整个元组上，因为元组是一个单独的复合元素。为了从元组中获取单个值，可以使用 _模式匹配_ 来 *解构* _元组值_ ，像这样：
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      let tup = (500, 6.4, 1);
+
+      let (x, y, z) = tup;
+
+      println!("The value of y is: {}", y);
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      首先创建了一个元组并绑定到 tup 变量上
+
+      接着使用了 let 和一个模式将 tup 分成了三个不同的变量，x、y 和 z
+      这叫做解构，因为它将一个元组拆成了三个部分
+
+      最后，程序打印出了 y 的值，也就是 6.4。
+    #+END_EXAMPLE
+    除了使用模式匹配解构外，也可以使用点号 _._ 后跟 _值的索引_ 来直接访问它们。例如：
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      let x: (i32, f64, u8) = (500, 6.4, 1);
+
+      let five_hundred = x.0;
+
+      let six_point_four = x.1;
+
+      let one = x.2;
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      这个程序创建了一个元组，x，并接着使用索引为每个元素创建新变量
+
+      跟大多数编程语言一样，元组的第一个索引值是 0
+    #+END_EXAMPLE
+
+*** 数组
+
+    另一个包含多个值的方式是 _数组_ ：
+    + 与元组不同，数组中的 *每个元素的类型必须相同*
+    + Rust 中的数组是 *固定长度* 的：一旦声明，它们的长度不能增长或缩小
+
+    Rust 中，数组中的值位于 _中括号内的逗号_ 分隔的列表中：
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      let a = [1, 2, 3, 4, 5];
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      当想要在栈而不是在堆上为数据分配空间，或者是想要确保总是有固定数量的元素时，数组非常有用
+
+      但是数组并不如 vector 类型灵活，vector 类型是标准库提供的一个 允许 增长和缩小长度的类似数组的集合类型
+
+      当不确定是应该使用数组还是 vector 的时候，你可能应该使用 vector
+    #+END_EXAMPLE
+
+    一个可能想要使用数组而不是 vector 的例子是，当程序需要知道一年中月份的名字时。程序不大可能会去增加或减少月份。这时可以使用数组，因为它总是包含 12 个元素：
+
+    #+BEGIN_SRC rust 
+  fn main() {
+      let months = ["January", "February", "March", "April", "May", "June", "July",
+		    "August", "September", "October", "November", "December"];
+  }
+    #+END_SRC
+
+    可以像这样编写数组的类型：在方括号中包含 _每个元素的类型_ ，后跟 _分号_ ，再后跟数组 _元素的数量_ ：
+
+    #+BEGIN_SRC rust 
+  let a: [i32; 5] = [1, 2, 3, 4, 5];
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      这里，i32 是每个元素的类型。分号之后，数字 5 表明该数组包含五个元素
+    #+END_EXAMPLE
+
+    如果希望创建一个 *每个元素都相同* 的数组，可以在中括号内指定其 _初始值_ ，后跟 _分号_ ，再后跟数组的 _长度_ ，如下所示：
+
+    #+BEGIN_SRC rust 
+  let a = [3; 5];
+    #+END_SRC
+
+**** 访问数组元素 
+     数组是 *一整块分配在 _栈_ 上的内存* 。可以使用 *索引* 来访问数组的元素，像这样：
+
+     #+BEGIN_SRC rust 
+  fn main() {
+      let a = [1, 2, 3, 4, 5];
+
+      let first = a[0];
+      let second = a[1];
+  }
+     #+END_SRC
+
+     #+BEGIN_EXAMPLE
+       在这个例子中，叫做 first 的变量的值是 1，因为它是数组索引 [0] 的值，变量 second 将会是数组索引 [1] 的值 2
+     #+END_EXAMPLE
+
+**** 无效的数组元素访问
+     #+BEGIN_EXAMPLE
+       如果访问数组结尾之后的元素会发生什么呢？
+     #+END_EXAMPLE
+     将上面的例子改成下面这样，这 _可以编译_ 不过在 *运行时会因错误而退出* ：
+
+     #+BEGIN_SRC rust 
+  fn main() {
+      let a = [1, 2, 3, 4, 5];
+      let index = 10;
+
+      let element = a[index];
+
+      println!("The value of element is: {}", element);
+  }
+     #+END_SRC
+
+     #+BEGIN_SRC sh 
+  $ cargo run
+     Compiling array_index_out_of_bound v0.1.0 (/home/i514692/Documents/programming/html/klose911.github.io/src/rust/src/compound_data_type/ar\
+  ray_index_out_of_bound)
+      Finished dev [unoptimized + debuginfo] target(s) in 0.59s
+       Running `target/debug/array_index_out_of_bound`
+  thread 'main' panicked at 'index out of bounds: the len is 5 but the index is 10', src/main.rs:5:19
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace.
+     #+END_SRC
+
+     编译并没有产生任何错误，不过程序会出现一个 _运行时错误_ 并且 _不会成功退出_ 
+
+     #+BEGIN_EXAMPLE
+       当尝试用索引访问一个元素时，Rust 会检查指定的索引是否小于数组的长度
+       如果索引超出了数组长度，Rust 会 panic，这是 Rust 术语，它用于程序因为错误而退出的情况
+
+       这是第一个在实战中遇到的 Rust 安全原则的例子：
+       在很多底层语言中，并没有进行这类检查，这样当提供了一个不正确的索引时，就会访问无效的内存
+
+       通过立即退出而不是允许内存访问并继续执行，Rust 让程序员避开此类错误
+     #+END_EXAMPLE
+
+
+     [[file:ownership.org][Next：所有权]]
+
+     [[file:start.org][Previous: 入门]]
+
+     [[file:rust.org][Home: 目录]]
+

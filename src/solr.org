@@ -1,0 +1,873 @@
+#+TITLE: Solr
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+* 基础
+** 概念
++ Solr: 开源的企业级搜索服务器，底层使用易于扩展和修改的Java来实现,服务器通信使用标准的HTTP和XML
++ Lucene: 基于Java的全文信息检索工具包，它不是一个完整的搜索应用程序，只是为你的应用程序提供索引和搜索功能
+Solr依存于Lucene，Lucene是Solr的底层库,　Solr是Lucene的企业化应用服务器
+#+CAPTION: Solr架构图
+#+ATTR_HTML: image :width 90%
+[[./pic/solr.png]]    
+** 特性
+1. 高级的全文搜索功能
+2. 专为高通量的网络流量进行的优化
+3. 基于开放接口（XML和HTTP）的标准
+4. 综合的HTML管理界面
+5. 可伸缩性－能够有效地复制到另外一个Solr搜索服务器
+6. 使用XML配置达到灵活性和适配性
+7. 可扩展的插件体系
+   
+** 原理 
++ 在Solr和Lucene中，使用一个或多个Document来构建索引
++ Document包括一个或多个Field
++ Field包括名称、内容以及告诉Solr如何处理内容的元数据   
+#+CAPTION: Field类别
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 属性         | 描述                                                                         |
+| Index Field  | 可以进行搜索和排序，还可以运行Solr分析过程，此过程可修改内容以改进或更改结果 |
+| Stored Field | 内容保存在索引中。这对于检索和醒目显示内容很有用，但对于实际搜索则不是必需的 |
+
+* 配置 
+** schema
+*** types 
+    定义了 Solr如何处理Field, 添加到索引中的xml文件属性中的类型，如int、text、date等
+    
+    #+BEGIN_SRC nxml
+      <fieldType name="string" class="solr.StrField" sortMissingLast="true"/>
+      <fieldType name="boolean" class="solr.BoolField" sortMissingLast="true"/>
+      <fieldType name="int" class="solr.TrieIntField" precisionStep="0" positionIncrementGap="0"/>
+
+      <fieldType name="text_general" class="solr.TextField" positionIncrementGap="100">
+        <analyzer type="index">
+          <tokenizer class="solr.StandardTokenizerFactory"/>
+          <filter class="solr.StopFilterFactory" ignoreCase="true" words="stopwords.txt" enablePositionIncrements="true" />
+          <filter class="solr.LowerCaseFilterFactory"/>
+        </analyzer>
+
+        <analyzer type="query">
+          <tokenizer class="solr.StandardTokenizerFactory"/>
+          <filter class="solr.StopFilterFactory" ignoreCase="true" words="stopwords.txt" enablePositionIncrements="true" />
+          <filter class="solr.SynonymFilterFactory" synonyms="synonyms.txt" ignoreCase="true" expand="true"/>
+          <filter class="solr.LowerCaseFilterFactory"/>
+        </analyzer>
+      </fieldType>
+    #+END_SRC
+    
+    #+CAPTION: type字段属性
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 属性         | 描述                                                                                          |
+    | name             | 标识                                                                                          |
+    | class            | 和其他属性决定了这个fieldType的实际行为                                                         |
+    | sortMissingLast  | 设置成true: 没有该field的数据排在有该field的数据之后，而不管请求时的排序规则, 默认是false。    |
+    | sortMissingFirst | 跟上面倒过来呗。 默认成false                                                   |
+    | analyzer         | 字段类型指定的分词器                                                                            |
+    | type             | 当前分词用用于的操作: index代表生成索引时使用的分词器, query代码在查询时使用的分词器            |
+    | tokenizer        | 分词器类                                                                                        |
+    | filter           | 分词后应用的过滤器, 过滤器调用顺序和配置相同                                                    |
+*** fields
+    添加到索引文件中出现的属性名称，而声明类型就需要用到上面的types
+1. field: 固定的字段设置
+#+BEGIN_SRC nxml
+  <field name="id" type="string" indexed="true" stored="true" required="true" multiValued="false"/>
+  <field name="path" type="text_smartcn" indexed="false" stored="true" multiValued="false" termVector="true" />
+  <field name="content" type="text_smartcn" indexed="false" stored="true" multiValued="false" termVector="true"/>
+  <field name ="text" type ="text_ik" indexed ="true" stored ="false" multiValued ="true"/>
+  <field name ="pinyin" type ="text_pinyin" indexed ="true" stored ="false" multiValued ="false"/>
+  <field name="_version_" type="long" indexed="true" stored="true"/>
+#+END_SRC
+2. dynamicField: 动态的字段设置,用于后期自定义字段,*号通配符
+   #+BEGIN_SRC nxml
+     <dynamicField name="*_i" type="int" indexed="true" stored="true"/>
+     <dynamicField name="*_l" type="long" indexed="true" stored="true"/>
+     <dynamicField name="*_s" type="string" indexed="true" stored="true"/>
+   #+END_SRC
+3. copyField: 一般用于检索时用的字段。只对这一个字段进行索引分词就行了，dest字段如果有多个source一定要设置multiValued=true,否则会报错
+   #+BEGIN_SRC nxml
+     <copyField source="content" dest="pinyin"/>
+     <copyField source="content" dest="text"/>
+     <copyField source="pinyin" dest="text"/>
+   #+END_SRC
+   
+#+CAPTION: field字段属性
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 属性                 | 描述                                                                                                                             |
+| name                 | 字段类型名                                                                                                                       |
+| class                | java类名                                                                                                                         |
+| indexed              | 缺省true。 这个数据应被搜索和排序，如果数据没有indexed，则stored应是true。                                                       |
+| stored               | 缺省true。这个字段被包含在搜索结果中是合适的。如果数据没有stored,　则indexed应是true。                                           |
+| omitNorms            | 字段的长度不影响得分和在索引时不做boost时，设置它为true。一般文本字段不设置为true。                                              |
+| termVectors          | 如果字段被用来做more like this和highlight的特性时应设置为true。                                                                  |
+| compressed           | 字段是压缩的。这可能导致索引和搜索变慢，但会减少存储空间，只有StrField和TextField是可以压缩，这通常适合字段的长度超过200个字符。 |
+| multiValued          | 字段多于一个值的时候，可设置为true。                                                                                             |
+| positionIncrementGap | 和multiValued一起使用，设置多个值之间的虚拟空白的数量                                                                            |
+*** 其他
+1. uniqueKey: 唯一键，配置的是上面出现的fileds，一般是id、url等不重复的。在更新、删除的时候可以用到
+2. defaultSearchField: 默认搜索属性，如q=solr就是默认的搜索那个字段
+3. solrQueryParser: 查询转换模式，是AND还是OR
+   
+** solr
+*** index
+    #+CAPTION: 索引配置
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 属性                             | 描述                                                                                                                                                                                               |
+    | useCompoundFile                  | 将很多Lucene内部文件整合到一个文件来减少使用中的文件的数量，有助于减少Solr使用的文件句柄数目，代价是降低了性能。除非是应用程序用完了文件句柄，否则false的默认值应该就已经足够。                    |
+    | ramBufferSizeMB，maxBufferedDocs | 在添加或删除文档时，为了减少频繁的更些索引,Solr会选缓存在内存中,当内存中的文件大于设置的值,才会更新到索引库。较大的值可使索引时间变快但会牺牲较多的内存。如两个值同时设置,满足一个就会进行刷新索引 |
+    | mergeFactor                      | 决定低水平的 Lucene 段被合并的频率。较小的值（最小为 2）使用的内存较少但导致的索引时间也更慢。较大的值可使索引时间变快但会牺牲较多的内存                                                           |
+    | maxIndexingThreads               | indexWriter生成索引时使用的最大线程数                                                                                                                                                              |
+    | unlockOnStartup                  | Solr忽略在多线程环境中用来保护索引的锁定机制。在某些情况下索引可能会由于不正确的关机或其他错误而一直处于锁定，这就妨碍了添加和更新。将其设置为 true 可以禁用启动锁定，进而允许进行添加和更新。     |
+    | lockType                         | single: 在只读索引或是没有其它进程修改索引时使用。native: 使用操作系统本地文件锁,不能使用多个Solr在同一个JVM中共享一个索引, simple :使用一个文本文件锁定索引                                       |
+*** query
+    #+CAPTION: 查询配置
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 属性                     | 描述                                                                                                                                                                                                                                                                                                                          |
+    | maxBooleanClauses        | 最大的BooleanQuery数量. 当值超出时，抛出 TooManyClausesException.注意这个是全局的,如果是多个SolrCore都会使用一个值,每个Core里设置不一样的化,会使用最后一个的.                                                                                                                                                                 |
+    | filterCache              | filterCache存储了无序的lucene document id集合，1.存储了filter queries(“fq”参数)得到 的ocument id集合结果。2还可用于facet查询3. 3）如果配置了useFilterForSortedQuery，那么如果查询有filter，则使用filterCache                                                                                                                  |
+    | queryResultCache         | 缓存搜索结果,一个文档ID列表                                                                                                                                                                                                                                                                                                   |
+    | documentCache            | 缓存Lucene的Document对象,不会自热                                                                                                                                                                                                                                                                                             |
+    | fieldValueCache          | 字段缓存使用文档ID进行快速访问。默认情况下创建fieldValueCache即使这里没有配置。                                                                                                                                                                                                                                               |
+    | enableLazyFieldLoading   | 若应用程序预期只会检索 Document 上少数几个 Field，那么可以将属性设置为 true。延迟加载的一个常见场景大都发生在应用程序返回和显示一系列搜索结果的时候，用户常常会单击其中的一个来查看存储在此索引中的原始文档。初始的显示常常只需要显示很短的一段信息。若考虑到检索大型 Document 的代价，除非必需，否则就应该避免加载整个文档。 |
+    | queryResultWindowSize    | 一次查询中存储最多的doc的id数目.                                                                                                                                                                                                                                                                                              |
+    | queryResultMaxDocsCached | 查询结果doc的最大缓存数量, 例如要求每页显示10条,这里设置是20条,也就是说>缓存里总会给你多出10条的数据.让你点示下一页时很快拿到数据.                                                                                                                                                                                            |
+    | listener                 | 选项定义 newSearcher 和 firstSearcher 事件，您可以使用这些事件来指定实例化新搜索程序或第一个搜索程序时应该执行哪些查询。如果应用程序期望请求某些特定的查询，那么在创建新搜索程序或第一个搜索>程序时就应该反注释这些部分并执行适当的查询。                                                                                     |
+    | useColdSearcher          | 是否使用冷搜索,为false时使用自热后的searcher                                                                                                                                                                                                                                                                                  |
+    | maxWarmingSearchers      | 最大自热searcher数量                                                                                                                                                                                                                                                                                                          |
+** 中文分词器
+   　
+* 使用 
+** 维护索引
+*** 增加索引 
+    Solr在add文档时, 如果文档不存在就直接添加,如果文档存在就删除后添加,这也就是修改功能了. 判断文档是否存在的依据是定义好的uniqueKey字段
+    #+BEGIN_SRC java
+      SolrInputDocument doc = new SolrInputDocument();
+      doc.setField("id", "ABC");
+      doc.setField("content", "中华人民共和国");
+
+      //构建好文档后添加的上面初始化好的server里就行了.
+      server.add(doc);
+      server.commit();//这句一般不用加因为我们可以通过在配置文件中的autoCommit来提高性能
+    #+END_SRC
+*** 删除索引
++ 通过文档ID删除
+  #+BEGIN_SRC java
+    server.deleteById(id);
+    //或是使用批量删除
+    server.deleteById(ids);
+  #+END_SRC
++ 通过查询删除
+  #+BEGIN_SRC java
+    server.deleteByQuery("*.*");//这样就删除了所有文档索引
+    //”*.*”就查询所有内容的,介绍查询时会详细说明
+  #+END_SRC
+*** 优化索引
+** 查询索引
+*** 直接URL查询
+    collection1的SolrCore中所有内容用xml格式返回并且有缩进
+    #+BEGIN_SRC html
+     http://localhost:8983/solr/collection1/select?q=*%3A*&wt=xml&indent=true
+    #+END_SRC
+    
+    返回结果中的doc就是一个文档,在doc里面的就是在schema.xml中定义的各个字段
+    #+BEGIN_SRC nxml
+     <response>
+       <lst name="responseHeader">
+         <int name="status">0</int>
+         <int name="QTime">1</int>
+         <lst name="params">
+           <str name="q">*:*</str>
+           <str name="indent">true</str>
+           <str name="wt">xml</str>
+         </lst>
+       </lst>
+       <result name="response" numFound="32" start="0">
+         <doc>
+           <str name="id">GB18030TEST</str>
+           <str name="name">Test with some GB18030 encoded characters</str>
+           <arr name="features">
+             <str>No accents here</str>
+             <str>这是一个功能</str>
+             <str>This is a feature (translated)</str>
+             <str>这份文件是很有光泽</str>
+             <str>This document is very shiny (translated)</str>
+           </arr>
+           <float name="price">0.0</float>
+           <str name="price_c">0,USD</str>
+           <bool name="inStock">true</bool>
+           <long name="_version_">1551530971591868416</long>
+         </doc>
+         <doc>
+           <str name="id">SP2514N</str>
+           <str name="name">
+             Samsung SpinPoint P120 SP2514N - hard drive - 250 GB - ATA-133
+           </str>
+           <str name="manu">Samsung Electronics Co. Ltd.</str>
+           <str name="manu_id_s">samsung</str>
+           <arr name="cat">
+             <str>electronics</str>
+             <str>hard drive</str>
+           </arr>
+           <arr name="features">
+             <str>7200RPM, 8MB cache, IDE Ultra ATA-133</str>
+             <str>
+               NoiseGuard, SilentSeek technology, Fluid Dynamic Bearing (FDB) motor
+             </str>
+           </arr>
+           <float name="price">92.0</float>
+           <str name="price_c">92,USD</str>
+           <int name="popularity">6</int>
+           <bool name="inStock">true</bool>
+           <date name="manufacturedate_dt">2006-02-13T15:26:37Z</date>
+           <str name="store">35.0752,-97.032</str>
+           <long name="_version_">1551530971597111296</long>
+         </doc>
+　　　　　...
+       </result>
+     </response>
+    #+END_SRC
+*** 使用java查询
+    #+BEGIN_SRC java
+      SolrQuery query = new SolrQuery();
+      query.set("q","*.*");
+      QueryResponse rsp =server.query(query);
+      SolrDocumentList list = rsp.getResults();
+    #+END_SRC
+    遍历返回结果
+    #+BEGIN_SRC java
+  for (int i = 0; i < list.size(); i++) {
+          SolrDocument sd = list.get(i);
+          String id = (String) sd.getFieldValue("id");
+          System.out.println(id);
+  }
+    #+END_SRC
+*** 查询参数 
+    #+CAPTION: 查询参数
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 名称         | 描述                                                                                  | 示例                                                                                          |
+    | q            | 查询字符串，必须的                                                                    | q=mm                                                                                          |
+    | fq           | filter query, 利用Filter Query Cache，提高检索性能。在q查询符合结果中同时是fq查询符合 | q=mm&fq=dateTime:[20081001 TO 20091031]，找关键字mm，并且dateTime是20081001到20091031之间的   |
+    | fl           | field list, 指定返回结果字段                                                          | 以空格“ ”或逗号“,”分隔                                                                        |
+    | start        | 用于分页定义结果起始记录数                                                            | 默认为0                                                                                       |
+    | rows         | 用于分页定义结果每页返回记录数                                                        | 默认为10                                                                                      |
+    | sort         | 排序，sort=<field name>+<desc/asc>[,<field name>+<desc/asc>]                          | （inStock desc, price asc）先 “inStock” 降序, 再 “price” 升序                                 |
+    | df           | 默认的查询字段                                                                        |                                                                                               |
+    | q.op         | 覆盖schema.xml的defaultOperator（有空格时用"AND"还是用"OR"操作逻辑）                  |                                                                                               |
+    | wt           | writer type, 指定查询输出结构格式，默认为“xml”                                        | 在solrconfig.xml中定义了查询输出格式：xml、json、python、ruby、php、phps、custom              |
+    | qt           | query type，指定查询使用的Query Handler                                               | 默认为“standard”                                                                              |
+    | explainOther | 当debugQuery=true时，显示其他的查询说明                                               |                                                                                               |
+    | defType      | 查询解析器名称                                                                        |                                                                                               |
+    | timeAllowed  | 查询超时时间                                                                          |                                                                                               |
+    | omitHeader   | 是否忽略查询结果返回头信息                                                            | 默认为“false”                                                                                 |
+    | indent       | 返回的结果是否缩进                                                                    | 默认关闭，用 indent=true 开启，一般调试用                                                     |
+    | version      | 查询语法的版本                                                                        | 建议不使用                                                                                    |
+    | debugQuery   | 返回结果是否显示Debug信息                                                             |                                                                                               |
+*** 查询语法
+**** 匹配所有文档
+     q=*:* 
+**** 强制、阻止和可选查询
++ Mandatory： +make +up +kiss
++ prohibited：+make +up -kiss
++ optional:   +make +up kiss
+**** 布尔操作
+     AND、OR和NOT必须大写
++ make AND up ＝ +make +up，AND左右两边的操作都是mandatory
++ make || up ＝ make OR up，OR左右两边的操作都是optional
++ +make +up NOT kiss ＝ +make +up –kiss
++ make AND up OR french AND Kiss，错误！因为AND两边的操作都是mandatory的。
+**** 子表达式查询
+     (make AND up) OR (french AND Kiss)
+**** 子表达式查询中阻止查询
+     make (-up *:*)查询make并且不包括up的结果
+**** 通配符查询
++ 通配符？和*：“*”表示匹配任意字符；“？”表示匹配出现的位置。示例：ma?*（ma后面的一个位置匹配），ma??*(ma后面两个位置都匹配)
++ 查询字符必须要小写:+Ma +be**可以搜索到结果,+Ma +Be**没有搜索结果
++ 查询速度较慢，尤其是通配符在首位：首先需要迭代查询字段中的每个term，判断是否匹配；其次匹配上的term被加到内部的查询，当terms数量达到1024的时候，查询会失败
++ Solr中默认通配符不能出现在首位（可以修改QueryParser，设置setAllowLeadingWildcard为true）
+**** 模糊查询 
+     通过对查询的字段进行重新插入、删除和转换来取得得分较高的查询解决（由Levenstein Distance Algorithm算法支持）
++ 一般模糊查询：示例：make-believ~
++ 门槛模糊查询：对模糊查询可以设置查询门槛，门槛是0~1之间的数值，门槛越高表面相似度越高。示例：make-believ~0.5、make-believ~0.8、make-believ~0.9
+**** 范围查询
+     Lucene支持对数字、日期甚至文本的范围查询。结束的范围可以使用“*”通配符
++ 日期范围（ISO-8601） aBeginDate:[ 1990-01-01T00:00:00.000Z TO 1999-12-31T24:59:99.999Z]
++ 数字 salary:[2000 TO *]
++ 文本 entryNm:[a TO a]
+**** 日期匹配
+     YEAR, MONTH, DAY, DATE (DAY) HOUR, MINUTE, SECOND, MILLISECOND, and MILLI (MILLISECOND)可以被标志成日期
++ rEventDate:[* TO NOW-2YEAR]：到2年前为止
++ rEventDate:[* TO NOW/DAY-2YEAR]：到2年前前一天为止
+*** 函数查询 
+    利用numeric字段的值或者与字段相关的的某个特定的值的函数，来对文档进行评分
+**** 函数查询方法
+1. 使用FunctionQParserPlugin：q={!func}log(foo)
+2. 使用“_val_”内嵌方法：内嵌在正常的solr查询表达式中，将函数查询写在q这个参数中，使用“_val_”将函数与其他的查询加以区别。比如entryNm:make　&& _val_:ord(entryNm)
+3. 使用dismax中的bf参数：明确为函数查询的参数，dismax中的bf（boost function）这个参数。注意：bf这个参数是可以接受多个函数查询的，之间用空格隔开，还可以带上权重。所以当使用bf这个参数的时候，必须保证单个函数中是没有空格出现的，不然程序有可能会以为是两个函数。比如q=dismax&bf="ord(popularity)^0.5 recip(rord(price),1,1000,1000)^0.3　
+**** 函数格式
+     诸如sum(a,b)
+**** 可用函数
+     #+CAPTION: 查询函数列表
+     #+ATTR_HTML: :border 1 :rules all :frame boader
+     | 函数名     | 作用                                                                                                                                                               | 举例                                                                                                                                                                                                                                                       |
+     | constant   | 支持有小数点的常量                                                                                                                                                 | SolrQuerySyntax:_val_:1.5                                                                                                                                                                                                                                  |
+     | fieldvalue | 返回numeric field的值，字段必须是indexd的，非multiValued                                                                                                           | 该字段的名字。如果这个字段中没有这样的值，那么将会返回0                                                                                                                                                                                                    |
+     | ord        | 返回要查询的特定的字段值在字典排列顺序中的排名。必须是非multiValued的,当没有值存在的时候，将返回0                                                                  | 某个特定的字段只有三个值，“apple”、“banana”、“pear”，那么ord（“apple”）=1，ord（“banana”）=2，ord（“pear”）=3。需要注意的是，ord（）这个函数，依赖于值在索引中的位置，所以当有文档被删除、或者添加的时候，ord的值就会发生变化                              |
+     | rord       | 返回与ord相对应的倒排序的排名                                                                                                                                      | rord(myIndexedField)                                                                                                                                                                                                                                       |
+     | sum        | 加法                                                                                                                                                               | sum(x,1), sum(x,y),sum(sqrt(x),log(y),z,0.5)                                                                                                                                                                                                               |
+     | product    | 乘积                                                                                                                                                               | product(x,2),product(x,y)                                                                                                                                                                                                                                  |
+     | div        | div(x,y)表示x除以y的值                                                                                                                                             | div（1,x）,div(sum(x,100),max(y,1))                                                                                                                                                                                                                        |
+     | pow        | 幂值                                                                                                                                                               | pow(x,0.5) 表示开方pow(x,log(y))                                                                                                                                                                                                                           |
+     | abs        | 绝对值                                                                                                                                                             | 格式：abs(-5), abs(x)                                                                                                                                                                                                                                      |
+     | log        | 基数为10的对数                                                                                                                                                     | log(x), log(sum(x,100))                                                                                                                                                                                                                                    |
+     | sqrt       | 平方根                                                                                                                                                             | sqrt（2),sqrt(sum(x,100))                                                                                                                                                                                                                                  |
+     | map        | 如果 x>=min,且x<=max,那么map(x,min,max,target)=target, 反之map(x,min,max,target)=x                                                                                 | map(x,0,0,1)                                                                                                                                                                                                                                               |
+     | scale      | scale(x,minTarget,maxTarget)将会把x的值限制在[minTarget,maxTarget]范围内                                                                                           |                                                                                                                                                                                                                                                            |
+     | query      | query(subquery,default)返回给定subquery的分数，如果subquery与文档不匹配，那么将会返回默认值。任何的查询类型都 是受支持的, 可以通过引用的方式，也可以直接指定查询串 | q=product(popularity, query({!dismax v='solr rocks'}) 将会返回popularity和通过dismax查询得到的分数的乘积, q=product(popularity, query($qq)&qq={!dismax}solr rocks使用引用的方式, q=product(popularity, query($qq,0.1)&qq={!dismax}solr rocks加了一个默认值 |
+     | linear     | linear(x,m,c)表示 m*x+c ,其中m和c都是常量，x是一个变量也可以是一个函数                                                                                             | linear(x,2,4)=2*x+4                                                                                                                                                                                                                                        |
+     | recip      | recip(x,m,a,b)=a/(m*x+b)其中，m、a、b是常量，x是变量或者一个函数。当a=b，并且x>=0的时候，这个函数的最大值是1，值的大小随着x的增大而减小                            | recip(rord(creationDate),1,1000,1000)                                                                                                                                                                                                                      |
+     | max        | max(x,c)将会返回一个函数和一个常量之间的最大值                                                                                                                     | max(myfield,0)                                                                                                                                                                                                                                             |
+**** 注意事项
++ 用于函数查询的field必须是被索引的
++ 字段不可以是多值的（multi-value）
+  
+*** 高亮显示
+    solr包含highlight组件
+**** url
+     #+BEGIN_SRC html
+  http://localhost:8983/solr/collection1/select?q=id:SP2514N&start=0&rows=1&fl=name+price+instock&wt=xml&indent=true&hl=true&hl.fl=price
+     #+END_SRC
++ hl=true：高亮显示结果
++ hl.fl=price:高亮显示字段
+  
+查询结果
+#+BEGIN_SRC nxml
+  <response>
+    <lst name="responseHeader">
+      <int name="status">0</int>
+      <int name="QTime">1</int>
+      <lst name="params">
+        <str name="q">id:SP2514N</str>
+        <str name="hl">true</str>
+        <str name="indent">true</str>
+        <str name="fl">name price instock</str>
+        <str name="start">0</str>
+        <str name="hl.fl">price</str>
+        <str name="rows">1</str>
+        <str name="wt">xml</str>
+      </lst>
+    </lst>
+    <result name="response" numFound="1" start="0">
+      <doc>
+        <str name="name">
+          Samsung SpinPoint P120 SP2514N - hard drive - 250 GB - ATA-133
+        </str>
+        <float name="price">92.0</float>
+      </doc>
+    </result>
+    <lst name="highlighting">
+      <lst name="SP2514N"/>
+    </lst>
+  </response>
+#+END_SRC
+**** solj
+     手动设置高亮
+     #+BEGIN_SRC java
+       SolrQuery query = new SolrQuery();
+       query.set("q","*.*");
+       query.setHighlight(true); // 开启高亮组件
+       query.addHighlightField("price");// 高亮字段
+       query.setHighlightSimplePre(PRE_TAG);// 标记
+       query.setHighlightSimplePost(POST_TAG);
+       QueryResponse rsp =server.query(query);
+     #+END_SRC
+     
+     遍历结果
+     #+BEGIN_SRC java
+  //取出高亮结果
+  if (rsp.getHighlighting() != null) {
+          if (rsp.getHighlighting().get(id) != null) {//先通过结果中的ID到高亮集合中取出文档高亮信息
+                  Map<String, List<String>> map = rsp.getHighlighting().get(id);//取出高亮片段
+                  if (map.get(name) != null) {
+                          for (String s : map.get(name)) {
+                                  System.out.println(s);
+                          }
+                  }
+          }
+     #+END_SRC
+*** 拼写检查
+**** 配置
+     solrconfig.xml
+     #+BEGIN_SRC nxml
+       <searchComponent name="spellcheck" class="solr.SpellCheckComponent">
+         <str name="queryAnalyzerFieldType">text_spell</str> 
+         <lst name="spellchecker"> 
+           <str name="name">direct</str> 
+           <str name="field">spell</str> 
+           <str name="classname">solr.DirectSolrSpellChecker</str> 
+           <str name="distanceMeasure">internal</str> 
+           <float name="accuracy">0.5</float> 
+           <int name="maxEdits">2</int> 
+           <int name="minPrefix">1</int> 
+           <int name="maxInspections">5</int> 
+           <int name="minQueryLength">2</int> 
+           <float name="maxQueryFrequency">0.01</float> 
+         </lst> 
+       </searchComponent> 
+
+       <requestHandler name="/spell" class="solr.SearchHandler" startup="lazy"> 
+         <lst name="defaults"> 
+           <str name="spellcheck.dictionary">direct</str> 
+           <str name="spellcheck">on</str>  
+           <str name="spellcheck.collate">true</str> 
+           <str name="spellcheck.collateExtendedResults">true</str>   
+         </lst> 
+         <arr name="last-components"> 
+           <str>spellcheck</str> 
+         </arr> 
+       </requestHandler>
+     #+END_SRC
+**** url
+     #+BEGIN_SRC html
+       http://localhost:8983/solr/collection1/spell?wt=xml&indent=true&spellcheck=true&spellcheck.q=GB18030TEST
+     #+END_SRC
+     返回结果
+     #+BEGIN_SRC nxml
+  <response>
+    <lst name="responseHeader">
+      <int name="status">0</int>
+      <int name="QTime">22</int>
+    </lst>
+    <result name="response" numFound="0" start="0"></result>
+    <lst name="spellcheck">
+      <lst name="suggestions">
+        <lst name="gb18030test">
+          <int name="numFound">1</int>
+          <int name="startOffset">0</int>
+          <int name="endOffset">11</int>
+          <int name="origFreq">0</int>
+          <arr name="suggestion">
+            <lst>
+              <str name="word">gb18030 test</str>
+              <int name="freq">2</int>
+            </lst>
+          </arr>
+        </lst>
+        <bool name="correctlySpelled">false</bool>
+        <lst name="collation">
+          <str name="collationQuery">(gb18030 test)</str>
+          <int name="hits">2</int>
+          <lst name="misspellingsAndCorrections">
+            <str name="gb18030test">gb18030 test</str>
+          </lst>
+        </lst>
+      </lst>
+    </lst>
+  </response>
+     #+END_SRC
+**** solj
+     #+BEGIN_SRC java
+       SolrQuery query = new SolrQuery();
+       query.set("q","*.*");
+       query.set("qt", "/spell");
+       QueryResponse rsp =server.query(query)
+     #+END_SRC
+     遍历结果
+     #+BEGIN_SRC java
+       SpellCheckResponse spellCheckResponse = rsp.getSpellCheckResponse();
+       if (spellCheckResponse != null) {
+               String collation = spellCheckResponse.getCollatedResult();
+       }
+     #+END_SRC
+*** 搜索建议
+**** 配置
+     solrconfig.xml
+     #+BEGIN_SRC nxml
+       <searchComponent  name="suggest" class="solr.SpellCheckComponent">
+         <str name="queryAnalyzerFieldType">string</str>
+         <lst name="spellchecker">
+           <str name="name">suggest</str>
+           <str name="classname">org.apache.solr.spelling.suggest.Suggester</str>
+           <str name="lookupImpl">org.apache.solr.spelling.suggest.tst.TSTLookup</str>
+           <str name="field">text</str>
+           <float name="threshold">0.0001</float>
+           <str name="spellcheckIndexDir">spellchecker</str>
+           <str name="comparatorClass">freq</str>
+           <str name="buildOnOptimize">true</str>
+           <!--<str name="buildOnCommit">true</str>-->
+         </lst>
+       </searchComponent>
+
+       <requestHandler  name="/suggest" class="solr.SearchHandler" startup="lazy">
+         <lst name="defaults">
+           <str name="spellcheck">true</str>
+           <str name="spellcheck.dictionary">suggest</str>
+           <str name="spellcheck.onlyMorePopular">true</str>
+           <str name="spellcheck.extendedResults">false</str>
+           <str name="spellcheck.count">10</str>
+           <str name="spellcheck.collate">true</str>
+         </lst>
+         <arr name="components">
+           <str>suggest</str>
+         </arr>
+       </requestHandler>
+     #+END_SRC
+**** url
+     #+BEGIN_SRC html
+       http://localhost:8983/solr/collection1/suggest?wt=xml&indent=true&spellcheck=true&spellcheck.q=id:MA147LL/A
+     #+END_SRC
+     返回结果
+     #+BEGIN_SRC nxml
+  <response>
+    <lst name="responseHeader">
+      <int name="status">0</int>
+      <int name="QTime">1</int>
+    </lst>
+    <lst name="spellcheck">
+      <lst name="suggestions">
+        <lst name="a">
+          <int name="numFound">9</int>
+          <int name="startOffset">11</int>
+          <int name="endOffset">12</int>
+          <arr name="suggestion">
+            <str>and</str>
+            <str>an</str>
+            <str>apache</str>
+            <str>at</str>
+            <str>adapter</str>
+            <str>advanced</str>
+            <str>administration</str>
+            <str>adaptable</str>
+            <str>active</str>
+          </arr>
+        </lst>
+        <str name="collation">id:MA147LL/and</str>
+      </lst>
+    </lst>
+  </response>
+     #+END_SRC
+**** solj
+     #+BEGIN_SRC java
+       SolrQuery query = new SolrQuery();
+       query.set("q", token);
+       query.set("qt", "/suggest");
+       query.set("spellcheck.count", "10");
+       QueryResponse response = server.query(query);
+     #+END_SRC
+     遍历结果
+     #+BEGIN_SRC java
+  SpellCheckResponse spellCheckResponse = response.getSpellCheckResponse();
+  if (spellCheckResponse != null) {
+          List<SpellCheckResponse.Suggestion> suggestionList = spellCheckResponse.getSuggestions();
+          for (SpellCheckResponse.Suggestion suggestion : suggestionList) {
+                  List<String> suggestedWordList = suggestion.getAlternatives();
+                  for (int i = 0; i < suggestedWordList.size(); i++) {
+                          String word = suggestedWordList.get(i);
+                  }
+          }
+          return results;
+  }
+     #+END_SRC
+     可以通过threshold参数来限制一些不常用的词不出现在智能提示列表中，当这个值设置过大时，可能导致结果太少
+*** 拼音检查
+*** 自动聚类
+Solr使用Carrot2完成了聚类功能,　能够把检索到的内容自动分类
+
+*** 相似匹配
+    使用网页搜索时，会注意到每一个结果都包含一个“相似页面” 链接，单击该链接，就会发布另一个搜索请求，查找出与起初结果类似的文档。Solr使用MoreLikeThisComponent（MLT）和MoreLikeThisHandler实现了一样的功能。MLT是与标准SolrRequestHandler集成在一起的；MoreLikeThisHandler与MLT结合在一起，并添加了一些其他选项，但它要求发布一个单一的请求
+    
+    MLT要求字段被储存或使用检索词向量，检索词向量以一种以文档为中心的方式储存信息。MLT通过文档的内容来计算文档中关键词语，然后使用原始查询词语和这些新词语创建一个新的查询。提交新查询就会返回其他查询结果。所有这些都可以用检索词向量来完成
+    
+**** 配置
+     solrconfig.xml 
+     #+BEGIN_SRC nxml
+       <requestHandler name="/mlt" class="solr.MoreLikeThisHandler">  
+       </requestHandler>
+     #+END_SRC
+     
+**** url 
+     查找id为6F398CCD-2DE0-D3B1-9DD6-D4E532FFC531的document, 然后返回与此document在name字段上相似的其他document
+     #+BEGIN_SRC html
+       http://localhost:8983/skyCore/mlt?q=id%3A6F398CCD-2DE0-D3B1-9DD6-D4E532FFC531&mlt.true&mlt.fl=content&wt=xml&indent=true
+     #+END_SRC
+     
+     #+CAPTION: MLT查询参数列表
+     #+ATTR_HTML: :border 1 :rules all :frame boader
+     | 参数 | 说明 | 举例 | 
+     | mlt | 在查询时，打开/关闭MLT的布尔值 | true/false | 
+     | mlt.count | 每一个结果要检索的相似文档数 | > 0 | 
+     | mlt.fl | MLT查询的字段 | 任何被储存的或含有检索词向量的字段 |
+     | mlt.maxqt | 查询词语的最大数量 | 由于长文档可能会有很多关键词语，这样MLT查询可能会很大，从而导致反应缓慢或TooManyClausesException，该参数只保留关键的词语 |
+     
+     mlt.fl中field必须配置成termVector=true才有效果！
+**** solj
+     #+BEGIN_SRC java
+       SolrQuery  query = new SolrQuery();
+       query.set("qt", "/mlt"); //使用相似查询
+       query.set("mlt.fl","content");
+       query.set("fl", "id,");
+       query.set("q", "id: 6F398CCD-2DE0-D3B1-9DD6-D4E532FFC531");
+       query.setStart(0);
+       query.setRows(5);
+       QueryResponse  rsp = server.query(query);
+       SolrDocumentList list = rsp.getResults();
+     #+END_SRC
+     
+** 分组统计
+   Facet是solr的高级搜索功能之一,可以给用户提供更友好的搜索体验. 在搜索关键字的同时, 能够按照Facet的字段进行分组并统计. Facet组件是Solr默认集成的一个组件
+   
+*** Facet字段
++ 适宜被Facet的字段, 一般都代表了实体的某种公共属性,　如商品的分类,　商品的制造厂家,书籍的出版商等　
++ Facet的字段必须被索引.一般来说该字段无需分词,无需存储。无需存储是因为一般而言用户所关心的并不是该字段的具体值,而是作为对查询结果进行分组的一种手段,用户一般会沿着这个分组进一步深入搜索
++ 对于一般查询而言,分词和存储都是必要的。解决方法为：将CPU字段设置为不分词不存储，然后建立另外一个字段为它的COPY,对这个COPY的字段进行分词和存储
+  
+*** Facet组件
+    Solr的默认requestHandler已经包含了Facet组件(solr.FacetComponent)。如果自定义requestHandler或者对默认的requestHandler自定义组件列表,那么需要将Facet加入到组件列表中去。
+    
+    进行Facet查询需要在请求参数中加入facet=on或者facet=true只有这样Facet组件才起作用.
+    
+*** Field Facet 
+    Facet字段通过在请求中加入facet.field参数加以声明,如果需要对多个字段进行Facet查询,那么将该参数声明多次
+    #+BEGIN_SRC html
+  http://localhost:8983/solr/collection1/select?q=*%3A*&start=0&rows=1&wt=xml&indent=true&facet=true&facet.field=cat&facet.field=price
+    #+END_SRC
+    返回结果
+    #+BEGIN_SRC nxml
+  <response>
+    <lst name="responseHeader">
+      <int name="status">0</int>
+      <int name="QTime">2</int>
+      <lst name="params">
+        <str name="q">*:*</str>
+        <arr name="facet.field">
+          <str>cat</str>
+          <str>price</str>
+        </arr>
+        <str name="indent">true</str>
+        <str name="start">0</str>
+        <str name="rows">1</str>
+        <str name="wt">xml</str>
+        <str name="facet">true</str>
+      </lst>
+    </lst>
+    <result name="response" numFound="32" start="0">
+      <doc>
+        <str name="id">GB18030TEST</str>
+        <str name="name">Test with some GB18030 encoded characters</str>
+        <arr name="features">
+          <str>No accents here</str>
+          <str>这是一个功能</str>
+          <str>This is a feature (translated)</str>
+          <str>这份文件是很有光泽</str>
+          <str>This document is very shiny (translated)</str>
+        </arr>
+        <float name="price">0.0</float>
+        <str name="price_c">0,USD</str>
+        <bool name="inStock">true</bool>
+        <long name="_version_">1551530971591868416</long>
+      </doc>
+    </result>
+    <lst name="facet_counts">
+      <lst name="facet_queries"/>
+      <lst name="facet_fields">
+        <lst name="cat">
+          <int name="electronics">14</int>
+          <int name="currency">4</int>
+          <int name="memory">3</int>
+          <int name="connector">2</int>
+          <int name="graphics card">2</int>
+          <int name="hard drive">2</int>
+          <int name="monitor">2</int>
+          <int name="search">2</int>
+          <int name="software">2</int>
+          <int name="camera">1</int>
+          <int name="copier">1</int>
+          <int name="multifunction printer">1</int>
+          <int name="music">1</int>
+          <int name="printer">1</int>
+          <int name="scanner">1</int>
+        </lst>
+        <lst name="price">
+          <int name="0.0">3</int>
+          <int name="11.5">1</int>
+          <int name="19.95">1</int>
+          <int name="74.99">1</int>
+          <int name="92.0">1</int>
+          <int name="179.99">1</int>
+          <int name="185.0">1</int>
+          <int name="279.95">1</int>
+          <int name="329.95">1</int>
+          <int name="350.0">1</int>
+          <int name="399.0">1</int>
+          <int name="479.95">1</int>
+          <int name="649.99">1</int>
+          <int name="2199.0">1</int>
+        </lst>
+      </lst>
+      <lst name="facet_dates"/>
+      <lst name="facet_ranges"/>
+    </lst>
+  </response>
+    #+END_SRC
+    各个Facet字段互不影响,且可以针对每个Facet字段设置查询参数
+    #+BEGIN_SRC sql
+  f.字段名.参数名=参数值
+    #+END_SRC
+    
+    #+CAPTION: Field Facet查询参数列表
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | field 查询参数　| 作用　| 举例 | 
+    | facet.prefix | Facet字段值的前缀 | facet.field=cpu&facet.prefix=Intel, 那么对cpu字段进行Facet查询, 返回的cpu都是以Intel开头的, AMD开头的cpu型号将不会被统计在内 |
+    | facet.sort | Facet字段值以哪种顺序返回 | 可接受的值为true(count)/false(index,lex): true(count)表示按照count值从大到小排列, false(index,lex)表示按照字段值的自然顺序(字母,数字的顺序)排列. 默认情况下为true(count).当facet.limit值为负数时, 默认facet.sort= false(index,lex) | 
+    | facet.limit | 限制Facet字段返回的结果条数 | 默认值为100, 如果此值为负数,表示不限制 | 
+    | facet.offset | 返回结果集的偏移量 | 默认为0, 与facet.limit配合使用可以达到分页的效果 | 
+    | facet.mincount | 限制了Facet字段值的最小count | 默认为0, 合理设置该参数可以将用户的关注点集中在少数比较热门的领域 | 
+    | facet.missing | | 默认为””, 如果设置为true或者on, 那么将统计那些该Facet字段值为null的记录 | 
+    | facet.method | facet算法, 为enum或fc | 默认为fc, enum适用于字段值比较少的情况,比如字段类型为布尔型,或者字段表示中国的所有省份.Solr会遍历该字段的所有取值,并从filterCache里为每个值分配一个filter(这里要求solrconfig.xml里对filterCache的设置足够大), 然后计算每个filter与主查询的交集. fc(表示Field Cache)适用于字段取值比较多,但在每个文档里出现次数比较少的情况.Solr会遍历所有的文档,在每个文档内搜索Cache内的值,如果找到就将Cache内该值的count加1 |  
+    | facet.enum.cache.minDf | 当facet.method=enum时, minDf表示minimum document frequency.也就是文档内出现某个关键字的最少次数 | 该参数默认值为0, 设置该参数可以减少filterCache的内存消耗, 但会增加总的查询时间(计算交集的时间增加了). 如果设置该值的话,官方文档建议优先尝试25-50内的值 |
+    
+*** Date Facet 
+    Solr为日期字段提供了更为方便的查询统计方式。当然字段的类型必须是DateField(或其子类型)。使用Date Facet时，字段名，起始时间，结束时间，时间间隔这4个参数都必须提供
+    #+CAPTION: Date Facet查询参数列表
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 查询参数　| 作用　| 举例 | 
+    | facet.date | 需要进行Date Facet的字段名 | facet.field一样,该参数可以被设置多次,表示对多个字段进行Date Facet |
+    | facet.date.start | 起始时间 | 时间的一般格式为1995-12-31T23:59:59Z, 另外可以使用NOW\YEAR\MONTH等  |  
+    | facet.date.end | 结束时间 |
+    | facet.date.gap | 时间间隔 | 如果start为2009-1-1, end为2010-1-1. gap设置为+1MONTH表示间隔1个月,那么将会把这段时间划分为12个间隔段. 注意+因为是特殊字符所以应该用%2B代替 | 
+    | facet.date.hardend | gap迭代到end处采用何种处理, 默认为false | start为2009-1-1,end为2009-12-25,gap为+1MONTH, hardend为false的话最后一个时间段为2009-12-1至2010-1-1; hardend为true的话最后一个时间段为2009-12-1至2009-12-25 | 
+    | facet.date.other | 取值范围为before/after/between/none/all, 默认为none | before会对start之前的值做统计, after会对end之后的值做统计, between会对start至end之间所有值做统计. 如果hardend为true的话, 那么该值就是各个时间段统计值的和, none表示该项禁用, all表示before,after,all都会统计 | 
+    #+BEGIN_SRC html
+      &facet=on&facet.date=date&facet.date.start=2009-1-1T0:0:0Z&facet.date.end=2010-1-1T0:0:0Z&facet.date.gap=%2B1MONTH&facet.date.other=all
+    #+END_SRC
+    
+*** Facet Query
+    Facet Query利用类似于filter query的语法提供了更为灵活的Facet. 通过facet.query参数,可以对任意字段进行筛选
+    
+    分别统计从2009年1月1日到2009年2月1日，以及2009年4月1日到2009年5月1日
+    #+BEGIN_SRC html
+  &facet=on&facet.query=date:[2009-1-1T0:0:0Z TO 2009-2-1T0:0:0Z]&facet.query=date:[2009-4-1T0:0:0Z TO 2009-5-1T0:0:0Z]
+    #+END_SRC
+    
+    #+BEGIN_SRC nxml
+  <lst name="facet_counts">
+    <lst name="facet_queries">
+      <int name="date:[2009-1-1T0:0:0Z TO 2009-2-1T0:0:0Z]">5</int>
+      <int name="date:[2009-4-1T0:0:0Z TO 2009-5-1T0:0:0Z]">3</int>
+
+    </lst>
+    <lst name="facet_fields"/>
+    <lst name="facet_dates"/>
+  </lst>
+    #+END_SRC
+    
+    #+BEGIN_SRC html
+  &facet=on&facet.query=date:[2009-1-1T0:0:0Z TO 2009-2-1T0:0:0Z]&facet.query=price:[* TO 5000]
+    #+END_SRC
+    
+    #+BEGIN_SRC nxml
+  <lst name="facet_counts">
+    <lst name="facet_queries">
+      <int name="date:[2009-1-1T0:0:0Z TO 2009-2-1T0:0:0Z]">5</int>
+      <int name="price:[* TO 5000]">116</int>
+    </lst>
+
+    <lst name="facet_fields"/>
+    <lst name="facet_dates"/>
+  </lst>
+    #+END_SRC
+    
+*** key操作符
+    用key操作符为Facet字段取一个别名
+    
+    #+BEGIN_SRC html
+  &facet=on&facet.field={!key=中央处理器}cpu&facet.field={!key=显卡}videoCard
+    #+END_SRC
+    
+*** tag操作符和ex操作符
+    当查询使用filter query的时候,如果filter query的字段正好是Facet字段, 那么查询结果往往被限制在某一个值内 
+    #+BEGIN_SRC html
+  &fq=screenSize:14&facet=on&facet.field=screenSize
+    #+END_SRC
+    返回结果
+    #+BEGIN_SRC nxml
+  <lst name="facet_counts">
+    <lst name="facet_queries"/>
+
+    <lst name="facet_fields">
+      <lst name=" screenSize">
+        <int name="14.0">107</int>
+        <int name="10.2">0</int>
+        <int name="11.1">0</int>
+        <int name="11.6">0</int>
+        <int name="12.1">0</int>
+        <int name="13.1">0</int>
+        <int name="13.3">0</int>
+        <int name="14.1">0</int>
+        <int name="15.4">0</int>
+        <int name="15.5">0</int>
+        <int name="15.6">0</int>
+        <int name="16.0">0</int>
+        <int name="17.0">0</int>
+        <int name="17.3">0</int>
+      </lst>
+    </lst>
+    <lst name="facet_dates"/>
+  </lst>
+    #+END_SRC
+    屏幕尺寸(screenSize)为14寸的产品共有107件, 其它尺寸的产品的数目都是0, 这是因为在filter里已经限制了screenSize:14. 查询结果中,除了screenSize=14的这一项之外, 其它项目没有实际的意义 
+    
+    如果既要把查询结果限制在14寸屏的笔记本, 又想查看一下其它屏幕尺寸的笔记本有多少产品. 这个时候需要用到tag和ex操作符
+    
+    tag就是把一个filter标记起来, ex(exclude)是在Facet的时候把标记过的filter排除在外 
+    #+BEGIN_SRC html
+  &fq={!tag=aa}screenSize:14&facet=on&facet.field={!ex=aa}screenSize
+    #+END_SRC
+    返回结果
+    
+    #+BEGIN_SRC nxml
+  <lst name="facet_counts">
+    <lst name="facet_queries"/>
+
+    <lst name="facet_fields">
+      <lst name=" screenSize">
+        <int name="14.0">107</int>
+        <int name="14.1">40</int>
+        <int name="13.3">34</int>
+        <int name="15.6">22</int>
+        <int name="15.4">8</int>
+        <int name="11.6">6</int>
+        <int name="12.1">5</int>
+        <int name="16.0">5</int>
+        <int name="15.5">3</int>
+        <int name="17.0">3</int>
+        <int name="17.3">3</int>
+        <int name="10.2">1</int>
+        <int name="11.1">1</int>
+        <int name="13.1">1</int>
+      </lst>
+
+    </lst>
+    <lst name="facet_dates"/>
+  </lst>
+    #+END_SRC
+    
+*** solrj对Facet的支持
+    #+BEGIN_SRC java
+      //初始化查询对象
+      String q = “*.*”;
+      SolrQuery query = new SolrQuery(q);
+      query.setIncludeScore(false);//是否按每组数量高低排序
+      query.setFacet(true);//是否分组查询
+      query.setRows(0);//设置返回结果条数，如果你时分组查询，你就设置为0
+      query.addFacetField(“modified_l”);//增加分组字段   q
+      query.addFacetQuery (“category_s[0 TO 1]”);
+      QueryResponse rsp = server.query(query);
+    #+END_SRC
+    遍历结果
+    
+    #+BEGIN_SRC java
+  //取出结果
+  List<FacetField.Count> list = rsp.getFacetField(“modified_l”).getValues();
+  Map<String, Integer> list = rsp.getFacetQuery();
+    #+END_SRC
+
+** 聚合统计
+Solr可以利用StatsComponent实现数据库的聚合统计查询，也就是min、max、avg、count、sum的功能

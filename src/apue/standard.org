@@ -1,0 +1,175 @@
+#+TITLE: Unix标准和实现
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: basic.html   
+#+HTML_LINK_HOME: apue.html
+#+OPTIONS: num:nil timestamp:nil ^:nil 
+* 标准
+** ANSI C
+
+   #+BEGIN_EXAMPLE
+     1989年后期，C程序设计语言的ANSI标准X3.159-1989得到批准
+
+     此标准已被采用为国际标准 ISO/IEC 9899:1990
+
+     ANSI是美国国家标准学会，它是由制造商和用户组成的非赢利性组织
+   #+END_EXAMPLE
+
+   ANSI C标准的意图是 *提供C程序的可移植性，使其能适合于大量不同的操作系统* ，而不只是UNIX。此标准不仅定义了C程序设计语言的 _语法_ 和 _语义_ ，也定义了其 _标准库_  
+
+   #+BEGIN_EXAMPLE
+     内核本身通常没有C库函数接口，如Linux的内核
+   #+END_EXAMPLE
+** IEEE POSIX
+   POSIX 的目的是 *标准化各类Unix系统接口* ，以提高它们的应用程序在源代码级上的可移植性
+
+   #+BEGIN_EXAMPLE
+     POSIX定义了遵循它的操作系统必需提供的操作系统服务接口，而不是实现
+
+     所以并不区分系统调用和库函数。所有在标准中的例程都被称为函数
+
+     POSIX.1 本身没有专门定义超级用户的概念，但对一些操作要求区分操作权限
+   #+END_EXAMPLE
+** SUS和X/Open
+   #+BEGIN_EXAMPLE
+     由UNIX®商标的拥有者Open Group发布，是POSIX.1 的一个扩展超集，Open Group的前身即为X/Open;
+
+     SUS的全集称为XSI，一个Unix­like系统在拿到UNIX®商标之前，需要保证遵循XSI并服从SUS的强制要求
+   #+END_EXAMPLE
+   SUS的最新标准为SUS v3，发布于2004年，并经过了ISO的标准化。主要内容分为4个部分：
+   + 基本定义
+   + 系统接口
+   + Shell和实用程序
+   + 基本理论
+** FIPS
+   联邦信息处理标准，实际上它只是一个更加严格的POSIX.1标准
+* 实现
+  各种不同Unix的实现都宣称依从POSIX，但又各自实现了自己的特性
+  + SVR4
+  + 4.3+BSD
+  + Linux
+  + FreeBSD
+
+* 限制
+  + 编译选择项：比如该系统是否支持 _作业控制_ 
+  + 编译限制：比如 _短整型的最大值_ 是什么
+  + 运行限制：比如 _文件名的最大字符数_ 为多少
+
+  #+BEGIN_EXAMPLE
+    编译选择项和限制可在头文件中定义
+
+    而运行时间限制要求进程调用函数去获得限制的常量值
+
+    此外和文件系统有关的限制，比如文件名的最大字符数又和具体文件系统有关
+  #+END_EXAMPLE
+
+  事实上可以分成以下三类
+  1. 编辑选择项及限制(头文件)
+  2. 不与文件或目录相关联的运行限制
+  3. 与文件或目录相关联的运行限制
+
+** ANSI C限制
+   所有由ANSI C定义的限制都是 _编译限制_ 
+   + limit.h：基本数据类型的长度限制
+   + float.h：浮点数类型的长度限制
+   + stdio.h: FOPEN_MAX指的是同时打开的标准IO的最大个数，TMP_MAX临时文件名的最大字符长度
+
+** POSIX
+   POSIX.1定义了很多涉及 _操作系统实现限制_ 的常数。主要分为以下几类
+   + 固定的最小值，如LOGIN_NAME_MAX等
+   + 固定值，SSIZE_MAX
+   + 在运行时可增加的值。如RE_DUP_MAX等
+   + 运行时固定值，如ARG_MAX(最大函数参数长度)等
+   + 路径名不定值，如PATH_MAX 等
+
+   POSIX定义的值往往比实现要小，所以实际这些常量值需要通过 *sysconf* ,  *pathconf* ,  *fpathconf* 等函数获取
+** XSI
+   XSI也定义几个限制常量，这些常量大部分和 _消息_ 相关，全部都被包含在 *limit.h* 内
+
+** 不确定的运行时限制
+   最大路径名字 *_PC_PATH_MAX* 与最大打开文件数 *_PC_OPEN_MAX* 等
+
+   #+BEGIN_EXAMPLE
+     PATH_MAX在SUS v3 之前对是否包括了路径名称末尾的 null 字符('\0')没有明确定义
+
+     为保持兼容性，通常需要考虑此字符作为路径名字的一部分
+   #+END_EXAMPLE
+
+** 动态获取限量值
+   #+BEGIN_SRC C
+     #include <unistd.h>
+
+     //所有函数返回：若成功为相应常量的限制值，若出错为-1
+     //name: 常量名　以_SC_开头的常量名适用于sysconf， 相对的以_PC_开头的适用于pathconf和fpathconf
+     long sysconf(int name);
+     //pathname: 文件名
+     long pathconf(const char *pathname, int name);
+     //fileds: 文件描述符
+     long fpathconf(int filedes, int name);
+   #+END_SRC
+   + sysconf：获取 *系统在运行时的资源限制* ，如_SC_OPEN_MAX(限制一个进程可以打开文件的最大数量)等
+   + pathconf：通过 *路径名获取对应限制名称name的限制值* 
+   + fpathconf：则通过 *打开的文件描述符* 
+
+*** 返回值
+    其中有些限制名称只在某些特殊文件里有定义，如_PC_FILESIZEBITS只能用在目录中。文件限制通常直接跟文件系统的实现相关
+
+    + 如果 *name不是标准中定义的常量* 的话，上述函数将返回 _-1_ ，并置errno为 _EINVAL_ 
+    + 若为运行时不确定值，则只返回 _-1_ 
+    + 函数调用成功时返回其限制值
+
+** 功能测试宏
+   资源限制通常是与具体的系统实现相关的，为了保证可移植性，应 _定义功能测试宏_ *强制程序运行时的限制符合标准* 
+
+*** 系统标准测试宏
+    功能测试宏包括了两个常量：
+    + _POSIX_C_SOURCE
+    + _XOPEN_SOURCE
+    #+BEGIN_SRC C
+  #define _POSIX_C_SOURCE 200112L
+  #define _XOPEN_SOURCE 600
+    #+END_SRC
+    如果在C程序源文件中定义了这两个宏，则告诉编译器， *资源限制使用POSIX及SUS的定义，而不使用当前系统具体实现中的定义* 
+
+*** C语言标准测试宏
+    *__STDC__* 由符合ANSIC标准的编译程序自动定义。这样就允许编写ANSI C编译程序和非ANSI C编译器都能编译的程序
+    #+BEGIN_SRC C
+  # ifdef __STDC__
+  void *myfunc(const char *, int);
+  # else
+  void *myfunc();
+  # endif
+    #+END_SRC
+
+* 基本系统数据类型
+  基本系统数据类型包括 *size_t* 、 *time_t* 、 *uid_t* 、 *off_t* 、 *pthread_t* 等。这些数据类型是不透明的，在各个具体的系统实现中通常由C的 _typedef_ 语句重定义的，其原型可能是某种整型数也可能是个struct结构或者其他
+  #+CAPTION: 基本系统数据类型
+  #+ATTR_HTML: :border 1 :rules all :frame boader
+  | 类型       | 说明                         |
+  | caddr_t      | 内存地址                 |
+  | clock_t      | 时钟滴答计数器(进程时间) |
+  | comp_t       | 压缩的时钟滴答     |
+  | dev_t        | 设备号(主和次)       |
+  | fd_set       | 文件描述符集         |
+  | fpos_t       | 文件位置                 |
+  | gid_t        | 数值 组ID                  |
+  | ino_t        | i节点编号                |
+  | mode_t       | 文件类型，文件创建方式 |
+  | n1ink_t      | 目录项的连接计数 |
+  | off_t        | 文件长度和位移量(带符号的) |
+  | pid_t        | 进程ID和进程组ID(带符号的) |
+  | ptrdiff_t    | 两个指针相减的结果(带符号的) |
+  | r1im_t       | 资源限制                 |
+  | sig_atomic_t | 能原子地存取的数据类型 |
+  | sigset_t     | 信号集                     |
+  | size_t       | 对象(例如字符串)长度(不带符号的) |
+  | ssize_t      | 返回字节计数的函数(带符号的) |
+  | time_t       | 日历时间的秒计数器 |
+  | uid_t        | 数值 用户ID              |
+  | wchar_t      | 能表示所有不同的字符码           |
+  为了考虑程序的可移植性， *不应直接使用其对应的C基本数据类型，而应该使用这些类型* 
+
+  [[file:file_io.org][Next：文件I/O]]
+
+  [[file:basic.org][Previous：基础知识]]
+
+  [[file:apue.org][Home：目录]]

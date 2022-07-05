@@ -1,0 +1,107 @@
+#+TITLE: 持久化
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+BEGIN_EXAMPLE
+  卷可以让容器之外的存储挂在到容器中的某个目录上，使得删除容器后修改不会丢失
+#+END_EXAMPLE
+
+* 目录共享
+
+_EmptyDir_ 使得多容器的pod可以很方便的共享读写某个目录/文件：
+
+#+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: volume-pod
+  spec:
+    containers:
+    - image: busybox
+      name: busybox
+      command: ["/bin/sh", "-c", "while true; do sleep 3600; done"]
+      volumeMounts:
+      - mountPath: /tmp/storage
+            name: my-volume
+    volumes:
+    - name: my-volume
+      emptyDir: {}
+#+END_SRC
+
+* 持久化卷
+Persistent Volume是对存储的抽象，这个抽象包含两个资源：
++ 持久化卷： PersistentVolume，简称PV， 是集群中的一块网络存储，也是Kubernetes集群的一种资源
++ 持久卷申请：PersistentVolumeClaim，简称PVC，是用户对PV资源的申请，例如申请特定的访问模式和大小
+
+#+BEGIN_EXAMPLE
+   Pod的Volume与PV的区别是：
+
+  Volume的生命周期和Pod相同，Pod被删除时，Volume和保存在Volume中的数据就被删除了
+
+  对于PV，即使挂载PV的Pod被删除了，PV仍然存在，PV上的数据也还在
+#+END_EXAMPLE
+
+PV定义文件：
+
+#+BEGIN_SRC yaml 
+  kind: PersistentVolume
+  apiVersion: v1
+  metadata:
+    name: my-pv
+  spec:
+    storageClassName: local-storage
+    capacity:
+      storage: 1Gi
+    accessModes:
+      - ReadWriteOnce
+    hostPath:
+      path: "/mnt/data"
+#+END_SRC
+
+PVC定义文件：
+
+#+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: my-pvc
+  spec:
+    storageClassName: local-storage
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+         storage: 512Mi
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  1. PVC中的storageClassName 和 accessModes 必须和PV中的相同
+  2. PVC的容量必须小于PV的容量
+#+END_EXAMPLE
+
+查询PV和PVC：
+#+BEGIN_SRC sh 
+  kubectl get pv
+  kubectl get pvc
+#+END_SRC
+
+在Pod定义文件中使用创建好的PVC：
+
+#+BEGIN_SRC yaml 
+  kind: Pod
+  apiVersion: v1
+  metadata:
+    name: my-pvc-pod
+  spec:
+    containers:
+    - name: busybox
+      image: busybox
+      command: ["/bin/sh", "-c", "while true; do sleep 3600; done"]
+      volumeMounts:
+      - mountPath: "/mnt/storage"
+             name: my-storage
+    volumes:
+    - name: my-storage
+      persistentVolumeClaim:
+            claimName: my-pvc
+#+END_SRC

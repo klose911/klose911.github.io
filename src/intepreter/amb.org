@@ -1,0 +1,642 @@
+#+TITLE: amb求值器
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil 
+
+* 定义
+  _非确定计算_ 通过向解释器的求值模型中添加 *自动搜索* 功能来实现。例如： 
+  #+BEGIN_SRC scheme
+  (define (prime-sum-pair list1 list2)
+    (let ((a (an-element-of list1))
+	  (b (an-element-of list2)))
+      (require (prime? (+ a b)))
+      (list a b)))
+  #+END_SRC
+
+** 思想
+   + 一个表达式可以有多个可能值。如 _an-element-of_ 可能返回作为其参数的表里的任何元素。求值这种表达式时，求值器自动选出一个值（可能是可以选的任一个值）并维持相关的轨迹：
+     + 哪些元素选过
+     + 哪些没选过
+     + 保证不会重选
+   + 如果后面的要求不满足，求值器会在有关的表里 *重新选择* ，直至求值成功；或者所有选择都已用完时 *求值失败* 
+
+** 与流的比较
+   + 流处理用 _惰性求值_ 来解耦潜在的流和流元素的实际产生时间之间的紧密联系，使得貌似整个流都存在，元素的产生没有时间顺序
+   + 非确定性计算的表达式表示对 *一批可能世界的探索* ，每个世界由一串选择决定。求值器造成的假相： *时间能分叉* 。程序保存所有可能的执行历史，计算遇到死路时退回前面选择点转到另一分支
+
+** amb求值器
+   非确定性语言基于一种称为 *amb* 的特殊形式
+
+   #+BEGIN_EXAMPLE 
+     这个语言的名字和设计思想来自 John McCarthy。他还提出了＂人工智能＂这个词,被称为＂人工智能之父＂
+
+     amb 的名字取自 ambiguous
+   #+END_EXAMPLE
+
+   在定义了前面非确定性过程后，将其送给 _amb_ 求值器，会看到:
+   #+BEGIN_SRC scheme
+  ;;; Amb-Eval input:
+  (prime-sum-pair '(1 3 5 8) '(20 35 110))
+  ;;; Starting a new problem
+  ;;; Amb-Eval value:
+  (3 20)
+   #+END_SRC
+
+   + 表达式求值时， _amb求值器_ 将从两个表里反复选择元素，直至做出一次成功选择
+   + 如果需要，还可以要求它做进一步的选择，求出更多可能的值
+
+
+*** amb形式
+    我们的求值器中引入一种称为 _amb_ 的特殊形式：
+    #+BEGIN_EXAMPLE
+      (amb <e1> <e2> ... <en>)
+
+      返回几个参数表达式之一的值
+    #+END_EXAMPLE
+
+    比如：
+    #+BEGIN_SRC scheme
+  (list (amb 1 2 3) (amb 'a 'b))
+    #+END_SRC
+
+    这个表达式可能返回下面任一结果：
+    #+BEGIN_EXAMPLE
+      (1 a), (1 b), (2 a), (2 b), (3 a), (3 b)
+    #+END_EXAMPLE
+
+    + 如果一个 _amb_ 表达式只有一个选择，就 *确定* 地返回该元素的值
+    + 无选择的表达式 _(amb)_ 没有值，其求值导致 *计算失败且不产生值* 
+
+    #+BEGIN_EXAMPLE
+    可以认为 (amb) 用来表示 fail
+    #+END_EXAMPLE
+
+    由此可以用 _amb_ 来表示某个谓词 _p_ 必须为 _真_ ：
+    #+BEGIN_SRC scheme 
+  (define (require p)
+    (if (not p) (amb)))
+    #+END_SRC
+
+    结合 _amb_ 和 _require_ 可以得到 an-element-of 过程：
+
+    #+BEGIN_SRC scheme
+  (define (an-element-of items)
+    (require (not (null? items))) ;; 表为空是计算失败
+    (amb (car items) (an-element-of (cdr items)))) ;; 反之，返回表中任何一个元素
+    #+END_SRC
+
+    也可以用来表达 *无穷选择* ，下面代码返回一个大于或等于给定 _n_ 的值：
+    #+BEGIN_SRC scheme
+  (define (an-integer-starting-from n)
+    (amb n (an-integer-starting-from (+ n 1))))
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+    这个过程像是在构造一个流，但 amb 表达式只返回一个整数
+
+    而流返回的是一个对象，这个对象表示所有大于或等于 n 的整数的序列 
+
+    用户看到 amb 表达式返回一个选择，而流的实现则看到它能逐个地返回所有选择
+    #+END_EXAMPLE
+*** 搜索
+    _amb_ 表达式导致计算进程分裂为多个分支：
+    + 如果有多个处理器，可把它们分派到不同处理器，同时搜索
+    + 只有一个处理器时每次选一个分支，保留其他选择权:
+      + *随机* 选择，失败了退回重新选择
+      + 按某种 *系统化* 的方式探查可能的分支。例如 _深度优先_ : 每次总选第一个尚未检查过的分支，失败时退回最近选择点．探查那里的下一个尚未探查过的分支
+*** 驱动循环
+    _amb_ 求值器读入表达式，输出 *第一个成功* 得到的值。允许人工要求回溯：输入 *try-again* ，求值器将设法找 *下一结果* ：
+
+    #+BEGIN_SRC scheme
+  ;;; Amb-Eval input:
+  (prime-sum-pair '(1 3 5 8) '(20 35 110))
+  ;;; Starting a new problem
+  ;;; Amb-Eval value:
+  (3 20)
+  ;;; Amb-Eval input:
+  try-again
+  ;;; Amb-Eval value:
+  (3 110)
+  ;;; Amb-Eval input:
+  try-again
+  ;;; Amb-Eval value:
+  (8 35)
+  ;;; Amb-Eval input:
+  try-again
+  ;;; There are no more values of
+  (prime-sum-pair (quote (1 3 5 8)) (quote (20 35 110)))
+  ;;; Amb-Eval input:
+  (prime-sum-pair '(19 27 30) '(11 36 58))
+  ;;; Starting a new problem
+  ;;; Amb-Eval value:
+  (30 11)
+    #+END_SRC
+
+    遇到 _try-again_ 之外的其他表达式，都认为是重新开始一个新任务
+
+* 实现
+  常规的 _Scheme_ 表达式可能：
+  + 求出一个值
+  + 不终止
+  + 产生错误
+
+  *非确定性* 的 _Scheme_ 表达式还可能：
+  + 走入死胡同
+  + 使求值过程 *回溯* 
+
+  思路：
+  + 基于 *分析求值器* 实现 amb 求值器
+  + 不同点就在于它将 *生成不同的执行过程* 
+
+
+** 基本设计
+
+*** 续延
+    *续延* ( _continuation_)是一种 *过程参数，将在过程的最后一步调用* ： 
+    + 具有 _续延_ 参数的过程不准备返回，最后总调用某个 _续延_ 过程
+    + 有 _尾递归优化_ 的语言可以处理这种续延参数，能够自动优化运行所需的空间
+
+    #+BEGIN_EXAMPLE
+      如果语言没有尾递归优化，栈空间就会越来越大
+
+      例如:
+
+      typedef int (*Fun) (int)
+
+      int f (..., Fun p) { ...; p(...); return ...; }
+
+      从 f 实际返回前都不会释放 f 占用的栈空间
+    #+END_EXAMPLE
+
+*** 执行过程
+    在常规 Scheme 语言的分析求值器里， _eval_ 生成的执行过程要求一个 _环境_ 参数，而 _amb_ 分析器产生的执行过程要求三个参数:
+    1. 一个 _环境_
+    2. 一个 _成功续延_ 
+    3. 一个 _失败续延_ 
+
+    _amb_ 表达式求值结束时总调用这两个过程之一：
+    + 如果求值正常并得到结果，就调用 *成功续延* 
+    + 如果求值进入死胡同，就调用 *失败续延* 
+
+**** 回溯
+     求值过程中的实际 _回溯_ 是通过 *构造适当的成功续延和失败续延* 实现的：
+     + _成功续延_ （过程）：将 *得到一个值（参数）并将计算进行下去* 
+       + 它还得到一个 _失败续延_
+       + 如果用得到的值做计算将来遇到死胡同，就会调用该 _失败续延_ 
+     + _失败续延_ （过程）的作用是 *探查另一个非确定性分支* ：
+       + 在遇到无法确定取哪个值能得到最后结果时先取一个值
+       + 同时构造一个失败续延，并将它们一起送给成功续延过程，以便将来遇到失败时回溯
+       + 求值无法进行时（如遇到 _require_ 失败时）：
+	 + 调用当时的失败续延，使执行回到前一选择点去考虑其他分支
+	 + 如果前一选择点已无更多选择，执行就会回到更前面的选择点（那里保存有以前的失败续延）
+       + _try-again_ 导致驱动循环直接调用 *当时的失败续延*
+       + 如果被选分支做了有副作用的操作（例如 _变量赋值_ ），后来遇到死胡同回溯时，需要在进入其他选择前 *撤销该副作用* ：
+	 + 处理方法：让 _产生副作用的操作生成一个能撤销副作用的失败续延过程_ ，该过程撤销所做修改之后再回溯到前面选择点
+
+*** 总结
+    #+BEGIN_EXAMPLE
+      失败续延（过程）的构造，几种情况:
+      1. amb 表达式：提供一种机制，使当前选择失败时可以换一个选择
+      2. 最高层驱动循环：在用尽了所有选择的情况下报告失败
+      3. 赋值：拦截出现的失败并在回溯前消除赋值的效果
+    #+END_EXAMPLE
+
+    #+BEGIN_EXAMPLE
+      失败的原因是求值遇到死胡同，两种情况下出现：
+      1. 用户程序执行 (amb) 时
+      2. 用户输入 try-again 时
+    #+END_EXAMPLE
+
+    #+BEGIN_EXAMPLE
+      一个执行过程失败，它就调用自己的失败继续：
+
+      由赋值构造出的失败续延先消除自己的副作用．然后调用该赋值拦截的那个失败续延，将失败进一步回传
+
+      如果某 amb 的失败续延发现所有选择已用完时，就调用这个 amb 早先得到的那个失败续延，把失败传到更早的选择点
+    #+END_EXAMPLE
+** 程序结构
+   _amb_ 求值器的 *语法过程* 和 *数据结构* 表示、基本的 _analyze_ 过程都与分析求值器一样。只需增加识别 _amb_ 表达式的语法过程：
+
+   #+BEGIN_SRC scheme 
+  (define (amb? exp) (tagged-list? exp 'amb))
+  ;; (amb? '(amb 1 2 3)) ; => #t 
+  ;; (amb? #t) ; => #f 
+  ;; (amb? 1) ; => #f
+   #+END_SRC
+
+   #+BEGIN_SRC scheme
+  (define (amb-choices exp) (cdr exp))
+  ;; (amb-choices '(amb 1 2 3)) ; => (1 2 3)
+   #+END_SRC
+
+   在 _analyze_ 里增加处理 _amb_ 表达式的分支：
+   #+BEGIN_SRC scheme
+  ((amb? exp) (analyze-amb exp))
+   #+END_SRC
+
+   最高层的 _ambeval_ 分析给定的表达式，应用得到的执行过程:
+   #+BEGIN_SRC scheme
+  (define (ambeval exp env succeed fail)
+    ((analyze exp) env succeed fail)) 
+   #+END_SRC
+
+   _成功续延_ 过程都有两个参数：
+   + 一个值参数
+   + 一个失败续延
+
+   _失败续延_ ：无参过程
+
+   因此执行过程的形式都是三个参数：
+   #+BEGIN_SRC scheme
+  (lambda (env succeed fail)
+    ;; succeed is (lambda (value fail) ...)
+    ;; fail is (lambda () ...)
+    ;;...)
+   #+END_SRC
+
+   在最上层的 _ambeval_ 调用：
+   #+BEGIN_SRC scheme
+  (ambeval <exp>
+	   the-global-environment
+	   (lambda (value fail) value) ;; 直接返回 value 
+	   (lambda () 'failed)) ;; 返回 'failed
+
+  ;; (define (my-succeed value fail) value) 
+  ;; (define (my-fail) 'failed) 
+  ;; (my-succeed 1 my-fail) ; => 1
+  ;; (my-fail) ; => failed
+   #+END_SRC
+
+   执行求值 _<exp>_ ，最后可能返回求出的值(如果得到值),或返回符号 _failed_ 表示求值失败
+   #+BEGIN_EXAMPLE
+     后面实现的驱动循环里用了一个更复杂的续延过程，以便能支持用户输入的 try-again 请求
+   #+END_EXAMPLE
+
+** 续延过程
+   _amb_ 求值器实现中，最复杂的东西就是 *续延过程的构造和传递* 
+
+
+*** 简单表达式
+    简单表达式的分析和前面一样。这些表达式的 *求值总成功* ，所以都 *调用自己的成功续延* ，但都 *需要传递 fail 续延过程* 
+
+    _自求值_ 表达式：
+    #+BEGIN_SRC scheme
+  (define (analyze-self-evaluating exp)
+    (lambda (env succeed fail) ;; succeed 过程有 2 个参数，第一个是返回值，第二个是失败续延．而 fail 过程没有参数
+      (succeed exp fail))) ;; 直接返回 exp, 把当前的失败续延传递进去
+
+  ;; ((analyze-self-evaluating 1)
+  ;;  '()
+  ;;  (lambda (value faile) value)
+  ;;  (lambda () 'failed)) ; => 1 
+
+  ;; ((analyze-self-evaluating "hello")
+  ;;  '()
+  ;;  (lambda (value faile) value)
+  ;;  (lambda () 'failed)) ; => "hello"
+    #+END_SRC
+
+    _引用_ 表达式：
+    #+BEGIN_SRC scheme
+  (define (analyze-quoted exp)
+    (let ((qval (text-of-quotation exp)))
+      (lambda (env succeed fail)
+	(succeed qval fail))))
+
+  ;; ((analyze-quoted '(quote abc))
+  ;;  '()
+  ;;  (lambda (value faile) value)
+  ;;  (lambda () 'failed)) ; => abc
+    #+END_SRC
+
+    _变量_ 表达式：
+    #+BEGIN_SRC scheme
+  (define (analyze-variable exp)
+    (lambda (env succeed fail)
+      (succeed (lookup-variable-value exp env)
+	       fail)))
+
+  ;; (define test-extend-dev (extend-environment '(a b) '(300 400) '())) ; => test-extend-dev
+
+  ;; ((analyze-variable 'a)
+  ;;  test-extend-dev
+  ;;  (lambda (value faile) value)
+  ;;  (lambda () 'failed))  ; => 300   
+
+  ;; ((analyze-variable 'b)
+  ;;  test-extend-dev
+  ;;  (lambda (value faile) value)
+  ;;  (lambda () 'failed)) ; => 400
+
+  ;; ((analyze-variable 'c)
+  ;;  test-extend-dev
+  ;;  (lambda (value faile) value)
+  ;;  (lambda () 'failed)) ; => ;Unbound variable c
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      注意：查找变量的值可能出错，但程序错误并不导致回溯和重新选择
+    #+END_EXAMPLE
+
+    _lambda_ 表达式：
+    #+BEGIN_SRC scheme
+  (define (analyze-lambda exp)
+    (let ((vars (lambda-parameters exp))
+	  (bproc (analyze-sequence (lambda-body exp))))
+      (lambda (env succeed fail)
+	(succeed (make-procedure vars bproc env)
+		 fail))))
+
+  ;; ((analyze-lambda '(lambda (x) (+ 1 x))) 
+  ;;  '()
+  ;;  (lambda (value faile) value)
+  ;;  (lambda () 'failed)) ; =>  (procedure (x) #[compound-procedure 14] ())
+    #+END_SRC
+
+*** 条件表达式
+    #+BEGIN_SRC scheme
+  (define (analyze-if exp)
+    (let ((pproc (analyze (if-predicate exp)))
+	  (cproc (analyze (if-consequent exp)))
+	  (aproc (analyze (if-alternative exp))))
+      (lambda (env succeed fail)
+	(pproc env
+	       ;; pproc 过程的成功续延
+	       ;; 如果 pproc 过程执行成功，会把计算出的真假值传递给pred-value，以及当前的 fail 传递给 fail2
+	       (lambda (pred-value fail2)  
+		 (if (true? pred-value)
+		     (cproc env succeed fail2)
+		     (aproc env succeed fail2)))
+	       ;; pproc 过程的失败续延，就是 if 过程的失败续延
+	       fail))))
+
+  ;; (define my-succeed (lambda (value fail) value))
+  ;; (define my-fail (lambda () 'failed))
+  ;; (define test-environment (setup-environment))
+
+  ;; (define if-proc (analyze-if '(if true 100 200)))
+  ;; (if-proc test-environment my-succeed my-fail) ; => 100
+
+  ;; (define if-pproc (analyze 'true))
+  ;; (define if-cproc (analyze 100))
+  ;; (define if-aproc (analyze 200))
+
+  ;; (if-pproc test-environment
+  ;; 	  (lambda (pred-value fail2) 
+  ;;                (if (true? pred-value)
+  ;;                    (if-cproc test-environment my-succeed fail2)
+  ;;                    (if-aproc test-environment my-succeed fail2)))
+  ;;              my-fail) ;=> 100
+
+  ;; ((analyze-variable 'true) test-environment
+  ;; 	  (lambda (pred-value fail2) 
+  ;;                (if (true? pred-value)
+  ;;                    (if-cproc test-environment my-succeed fail2)
+  ;;                    (if-aproc test-environment my-succeed fail2)))
+  ;;              my-fail) ; => 100
+
+  ;; (define if-pproc-succeed
+  ;;   (lambda (pred-value fail2) 
+  ;;                (if (true? pred-value)
+  ;;                    (if-cproc test-environment my-succeed fail2)
+  ;;                    (if-aproc test-environment my-succeed fail2))))
+
+  ;; (if-pproc-succeed
+  ;;  (lookup-variable-value 'true test-environment)
+  ;;  my-fail) ; => 100
+
+  ;; (if (true? (lookup-variable-value 'true test-environment))
+  ;;     (if-cproc test-environment my-succeed my-fail)
+  ;;     (if-aproc test-environment my-succeed my-fail)) ; => 100
+    #+END_SRC
+
+    生成的执行过程调用由产生的谓词执行过程 _pproc_ : 
+    + _pproc_ 的成功续延检查谓词的值，根据其真假调用 _cproc_ 或 _aproc_
+    + _pproc_ 执行失败时调用 _if_ 表达式的失败续延过程 _fail_ 
+
+*** 顺序表达式
+    顺序执行两个表达式 _a_ 和 _b_ ，实际上是在 _a_ 的成功续延中执行 _b_ ： 
+    #+BEGIN_SRC scheme
+  (define (analyze-sequence exps)
+    (define (sequentially a b)
+      (lambda (env succeed fail)
+	(a env
+	   ;; a 过程的成功续延，如果 a 过程成功执行，计算的结果作为 a-value 传递进下面的成功续延，
+	   (lambda (a-value fail2) ;; a-value 被舍弃，下面不会用到
+	     (b env succeed fail2)) ;; 继续执行 b 过程
+	   ;; a 过程的失败续延，调用传递进来的失败续延
+	   fail)))
+    (define (loop first-proc rest-procs)
+      (if (null? rest-procs)
+	  first-proc
+	  (loop (sequentially first-proc (car rest-procs))
+		(cdr rest-procs))))
+    (let ((procs (map analyze exps)))
+      (if (null? procs)
+	  (error "Empty sequence -- ANALYZE"))
+      (loop (car procs) (cdr procs))))　
+
+  ;; (define my-succeed (lambda (value fail) value))
+  ;; (define my-fail (lambda () 'failed))
+  ;; (define test-environment (setup-environment))
+
+  ;; (define sequence-proc (analyze-sequence '(100 true "hello")))
+  ;; (sequence-proc test-environment my-succeed my-fail) ; => "hello"
+    #+END_SRC
+
+*** 定义表达式
+    调用值表达式的执行过程 _vproc_ ，以 _当时环境_ 、 _完成实际定义的成功续延_ 和 _调用时的失败续延 fail_ 为参数：
+    #+BEGIN_SRC scheme
+  (define (analyze-definition exp)
+    (let ((var (definition-variable exp))
+	  (vproc (analyze (definition-value exp)))) 
+      (lambda (env succeed fail)
+	(vproc env ; 当时的环境                       
+	       (lambda (val fail2)
+		 (define-variable! var val env) ; 在 vproc 的成功续延里完成在环境中变量的定义
+		 (succeed 'ok fail2))
+	       fail))))
+
+  ;; (define my-succeed (lambda (value fail) value))
+  ;; (define my-fail (lambda () 'failed))
+  ;; (define test-environment (setup-environment))
+
+  ;; ((analyze-definition '(define a (quote hello))) test-environment my-succeed my-fail) ; => ok
+  ;; test-environment 
+  ;; => (((a false true car cdr cons null? + >)
+  ;;      hello
+  ;;      #f
+  ;;      #t
+  ;;      (primitive #[compiled-procedure 17 ("list" #x1) #x1a #x1fc23e2])
+  ;;      (primitive #[compiled-procedure 18 ("list" #x2) #x1a #x1fc2452])
+  ;;      (primitive #[compiled-procedure 19 ("list" #x3) #x14 #x1fc24bc])
+  ;;      (primitive #[compiled-procedure 20 ("list" #x5) #x14 #x1fc255c])
+  ;;      (primitive #[arity-dispatched-procedure 21])
+  ;;      (primitive #[arity-dispatched-procedure 22])))
+    #+END_SRC
+
+    _vproc_ 的成功续延完成 *实际的变量定义* 并成功返回 
+
+    #+BEGIN_EXAMPLE
+      这里没有考虑覆盖原有定义可能需要回滚
+    #+END_EXAMPLE
+
+*** 赋值表达式
+    赋值的情况更复杂。其前一部分与处理定义类似，先做值表达式的执行过程，其失败也是整个赋值表达式失败
+
+    值表达式求值成功后。为了让将来失败时可以 *撤销赋值* 效果，在 _求值表达式的成功续延_ ( _*1_ )把原变量值保存在 _old-value_ 后再赋值，并把恢复值的动作插入它传给 _赋值的成功续延_  中的 _失败续延_ 里( _*2_ )，该失败续延过程最后调用 _fail2_ ，来把失败返回给最初的失败续延
+
+    #+BEGIN_SRC scheme
+  (define (analyze-assignment exp)
+    (let ((var (assignment-variable exp))
+	  (vproc (analyze (assignment-value exp))))
+      (lambda (env succeed fail)
+	(vproc env
+	       (lambda (val fail2)        ; *1* 求值表达式的成功续延，先保存变量的原始值，再赋值，赋值完成后，调用传入的 succeed 续延
+		 (let ((old-value
+			(lookup-variable-value var env))) 
+		   (set-variable-value! var val env)
+		   (succeed 'ok
+			    (lambda ()    ; *2*
+			      (set-variable-value! var
+						   old-value
+						   env) ; 一旦 succeed 失败，将恢复变量原始值，再调用最初的失败续延
+			      (fail2)))))
+	       fail))))
+
+  ;; (define my-succeed (lambda (value fail) value))
+  ;; (define my-fail (lambda () 'failed))
+  ;; (define test-environment (setup-environment)) 
+  ;; ((analyze-definition '(define a (quote hello))) test-environment my-succeed my-fail) ; => ok
+
+  ;; ((analyze-assignment '(set! a (quote world))) test-environment my-succeed my-fail)  ;=> ok
+  ;; test-environment
+  ;; =>  (((a false true car cdr cons null? + >)
+  ;;       world
+  ;;       #f
+  ;;       #t
+  ;;       (primitive #[compiled-procedure 17 ("list" #x1) #x1a #x1fc23e2])
+  ;;       (primitive #[compiled-procedure 18 ("list" #x2) #x1a #x1fc2452])
+  ;;       (primitive #[compiled-procedure 19 ("list" #x3) #x14 #x1fc24bc])
+  ;;       (primitive #[compiled-procedure 20 ("list" #x5) #x14 #x1fc255c])
+  ;;       (primitive #[arity-dispatched-procedure 21])
+  ;;       (primitive #[arity-dispatched-procedure 22])))
+    #+END_SRC
+
+*** 过程表达式
+    过程表达式的复杂性来自于 *依次计算每个实参的时候，每一步都需要维护成功和失败续延的轨迹* 。因此需要提供一个新的 _get-args_ 函数来替代原来的 _map_ 过程：
+    #+BEGIN_SRC scheme
+  (define (analyze-application exp)
+    (let ((fproc (analyze (operator exp)))
+	  (aprocs (map analyze (operands exp))))
+      (lambda (env succeed fail)
+	(fproc env
+	       (lambda (proc fail2) ; fproc 的成功续延：依次计算每个实参
+		 (get-args aprocs
+			   env
+			   (lambda (args fail3) ; get-args 的成功续延：所有参数都成功计算完毕后，做实际的过程调用
+			     (execute-application
+			      proc args succeed fail3))
+			   fail2))
+	       fail)))) 
+    #+END_SRC
+
+    _get-args_ : 顺序执行各运算对象的执行过程
+
+    #+BEGIN_SRC scheme
+  (define (get-args aprocs env succeed fail)
+    (if (null? aprocs)
+	(succeed '() fail)
+	((car aprocs) env ;  "求值第一个运算参数" 的执行过程
+	 (lambda (arg fail2) ; (car aprocs) 的成功续延
+	   (get-args (cdr aprocs) ; 对余下参数进行求值
+		     env
+		     (lambda (args fail3) ; (get-args (cdr aprocs)) 的成功续延
+		       (succeed (cons arg args) ; 用 cons 来收集所有的求值结果，然后把他送给最初调用的成功续延
+				fail3))
+		     fail2))
+	 fail)))
+    #+END_SRC
+
+    _execute-application_ : 执行实际的过程调用
+
+    #+BEGIN_SRC scheme
+  (define (execute-application proc args succeed fail)
+    (cond ((primitive-procedure? proc)
+	   (succeed (apply-primitive-procedure proc args)
+		    fail))
+	  ((compound-procedure? proc)
+	   ((procedure-body proc)
+	    (extend-environment (procedure-parameters proc)
+				args
+				(procedure-environment proc))
+	    succeed
+	    fail))
+	  (else
+	   (error
+	    "Unknown procedure type -- EXECUTE-APPLICATION"
+	    proc))))
+    #+END_SRC
+
+    这个过程较长，实际上和 _简单表达式_ 处理一样
+
+*** amb表达式
+    _amb_ 的 _执行过程_ 定义了一个循环 try-next，它周而复始地去做针对表达式所有可能值的执行过程：
+    + 对于每个执行过程的调用，都带有一个 _失败续延_ ，这个失败续延会 *导致去试探下一个可能值* 
+    + 如果不再存在可能值时候，整个 _amb_ 表达式失败
+
+    #+BEGIN_SRC scheme
+  (define (analyze-amb exp)
+    (let ((cprocs (map analyze (amb-choices exp)))) ; 分析各子表达式的执行过程
+      (lambda (env succeed fail) 
+	(define (try-next choices) 
+	  (if (null? choices)
+	      (fail) ; 没有任何值可以试探的时候，报出失败
+	      ((car choices) env ; 调用 "第一个可能值" 的执行过程
+	       succeed ; (car choices) 成功续延：原始的成功续延，实际上就是 amb 执行成功
+	       (lambda () ; (car choices) 失败续延：尝试下一个可能值
+		 (try-next (cdr choices))))))
+	(try-next cprocs))))
+    #+END_SRC
+
+** 驱动循环
+   _amb_ 的驱动循环的特点是用户可以输入 _try-again_ 要求找下一个成功选择。这一特性使驱动循环比较复杂：
+   + 循环中用了一个 _internal-loop_ ，它以一个 _try-again_ 过程为参数：
+     + 如果用户的输入为 "try-again"，就调用由参数 _try-again_ 得到的过程
+     + 否则就重新启动 _ambeval_ 去求值下一表达式
+   + _ambeval_ 的失败续延：通知用户没有下一个值并继续循环
+   + _ambeval_ 的成功续延：输出得到的值，并用得到的 _失败续延_ 作为 _try-again_ 过程
+
+   #+BEGIN_SRC scheme
+  (define (driver-loop)
+    (define (internal-loop try-again) 
+      (prompt-for-input input-prompt)
+      (let ((input (read)))
+	(if (eq? input 'try-again) ; 用户输入 "try-again"，调用传入的 try-again 过程
+	    (try-again)
+	    (begin ; 开始新的一次求值
+	      (newline)
+	      (display ";;; Starting a new problem ")
+	      (ambeval input
+		       the-global-environment
+		       ;; ambeval 的成功续延
+		       (lambda (val next-alternative)
+			 (announce-output output-prompt)
+			 (user-print val) ; 打印返回值
+			 (internal-loop next-alternative)) ; 把成功求值后得到的失败续延作为 interal-loop 的 try-again 参数
+		       ;; ambeval 的失败续延
+		       (lambda ()
+			 (announce-output
+			  ";;; There are no more values of")
+			 (user-print input) ; 打印失败信息
+			 (driver-loop))))))) ; 重新开始驱动循环
+    (internal-loop ; internal-loop 的初始 try-again 过程
+     (lambda () ; 显示 "无事可做"，然后重新开始驱动循环
+       (newline) 
+       (display ";;; There is no current problem")
+       (driver-loop))))
+   #+END_SRC
+
+** 总结
+   + 续延是一种过程参数，它被过程作为最后的动作调用，且不返回
+   + amb 实现技术：分析被求值表达式生成的执行过程采用一种标准接口（成功续延和失败续延），把复杂的控制流隐含在巧妙设计的结构中
+   + 要恢复破坏性操作（如赋值等），必须设法保存恢复信息

@@ -1,0 +1,203 @@
+#+TITLE: Pod设计
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil
+* 标签
+  #+BEGIN_EXAMPLE
+    用键值对来指定某些”有意义的并和用户有关的“对象属性
+  #+END_EXAMPLE
+
+  #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-production-label-pod
+    labels:
+      app: my-app
+      environment: production
+  spec:
+    containers:
+    - name: nginx
+      image: nginx
+  #+END_SRC
+
+** 标签选择器
+   使用 _-l_ 来过滤某些pod：
+
+   #+BEGIN_SRC sh 
+  kubectl get pods -l app=my-app
+
+  kubectl get pods -l environment=production
+
+  kubectl get pods -l environment=development
+   #+END_SRC
+
+   ”取反“选择：
+
+   #+BEGIN_SRC sh 
+  kubectl get pods -l environment!=production
+   #+END_SRC
+
+   ”集合“选择：
+
+   #+BEGIN_SRC sh 
+  kubectl get pods -l 'environment in (development,production)'
+   #+END_SRC
+
+   ”交集“选择：
+
+   #+BEGIN_SRC sh 
+  kubectl get pods -l app=my-app,environment=production
+   #+END_SRC
+
+
+* 注解
+  #+BEGIN_EXAMPLE
+  注解和标签类似，区别是无法被用于选择器，只有客户端（如工具和库）才能检索
+  #+END_EXAMPLE
+
+  #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-annotation-pod
+    annotations:
+      owner: terry@linuxacademy.com
+      git-commit: bdab0c6
+  spec:
+    containers:
+    - name: nginx
+      image: nginx
+  #+END_SRC
+
+* 部署
+  #+BEGIN_EXAMPLE
+  部署：用来管理同一个pod的多个副本
+  #+END_EXAMPLE
+
+  一个pod三个副本
+  #+BEGIN_SRC yaml 
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: nginx-deployment
+  spec:
+    replicas: 3
+    selector:
+      matchLabels:
+        app: nginx
+    template:
+      metadata:
+        labels:
+          app: nginx
+      spec:
+        containers:
+        - name: nginx
+          image: nginx:1.7.9
+          ports:
+          - containerPort: 80
+  #+END_SRC
+
+  查询部署信息：
+
+  #+BEGIN_SRC sh 
+  kubectl get deployments
+
+  kubectl get deployment <deployment name>
+
+  kubectl describe deployment <deployment name>
+  #+END_SRC
+
+  直接编辑：
+
+  #+BEGIN_SRC sh 
+  kubectl edit deployment <deployment name>
+  #+END_SRC
+
+  删除：
+
+  #+BEGIN_SRC sh 
+  kubectl delete deployment <deployment name>
+  #+END_SRC
+
+* 滚动升级和回滚
+  滚动升级：
+  #+BEGIN_SRC sh 
+  kubectl set image deployment/rolling-deployment nginx=nginx:1.7.9 --record
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    --record : 记录在更新历史中
+  #+END_EXAMPLE
+
+  查询更新历史：
+
+  #+BEGIN_SRC sh 
+  kubectl rollout history deployment/rolling-deployment
+
+  kubectl rollout history deployment/rolling-deployment --revision=2
+  #+END_SRC
+
+  回滚到某个版本：
+
+  #+BEGIN_SRC sh 
+  kubectl rollout undo deployment/rolling-deployment --to-revision=1
+  #+END_SRC
+
+  以指定 _maxUnavailable_ 和 _maxSurge_ 来控制 rolling update 进程：
+  + .spec.strategy.rollingUpdate.maxUnavailable: 可选配置项，用来指定在升级过程中不可用Pod的最大数量
+  + .spec.strategy.rollingUpdate.maxSurge: 可选配置项，用来指定可以超过期望的Pod数量的最大个数
+
+* 任务
+  #+BEGIN_EXAMPLE
+  任务：执行完毕就自动停止的容器
+  #+END_EXAMPLE
+
+  #+BEGIN_SRC yaml 
+  apiVersion: batch/v1
+  kind: Job
+  metadata:
+    name: pi
+  spec:
+    template:
+      spec:
+	containers:
+	- name: pi
+	  image: perl
+	  command: ["perl",  "-Mbignum=bpi", "-wle", "print bpi(2000)"]
+	restartPolicy: Never
+    backoffLimit: 4
+  #+END_SRC
+
+  查询任务执行状态：
+
+  #+BEGIN_SRC sh 
+  kubectl get jobs 
+  #+END_SRC
+
+** 定时任务
+   每分钟执行一次的定时任务：
+   #+BEGIN_SRC yaml 
+  apiVersion: batch/v1beta1
+  kind: CronJob
+  metadata:
+    name: hello
+  spec:
+    schedule: "*/1 * * * *"
+    jobTemplate:
+      spec:
+	template:
+	  spec:
+	    containers:
+	    - name: hello
+	      image: busybox
+	      args:
+	      - /bin/sh
+	      - -c
+	      - date; echo Hello from the Kubernetes cluster
+	    restartPolicy: OnFailure
+   #+END_SRC
+
+   查询定时任务的执行状态：
+   #+BEGIN_SRC sh 
+  kubectl get cronjobs 
+   #+END_SRC

@@ -1,0 +1,732 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>Linux NIO实现</title>
+<meta  http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta  name="generator" content="Org-mode" />
+<meta  name="author" content="Wu, Shanliang" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { color: green; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  pre.src-sh:before    { content: 'sh'; }
+  pre.src-bash:before  { content: 'sh'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-R:before     { content: 'R'; }
+  pre.src-perl:before  { content: 'Perl'; }
+  pre.src-java:before  { content: 'Java'; }
+  pre.src-sql:before   { content: 'SQL'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.right  { text-align: center;  }
+  th.left   { text-align: center;   }
+  th.center { text-align: center; }
+  td.right  { text-align: right;  }
+  td.left   { text-align: left;   }
+  td.center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara:nth-child(2) { display: inline; }
+  .footpara { display: block; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2013 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="content">
+<h1 class="title">Linux NIO实现</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#sec-1">一个 TCP 非阻塞 client 端简单的例子</a>
+<ul>
+<li><a href="#sec-1-1">socket 的创建</a></li>
+<li><a href="#sec-1-2">fcntl 控制 socket 的阻塞状态</a></li>
+<li><a href="#sec-1-3">调用 socket.recv</a>
+<ul>
+<li><a href="#sec-1-3-1">sock_recmsg</a></li>
+<li><a href="#sec-1-3-2">sock_common_recvmsg</a></li>
+<li><a href="#sec-1-3-3">tcp_recvmsg</a></li>
+</ul>
+</li>
+<li><a href="#sec-1-4">sk_wait_data</a>
+<ul>
+<li><a href="#sec-1-4-1">阻塞后恢复运行</a>
+<ul>
+<li><a href="#sec-1-4-1-1">有对应的网络数据到来</a></li>
+<li><a href="#sec-1-4-1-2">超时</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-sec-1" class="outline-2">
+<h2 id="sec-1">一个 TCP 非阻塞 client 端简单的例子</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+如果要产生一个非阻塞的 socket，在 C 语言中如下代码所示：
+</p>
+
+
+<div class="org-src-container">
+
+<pre class="src src-C"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21019;&#24314; socket</span>
+<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">sock_fd</span> = socket(AF_INET, SOCK_STREAM, 0);
+...
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26356;&#25913; socket &#20026; nonblock</span>
+fcntl(sock_fd, F_SETFL, fdflags | O_NONBLOCK);
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">connect</span>
+....
+<span style="color: #00ffff;">while</span>(1)  {  
+    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">recvlen</span> = recv(sock_fd, recvbuf, RECV_BUF_SIZE) ;
+    ......
+        }
+</pre>
+</div>
+</div>
+
+<div id="outline-container-sec-1-1" class="outline-3">
+<h3 id="sec-1-1">socket 的创建</h3>
+<div class="outline-text-3" id="text-1-1">
+<p>
+内核的第一步应该是通过 AF_INET、SOCK_STREAM 以及最后一个参数 0 定位到需要创建一个 TCP 的 socket, 如下图绿线所示:
+</p>
+
+
+<div class="figure">
+<p><img src="pic/create-socket.jpg" alt="create-socket.jpg" width="70%" />
+</p>
+</div>
+
+<p>
+跟踪源码调用：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-C">socket(AF_INET, SOCK_STREAM, 0)
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">|-&gt;sys_socket &#36827;&#20837;&#31995;&#32479;&#35843;&#29992;</span>
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">|-&gt;sock_create</span>
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">|-&gt;__sock_create</span>
+</pre>
+</div>
+
+<p>
+进一步分析__sock_create 的代码判断:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-C"><span style="color: #00ffff;">const</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">net_proto_family</span> *<span style="color: #eedd82;">pf</span>;
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">RCU(Read-Copy Update) &#26159; linux &#30340;&#19968;&#31181;&#20869;&#26680;&#21516;&#27493;&#26041;&#27861;&#65292;&#22312;&#27492;&#19981;&#38416;&#36848;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">family=INET</span>
+pf = rcu_dereference(net_families[family]);
+err = pf-&gt;create(net, sock, protocol);
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="pic/net-family.jpg" alt="net-family.jpg" width="70%" />
+</p>
+</div>
+
+<p>
+则通过源码可知，由于是 AF_INET(PF_INET), 所以 net_families[PF_INET].create=inet_create，即pf-&gt;create = inet_create; 进一步追溯调用:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-C"><span style="color: #87cefa;">inet_create</span>(<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">net</span> *<span style="color: #eedd82;">net</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">socket</span> *<span style="color: #eedd82;">sock</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">protocol</span>)
+{
+
+    <span style="color: #98fb98;">Sock</span>* <span style="color: #eedd82;">sock</span>;
+
+<span style="color: #ff4500;">//        </span><span style="color: #ff4500;">......</span>
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#27492;&#22788;&#26159;&#23547;&#25214;&#23545;&#24212;&#21327;&#35758;&#22788;&#29702;&#22120;&#30340;&#36807;&#31243; </span>
+
+<span style="color: #7fffd4;">lookup_protocol</span>:
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36845;&#20195;&#23547;&#25214; protocol==answer-&gt;protocol &#30340;&#24773;&#20917; </span>
+    list_for_each_rcu(p, &amp;inetsw[sock-&gt;type]);
+    answer = list_entry(p, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">inet_protosw</span>, list);
+
+
+<span style="color: #ff4500;">/* </span><span style="color: #ff4500;">Check the non-wild match. </span><span style="color: #ff4500;">*/</span>
+    <span style="color: #00ffff;">if</span> (protocol == answer-&gt;protocol) {
+        <span style="color: #00ffff;">if</span> (protocol != IPPROTO_IP)
+            <span style="color: #00ffff;">break</span>;
+    }
+
+    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#36793; answer &#25351;&#30340;&#26159; SOCK_STREAM</span>
+    sock-&gt;ops = answer-&gt;ops;
+    answer_no_check = answer-&gt;no_check;
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#36793; sk-&gt;prot &#23601;&#26159; answer_prot=&gt;tcp_prot</span>
+
+    sk = sk_alloc(net, PF_INET, GFP_KERNEL, answer_prot);
+    sock_init_data(sock, sk);
+
+    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+}
+</pre>
+</div>
+
+<p>
+上面的代码就是在 INET 中寻找 SOCK_STREAM 的过程了 再看一下 inetsw[SOCK_STREAM] 的具体配置:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-C"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">inet_protosw</span> <span style="color: #eedd82;">inetsw_array</span>[] =
+{
+    {
+        .type = SOCK_STREAM,
+        .protocol = IPPROTO_TCP,
+        .prot = &amp;tcp_prot,
+        .ops = &amp;inet_stream_ops,
+        .capability = -1,
+        .no_check = 0,
+        .flags = INET_PROTOSW_PERMANENT | INET_PROTOSW_ICSK ... 
+    },
+    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+}
+</pre>
+</div>
+
+<p>
+这边也用了重载，AF_INET 有 TCP、UDP 以及 Raw 三种:
+</p>
+
+
+<div class="figure">
+<p><img src="pic/af-inet-socket.jpg" alt="af-inet-socket.jpg" width="70%" />
+</p>
+</div>
+
+<p>
+从上述代码，可以清楚的发现 sock-&gt;ops=&amp;inet_stream_ops;
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-C"><span style="color: #00ffff;">const</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">proto_ops</span> <span style="color: #eedd82;">inet_stream_ops</span> = {
+    .family    = PF_INET,
+    .owner    = THIS_MODULE,
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">......</span>
+    .sendmsg    = tcp_sendmsg,
+    .recvmsg    = sock_common_recvmsg,
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+}
+</pre>
+</div>
+
+<p>
+sock-&gt;ops-&gt;recvmsg = sock_common_recvmsg;
+sock-&gt;sk-&gt;sk_prot = tcp_prot;
+</p>
+
+<p>
+再看下 tcp_prot 中的各个函数重载的定义:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-C"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">proto</span> <span style="color: #eedd82;">tcp_prot</span> = {
+    .name = <span style="color: #ffa07a;">"TCP"</span>,
+    .close = tcp_close,
+    .connect = tcp_v4_connect,
+    .disconnect = tcp_disconnect,
+    .accept = inet_csk_accept,
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">......</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#37325;&#28857;&#32771;&#23519; tcp &#30340;&#35835;</span>
+    .recvmsg = tcp_recvmsg,
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+}
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-2" class="outline-3">
+<h3 id="sec-1-2">fcntl 控制 socket 的阻塞状态</h3>
+<div class="outline-text-3" id="text-1-2">
+<p>
+用 fcntl 修改 socket 的阻塞\非阻塞状态: fcntl 的作用就是将 O_NONBLOCK 标志位存储在 sock_fd 对应的 filp 结构的 f_lags 里, 如下图所示
+</p>
+
+
+<div class="figure">
+<p><img src="pic/fcntl-socket.jpg" alt="fcntl-socket.jpg" width="70%" />
+</p>
+</div>
+
+<div class="org-src-container">
+
+<pre class="src src-c">fcntl(sock_fd, F_SETFL, fdflags | O_NONBLOCK);
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">|-&gt;setfl</span>
+</pre>
+</div>
+
+<p>
+追踪 setfl 代码:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #98fb98;">int</span> <span style="color: #87cefa;">setfl</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">fd</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">file</span> * <span style="color: #eedd82;">filp</span>, <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">arg</span>)
+{
+    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">.....</span>
+    filp-&gt;f_flags = (arg &amp; SETFL_MASK) | (filp-&gt;f_flags &amp; ~SETFL_MASK);
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+}
+</pre>
+</div>
+
+<p>
+由 sock_fd 在 task_struct(进程结构体)-&gt;files_struct-&gt;fd_array 中找到对应的 socket 的 file 描述符，再修改 file-&gt;flags
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-1-3" class="outline-3">
+<h3 id="sec-1-3">调用 socket.recv</h3>
+<div class="outline-text-3" id="text-1-3">
+<p>
+跟踪源码调用：
+</p>
+
+<pre class="example">
+socket.recv
+
+|-&gt;sys_recv
+|-&gt;sys_recvfrom
+|-&gt;sock_recvmsg
+|-&gt;__sock_recvmsg
+|-&gt;sock-&gt;ops-&gt;recvmsg
+</pre>
+
+<p>
+通过前面可知，sock-&gt;ops-&gt;recvmsg = sock_common_recvmsg
+</p>
+</div>
+
+<div id="outline-container-sec-1-3-1" class="outline-4">
+<h4 id="sec-1-3-1">sock_recmsg</h4>
+<div class="outline-text-4" id="text-1-3-1">
+<p>
+值得注意的是, 在 sock_recmsg 中, 有对标识 O_NONBLOCK 的处理：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c"><span style="color: #00ffff;">if</span> (sock-&gt;file-&gt;f_flags &amp; O_NONBLOCK)
+    flags |= MSG_DONTWAIT;
+</pre>
+</div>
+
+<p>
+上述代码中 sock 关联的 file 中获取其 f_flags, 如果 flags 有 O_NONBLOCK 标识，那么就设置 msg_flags 为 MSG_DONTWAIT(不等待)。fcntl 与 socket 就是通过其共同操作 File 结构关联起来的
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-1-3-2" class="outline-4">
+<h4 id="sec-1-3-2">sock_common_recvmsg</h4>
+<div class="outline-text-4" id="text-1-3-2">
+<div class="org-src-container">
+
+<pre class="src src-c"><span style="color: #98fb98;">int</span> <span style="color: #87cefa;">sock_common_recvmsg</span>(<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">kiocb</span> *<span style="color: #eedd82;">iocb</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">socket</span> *<span style="color: #eedd82;">sock</span>,
+            <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">msghdr</span> *<span style="color: #eedd82;">msg</span>, <span style="color: #98fb98;">size_t</span> <span style="color: #eedd82;">size</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">flags</span>)
+{
+
+    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+
+    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524; flags &#30340; MSG_DONTWAIT &#26631;&#35782;&#32622;&#20301;&#65292;&#21017;&#20256;&#32473; recvmsg &#30340;&#31532; 5 &#20010;&#21442;&#25968;&#20026;&#27491;, &#21542;&#21017;&#20026; 0</span>
+    err = sk-&gt;sk_prot-&gt;recvmsg(iocb, sk, msg, size, flags &amp; MSG_DONTWAIT,
+                   flags &amp; ~MSG_DONTWAIT, &amp;addr_len);
+    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">.....</span>
+}
+</pre>
+</div>
+
+<p>
+sk-&gt;sk_prot-&gt;recvmsg 其中 sk_prot=tcp_prot, 即最终调用的是 tcp_prot-&gt;tcp_recvmsg
+</p>
+
+<p>
+如果 fcntl(O_NONBLOCK) =&gt;MSG_DONTWAIT 置位 =&gt; (flags &amp; MSG_DONTWAIT)&gt;0, 再结合 tcp_recvmsg 的函数签名, 即如果设置了 O_NONBLOCK 的话，设置给 tcp_recvmsg 的 nonblock 参数&gt;0, 关系如下图所示:
+</p>
+
+
+<div class="figure">
+<p><img src="pic/sock-common-recvmsg.jpg" alt="sock-common-recvmsg.jpg" width="70%" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-3-3" class="outline-4">
+<h4 id="sec-1-3-3">tcp_recvmsg</h4>
+<div class="outline-text-4" id="text-1-3-3">
+<p>
+tcp_recvmsg 的函数签名：
+</p>
+<div class="org-src-container">
+
+<pre class="src src-c"><span style="color: #98fb98;">int</span> <span style="color: #87cefa;">tcp_recvmsg</span>(<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">kiocb</span> *<span style="color: #eedd82;">iocb</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">sock</span> *<span style="color: #eedd82;">sk</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">msghdr</span> *<span style="color: #eedd82;">msg</span>,
+        <span style="color: #98fb98;">size_t</span> <span style="color: #eedd82;">len</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">nonblock</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">flags</span>, <span style="color: #98fb98;">int</span> *<span style="color: #eedd82;">addr_len</span>);
+</pre>
+</div>
+
+<p>
+关注焦点在 (int nonblock 这个参数上)：
+</p>
+<div class="org-src-container">
+
+<pre class="src src-c"><span style="color: #98fb98;">int</span> <span style="color: #87cefa;">tcp_recvmsg</span>(<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">kiocb</span> *<span style="color: #eedd82;">iocb</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">sock</span> *<span style="color: #eedd82;">sk</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">msghdr</span> *<span style="color: #eedd82;">msg</span>,
+        <span style="color: #98fb98;">size_t</span> <span style="color: #eedd82;">len</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">nonblock</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">flags</span>, <span style="color: #98fb98;">int</span> *<span style="color: #eedd82;">addr_len</span>)
+{
+
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">copied &#26159;&#25351;&#21521;&#29992;&#25143;&#31354;&#38388;&#25335;&#36125;&#20102;&#22810;&#23569;&#23383;&#33410;&#65292;&#21363;&#35835;&#20102;&#22810;&#23569;</span>
+    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">copied</span>;
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">target &#25351;&#30340;&#26159;&#26399;&#26395;&#22810;&#23569;&#23383;&#33410;</span>
+    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">target</span>;
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31561;&#25928;&#20026; timeo = noblock ? 0 : sk-&gt;sk_rcvtimeo;</span>
+    timeo = sock_rcvtimeo(sk, nonblock);
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#35774;&#32622;&#20102; MSG_WAITALL &#26631;&#35782; target=&#38656;&#35201;&#35835;&#30340;&#38271;&#24230;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#26410;&#35774;&#32622;&#65292;&#21017;&#20026;&#26368;&#20302;&#20302;&#27700;&#20301;&#20540;</span>
+    target = sock_rcvlowat(sk, flags &amp; MSG_WAITALL, len);
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+    <span style="color: #00ffff;">do</span>{
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#34920;&#26126;&#35835;&#21040;&#25968;&#25454;</span>
+        <span style="color: #00ffff;">if</span> (copied) {
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#27880;&#24847;&#65292;&#36825;&#36793;&#21482;&#35201;!timeo&#65292;&#21363; nonblock &#35774;&#32622;&#20102;&#23601;&#20250;&#36339;&#20986;&#24490;&#29615;</span>
+            <span style="color: #00ffff;">if</span> (sk-&gt;sk_err ||
+                sk-&gt;sk_state == TCP_CLOSE ||
+                (sk-&gt;sk_shutdown &amp; RCV_SHUTDOWN) ||
+                !timeo ||
+                signal_pending(current) ||
+                (flags &amp; MSG_PEEK))
+                <span style="color: #00ffff;">break</span>;
+        } <span style="color: #00ffff;">else</span>{
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21040;&#36825;&#37324;&#65292;&#34920;&#26126;&#27809;&#26377;&#35835;&#21040;&#20219;&#20309;&#25968;&#25454; </span>
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#19988; nonblock &#35774;&#32622;&#20102;&#23548;&#33268; timeo=0&#65292;&#21017;&#36820;&#22238;-EAGAIN, &#31526;&#21512;&#25105;&#20204;&#30340;&#39044;&#26399; </span>
+
+            <span style="color: #00ffff;">if</span> (!timeo) {
+                copied = -EAGAIN;
+                <span style="color: #00ffff;">break</span>;
+            }
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#36793;&#22914;&#26524;&#35835;&#21040;&#20102;&#26399;&#26395;&#30340;&#25968;&#25454;&#65292;&#32487;&#32493;&#65292;&#21542;&#21017;&#24403;&#21069;&#36827;&#31243;&#38459;&#22622;&#22312; sk_wait_data &#19978; </span>
+
+            <span style="color: #00ffff;">if</span> (copied &gt;= target) {
+<span style="color: #ff4500;">/* </span><span style="color: #ff4500;">Do not sleep, just process backlog. </span><span style="color: #ff4500;">*/</span>
+                release_sock(sk);
+                lock_sock(sk);
+            } <span style="color: #00ffff;">else</span>
+                sk_wait_data(sk, &amp;timeo);
+        }
+    } <span style="color: #00ffff;">while</span> (len &gt; 0);        
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">......</span>
+        <span style="color: #00ffff;">return</span> copied;
+}
+</pre>
+</div>
+<p>
+上面的逻辑归结起来就是：
+</p>
+<ol class="org-ol">
+<li>在设置了 nonblock 的时候，如果 copied&gt;0, 则返回读了多少字节, 如果 copied=0，则返回-EAGAIN, 提示应用重复调用
+</li>
+<li>如果没有设置 nonblock，如果读取的数据&gt;=期望，则返回读取了多少字节。如果没有则用 sk_wait_data 将当前进程等待
+</li>
+</ol>
+
+<p>
+如下流程图所示：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-recvmsg.jpg" alt="tcp-recvmsg.jpg" width="70%" />
+</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-4" class="outline-3">
+<h3 id="sec-1-4">sk_wait_data</h3>
+<div class="outline-text-3" id="text-1-4">
+<div class="org-src-container">
+
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#36827;&#31243;&#29366;&#24577;&#35774;&#32622;&#20026;&#21487;&#25171;&#26029; INTERRUPTIBLE</span>
+prepare_to_wait(sk-&gt;sk_sleep, &amp;wait, TASK_INTERRUPTIBLE);
+set_bit(SOCK_ASYNC_WAITDATA, &amp;sk-&gt;sk_socket-&gt;flags);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36890;&#36807;&#35843;&#29992; schedule_timeout &#35753;&#20986; CPU&#65292;&#28982;&#21518;&#36827;&#34892;&#30561;&#30496;</span>
+rc = sk_wait_event(sk, timeo, !skb_queue_empty(&amp;sk-&gt;sk_receive_queue));
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21040;&#36825;&#37324;&#30340;&#26102;&#20505;&#65292;&#26377;&#32593;&#32476;&#20107;&#20214;&#25110;&#36229;&#26102;&#20107;&#20214;&#21796;&#37266;&#20102;&#27492;&#36827;&#31243;&#65292;&#32487;&#32493;&#36816;&#34892; </span>
+
+clear_bit(SOCK_ASYNC_WAITDATA, &amp;sk-&gt;sk_socket-&gt;flags);
+finish_wait(sk-&gt;sk_sleep, &amp;wait);
+</pre>
+</div>
+
+<p>
+该函数调用 schedule_timeout 进入睡眠，其进一步调用了 schedule 函数，首先从运行队列删除，其次加入到等待队列，最后调用和体系结构相关的 switch_to 宏来完成进程间的切换
+</p>
+</div>
+
+<div id="outline-container-sec-1-4-1" class="outline-4">
+<h4 id="sec-1-4-1">阻塞后恢复运行</h4>
+<div class="outline-text-4" id="text-1-4-1">
+</div><div id="outline-container-sec-1-4-1-1" class="outline-5">
+<h5 id="sec-1-4-1-1">有对应的网络数据到来</h5>
+<div class="outline-text-5" id="text-1-4-1-1">
+<p>
+网卡发起中断后调用 netif_rx 将事件挂入 CPU 的等待队列，并唤起软中断 (soft_irq)，再通过 linux 的软中断机制调用 net_rx_action，如下图所示:
+</p>
+
+
+<div class="figure">
+<p><img src="pic/net-rx.jpg" alt="net-rx.jpg" width="70%" />
+</p>
+</div>
+
+<p>
+跟踪 next_rx_action：
+</p>
+
+<pre class="example">
+next_rx_action
+|-&gt;process_backlog
+......
+|-&gt;packet_type-&gt;func 在这里考虑 ip_rcv
+|-&gt;ipprot-&gt;handler 在这里 ipprot 重载为 tcp_protocol (handler 即为 tcp_v4_rcv)
+</pre>
+
+<p>
+紧接着 tcp_v4_rcv:
+</p>
+<div class="org-src-container">
+
+<pre class="src src-c">tcp_input.c
+tcp_v4_rcv
+
+|-&gt;tcp_v4_do_rcv
+|-&gt;tcp_rcv_state_process
+|-&gt;tcp_data_queue
+|-&gt;sk-&gt;sk_data_ready=sock_def_readable
+    |-&gt;wake_up_interruptible
+    |-&gt;__wake_up
+    |-&gt;__wake_up_common
+</pre>
+</div>
+
+<p>
+__wake_up_common 将停在当前 wait_queue_head_t 中的进程唤醒，即状态改为 task_running，等待 CFS 调度以进行下一步的动作
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-1-4-1-2" class="outline-5">
+<h5 id="sec-1-4-1-2">超时</h5>
+<div class="outline-text-5" id="text-1-4-1-2">
+<p>
+在前面调用 sk_wait_event 中调用了 schedule_timeout：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c">fastcall <span style="color: #98fb98;">signed</span> <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">__sched</span> <span style="color: #87cefa;">schedule_timeout</span>(<span style="color: #98fb98;">signed</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">timeout</span>)
+{
+
+<span style="color: #ff4500;">//        </span><span style="color: #ff4500;">......</span>
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#23450;&#36229;&#26102;&#30340;&#22238;&#25481;&#20989;&#25968;&#20026; process_timeout</span>
+    setup_timer(&amp;timer, process_timeout, (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)current);
+    __mod_timer(&amp;timer, expire);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#36793;&#35753;&#20986; CPU</span>
+    schedule();
+    del_singleshot_timer_sync(&amp;timer);
+    timeout = expire -  jiffies;
+
+<span style="color: #7fffd4;">out</span>:
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36820;&#22238;&#32463;&#36807;&#20102;&#22810;&#38271;&#20107;&#20214;</span>
+    <span style="color: #00ffff;">return</span> timeout &lt; 0 ? 0 : timeout;
+}
+</pre>
+</div>
+
+<p>
+process_timeout 函数即是将此进程重新唤醒：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">process_timeout</span>(<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">__data</span>)
+{
+    wake_up_process((<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">task_struct</span> *)__data);
+}
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

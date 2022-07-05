@@ -1,0 +1,264 @@
+#+TITLE: Y组合子
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil 
+
+在这篇文章里，我会尝试推导出Y组合子，这是函数递归理论最重要的成果之一
+
+* Y组合子
+  在某些情况下可以不用给函数取名字，下面代码就是用匿名函数实现了“6加1”：
+  #+BEGIN_SRC scheme
+  ((lambda (x)
+     (+ x 1))
+   6) ;; => 7
+  #+END_SRC
+
+  可不可以用匿名函数来表达递归过程呢？比如：
+  #+BEGIN_SRC scheme
+  (define fact
+    (lambda (n)
+      (if (zero? n)
+	  1
+	  (* n (fact (- n 1))))))
+  #+END_SRC
+  在最后一行的使用了 _fact_ 这个函数名字来产生递归调用，看起来好像无法用匿名函数来实现递归。实际上这个观点是错误的，后面一步一步地改造fact函数，来推导出整个过程
+
+** 把fact作为参数传递
+
+   #+BEGIN_SRC scheme
+  (define op-maker
+    (lambda (op)
+      (lambda (x)
+	(op x))))
+   #+END_SRC
+
+   使用类似上面的模板代码把最后一行的 _fact_ 作为参数传递进去：
+
+   #+BEGIN_SRC scheme
+    (define fact-maker
+      (lambda (procedure)
+	(lambda (n)
+	  (if (zero? n)
+	      1
+	      (* (procedure (- n 1)) n)))))  
+
+  ;;  fact-maker ; =>  #<procedure:fact-maker>
+
+  ;; ((fact-maker fact-maker) 5)  
+  ; *: contract violation
+  ;   expected: number?
+  ;   given: #<procedure>
+  ;   argument position: 1st
+   #+END_SRC 
+
+   上面代码不工作，因为 _fact-maker_ 返回值是一个 *匿名函数* ，而  _(* (fact-maker (- n 1)) n)_ 要求 _(fact-maker (- n 1))_ 是一个数字
+
+   用下面的代码来修复这个问题：
+
+   #+BEGIN_SRC scheme
+  (define fact-maker
+      (lambda (procedure)
+	(lambda (n)
+	   (if (zero? n)
+	       1
+	       (* n ((procedure procedure) (- n 1)))))))
+
+  ((fact-maker fact-maker) 5) ; => 120
+   #+END_SRC
+
+   至今为止，我们成功地把函数名从过程体里面去掉了，但是我们在调用的时候还是要把函数名 _fact-maker_ 传入
+
+** 去除函数名
+   ((fact-maker fact-maker) 5) 等价于 (fact 5), 因此可以重新定义fact函数为：
+   #+BEGIN_SRC scheme 
+  (define fact 
+    ((lambda (procedure)
+       (lambda (n)
+	 (if (zero? n)
+	     1
+	     (* n ((procedure procedure) (- n 1)))))) ; fact-maker
+     (lambda (procedure)
+       (lambda (n)
+	 (if (zero? n)
+	     1
+	     (* n ((procedure procedure) (- n 1)))))) ; fact-maker
+     ))
+
+  (fact 5) ; => 120
+   #+END_SRC 
+
+   实际上可以完全不定义fact的名字，直接调用：
+   #+BEGIN_SRC scheme
+  (
+   ((lambda (procedure)
+     (lambda (n)
+       (if (zero? n)
+	   1
+	   (* n ((procedure procedure) (- n 1)))))) ; fact-maker
+   (lambda (procedure)
+     (lambda (n)
+       (if (zero? n)
+	   1
+	   (* n ((procedure procedure) (- n 1)))))) ; fact-maker
+  ) 5) ; => 120
+   #+END_SRC
+
+   这一大堆东西已经可以实现不定义函数名来完成递归调用了。接下来要把和fact函数相关的逻辑抽象出来，推广到通用过程中
+
+** 分离业务逻辑
+   首先，把计算阶乘的逻辑分离出来作为一个参数，这样一来其他的计算逻辑，可以作为通过这个参数传递进去
+
+   #+BEGIN_SRC scheme
+  (define F
+    (lambda (n)
+	 (if (zero? n)
+	     1
+	     (* n ((procedure procedure) (- n 1)))))) 
+   #+END_SRC
+
+   这并不难完全满足需求，还需要继续变换。我们知道 (h arg) 等价于 ( (lambda (x) (h x)) arg)，由此可以把 ((procedure procedure) (- n 1)) 替换成： 
+   #+BEGIN_SRC scheme 
+  ((lambda (arg) ((procedure procedure) arg)) (- n 1)) 
+   #+END_SRC
+
+   把这个替换带 _F_ 函数中：
+   #+BEGIN_SRC scheme
+    (define F
+      (lambda (n)
+	(if (zero? n)
+	    1
+	    (* n ((lambda (arg) ((procedure procedure) arg)) (- n 1))))))
+   #+END_SRC
+
+   接着把 _((lambda (arg) ((procedure procedure) arg)) (- n 1))_ 抽象成一个参数：
+   #+BEGIN_SRC scheme
+    (define F
+      ((lambda (func-arg)
+	 (lambda (n)
+	   (if (zero? n)
+	       1
+	       (* n (func-arg (- n 1))))))
+       (lambda (arg) ((procedure procedure) arg))))
+   #+END_SRC
+
+   开始F的定义是：
+   #+BEGIN_EXAMPLE
+     (define F (lambda (n) ... < procedure >))
+   #+END_EXAMPLE
+
+   现在F的定义是：
+   #+BEGIN_EXAMPLE
+     (define F ((lambda (func-arg) (lambda (n) ...)) < procedure >))
+   #+END_EXAMPLE
+
+   而<procedure>的定义是：
+
+   #+BEGIN_EXAMPLE
+     (lambda (arg) ((procedure procedure ) ...) ...) 
+   #+END_EXAMPLE
+
+*** 代入步骤2的结果
+    现在把刚才的结果代入到步骤2的结果中：
+    #+BEGIN_SRC scheme
+  (define fact
+    ((lambda (procedure)
+       ((lambda (func-arg)
+	 (lambda (n)
+	    (if (zero? n)
+		1
+		(* n (func-arg (- n 1))))))
+	(lambda (arg) ((procedure procedure) arg))))
+     (lambda (procedure)
+       ((lambda (func-arg)
+	 (lambda (n)
+	    (if (zero? n)
+		1
+		(* n (func-arg (- n 1))))))
+	(lambda (arg) ((procedure procedure) arg))))))
+
+  (fact 5) ; => 120 
+    #+END_SRC
+
+    注意 *((lambda (func-arg)...* 之前的两个括号：
+    #+BEGIN_EXAMPLE
+    ......
+    ((lambda (func-arg) < body-using-func-arg >) (lambda (arg) ...)) 
+    #+END_EXAMPLE
+    计算结果和下面是一样的： 
+    #+BEGIN_EXAMPLE
+      ((lambda (arg) ((procedure procedure) arg)) (- n 1))
+    #+END_EXAMPLE
+    两者的区别是： *第一种形式参数是一个函数，而第二种形式的参数一个数字* 
+
+*** 替换fact逻辑 
+    仔细研究下面的代码：
+    #+BEGIN_SRC scheme
+  (lambda (func-arg)
+    (lambda (n)
+      (if (zero? n)
+	  1
+	  (* n (func-arg (- n 1))))))
+    #+END_SRC
+    _(lambda (func-arg) ...)_ 这段代码包含了计算阶乘的所有逻辑，如果把它定义成 _F*_：
+    #+BEGIN_SRC scheme
+  (define F*
+    (lambda (func-arg)
+	   (lambda (n)
+	      (if (zero? n)
+		  1
+		  (* n (func-arg (- n 1)))))))
+
+  (define fact
+      ((lambda (procedure)
+	 (F* (lambda (arg) ((procedure procedure) arg))))
+       (lambda (procedure)
+	 (F* (lambda (arg) ((procedure procedure) arg))))))
+    #+END_SRC
+
+    我们可以用 *任何的其他业务逻辑* 作为 _F*_ 来替换 _计算阶乘的特定逻辑_ 。唯一留下的问题在于：还需要在外面定义F*
+
+** 把F*作为参数传入
+   把 _fact_ 重新命名为 *Y* ,  _F*_ 作为 _Y_ 的参数 *F* 传入：
+   #+BEGIN_SRC scheme
+  (define Y
+    (lambda (F) 
+      ((lambda (procedure)
+	 (F (lambda (arg) ((procedure procedure) arg))))
+       (lambda (procedure)
+	 (F (lambda (arg) ((procedure procedure) arg)))))))
+
+  ((Y F*) 5) ; => 120
+  ((F* (Y F*)) 5) ; => 120 
+   #+END_SRC
+
+** 抽取重复的lambda定义
+   实际上(lambda (procedure) (X (lambda (arg) ((procedure procedure) arg))))被重复创建了两次，可以用 *let* 来简化： 
+   #+BEGIN_SRC scheme
+  (define Y
+    (lambda (F) 
+      (let ((W (lambda (procedure)
+		 (F (lambda (arg) ((procedure procedure) arg))))))
+	(W W))))
+
+  ((Y F*) 5) ; =>120
+  ((F* (Y F*)) 5) ; =>120
+   #+END_SRC
+
+   这就是Y组合子的定义。如果利用 _define_ 的语法糖，可以写得更简洁：
+
+   #+BEGIN_SRC scheme
+  (define (Y F)
+    (define (W P)
+      (F (lambda (x) ((P P) x))))
+    (W W)) 
+   #+END_SRC
+
+* 意义
+  Y组合子也被称为 *不动点的高阶函数* ， 可以很容易地证明：
+
+  #+BEGIN_EXAMPLE
+    Y(F) = F ; F是一个函数
+    #+END_EXAMPLE
+
+  它的意义在于：
+  1. 实现匿名函数的递归
+  2. 递归可以不依赖栈

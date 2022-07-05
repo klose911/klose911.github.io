@@ -1,0 +1,236 @@
+#+TITLE: 操作
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: workflow.html   
+#+HTML_LINK_HOME: kafka.html
+#+OPTIONS: num:nil timestamp:nil ^:nli
+
+#+BEGIN_EXAMPLE
+  首先开始实现单节点单代理配置，然后将设置迁移到单节点多代理配置。
+#+END_EXAMPLE
+
+* 启动
+  #+BEGIN_EXAMPLE
+    在迁移到Kafka Cluster Setup之前，首先需要启动ZooKeeper，因为Kafka Cluster使用ZooKeeper
+  #+END_EXAMPLE
+
+  启动Zookpeer: 
+  #+BEGIN_SRC sh 
+  bin/zookeeper-server-start.sh config/zookeeper.properties
+  #+END_SRC
+
+  启动Kafka Broker: 
+  #+BEGIN_SRC sh 
+  bin/kafka-server-start.sh config/server.properties
+  #+END_SRC
+
+  使用 _jps_ 命令可以看到类似的结果：
+  #+BEGIN_EXAMPLE
+    821 QuorumPeerMain
+    928 Kafka
+    931 Jps
+  #+END_EXAMPLE
+
+  这说明有两个 _JVM守护进程_ 在运行， _QuorumPeerMain_ 对应于ZooKeeper守护进程，另一个是Kafka守护进程
+
+* 单节点 - 单代理配置
+  #+BEGIN_EXAMPLE
+    在此配置中，有一个ZooKeeper和代理id实例
+  #+END_EXAMPLE
+** 创建Kafka主题
+   Kafka提供了一个名为 _kafka-topics.sh_ 的命令行实用程序，用于在服务器上创建主题：
+
+   #+BEGIN_SRC sh 
+     $ bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1  --partitions 1 --topic Hello-Kafka
+   #+END_SRC
+
+   创建了一个名为 _Hello-Kafka_ 的 *主题* ，其中包含 _一个分区_ 和 _一个副本因子_ 
+
+   #+BEGIN_EXAMPLE
+     创建主题后，可以在Kafka代理终端窗口中获取通知
+     并在config/server.properties文件中的“/ tmp / kafka-logs /"中指定的创建主题的日志
+   #+END_EXAMPLE
+** 主题列表
+   要获取Kafka服务器中的主题列表，可以使用以下命令：
+
+   #+BEGIN_SRC sh
+     $ bin/kafka-topics.sh --list --zookeeper localhost:2181
+   #+END_SRC
+
+   由于只创建了一个主题，它将仅列出 _Hello-Kafka_ 。 假设，如果已经创建多个主题，将在输出中获取所有的主题名称
+** 启动生产者以发送消息
+   #+BEGIN_EXAMPLE
+   可以在 config/producer.properties 文件中指定默认生产者属性
+   #+END_EXAMPLE
+
+   _生产者_ *命令行客户端* 需要两个主要参数：
+   1. *代理* 列表：在这种情况下，只有一个代理
+      + _config/server.properties_ 文件 *包含代理端口ID* 
+      + 这个代理正在侦听端口 _9092_ ，因此可以 *直接指定* 它
+   2. *主题* 名称 
+
+   #+BEGIN_SRC sh 
+     $ bin/kafka-console-producer.sh --broker-list localhost:9092 --topic Hello-Kafka
+   #+END_SRC
+
+   生产者将 *等待* 来自 _stdin的输入_ 并发布到Kafka集群
+
+   #+BEGIN_EXAMPLE
+     默认情况下，每一个新行都作为新消息发布
+   #+END_EXAMPLE
+
+   现在在终端中键入几行消息，如下所示：
+
+   #+BEGIN_SRC sh 
+     $ bin/kafka-console-producer.sh --broker-list localhost:9092 --topic Hello-Kafka
+
+     WARN property topic is not valid (kafka.utils.Verifia-bleProperties)
+     Hello
+     My first message
+   #+END_SRC
+** 启动消费者以接收消息
+   #+BEGIN_EXAMPLE
+     与生产者类似，在 config/consumer.proper-ties 文件中指定了缺省使用者属性
+   #+END_EXAMPLE
+
+   打开一个新终端并键入：
+
+   #+BEGIN_SRC sh 
+  $ bin/kafka-console-consumer.sh --zookeeper localhost:2181 ―topic Hello-Kafka --from-beginning
+   #+END_SRC
+
+   输出：
+   #+BEGIN_EXAMPLE
+     Hello
+     My first message
+   #+END_EXAMPLE
+* 单节点多代理配置
+  #+BEGIN_EXAMPLE
+    在进入多个代理集群设置之前，首先启动ZooKeeper服务器
+  #+END_EXAMPLE
+
+** 创建多个Kafka Brokers 
+   #+BEGIN_EXAMPLE
+     原来的配置 server.properties 文件中已有一个Kafka代理实例
+   #+END_EXAMPLE
+
+   现在需要 *多个* _代理实例_ ：
+   1. 将现有的 _server.properties_ 文件 *复制* 到 _两个新的配置文件_ 中
+   2. 将其重命名为 _server-one.properties_ 和 _server-two.properties_
+   3. 编辑这两个新文件 
+
+   server-one.properties 看起来如下： 
+   #+BEGIN_EXAMPLE
+     # The id of the broker. This must be set to a unique integer for each broker.
+     broker.id=1
+     # The port the socket server listens on
+     port=9093
+     # A comma seperated list of directories under which to store log files
+     log.dirs=/tmp/kafka-logs-1
+   #+END_EXAMPLE
+
+   server-two.properties 类似： 
+   #+BEGIN_EXAMPLE
+     # The id of the broker. This must be set to a unique integer for each broker.
+     broker.id=2
+     # The port the socket server listens on
+     port=9094
+     # A comma seperated list of directories under which to store log files
+     log.dirs=/tmp/kafka-logs-2
+   #+END_EXAMPLE
+
+** 启动多个代理
+   在三台服务器上进行所有更改后，打开三个新终端，逐个启动每个代理：
+
+   #+BEGIN_SRC sh 
+  # Broker1
+  $ bin/kafka-server-start.sh config/server.properties
+   #+END_SRC
+
+   #+BEGIN_SRC sh 
+  #Broker2
+  $ bin/kafka-server-start.sh config/server-one.properties
+   #+END_SRC
+
+   #+BEGIN_SRC sh 
+  #Broker3
+  $ bin/kafka-server-start.sh config/server-two.properties
+   #+END_SRC
+
+   现在就有了三个不同的代理在运行
+
+** 创建主题
+   由于有三个不同的代理运行，所以将 *主题的复制因子* 指定为 _3_ 个：
+
+   #+BEGIN_SRC sh 
+  $ bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 3 -partitions 1 --topic Multibrokerapplication
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     created topic “Multibrokerapplication"
+   #+END_EXAMPLE
+
+   _describe_ 命令：检查哪个代理正在侦听当前创建的主题 
+
+   #+BEGIN_SRC sh 
+  $ bin/kafka-topics.sh --describe --zookeeper localhost:2181 --topic Multibrokerapplication
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     Topic:Multibrokerapplication  PartitionCount:1 
+     ReplicationFactor:3 Configs:
+
+     Topic:Multibrokerapplication Partition:0 Leader:0 
+     Replicas:0,2,1 Isr:0,2,1
+   #+END_EXAMPLE
+
+   + 第一行给出 _所有分区的摘要_ ，显示 _主题名称_ ， _分区数量_ 和已经选择的 _复制因子_ 。
+   + 第二行中，每个节点将是 *分区的随机选择部分的领导者* 
+     + 第一个broker(broker.id=0)是领导者
+     + Replicas:0,2,1意味着所有代理复制主题
+     + Isr 是 in-sync 副本的集合
+
+** 启动生产者以发送消息
+   与单代理类似：
+
+   #+BEGIN_SRC sh 
+  $ bin/kafka-console-producer.sh --broker-list localhost:9092 --topic Multibrokerapplication
+
+  This is single node-multi broker demo
+  This is the second message
+   #+END_SRC
+
+** 启动消费者以接收消息
+   与单代理类似：
+
+   #+BEGIN_SRC sh 
+  $ bin/kafka-console-consumer.sh --zookeeper localhost:2181 ―topic Multibrokerapplica-tion ―from-beginning
+
+  This is single node-multi broker demo
+  This is the second message
+   #+END_SRC
+
+* 主题 
+** 修改
+   #+BEGIN_SRC sh 
+  $ bin/kafka-topics.sh --zookeeper localhost:2181 --alter --topic Hello-kafka --parti-tions 2
+
+  WARNING: If partitions are increased for a topic that has a key, 
+  the partition logic or ordering of the messages will be affected
+  Adding partitions succeeded!
+   #+END_SRC
+** 删除
+   #+BEGIN_SRC sh 
+  $ bin/kafka-topics.sh --zookeeper localhost:2181 --delete --topic Hello-kafka
+
+  Topic Hello-kafka marked for deletion
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     注意：如果 delete.topic.enable 未设置为true，则此删除操作不会产生任何影响
+   #+END_EXAMPLE
+
+   [[file:producer.org][Next：实例]]
+
+   [[file:workflow.org][Previous: 流程]]
+
+   [[file:kafka.org][Home: 目录]]

@@ -1,0 +1,107 @@
+#+TITLE: Annotation
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: label.html   
+#+HTML_LINK_HOME: cluster.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+Annotation，顾名思义，就是注解。Annotation 可以将 _Kubernetes 资源对象_ *关联* 到 _任意的非标识性元数据_
+
+#+begin_example
+  使用客户端（如工具和库）可以检索到这些元数据
+#+end_example
+* 关联元数据到对象
+  Label 和 Annotation 都可以将元数据关联到 Kubernetes 资源对象：
+  + Label 主要用于选择对象，可以挑选出满足特定条件的对象。annotation 不能用于标识及选择对象
+  + annotation 中的元数据可多可少，可以是结构化的或非结构化的
+  + annotation 也可以包含 label 中不允许出现的字符 
+
+  Annotation 和 label 一样都是 key/value 键值对映射结构：
+  #+begin_example
+    json"annotations": {"key1":"value1","key2":"value2"}
+  #+end_example
+
+  以下列出了一些可以记录在 annotation 中的对象信息：
+  + 声明配置层管理的字段
+    #+begin_example
+      可以用于区分以下几种配置来源：客户端或服务器设置的默认值，自动生成的字段或自动生成的 auto-scaling 和 auto-sizing 系统配置的字段
+    #+end_example
+  + 创建信息、版本信息或镜像信息
+    #+begin_example
+      例如时间戳、版本号、git 分支、PR 序号、镜像哈希值以及仓库地址
+    #+end_example
+  + 记录日志、监控、分析或审计存储仓库的指针
+  + 可以用于 debug 的客户端（库或工具）信息
+    #+begin_example
+      例如名称、版本和创建信息
+    #+end_example
+  + 用户信息，以及工具或系统来源信息
+    #+begin_example
+      例如来自非 Kubernetes 生态的相关对象的 URL 信息
+    #+end_example
+  + 轻量级部署工具元数据
+    #+begin_example
+      例如配置或检查点
+    #+end_example
+  + 负责人的电话或联系方式，或能找到相关信息的目录条目信息
+    #+begin_example
+      例如团队网站
+    #+end_example
+
+  #+begin_example
+    如果不使用 annotation，也可以将以上类型的信息存放在外部数据库或目录中
+
+    但这样做不利于创建用于部署、管理、内部检查的共享工具和客户端库
+  #+end_example
+
+* 示例
+  如 Istio 的 Deployment 配置中就使用到了 annotation：
+
+  #+begin_example
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+      name: istio-manager
+    spec:
+      replicas: 1
+      template:
+	metadata:
+	  annotations:
+	    alpha.istio.io/sidecar: ignore
+	  labels:
+	    istio: manager
+	spec:
+	  serviceAccountName: istio-manager-service-account
+	  containers:
+	  - name: discovery
+	    image: harbor-001.jimmysong.io/library/manager:0.1.5
+	    imagePullPolicy: Always
+	    args: ["discovery", "-v", "2"]
+	    ports:
+	    - containerPort: 8080
+	    env:
+	    - name: POD_NAMESPACE
+	      valueFrom:
+		fieldRef:
+		  apiVersion: v1
+		  fieldPath: metadata.namespace
+	  - name: apiserver
+	    image: harbor-001.jimmysong.io/library/manager:0.1.5
+	    imagePullPolicy: Always
+	    args: ["apiserver", "-v", "2"]
+	    ports:
+	    - containerPort: 8081
+	    env:
+	    - name: POD_NAMESPACE
+	      valueFrom:
+		fieldRef:
+		  apiVersion: v1
+		  fieldPath: metadata.namespace
+  #+end_example
+
+  _alpha.istio.io/sidecar_ 注解就是用来 *控制* 是否 _自动向 pod 中注入 sidecar 的_
+
+  [[file:taint_toleration.org][Next：Taint 和 Toleration]]
+
+  [[file:label.org][Previous：Label]]
+
+  [[file:cluster.org][Home：Cluster]]

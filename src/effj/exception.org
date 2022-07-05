@@ -1,0 +1,194 @@
+#+TITLE: 异常处理
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: enum_annotation.html   
+#+HTML_LINK_HOME: effj.html
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+* 只针对异常的情况才使用异常
+  刻意通过避免校验“数组下标是否越界”，而试图靠捕获异常来终止循环去获得更好的性能
+  #+BEGIN_SRC java
+    // Horrible abuse of exceptions. Don't ever do this!
+    try {
+            int i = 0;
+            while(true)
+                    range[i++].climb();
+    } catch(ArrayIndexOutOfBoundsException e) {
+    }
+  #+END_SRC
+1. 异常被设计成处于异常状态下运行，JVM缺少动力去优化try-catch块内代码
+2. JVM本身在优化循环的时候会去除冗余的越界判断
+   
+事实上现在的JVM实现中，基于异常的模式要比标准模式要慢得多
+#+BEGIN_SRC java
+  for (Mountain m : range)
+          m.climb();
+#+END_SRC
+
++ 异常应该只用于异常的情况下，永远不应该用于正常的控制流
++ 设计良好的API不应该强迫客户端为了正常的控制流而使用异常
+基于Iterator的循环模式
+#+BEGIN_SRC java
+    for (Iterator<Foo> i = collection.iterator(); i.hasNext(); ) {
+            Foo foo = i.next();
+            //...
+    }
+#+END_SRC
+假如Iterator缺少hasNext方法，客户端就只能使用丑陋的异常控制流程
+#+BEGIN_SRC java
+  //if Iterator miss hasNext method   
+  try {
+          Iterator<Foo> i = collection.iterator();
+          while(true) {
+                  Foo foo = i.next();
+                  //...
+          }
+  } catch (NoSuchElementException e) {
+  }
+#+END_SRC
+当碰到需要用异常来控制流程的时候，不妨仔细思考是不是缺少某些方法导致
+* 对可恢复的情况使用受检异常，对编程错误使用运行时异常
+** Throwable种类
++ checked Exception: 如果期望调用者能够适当地恢复，必须手动捕捉和处理 
++ RuntimeException: 表明编程错误，比如程序越界，引用为空等
++ Error：表示资源不足、约束失败，或者其他使程序无法执行的条件，遇见错误应该无条件结束程序
+  
+Error一般都是JVM保留的，所以不应该再继承Error。对于非受检Exception，应当只继承RuntimeException
+
+受检异常往往指明了可恢复的条件，所以，对于这样的异常提供一些辅助的方法尤其重要。通过这些方法，调用者可以获得一些有助于恢复的信息，比如差了多少钱导致转账失败等
+* 避免不必要的受检查异常
+  使用受检查异常会强迫处理异常，这增加程序的可靠性，但同时会大大加重使用者的负担
+  
+  如果用户不合理使用接口导致的异常，往往可以通过校验来避免非受检异常。而当用户面对异常无计可施的情况下，更合适使用非受检异常
+  
+  所以只有当用户合理使用接口却仍然无法避免异常状况，并且在异常发生的时候用户能够做一些恢复处理的时候才应该使用受检查异常
+** 避免受检查异常
+   #+BEGIN_SRC java
+  // Invocation with checked exception
+  try {
+          obj.action(args);
+  } catch(TheCheckedException e) {
+  // Handle exceptional condition
+          ...
+  }
+   #+END_SRC
+   
+   很多情况下可以使用判断来避免受检查异常，这可以让接口更容易被使用
+   #+BEGIN_SRC java
+  // Invocation with state-testing method and unchecked exception
+  if (obj.actionPermitted(args)) {
+          obj.action(args);
+  } else {
+  // 抛出运行时异常
+          ...
+  }
+   #+END_SRC
+   
+   在多线程环境下，如果在校验actionPermitted的时候其他线程会改变对象状态，会需要同步。这种做法或许并不合适多线程
+   
+* 优先使用标准的异常
+  #+CAPTION: 常用标准的异常
+  #+ATTR_HTML: :border 1 :rules all :frame boader　
+  | 异常                            | 使用场合　                               |
+  | IllegalArgumentException        | 校验参数是否合法                         |
+  | IllegalStateException           | 校验对象状态是否合法                     |
+  | NullPointerException            | 空指针异常                               |
+  | IndexOutOfBoundException        | 数组下标越界                             |
+  | ConcurrentModificationException | 禁止容器并发修改的情况下，检测到并发修改 |
+  | UnsupportedOperationException   | 对象不支持用户请求                       |
+
+* 抛出与抽象层次相对应的异常
+如果当低层调用发生异常时候不考虑后果地直接向高层传递低层异常，这会导致高层的接口被低层的实现细节污染。一旦低层的异常发生变动，会导致高层的代码也跟着变化　
+
+** 异常转译
+把低层的异常转换成高层的异常，再抛到高层
+   #+BEGIN_SRC java
+     // Exception Translation
+     try {
+             return i.next();
+     } catch(NoSuchElementException e) {　
+             throw new IndexOutOfBoundsException("Index: " + index); 
+     }
+
+   #+END_SRC
+
+尽管异常转译相比不加选择地从低层传递异常的做法有所改进，但最好的做法是：在低层避免异常发生，或者在低层干净地处理完异常
+*** 异常锁链
+特殊的异常转译：当低层的异常有助于高层处理的时候，把低层的异常cause包装到高层异常中
+   #+BEGIN_SRC java
+     // Exception Chaining
+     try {
+             ... // Use lower-level abstraction to do our bidding
+     } catch (LowerLevelException cause) {
+             throw new HigherLevelException(cause);
+     }
+
+     // Exception with chaining-aware constructor
+     class HigherLevelException extends Exception {
+             HigherLevelException(Throwable cause) {
+                     super(cause);
+             }
+     }
+   #+END_SRC
+* 每个方法抛出的异常都要有文档
++ 每个受检查的异常都必须单独使用@throws标记，并且准确地描述每个异常的抛出条件
++ 使用@throws标签记录下尽可能多的未受捡异常，但不要使用throws关键字将未受检的异常包含在方法的声明
++ 如果一个类中的许多方法处于同样的原因而抛出同一个异常，可以在该类的文档注释中对这个异常进行描述
++ 永远不要使用类似throws Exception这样的声明
+* 异常中需要包含能查找失败原因的详细信息
++ 异常的toString方法应该尽可能多地返回有关失败原因的信息
++ 为了查找失败原因，异常的细节信息应该包含所有“对该异常有贡献”的参数和属性的值
+
+
+** 使用包含足够多信息的构造器代替只有一个字符串的构造器
+这个IndexOutOfBoundException构造器包含了数组下标的下界，上届，以及触发异常的下标，可以快速方便地定位出问题
+   #+BEGIN_SRC java
+     /**
+      ,* Construct an IndexOutOfBoundsException.
+      ,*
+      ,* @param lowerBound the lowest legal index value.
+      ,* @param upperBound the highest legal index value plus one.
+      ,* @param index
+      the actual index value.
+     ,*/
+     public IndexOutOfBoundsException(int lowerBound, int upperBound,
+                                      int index) {
+     // Generate a detail message that captures the failure
+             super("Lower bound: "
+                   + lowerBound +
+                   ", Upper bound: " + upperBound +
+                   ", Index: "
+                   + index);
+     // Save failure information for programmatic access
+             this.lowerBound = lowerBound;
+             this.upperBound = upperBound;
+             this.index = index;
+     }
+   #+END_SRC
+
+* 努力使失败保持原子性
+失败原子性：抛出异常后应该使对象保持在这个方法被调用之前的状态
+1. 设计一个不可变对象
+2. 调整处理过程的顺序，先校验再修改，任何可能会失败的部分都在对象状态被修改之前
+   #+BEGIN_SRC java
+     public Object pop() {
+             if (size == 0)
+                     throw new EmptyStackException();
+             Object result = elements[--size];
+             elements[size] = null;
+             return result;
+     }
+   #+END_SRC
+
+3. 在对象的一份临时拷贝上操作，当操作完成后再用临时拷贝中的结果代替对象的内容
+4. 编写恢复代码
+
+但并非所有情况都可以保持原子性，比如多线程情况下触发的ConcurrentModificationException就无法回退。但大多数情况应该尝试尽量保持失败原子性，即使无法保证也必须在文档中清晰指明
+
+* 不要忽略异常
++ 捕捉到异常但不处理会使异常机制失去意义，反而可能会掩盖某些必须修改的错误
++ 极端情况下的某些特殊异常即使可以忽略，也应该在文档中清楚阐述可以忽略的理由
+
+[[file:concurrency.org][Next：同步]]
+
+[[file:enum_annotation.org][Previous：枚举和注解]]
+
+[[file:effj.org][Home：目录]]

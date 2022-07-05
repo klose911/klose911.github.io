@@ -1,0 +1,1265 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>TCP：未来和性能</title>
+<meta  http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta  name="generator" content="Org-mode" />
+<meta  name="author" content="Wu, Shanliang" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { color: green; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  pre.src-sh:before    { content: 'sh'; }
+  pre.src-bash:before  { content: 'sh'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-R:before     { content: 'R'; }
+  pre.src-perl:before  { content: 'Perl'; }
+  pre.src-java:before  { content: 'Java'; }
+  pre.src-sql:before   { content: 'SQL'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.right  { text-align: center;  }
+  th.left   { text-align: center;   }
+  th.center { text-align: center; }
+  td.right  { text-align: right;  }
+  td.left   { text-align: left;   }
+  td.center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara:nth-child(2) { display: inline; }
+  .footpara { display: block; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2013 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="tcp-keep-alive-alarm.html"> UP </a>
+ |
+ <a accesskey="H" href="tii.html"> HOME </a>
+</div><div id="content">
+<h1 class="title">TCP：未来和性能</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#sec-1">路径MTU发现</a>
+<ul>
+<li><a href="#sec-1-1">实例</a></li>
+<li><a href="#sec-1-2">分组大小</a></li>
+</ul>
+</li>
+<li><a href="#sec-2">宽带管道</a>
+<ul>
+<li><a href="#sec-2-1">千兆比网络</a></li>
+<li><a href="#sec-2-2">窗口扩大选项</a>
+<ul>
+<li><a href="#sec-2-2-1">实例</a></li>
+</ul>
+</li>
+<li><a href="#sec-2-3">时间戳选项</a>
+<ul>
+<li><a href="#sec-2-3-1">PAWS：防止回绕的序号</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#sec-3">T/TCP</a>
+<ul>
+<li><a href="#sec-3-1">报文</a></li>
+<li><a href="#sec-3-2">过程</a></li>
+<li><a href="#sec-3-3">优点</a></li>
+<li><a href="#sec-3-4">缺点</a></li>
+</ul>
+</li>
+<li><a href="#sec-4">TCP的性能</a></li>
+</ul>
+</div>
+</div>
+<p>
+TCP已经在从1200b/s的拨号SLIP链路到以太数据链路上运行了许多年。在80年代和90年代初期，以太网是运行TCP/IP最主要的数据链路方式。虽然TCP在比以太网速率高的环境（如T2电话线、FDDI及千兆比网络）中也能够正确运行，但在这些高速率环境下，TCP的某些限制就会暴露出来
+</p>
+
+<p>
+本章讨论TCP的一些修改建议，这些建议可以使TCP在高速率环境中获得最大的吞吐量：
+</p>
+<ul class="org-ul">
+<li>讨论 <b>路径MTU发现</b> 机制，主要关注它如何与TCP协同工作。这个机制通常可以使TCP为非本地的连接使用大于536字节的MTU，从而增加吞吐量
+</li>
+<li>接着介绍 <b>宽带</b> 管道，也就是那些具有很大的带宽时延乘积的网络，以及TCP在这些网络上所具有的局限性。为处理宽带管道，描述两个新的TCP选项：
+<ul class="org-ul">
+<li><b>窗口扩大</b> 选项：用来增加TCP的最大窗口，使之超过65535字节
+</li>
+<li><b>时间戳</b> 选项：可以使TCP对报文段进行更加精确的RTT测量，还可以在高速率下对可能发生的序号回绕提供保护
+</li>
+<li><b>T/TCP</b> ：为增加事务功能而对TCP进行的修改
+<ul class="org-ul">
+<li>通信的事务模式以客户的请求将被服务器应答的响应为主要特征。这是客户服务器计算的常见模型
+</li>
+<li>T/TCP的目的就是减少两端交换的报文段数量，避免三次握手和使用4个报文段进行连接的关闭，从而使客户可以在一个RTT和处理请求所必需的时间内收到服务器的应答
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+<p>
+这些新选项中令人印象最深刻的就是它们与现有的TCP实现能够 <b>向后兼容</b> 即包括这些新选项的系统仍然可以与原有的旧系统进行交互。除了在一个ICMP报文中为路径MTU发现增加了一个额外字段之外，这些新的选项只需要在那些需要使用它们的端系统中进行实现
+</p>
+
+<ul class="org-ul">
+<li>最后介绍近来发表的有关 <b>TCP性能</b> 的图例
+</li>
+</ul>
+
+
+<div id="outline-container-sec-1" class="outline-2">
+<h2 id="sec-1">路径MTU发现</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+曾经描述过 <b>路径MTU</b> 的概念。这是当前在两个主机之间的路径上任何网络上的最小MTU。路径MTU发现在IP首部中继承并设置 <b>不要分片（DF）比特</b> 来发现当前路径上的路由器是否需要对正在发送的IP数据报进行分片。在11.6节观察到如果一个待转发的IP数据报被设置DF比特，而其长度又超过了MTU，那么路由器将返回 <i>ICMP不可达的差错</i> 在11.7节显示了某版本的traceroute程序使用该机制来决定目的地的路径MTU。在11.8节看到UDP是怎样处理路径MTU发现的。在本节将讨论这个机制是如何按照RFC 1191中规定的那样在TCP中进行使用的
+</p>
+
+<p>
+TCP的路径MTU发现按如下方式进行：
+</p>
+<ol class="org-ol">
+<li>在连接建立时，TCP使用输出接口或对端声明的MSS中的最小MTU作为起始的报文段大小
+<ul class="org-ul">
+<li>路径MTU发现不允许TCP超过对端声明的MSS
+</li>
+<li>如果对端没有指定一个MSS，则默认为536
+</li>
+</ul>
+</li>
+<li>一旦选定了起始的报文段大小，在该连接上的所有被TCP发送的IP数据报都将被设置DF比特
+<ul class="org-ul">
+<li>如果某个中间路由器需要对一个设置了DF标志的数据报进行分片，它就丢弃这个数据报，并产生一个ICMP的 <b>不能分片</b> 差错
+</li>
+</ul>
+</li>
+<li>如果收到这个ICMP差错，TCP就减少段大小并进行重传
+<ul class="org-ul">
+<li>如果路由器产生的是一个较新的该类ICMP差错，则报文段大小被设置为下一跳的MTU减去IP和TCP的首部长度
+</li>
+<li>如果是一个较旧的该类ICMP差错，则必须尝试下一个可能的最小MTU
+</li>
+<li>当由这个ICMP差错引起的重传发生时，拥塞窗口不需要变化，但要 <b>启动慢启动</b> 
+</li>
+</ul>
+</li>
+</ol>
+
+<pre class="example">
+由于路由可以动态变化，因此在最后一次减少路径MTU的一段时间以后，可以尝试使用一个较大的值，直到等于对端声明的MSS或输出接口MTU的最小值
+
+RFC 1191推荐这个时间间隔为10分钟
+</pre>
+
+<ul class="org-ul">
+<li>在对非本地目的地，默认的MSS通常为536字节，路径MTU发现可以避免在通过MTU小于576的中间链路时进行分片
+</li>
+<li>对于本地目的主机，也可以避免在中间链路（如以太网）的MTU小于端点网络（如令牌环网）的情况下进行分片
+</li>
+<li>但为了能使路径MTU更加有用和充分利用MTU大于576的广域网，一个实现必须停止使用为非本地目的制定的536的MTU默认值
+</li>
+<li>MSS的一个较好的选择是输出接口的MTU（当然要减去IP和TCP的首部大小），现在MTU的值一般是1500-40=1460
+</li>
+</ul>
+</div>
+
+
+<div id="outline-container-sec-1-1" class="outline-3">
+<h3 id="sec-1-1">实例</h3>
+<div class="outline-text-3" id="text-1-1">
+<p>
+在某个中间路由器的MTU比任一个端点接口MTU小的情况下，能够观察路径MTU发现是如何工作的。图24-1显示了这个例子的拓扑结构：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-mtu-sample.png" alt="tcp-mtu-sample.png" width="70%" />
+</p>
+</div>
+
+<p>
+从主机solaris（支持路径MTU发现机制）到主机slip建立一个连接。在这里把slip接口的MTU设置为552，而不是通常的296。这使得slip通告一个512的MSS。但是在bsdi上的SLIP链路上的MTU为296，这就引起超过256的TCP报文段被分片。于是就可以观察在solaris上的路径MTU发现是如何进行处理的
+</p>
+
+<p>
+在solaris上运行sock程序并向slip上的丢弃服务器进行一个512字节的写操作：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-sh">solaris$ sock -i -n1 -w512 slip discard
+</pre>
+</div>
+
+<p>
+图24-2是在主机sun的SLIP接口上收集的tcpdump的输出结果：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-mtu-find-dump.png" alt="tcp-mtu-find-dump.png" width="70%" />
+</p>
+</div>
+
+
+<ul class="org-ul">
+<li>第1和第2行：互相通告MSS值
+</li>
+<li>第3行：solaris发送一个包含512字节的数据和对SYN的确认报文段
+</li>
+<li>第4行：产生了一个ICMP差错，这是路由器bsdi产生较新的 <b>包含输出接口MTU</b> 的ICMP差错
+</li>
+<li>第5行：在这个差错回到solaris之前，就发送了FIN
+</li>
+<li>第6行：由于slip没有收到被路由器bsdi丢弃的512字节的数据，因此并不期望接收这个序号 <i>513</i> 所以用它期望的序号 <i>1</i> 进行了响应
+</li>
+<li>第7和9行：ICMP差错返回到了solaris，solaris用两个256字节的报文段重传了512字节的数据
+<ul class="org-ul">
+<li>因为在bsdi后面可能还有具有更小的MTU的路由器，因此这两个报文段都设置了 <b>DF比特</b> 
+</li>
+</ul>
+</li>
+</ul>
+
+<p>
+接着是一个较长的传输过程（持续了大约15分钟），在最初的512字节变为256字节以后，solaris没有再尝试使用更大的报文段
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-1-2" class="outline-3">
+<h3 id="sec-1-2">分组大小</h3>
+<div class="outline-text-3" id="text-1-2">
+<p>
+常识来说较大的分组比较好，因为发送较少的大分组比发送较多的小分组 <b>花费</b> 要少 <i>假定分组的大小不足以引起分片，否则会引起其他方面的问题</i> 这些减少的花费与网络（分组首部负荷）、路由器（选路的决定）和主机（协议处理和设备中断）等有关。但并非所有的人都同意这种观点
+</p>
+
+<p>
+通过4个路由器发送8192个字节，每个路由器与一个T1电话线（1544000b/s）相连。首先使用两个4096字节的分组，如图24-3所示：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-large-mtu.png" alt="tcp-large-mtu.png" width="70%" />
+</p>
+</div>
+
+<p>
+问题在于路由器是 <b>存储转发设备</b> 它们通常接收整个输入分组，检验包含IP检验和的IP首部，进行选路判决，然后开始发送输出分组。在这个图中，可以假定在理想情况下这些在路由器内部进行的操作不花费时间（水平点状线）。然而，从R1到R4它需要花费4个单位时间来发送所有的8192字节。每一跳的时间为：
+</p>
+
+<pre class="example">
+(4096 + 40) * 8 / 1544000 = 21.4ms/跳
+</pre>
+
+<p>
+其中，将TCP和IP的首部算为40字节，每个字节是8bit。发送数据的整个时间为分组个数加上跳数减1，从图中可以看到是4个单位时间 <b>85.6秒</b> 每个链路空闲2个单位时间 <b>42.8秒</b> 
+</p>
+
+<p>
+图24-4显示了发送16个512字节的分组时所发生的情况：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-small-mtu.png" alt="tcp-small-mtu.png" width="70%" />
+</p>
+</div>
+
+<p>
+这将花费更多的单位时间，但是由于发送的分组较短，因此每个单位时间较小：
+</p>
+<pre class="example">
+(512 + 40) * 8 / 1544000 = 2.9ms/跳
+</pre>
+
+<p>
+现在总时间为 (18×2.9) = <b>52.2ms</b> 每个链路也空闲2个单位的时间即 <b>5.8ms</b>
+</p>
+
+<pre class="example">
+   在这个例子中，忽略了确认返回所需要的时间、连接建立和终止以及链路可能被其他流量共享等的影响
+</pre>
+
+<p>
+根据现有的测量表明： <b>分组并不一定是越大越好</b> 需要在更多的网络上对该领域进行更多的研究
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-2" class="outline-2">
+<h2 id="sec-2">宽带管道</h2>
+<div class="outline-text-2" id="text-2">
+<p>
+在20.7节，把一个连接的容量表示为
+</p>
+
+<p>
+<i>capacity</i> (b) = <i>bandwidth</i> (b/s) * <i>round-triptime</i> (s)
+</p>
+
+<p>
+并称之为带宽时延乘积。也可称它为两端的管道大小
+</p>
+
+<p>
+当这个乘积变得越来越大时，TCP的某些局限性就会暴露出来。表24-5显示了多种类型的网络的某些数值：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 多种网络的带宽时延乘积</caption>
+
+<colgroup>
+<col  class="left" />
+
+<col  class="right" />
+
+<col  class="right" />
+
+<col  class="right" />
+</colgroup>
+<tbody>
+<tr>
+<td class="left">网络</td>
+<td class="right">带宽(b/s)</td>
+<td class="right">rtt(ms)</td>
+<td class="right">带宽时延乘积(字节=8b)</td>
+</tr>
+
+<tr>
+<td class="left">以太局域网</td>
+<td class="right">10000000</td>
+<td class="right">3</td>
+<td class="right">3750</td>
+</tr>
+
+<tr>
+<td class="left">横跨大陆的T1电话线</td>
+<td class="right">1544000</td>
+<td class="right">60</td>
+<td class="right">11580</td>
+</tr>
+
+<tr>
+<td class="left">卫星T1电话线</td>
+<td class="right">1544000</td>
+<td class="right">500</td>
+<td class="right">96500</td>
+</tr>
+
+<tr>
+<td class="left">横跨大陆的T3电话线</td>
+<td class="right">45000000</td>
+<td class="right">60</td>
+<td class="right">337500</td>
+</tr>
+
+<tr>
+<td class="left">横跨大陆的gigabit线路</td>
+<td class="right">1000000000</td>
+<td class="right">60</td>
+<td class="right">7500000</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+可以看到带宽时延乘积的单位是字节，这是因为用这个单位来 <b>测量每一端的缓存大小和窗口大小</b> 
+</p>
+
+<p>
+具有大的带宽时延乘积的网络被称为 <b>宽带网络</b> 而一个运行在LFN上的TCP连接被称为 <b>宽带管道</b> 。管道可以被水平拉长（一个长的RTT），或被垂直拉高（较高的带宽），或向两个方向拉伸。使用宽带管道会遇到多种问题：
+</p>
+
+<ul class="org-ul">
+<li>TCP首部中窗口大小为16bit，从而将窗口限制在65535个字节内。但是从图24-5的最后一列可以看到，现有的网络需要一个更大的窗口来提供最大的吞吐量，介绍过的窗口扩大选项可以解决这个问题
+</li>
+<li>在一个宽带网络LFN内的分组丢失会使吞吐量急剧减少。如果只有一个报文段丢失，需要利用21.7节介绍的快速重传和快速恢复算法来使管道避免耗尽。但是即使使用这些算法，在一个窗口内发生的多个分组丢失也会典型地使管道耗尽：如果管道耗尽了，慢启动会使它渐渐填满，但这个过程将需要经过多个RTT
+</li>
+</ul>
+
+<pre class="example">
+RFC 1072中建议使用有选择的确认来处理在一个窗口发生的多个分组丢失
+
+但是这个功能在RFC 1323中被忽略了，因为作者觉得在把它们纳入TCP之前需要先解决一些技术上的问题
+</pre>
+
+<ul class="org-ul">
+<li>许多TCP实现对每个窗口的RTT仅进行一次测量。它们并不对每个报文段进行RTT测量。在一个宽带网络LFN上需要更好的RTT测量机制。将在24.5节介绍时间戳选项，它允许更多的报文段被计时，包括重传
+</li>
+<li>TCP对每个字节数据使用一个32bit无符号的序号来进行标识
+</li>
+</ul>
+
+<pre class="example">
+如果在网络中有一个被延迟一段时间的报文段，它所在的连接已被释放，而一个新的连接在这两个主机之间又建立了，怎样才能防止这样的报文段再次出现呢？
+
+IP首部中的TTL为每个IP段规定了一个生存时间的上限（255跳或255秒，看哪一个上限先达到）
+
+最大的报文段生存时间（MSL）作为一个实现的参数来阻止这种情况的发生
+
+推荐的MSL的值为2分钟（给出一个240秒的2MSL），但是许多实现使用的MSL为30秒
+</pre>
+
+<p>
+在宽带网络LFN上，TCP的序号会碰到一个不同的问题。由于序号空间是有限的，在已经传输了4294967296个字节以后序号会被重用。如果一个包含序号N字节数据的报文段在网络上被迟延并在连接仍然有效时又出现，会发生什么情况呢？这仅仅是一个相同序号N在MSL期间是否被重用的问题，也就是说，网络是否足够快以至于在不到一个MSL的时候序号就发生了回绕。在一个以太网上要发送如此多的数据通常需要60分钟左右，因此不会发生这种情况。但是在带宽增加时，这个时间将会减少：一个T3的电话线(45Mb/s)在12分钟内会发生回绕，FDDI(100Mb/s)为5分钟，而一个千兆比网络(1000Mb/s)则为34秒。这时问题不再是带宽时延乘积，而在于带宽本身
+</p>
+
+<p>
+将介绍一种对付这种情况的办法：使用TCP的时间戳选项的PAWS算法： <b>保护回绕的序号</b> 
+</p>
+</div>
+
+<div id="outline-container-sec-2-1" class="outline-3">
+<h3 id="sec-2-1">千兆比网络</h3>
+<div class="outline-text-3" id="text-2-1">
+<p>
+当网络的速率达到千兆比的时候，情况就会发生变化。先看一下在时延和带宽之间的差别
+</p>
+
+<p>
+考虑通过美国发送一个100万字节的文件的情况，假定时延为30ms。图24-6显示了两种情况：上图显示了使用一个T1电话线(1544000b/s)的情况，而下图则是使用一个1Gb/s网络的情况。x轴显示的是时间，发送方在图的左侧，而接收方则在图的右侧，y轴为网络容量。两幅图中的阴影区域表示发送的100万字节：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/gigabit-network.png" alt="gigabit-network.png" width="70%" />
+</p>
+</div>
+
+
+<p>
+图24-6显示了30ms后这两个网络的状态。经过30ms（延时）以后数据的第1个比特都已到达对端。但对T1网络而言，由于管道容量仅为5790字节，因此发送方仍然有994210个字节等待发送。而千兆比网络的容量则为3750000字节，因此，整个文件仅使用了25％左右的带宽，此时文件的最后一个比特已经到达第1个字节后8ms处
+</p>
+
+<p>
+经过T1网络传输文件的总时间为5.211秒。如果增加更多的带宽，使用一个T3网络(45000000b/s)，则总时间减少到0.208秒 <b>增加约29倍的带宽可以将总时间减小到约25分之一</b> 
+</p>
+
+<p>
+使用千兆比网络传输文件的总时间为0.038秒：30ms的时延加上8ms的真正传输文件的时间。假定能够将带宽增加为2000Mb/s，只能够将总时间减小为0.304 ms：同样30ms的时延和4ms的真正传输时间。现在使带宽加倍仅能够将时间减少约10％。在千兆比速率下 <b>时延限制</b> 占据了主要地位，而带宽不再成为限制。
+</p>
+
+<p>
+<b>时延主要是由光速引起的，而且不能够被减小</b> 考虑到分组需要建立和终止一个连接时，这个固定时延起的作用就更糟糕了。千兆比网络会引起一些需要不同看待的连网观点
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-2-2" class="outline-3">
+<h3 id="sec-2-2">窗口扩大选项</h3>
+<div class="outline-text-3" id="text-2-2">
+<p>
+窗口扩大选项使TCP的窗口定义从16bit增加为32bit。这并不是通过修改TCP首部来实现的，TCP首部仍然使用16bit，而是通过定义一个 <b>选项</b> 实现对16bit的 <b>扩大操作</b> 来完成的。于是TCP在内部将实际的窗口大小维持为32bit的值：
+</p>
+
+<p>
+在图18-20可以看到关于这个选项的例子。一个字节的移位记数器取值为 <i>0</i> （没有扩大窗口的操作）和 <i>14</i> 这个最大值 <i>14</i> 表示窗口大小为 <b>1073725440</b> 字节(65535*2<sup>14</sup>)
+</p>
+
+<p>
+这个选项只能够出现在一个 <b>SYN报文段</b> 中，因此当连接建立起来后，在每个方向的扩大因子是固定的。为了使用窗口扩大，两端必须在它们的SYN报文段中发送这个选项 <b>主动建立连接的一方在其SYN中发送这个选项，但是被动建立连接的一方只能够在收到带有这个选项的SYN之后才可以发送这个选项</b>  <b>每个方向上的扩大因子可以不同</b> 
+</p>
+
+<p>
+如果主动连接的一方发送一个非零的扩大因子，但是 <i>没有从另一端收到一个窗口扩大选项，它就将发送和接收的移位记数器置为0</i> 这就允许较新的系统能够与较旧的、不理解新选项的系统进行互操作
+</p>
+
+<pre class="example">
+RFC要求TCP接受在任何报文段中的一个选项（只有前面定义的一个选项，即最大报文段大小，仅在SYN报文段中出现）
+
+它还进一步要求TCP忽略任何它不理解的选项。这就使事情变得容易，因为所有新的选项都有一个长度字段
+</pre>
+
+<p>
+假定我们正在使用窗口扩大选项，发送移位记数为 <i>S</i> 而接收移位记数则为 <i>R</i> 于是从 <i>另一端收到的每一个16bit的通告窗口将被左移R位</i> 以获得实际的通告窗口大小。每次当向对方发送一个窗口通告的时候，将 <i>实际的32bit窗口大小右移S比特，然后用它来替换TCP首部中的16bit的值</i> 
+</p>
+
+<p>
+TCP根据接收缓存的大小自动选择移位计数。这个大小是由系统设置的，但是通常向应用进程提供了修改途径
+</p>
+</div>
+
+<div id="outline-container-sec-2-2-1" class="outline-4">
+<h4 id="sec-2-2-1">实例</h4>
+<div class="outline-text-4" id="text-2-2-1">
+<p>
+如果在4.4BSD的主机vangogh.cs.berkeley.edu上使用sock程序来初始化一个连接，可以观察到它的TCP计算窗口扩大因子的情况。下面的交互输出显示的是两个连续运行的程序，第1个指定接收缓存为128000字节，而第2个的缓存则为220000字节：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-scale-window-size-example.png" alt="tcp-scale-window-size-example.png" width="70%" />
+</p>
+</div>
+
+
+<p>
+图24-7显示了这两个连接的tcpdump输出结果：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-scale-window-size-dump.png" alt="tcp-scale-window-size-dump.png" width="70%" />
+</p>
+</div>
+
+<ul class="org-ul">
+<li>第1行：vangogh通告一个65535的窗口，并通过设置移位计数为 <b>1</b> 来指明窗口扩大选项：
+<ul class="org-ul">
+<li>这个通告的窗口是比接收窗口(128000)还小的一个最大可能取值，因为在一个SYN报文段中的窗口字段从不进行扩大运算
+</li>
+<li>扩大因子为1：vangogh发送窗口通告一直到131070(65535*2<sup>1</sup>)，这将调节接收缓存的大小(128000) 
+</li>
+</ul>
+</li>
+<li>第2行：bsdi在它的SYN中没有发送窗口扩大选项，因此这个选项没有被使用
+</li>
+</ul>
+
+<pre class="example">
+  注意：vangogh在随后的连接阶段继续使用最大可能的窗口65535
+</pre>
+<ul class="org-ul">
+<li>第12行：第2个连接vangogh请求的移位计数为 <b>2</b> 
+<ul class="org-ul">
+<li>它希望发送窗口通告一直为262140(65535*2<sup>2</sup>) 这比接收缓存(220000)大
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-sec-2-3" class="outline-3">
+<h3 id="sec-2-3">时间戳选项</h3>
+<div class="outline-text-3" id="text-2-3">
+<p>
+时间戳选项使发送方在每个报文段中放置一个时间戳值。接收方在确认中返回这个数值，从而允许发送方为每一个收到的ACK计算RTT
+</p>
+
+<pre class="example">
+   必须说是对每一个收到的ACK而不是每一个报文段，因为TCP通常用一个ACK来确认多个报文段
+</pre>
+
+<p>
+目前许多实现为每一个窗口只计算一个RTT，对于包含8个报文段的窗口而言这是正确的。然而，较大的窗口大小则需要进行更好的RTT计算
+</p>
+
+<pre class="example">
+RFC 1323的3.1节给出了需要为较大窗口进行更好的RTT计算的信号处理的理由：
+
+通常RTT通过对一个数据信号（包含数据的报文段）以较低的频率（每个窗口一次）进行采样来进行计算，这就将别名引入了被估计的RTT中
+
+当每个窗口中有8个报文段时，采样速率为数据率的1/8，这还是可以忍受的
+
+但是如果每个窗口中有100个报文段时，采样速率则为数据速率的1/100，这将导致被估计的RTT不精确，从而引起不必要的重传
+
+如果一个报文段被丢失，则会使情况变得更糟！
+</pre>
+
+<p>
+图18-20显示了时间戳选项的格式：
+</p>
+<ul class="org-ul">
+<li>发送方在 <i>第1个字段中放置一个32bit的值</i>
+</li>
+<li>接收方在 <i>应答字段中回显这个数值</i>
+</li>
+<li>包含这个选项的TCP首部长度将从正常的20字节增加为 <i>32</i> 字节
+</li>
+</ul>
+
+<p>
+时间戳是一个单调递增的值。由于接收方只需要回显收到的内容，因此不需要关注时间戳单元是什么。这个选项 <b>不需要在两个主机之间进行任何形式的时钟同步</b>
+</p>
+
+<pre class="example">
+RFC 1323推荐在1毫秒和1秒之间将时间戳的值加1
+
+4.4BSD在启动时将时间戳始终设置为0，然后每隔500ms将时间戳时钟加1
+
+在图24-7中，如果观察在报文段1和报文段11的时间戳，它们之间的差（89个单元）对应于每个单元500ms的规定，因为实际时间差为44.4秒
+</pre>
+
+<p>
+在连接建立阶段，对这个选项的规定与前一节讲的窗口扩大选项类似。主动发起连接的一方在它的SYN中指定选项。只有在它从另一方的SYN中收到了这个选项之后，该选项才会在以后的报文段中进行设置
+</p>
+
+<p>
+接收方TCP不需要对每个包含数据的报文段进行确认，许多实现每两个报文段发送一个ACK。如果接收方发送一个确认了两个报文段的ACK，那么哪一个收到的时间戳应当放入回显应答字段中来发回去呢？
+</p>
+
+<p>
+为了减少任一端所维持的状态数量，对于每个连接只保持一个时间戳的数值。选择何时更新这个数值的算法非常简单：
+</p>
+<ol class="org-ol">
+<li>TCP跟踪下一个ACK中将要发送的时间戳的值（一个名为 <i>tsrecent</i> 的变量）以及最后发送的ACK中的确认序号（一个名为 <i>lastack</i> 的变量）。这个序号就是接收方期望的序号
+</li>
+<li>当一个包含有字节号 <i>lastack</i> 的报文段到达时，则该报文段中的时间戳被保存在 <i>tsrecent</i> 中
+</li>
+<li>无论何时发送一个时间戳选项 <i>tsrecent</i> 就作为 <b>时间戳回显应答字段</b> 被发送，而 <b>序号字段</b> 被保存在 <i>lastack</i> 中
+</li>
+</ol>
+
+<p>
+这个算法能够处理下面两种情况：
+</p>
+<ul class="org-ul">
+<li>如果ACK被接收方迟延，则作为回显值的时间戳值应该对应于最早被确认的报文段。例如，如果两个包含1~1024和1025~2048字节的报文段到达，每一个都带有一个时间戳选项，接收方产生一个 <b>ACK 2049</b> 来对它们进行确认。此时，ACK中的时间戳应该是包含字节1~1024的 <i>第1个报文段中的时间戳</i> 这种处理是正确的，因为发送方在 <b>进行重传超时时间的计算时，必须将迟延的ACK也考虑在内</b>
+</li>
+<li>如果一个收到的报文段虽然在窗口范围内但同时又是失序，这就表明前面的报文段已经丢失。当那个丢失的报文段到达时，它的时间戳（ <b>而不是失序的报文段的时间戳</b> ）将被回显。例如，假定有3个各包含1024字节数据的报文段，按如下顺序接收：包含字节1~1024的报文段1，包含字节2049~4072的报文段3和包含字节1025~2048的报文段2。返回的ACK应该是带有报文段1的时间戳的 <b>ACK 1025</b> （一个正常的所期望的对数据的ACK）、带有报文段1的时间戳的 <i>ACK 1025</i> （一个重复的、响应位于窗口内但却是失序的报文段的ACK），然后是带有报文段2的时间戳的 /ACK 3073/（不是报文段3中的较后的时间戳）。这与当报文段丢失时的对RTT估计过高具有同样的效果，但这比估计过低要好些。而且，如果最后的ACK含有来自报文段3的时间戳，它可以包括重复的ACK返回和报文段2被重传所需要的时间，或者可以包括发送方的报文段2的重传超时定时器到期的时间。无论在哪一种情况下 <b>回显报文段3的时间戳将引起发送方的RTT计算出现偏差</b> 
+</li>
+</ul>
+
+<p>
+尽管时间戳选项能够更好地计算RTT，它还为发送方提供了一种方法，以避免接收到旧的报文段，并认为它们是现在的数据的一部分
+</p>
+</div>
+
+<div id="outline-container-sec-2-3-1" class="outline-4">
+<h4 id="sec-2-3-1">PAWS：防止回绕的序号</h4>
+<div class="outline-text-4" id="text-2-3-1">
+<p>
+考虑一个使用窗口扩大选项的TCP连接，其最大可能的窗口大小为1千兆字节(2<sup>30</sup>)
+</p>
+<pre class="example">
+    最大的窗口是65535 * 2^14，而不是2^16 * 2^14
+    
+    但只比这个数值小一点点，并不影响这里的讨论
+</pre>
+
+<p>
+还假定使用了时间戳选项，并且由发送方指定的时间戳对每个将要发送的窗口加1（这是保守的方法。通常时间戳比这种方式增加得快）。表24-8显示了在传输6千兆字节的数据时，在两个主机之间可能的数据流。为了避免使用许多10位的数字，使用G来表示1073741824的倍数。还使用了tcpdump的记号，即用J:K来表示通过了J字节的数据，且包括字节K-1 
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 2:</span> 在6个1千兆字节的窗口中传输6千兆字节的数据</caption>
+
+<colgroup>
+<col  class="left" />
+
+<col  class="left" />
+
+<col  class="left" />
+
+<col  class="right" />
+
+<col  class="left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="left">时间</td>
+<td class="left">发送字节</td>
+<td class="left">发送序号</td>
+<td class="right">发送时间戳</td>
+<td class="left">接收</td>
+</tr>
+
+<tr>
+<td class="left">A</td>
+<td class="left">0G:1G</td>
+<td class="left">0G:1G</td>
+<td class="right">1</td>
+<td class="left">正确</td>
+</tr>
+
+<tr>
+<td class="left">B</td>
+<td class="left">1G:2G</td>
+<td class="left">1G:2G</td>
+<td class="right">2</td>
+<td class="left">正确，但有一个段丢失，并重发</td>
+</tr>
+
+<tr>
+<td class="left">C</td>
+<td class="left">2G:3G</td>
+<td class="left">2G:3G</td>
+<td class="right">3</td>
+<td class="left">正确</td>
+</tr>
+
+<tr>
+<td class="left">D</td>
+<td class="left">3G:4G</td>
+<td class="left">3G:4G</td>
+<td class="right">4</td>
+<td class="left">正确</td>
+</tr>
+
+<tr>
+<td class="left">E</td>
+<td class="left">4G:5G</td>
+<td class="left">0G:1G</td>
+<td class="right">5</td>
+<td class="left">正确</td>
+</tr>
+
+<tr>
+<td class="left">F</td>
+<td class="left">5G:6G</td>
+<td class="left">1G:2G</td>
+<td class="right">6</td>
+<td class="left">正确，但重发段又出现了</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+32bit的序号在时间D和时间E之间发生了回绕。假定一个报文段在时间B丢失并被重传。还假定这个丢失的报文段在时间E重新出现
+</p>
+
+<pre class="example">
+    这假定了在报文段丢失和重新出现之间的时间差小于MSL，否则这个报文段在它的TTL到期时会被某个路由器丢弃
+    
+    正如前面提到的，这种情况只有在高速连接上才会发生，此时旧的报文段重新出现，并带有当前要传输的序号
+</pre>
+
+<p>
+使用时间戳可以避免这种情况。接收方将时间戳视为序列号的一个32bit的扩展。由于在时间E重新出现的报文段的时间戳为2，这比最近有效的时间戳小（5或6），因此PAWS算法将其丢弃
+</p>
+
+<p>
+<b>PAWS算法不需要在发送方和接收方之间进行任何形式的时间同步。接收方所需要的就是时间戳的值应该单调递增，并且每个窗口至少增加1</b> 
+</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-3" class="outline-2">
+<h2 id="sec-3">T/TCP</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+TCP提供的是一种 <i>虚电路方式</i> 的运输服务。一个连接的生存时间包括三个不同的阶段：
+</p>
+<ul class="org-ul">
+<li>建立
+</li>
+<li>数据传输
+</li>
+<li>终止
+</li>
+</ul>
+
+<p>
+这种虚电路服务非常适合诸如远程注册和文件传输之类的应用。但是，还有出现其他的应用进程被设计成使用事务服务。一个 <b>事务</b> 就是符合下面这些特征的一个客户请求及其随后的服务器响应：
+</p>
+<ol class="org-ol">
+<li>应该避免连接建立和连接终止的开销，在可能的时候，发送一个请求分组并接收一个应答分组
+</li>
+<li>等待时间应当减少到等于RTT与SPT之和。其中RTT为 <b>往返</b> 时间，而SPT则是 <b>服务器处理请求</b> 的时间
+</li>
+<li>服务器应当能够检测出重复的请求，并且当收到一个重复的请求时不重新处理事务（避免重新处理意味着服务器不必再次处理请求，而是返回保存的、与该请求对应的应答） 
+</li>
+</ol>
+
+<pre class="example">
+  一个使用这种类型服务的应用就是DNS服务，尽管DNS与服务器重新处理重复的请求无关
+</pre>
+
+<p>
+如今一个应用程序设计人员面对的一种选择是使用TCP还是UDP。TCP <i>提供了过多的事务特征</i> ，而UDP <i>提供的则不够</i> 。通常应用程序使用UDP来构造 <b>避免TCP连接的开销</b> ，而许多需要的特征 <b>（如动态超时和重传、拥塞避免等）被放置在应用层</b> 一遍又一遍的重新设计和实现
+</p>
+
+<p>
+一个较好的解决方法是提供一个能够提供足够多的事务处理功能的运输层。在本节所介绍的事务协议被称为T/TCP
+</p>
+</div>
+
+<div id="outline-container-sec-3-1" class="outline-3">
+<h3 id="sec-3-1">报文</h3>
+<div class="outline-text-3" id="text-3-1">
+<p>
+大多数的TCP需要使用7个报文段来打开和关闭一个连接。现在增加三个报文段：
+</p>
+<ul class="org-ul">
+<li>一个对应于请求
+</li>
+<li>一个对应于应答和对请求的确认
+</li>
+<li>第三个对应于对应答的确认
+</li>
+</ul>
+
+<p>
+如果额外的控制比特被追加到报文段上，比如 <b>第1个报文段带有SYN、客户请求和FIN</b> 客户仍然能够看到一个2倍的RTT与SPT之和的最小开销
+</p>
+<pre class="example">
+  与数据一起发送一个SYN和FIN是合法的，当前的TCP是否能够正确处理它们是另外一个问题
+</pre>
+
+<p>
+另一个与TCP有关的问题是TIME _ WAIT状态和它需要的2MSL的等待时间。这使两个主机之间的事务率降低到每秒268个
+</p>
+
+<p>
+T/TCP为处理事务而需要进行的两个改动是避免三次握手和缩短WAIT _ TIME状态。T/TCP通过使用加速打开来避免三次握手：
+</p>
+<ol class="org-ol">
+<li>它为打开的连接指定一个32bit的 <b>连接计数</b> <i>CC</i> ，无论主动打开还是被动打开。一个主机的CC值从一个全局计数器中获得，该计数器每次被使用时加1
+</li>
+<li>在两个使用T/TCP的主机之间的每一个报文段都包括一个新的TCP选项CC。这个选项的长度为6个字节，包含发送方在该连接上的32bit的CC值
+</li>
+<li>一个主机维持一个缓存，该缓存保留每个主机上一次的CC值，这些值从来自这个主机的一个可接受的SYN报文段中获得
+</li>
+<li>当在一个开始的SYN中收到一个CC选项的时候，接收方比较收到的值与为该发送方缓存的CC值: 
+<ul class="org-ul">
+<li><b>如果接收到的CC比缓存的大，则该SYN是新的</b> ，报文段中的任何数据被传递给接收应用进程（服务器）。这个连接被称为 <b>半同步</b> 
+</li>
+<li><b>如果接收的CC比缓存的小，或者接收主机上没有对应这个客户的缓存CC</b> 则执行正常的TCP三次握手过程。
+</li>
+</ul>
+</li>
+<li>为响应一个开始的SYN，带有SYN和ACK的报文段在另一个被称为 <b>CCECHO</b> 的选项中 <b>回显所接收到的CC值</b>
+</li>
+<li>在一个非SYN报文段中的CC值检测和拒绝来自同一个连接的前一个替身的任何重复的报文段
+</li>
+</ol>
+
+<pre class="example">
+  这种”加速打开“避免了使用三次握手的要求，除非客户或者服务器已经崩溃并重新启动
+
+  这样做的代价是服务器必须记住从每个客户接收的最近的CC值
+</pre>
+
+<p>
+基于在两个主机之间测量RTT来动态计算TIME _ WAIT的延时，可以缩短TIME _ WAIT状态。TIME _ WAIT时延被设置为8倍的重传超时值RTO
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-3-2" class="outline-3">
+<h3 id="sec-3-2">过程</h3>
+<div class="outline-text-3" id="text-3-2">
+<p>
+通过使用这些特征，最小的事务序列是交换三个报文段：
+</p>
+<ol class="org-ol">
+<li>由一个主动打开引起的客户到服务器：
+<ul class="org-ul">
+<li>客户的SYN
+</li>
+<li>客户的数据（请求）
+</li>
+<li>客户的FIN
+</li>
+<li>客户的CC
+<ul class="org-ul">
+<li>当被动的服务器接收到这个报文段的时候，如果客户的CC比为这个客户缓存的CC要大，则客户的数据被传送给服务器应用程序进行处理
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>服务器到客户：
+<ul class="org-ul">
+<li>服务器的SYN
+</li>
+<li>服务器的数据（应答）
+</li>
+<li>服务器的FIN
+</li>
+<li>对客户的FIN的ACK
+</li>
+<li>服务器的CC
+</li>
+<li>客户的CC的CCECHO
+<ul class="org-ul">
+<li>由于TCP的确认是累积的，这个对客户的FIN的ACK也对客户的SYN、数据及FIN进行了确认。当客户TCP接收到这个报文段，就将其传送给客户应用进程
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>客户到服务器：
+<ul class="org-ul">
+<li>对服务器的FIN的ACK
+</li>
+<li>确认了服务器的SYN
+</li>
+<li>数据
+</li>
+<li>FIN
+<ul class="org-ul">
+<li><b>客户对它的请求的响应时间为RTT与SPT的和</b>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-sec-3-3" class="outline-3">
+<h3 id="sec-3-3">优点</h3>
+<div class="outline-text-3" id="text-3-3">
+<p>
+许多关于实现这个TCP选项的很好的地方。归纳如下：
+</p>
+<ol class="org-ol">
+<li>服务器的SYN和ACK（第2个报文段）必须被迟延，从而允许应答与它一起捎带发送（通常对SYN的ACK是不迟延的）。但它也不能迟延得太多，否则客户将超时并引起重传
+</li>
+<li>请求可以需要多个报文段，但是服务器必须对它们可能失序达到的情况进行处理
+<ul class="org-ul">
+<li>通常当数据在SYN之前到达时，该数据被丢弃并产生一个复位。通过使用T/TCP，这些失序的数据将放入队列中处理
+</li>
+</ul>
+</li>
+<li>API必须使服务器进程用一个单一的操作来发送数据和关闭连接，从而允许第二个报文段中的FIN与应答一起捎带发送
+<ul class="org-ul">
+<li>通常应用进程先写应答，从而引起发送一个数据报文段，然后关闭连接，引起发送FIN
+</li>
+</ul>
+</li>
+<li>在收到来自服务器的MSS通告之前，客户在第1个报文段中正在发送数据
+<ul class="org-ul">
+<li>为避免限制客户的MSS为536，一个给定主机的MSS应该与它的CC值一起缓存
+</li>
+</ul>
+</li>
+<li>客户在没有接收到来自服务器的窗口通告之前也可以向服务器发送数据 
+<ul class="org-ul">
+<li>T/TCP建议默认的窗口为4096，并且也为服务器缓存拥塞门限
+</li>
+</ul>
+</li>
+<li>使用最小3个报文段交换，在每个方向上只能计算一个RTT。加上包括了服务器处理时间的客户测量RTT
+<ul class="org-ul">
+<li>这意味着被平滑的RTT及其方差的值也必须为服务器缓存起来
+</li>
+</ul>
+</li>
+</ol>
+
+<p>
+T/TCP的特征中吸引人的地方在于它对现有协议进行了最小的修改，同时又兼容了现有的实现。它还利用了TCP中现有的工程特征（动态超时和重传、拥塞避免等），而不是迫使应用进程来处理这些问题
+</p>
+
+<p>
+一个可作为替换的事务协议是通用报文事务协议VMTP，该协议在RFC 1045中进行了描述。与T/TCP是现有协议的一个小的扩充不同，VMTP是使用IP的一个完整的运输层。VMTP处理差错检测、重传和重复压缩。它还支持多播通信
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-3-4" class="outline-3">
+<h3 id="sec-3-4">缺点</h3>
+<div class="outline-text-3" id="text-3-4">
+<p>
+存在严重的安全性问题：T/TCP的实现在三步握手的第一步中同时发送SYN、数据、FIN，会导致在 <i>syn flood</i> 攻击中，三步握手的第一步会令服务器要保留更多的数据，占用了服务器更多的资源
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-4" class="outline-2">
+<h2 id="sec-4">TCP的性能</h2>
+<div class="outline-text-2" id="text-4">
+<p>
+在80年代中期出版的数值显示出TCP在一个以太网上的吞吐量在每秒100,000~200,000字节之间。从那时起事情已经发生了许多改变。现在通常每秒可以传输800,000字节或者更快
+</p>
+
+<p>
+在10Mb/s的以太网上计算能够观察到的理论上的TCP最大吞吐量是一件值得做的练习。可以在表24-9中看到这个计算的基础，显示了满长度的数据报文段和一个ACK交换的全部的字节：
+</p>
+
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 3:</span> 计算以太网理论上最大吞吐量的字段大小</caption>
+
+<colgroup>
+<col  class="left" />
+
+<col  class="right" />
+
+<col  class="right" />
+</colgroup>
+<tbody>
+<tr>
+<td class="left">字段</td>
+<td class="right">数据（字节）</td>
+<td class="right">ACK（字节）</td>
+</tr>
+
+<tr>
+<td class="left">以太网前导</td>
+<td class="right">8</td>
+<td class="right">8</td>
+</tr>
+
+<tr>
+<td class="left">以太网目的地址</td>
+<td class="right">6</td>
+<td class="right">6</td>
+</tr>
+
+<tr>
+<td class="left">以太网源地址</td>
+<td class="right">6</td>
+<td class="right">6</td>
+</tr>
+
+<tr>
+<td class="left">以太网类型字段</td>
+<td class="right">2</td>
+<td class="right">2</td>
+</tr>
+
+<tr>
+<td class="left">IP首部</td>
+<td class="right">20</td>
+<td class="right">20</td>
+</tr>
+
+<tr>
+<td class="left">TCP首部</td>
+<td class="right">20</td>
+<td class="right">20</td>
+</tr>
+
+<tr>
+<td class="left">用户数据</td>
+<td class="right">1460</td>
+<td class="right">0</td>
+</tr>
+
+<tr>
+<td class="left">填充字符</td>
+<td class="right">0</td>
+<td class="right">6</td>
+</tr>
+
+<tr>
+<td class="left">以太网CRC校验</td>
+<td class="right">4</td>
+<td class="right">4</td>
+</tr>
+
+<tr>
+<td class="left">分组间隙（9.6ms）</td>
+<td class="right">12</td>
+<td class="right">12</td>
+</tr>
+
+<tr>
+<td class="left">总计</td>
+<td class="right">1538</td>
+<td class="right">84</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+首先假定发送方传输两个背对背、满长度的数据报文段，然后接收方为这两个报文段发送一个ACK。于是最大的吞吐量（用户数据）为：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-throughtout-cal1.png" alt="tcp-throughtout-cal1.png" width="70%" />
+</p>
+</div>
+
+<p>
+如果TCP窗口开到它的最大值（65535，不使用窗口扩大选项），这就允许一个窗口容纳44个1460字节的报文段。如果接收方每个报文段发送一个ACK，则计算变为：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-throughtout-cal2.png" alt="tcp-throughtout-cal2.png" width="70%" />
+</p>
+</div>
+
+<p>
+这就是理论上的限制，并做出某些假定：
+</p>
+<ul class="org-ul">
+<li>接收方发送的一个ACK没有和发送方的报文段之一在以太网上发生冲突
+</li>
+<li>发送方可按以太网的最小间隔时间来发送两个报文段
+</li>
+<li>接收方可以在最小的以太网间隔时间内产生一个ACK
+</li>
+</ul>
+
+<p>
+不论在这些数字上多么乐观，在一个以太网上使用标准的多用户工作站，测量到了一个连续的1,075,000字节/秒的速率，这个值在理论值的90％之内
+</p>
+
+<p>
+当移到更快的网络上时，如FDDI(100Mb/s)，三个商业厂家已经演示了在FDDI上的TCP在80Mb/s~90Mb/s之间。即使在有更多带宽的环境下，两个Gray Y-MP计算机在一个800Mb/s的HIPPI通道上最大值为781Mb/s，而运行在一个Gray Y-MP上的使用环回接口的两个进程间的速率为907Mb/s
+</p>
+
+<p>
+下面这些实际限制适用于任何的实际情况：
+</p>
+<ol class="org-ol">
+<li>不能比最慢的链路运行得更快
+</li>
+<li>不能比最慢的机器的内存运行得更快。这假定实现是只使用一遍数据。如果不是这样，实现使用一遍数据是将它从用户空间复制到内核中，而使用另一遍数据是计算TCP的检验和，那么将运行得更慢
+</li>
+<li>不能够比由接收方提供的窗口大小除以往返时间所得结果运行得更快，这就是带宽时延乘积公式，使用窗口大小作为带宽时延乘积
+</li>
+</ol>
+
+<p>
+所有这些数字的重要意义：就是TCP的最高运行速率的真正上限是由 <b>TCP的窗口大小和光速决定的，许多协议性能问题在于实现中的缺陷而不是协议所固有的一些限制</b> 
+</p>
+
+<p>
+<a href="snmp.html">Next：SNMP 简单网络管协议</a>
+</p>
+
+<p>
+<a href="tcp-keep-alive-alarm.html">Previous：TCP 保活定时器</a>
+</p>
+
+<p>
+<a href="tii.html">Home：目录</a>
+</p>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

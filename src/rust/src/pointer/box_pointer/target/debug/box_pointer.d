@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/pointer/box_pointer/target/debug/box_pointer: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/pointer/box_pointer/src/main.rs

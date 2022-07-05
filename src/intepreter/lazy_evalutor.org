@@ -1,0 +1,370 @@
+#+TITLE: 延时求值器
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil 
+
+*正则序* ：把参数求值推迟到实际需要时，也称为 *惰性求值* 
+
+Scheme 采用的是 _应用序_ 求值，过程应用前完成所有参数求值：
+
+考虑下面过程:
+#+BEGIN_SRC scheme
+  (define (try a b)
+    (if (= a 0) 1 b))
+
+  ;; (try 0 (/ 1 0)) ;Division by zero signalled by /.
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  在 Scheme 里求值 (try 0 (/ 1 0)) 会出错，而实际上 b 的值没用到
+#+END_EXAMPLE
+
+另一个需要正则序的例子：
+#+BEGIN_SRC scheme
+  (define (unless condition usual-value exceptional-value)
+    (if condition exceptional-value usual-value))
+
+  ;; (define a 10)
+  ;; (define b 2)
+  ;; (unless (= b 0)
+  ;;         (/ a b)
+  ;;         (begin (display "exception: returning 0")
+  ;;                0))
+  ;; => exception: returning 0
+  ;; Value: 5
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  无论是否出现异常条件，exceptional-value 都会在应用 unless 之前求值
+
+  因此无论是否异常，都会打印出错信息
+#+END_EXAMPLE
+
+* 延时求值器
+** 正则序
+   + 对一个过程和它的一个参数，如果过程要求 *该参数在进入过程体前先行完成求值* ，称这一过程对该参数是 _严格_ 的
+   + 如果不要求其完成求值，则说这一过程对该参数是 _非严格_ 的
+
+   能将过程的某些参数定义为非严格的也很有用。比如：cons（或任何数据结构的构造函数）。非严格参数可以在不知道数据结构某些部分的情况下使用该数据结构， _流模型_ 就是这样的结构
+   #+BEGIN_EXAMPLE
+     在纯的应用序语言里：每个过程对它的每个参数都是严格的
+
+     在纯的正则序语言里：每个复合过程对其每个参数都是非严格的，基本过程对其参数可以是严格的或者非严格的
+
+     存在这样的语言，其中程序员可以控制所定义过程对各参数的严格性
+   #+END_EXAMPLE
+
+   接下来将实现一个正则序语言，其语法形式与 Scheme 语言一样：
+   + 所有 _复合过程的参数_ 都采用 _惰性求值_
+   + _基本过程_ 仍采用 _应用序_ 
+** 实现
+   为此要修改已有的求值器，但只需修改与 _过程应用_ 有关的结构：
+   1. 先检查过程的参数是否 *需要立即求值*
+   2. 需要延时的对象不求值，而是为它 *建一个槽* ( _thunk_ )，其中 *封装着求值该表达式所需的信息* （ _表达式本身_ 和 _相应的求值环境_ ）
+
+   对 *入槽表达式的求值* 称为 _强迫_ ，需要值时去强迫它。有几种情况：
+   +  *基本过程* 的 _参数_ 
+   +  *条件表达式的谓词*
+   +  *复合* 过程的 _运算符_ 
+
+   #+BEGIN_EXAMPLE
+     考虑是否将槽定义为带记忆的，第一次求值记录得到的值，这是一个设计选择！！！
+   #+END_EXAMPLE
+
+   下面采用带记忆的槽，这样实现可能更高效
+*** 修改 eval 
+    _eval_ 中的 _application?_ 子句修改：
+    #+BEGIN_SRC scheme
+  (define (eval exp env)
+    (cond ((self-evaluating? exp) exp) 
+	  ((variable? exp) (lookup-variable-value exp env)) 
+	  ((quoted? exp) (text-of-quotation exp))
+	  ((assignment? exp) (eval-assignment exp env)) 
+	  ((definition? exp) (eval-definition exp env)) 
+	  ((if? exp) (eval-if exp env)) 
+	  ((lambda? exp) 
+	   (make-procedure (lambda-parameters exp) 
+			   (lambda-body exp)
+			   env))
+	  ((begin? exp) 
+	   (eval-sequence (begin-actions exp) env)) 
+	  ((cond? exp) (eval (cond->if exp) env)) 
+	  ((application? exp)
+	   (apply (actual-value (operator exp) env) ;; 强制求值 “复合过程的运算符” 
+		  (operands exp)
+		  env))
+	  (else
+	   (error "Unknown expression type -- EVAL" exp))))
+    #+END_SRC
+
+    + 直接把未求值的运算对象表达式送给 apply（前面实现中，是把求值之后的实际参数送给 apply）
+    #+BEGIN_EXAMPLE
+      这里把当前环境送给 apply，是因为它可能需要构造参数槽，而参数槽需要携带表达式的求值环境
+
+    #+END_EXAMPLE
+    需要实际参数的值时就 *强迫求值* ：
+    #+BEGIN_SRC scheme
+  (define (actual-value exp env)
+    (force-it (eval exp env))) 
+    #+END_SRC
+*** 修改 apply 
+    由于现在来自 _eval_ 的是未求值的运算对象，在送给 *基本过程之前需要求出这些表达式的值* ：
+
+    #+BEGIN_SRC scheme
+  (define (apply procedure arguments env)
+    (cond ((primitive-procedure? procedure)
+	   (apply-primitive-procedure
+	    procedure
+	    (list-of-arg-values arguments env)))  ; 强迫求值“基本过程所有参数”
+	  ((compound-procedure? procedure)
+	   (eval-sequence
+	    (procedure-body procedure)
+	    (extend-environment
+	     (procedure-parameters procedure)
+	     (list-of-delayed-args arguments env) ; 延时求值“复合过程所有参数”
+	     (procedure-environment procedure))))
+	  (else
+	   (error
+	    "Unknown procedure type -- APPLY" procedure))))
+    #+END_SRC
+
+    增加两个辅助过程：
+    #+BEGIN_SRC scheme
+  (define (list-of-arg-values exps env)
+    (if (no-operands? exps)
+	'()
+	(cons (actual-value (first-operand exps) env) ;; 强迫求值
+	      (list-of-arg-values (rest-operands exps)
+				  env))))
+    #+END_SRC
+
+    #+BEGIN_SRC scheme
+  (define (list-of-delayed-args exps env)
+    (if (no-operands? exps)
+	'()
+	(cons (delay-it (first-operand exps) env) ;; 延时求值
+	      (list-of-delayed-args (rest-operands exps)
+				    env))))
+    #+END_SRC
+*** 修改 eval-if 
+    条件表达式的谓词必须是应用序：
+    #+BEGIN_SRC scheme
+  (define (eval-if exp env)
+    (if (true? (actual-value (if-predicate exp) env)) ;; 强迫求值“条件表达式的谓词”
+	(eval (if-consequent exp) env)
+	(eval (if-alternative exp) env)))
+    #+END_SRC
+*** 修改驱动循环
+    输入的表达式必须立刻求值：
+    #+BEGIN_SRC scheme
+  (define (driver-loop)
+    (prompt-for-input input-prompt)
+    (let ((input (read)))
+      (let ((output
+	     (actual-value input the-global-environment))) ;; 强迫求值输入的表达式
+	(announce-output output-prompt)
+	(user-print output)))
+    (driver-loop))
+    #+END_SRC
+*** 槽
+    _槽_ 作为 *数据结构* ，它实现了 *准备求值的安排* ：
+    + *封装* 一个 _表达式_ 和一个 _环境_
+    + 需要时可以求出表达式的值
+    + 简单实现 *用一个表把 _表达式_ 和 _环境_ 包装起来* ：
+
+    #+BEGIN_SRC scheme
+  (define (delay-it exp env)
+    (list 'thunk exp env))
+
+  (define (thunk? obj)
+    (tagged-list? obj 'thunk))
+  (define (thunk-exp thunk) (cadr thunk))
+  (define (thunk-env thunk) (caddr thunk))
+
+  ;; (define thunk-object (delay-it '(+ 2 4) (setup-environment))) 
+  ;; (thunk? thunk-object) ; => #t
+  ;; (thunk-exp thunk-object) ; => (+ 2 4)
+  ;; (thunk-env thunk-object)
+  ;; => (((false true car cdr cons null? + >) #f #t (primitive #[compiled-procedure 17 ("list" #x1) #x1a #x184c3e2]) (primitive #[compiled-procedure 18 ("list" #x2) #x1a #x184c452]) (primitive #[compiled-procedure 19 ("list" #x3) #x14 #x184c4bc]) (primitive #[compiled-procedure 20 ("list" #x5) #x14 #x184c55c]) (primitive #[arity-dispatched-procedure 21]) (primitive #[arity-dispatched-procedure 22]))
+    #+END_SRC
+
+    强迫求值时应该用 _actual-value_ 而不是 _eval_ ，现在的 eval 是 *延时* 的
+    + 强迫求值直到不是槽为止： _force-it_ 和 _actual-value_  *相互递归* 
+
+    #+BEGIN_SRC scheme
+  (define (force-it obj)
+    (if (thunk? obj)
+	(actual-value (thunk-exp obj) (thunk-env obj))
+	obj))
+
+  ;; (force-it 1) ; => 1
+  ;; (force-it (delay-it '(+ 2 4) (setup-environment))) ; => 6 
+
+  (define (actual-value exp env)
+    (force-it (eval exp env)))
+
+  ;; (actual-value '(+ 2 4) (setup-environment)) ; => 6
+
+  ;; (define test-environment (setup-environment))
+  ;; (define extended-env (extend-environment
+  ;; 		      '(a b) 
+  ;; 		      (list-of-delayed-args '(2 (/ 1 0)) test-environment)
+  ;; 		      test-environment))
+  ;; (lookup-variable-value 'b extended-env)
+  ;;  => (thunk
+  ;;      (/ 1 0)
+  ;;      (((false true car cdr cons null? + >) #f #t (primitive #[compiled-procedure 14 ("list" #x1) #x1a #x19643e2]) (primitive #[compiled-procedure 15 ("list" #x2) #x1a #x1964452]) (primitive #[compiled-procedure 16 ("list" #x3) #x14 #x19644bc]) (primitive #[compiled-procedure 17 ("list" #x5) #x14 #x196455c]) (primitive #[arity-dispatched-procedure 18]) (primitive #[arity-dispatched-procedure 19]))))
+
+  ;; (actual-value 'b extended-env) ;Unbound variable /
+  ;; (force-it (eval 'b extended-env)) ;Unbound variable /
+    #+END_SRC
+
+**** 记忆槽
+     通过修改槽对象来实现带记忆， *求值后将其换成得到的值表达式* ：
+
+     #+BEGIN_SRC scheme
+  (define (evaluated-thunk? obj)
+    (tagged-list? obj 'evaluated-thunk))
+
+  (define (thunk-value evaluated-thunk) (cadr evaluated-thunk))
+
+  (define (force-it obj)
+    (cond ((thunk? obj)
+	   (let ((result (actual-value
+			  (thunk-exp obj)
+			  (thunk-env obj))))
+	     (set-car! obj 'evaluated-thunk) ; 修改 trunk 为 evaluted-trunk 
+	     (set-car! (cdr obj) result)  ; 修改表达式为求出的表达式
+	     (set-cdr! (cdr obj) '())     ; 不再需要环境
+	     result))
+	  ((evaluated-thunk? obj)
+	   (thunk-value obj))
+	  (else obj)))
+
+  ;; (define thunk-object (delay-it '(+ 2 4) (setup-environment)))
+  ;; thunk-object 
+  ;;  => (thunk (+ 2 4) (((false true car cdr cons null? + >) #f #t (primitive #[compiled-procedure 14 ("list" #x1) #x1a #x19643e2]) (primitive #[compiled-procedure 15 ("list" #x2) #x1a #x1964452]) (primitive #[compiled-procedure 16 ("list" #x3) #x14 #x19644bc]) (primitive #[compiled-procedure 17 ("list" #x5) #x14 #x196455c]) (primitive #[arity-dispatched-procedure 18]) (primitive #[arity-dispatched-procedure 19]))))
+
+  ;; (force-it thunk-object) ; => 6
+  ;; thunk-object ; =>  (evaluated-thunk 6)
+  ;; (evaluated-thunk? thunk-object) ; => #t
+  ;; (thunk-value thunk-object) ; => 6
+  ;; (force-it thunk-object) ; => 6 
+     #+END_SRC
+
+     #+BEGIN_EXAMPLE
+       无论有没有记忆，前面修改过的求值器都能工作
+     #+END_EXAMPLE
+
+*** 测试
+    测试延时求值器：
+    #+BEGIN_SRC scheme
+  (define the-global-environment (setup-environment))
+  (driver-loop)
+  ;;; L-Eval input:
+  (define (try a b)
+    (if (> a 0) 1 b))
+  ;;; L-Eval value:
+  ok
+  ;;; L-Eval input:
+  (try 0 (/ 1 0))
+  ;;; L-Eval value:
+  1
+    #+END_SRC
+
+* 应用
+
+** 流
+   #+BEGIN_EXAMPLE
+     研究流计算的时候，流被实现为一种延时的表，其中用了特殊形式 delay 和 cons-stream。该方式的缺点：
+
+     1. 需要用特殊形式，特殊形式不是一级对象，无法与高阶函数协作
+     2. 流被做为与表类似但又不同的另一类对象，因此需要为流重新实现各种表操作，而且这些操作只能用于流
+   #+END_EXAMPLE
+
+   现在采用惰性求值，流和表就一样了，不再需要任何的特殊形式。只需 *要求 cons 为非严格* 的。做这件事有多种可能方式：
+   + 修改求值器 _允许非严格的基本过程_ ，将 cons 实现为非严格过程
+   + 把 cons 实现为 _复合过程_ 
+
+   最简单的方式是用 *过程的方式表示序对* ：
+   #+BEGIN_SRC scheme
+  (define (cons x y)
+    (lambda (m) (m x y)))
+
+  (define (car z)
+    (z (lambda (p q) p)))
+
+  (define (cdr z)
+    (z (lambda (p q) q)))
+
+  ;; (define cons-procedure (cons 1 2))
+  ;; cons-procedure ; => #[compound-procedure 13]
+
+  ;; (car cons-procedure) ; => 1 
+  ;; ((lambda (m) (m 1 2)) (lambda (p q) p)) ; => 1
+  ;; ((lambda (p q) p) 1 2) ; => 1
+
+  ;; (cdr cons-procedure) ; => 2 
+   #+END_SRC
+
+   基于这些基本操作，各种 _表操作的标准定义_ 不仅可以用于 _有穷的表_ ，也能自然地适用于 *无穷的惰性表* （ _流_ ）：
+   #+BEGIN_SRC scheme
+  (define (list-ref items n)
+    (if (= n 0)
+	(car items)
+	(list-ref (cdr items) (- n 1))))
+
+  (define (map proc items)
+    (if (null? items)
+	'()
+	(cons (proc (car items))
+	      (map proc (cdr items)))))
+
+  (define (scale-list items factor)
+    (map (lambda (x) (* x factor))
+	 items))
+
+  (define (add-lists list1 list2)
+    (cond ((null? list1) list2)
+	  ((null? list2) list1)
+	  (else (cons (+ (car list1) (car list2))
+		      (add-lists (cdr list1) (cdr list2))))))
+   #+END_SRC
+
+   定义整数流：
+   #+BEGIN_SRC scheme :results output :exports result
+  (define ones (cons 1 ones))
+  (define integers (cons 1 (add-lists ones integers)))
+   #+END_SRC
+   #+RESULTS:
+   : L-Eval input:
+   : (list-ref integers 17) 
+   : L-Eval value:
+   :  18
+
+   现在的表比前面的流更惰性：
+   + 现在表的 car 部分也是延时的，同样直到需要用时才真正求值
+   + 取序对的 car 或 cdr 时都不求值，其求值将延时到真正需要时：
+     + 用作基本过程的参数
+     + 需要打印输出
+
+   惰性序对还能解决流引起的其他问题，讨论流的时候，处理包含了信息反馈的流时，需要显式使用 _delay_ 操作。而现在一切参数都是延时的，上述情况也不需要特殊处理了
+
+   #+BEGIN_SRC scheme :results output :exports result
+  (define (integral integrand initial-value dt)
+    (define int
+      (cons initial-value
+	    (add-lists (scale-list integrand dt)
+		       int)))
+    int)
+
+  (define (solve f y0 dt)
+    (define y (integral dy y0 dt))
+    (define dy (map f y))
+    y)
+   #+END_SRC
+
+   #+RESULTS:
+   : L-Eval input:
+   : (list-ref (solve (lambda (x) x) 1 0.001) 1000)
+   : L-Eval value:
+   : 2.716923932235896

@@ -1,0 +1,364 @@
+#+TITLE: 方法
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: concurrency.html   
+#+HTML_LINK_HOME: effj.html
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+   
+* 检查参数的有效性
+
+** public方法
+使用适当的异常来标记参数无效，常用的异常有illegalargumentexception, IndexOutOfBoundsException, NullException, ArithmeticException等，并在Javadoc中使用@throws指明这些异常
+
+#+BEGIN_SRC java
+  /**
+   ,* Returns a BigInteger whose value is (this mod m). This method
+   ,* differs from the remainder method in that it always returns a
+   ,* non-negative BigInteger.
+   ,*
+   ,* @param m the modulus, which must be positive
+   ,* @return this mod m
+   ,* @throws ArithmeticException if m is less than or equal to 0
+   ,*/
+  public BigInteger mod(BigInteger m) {
+          if (m.signum() <= 0)
+                  throw new ArithmeticException("Modulus <= 0: " + m);
+          // Do the computation
+  }
+#+END_SRC
+
+** private方法
+使用断言来检查参数有效性，私有方法意味着调用者就是编写者。这种情况下可以控制传入的参数，只需要在开发的时候开启断言，在生产的时候关闭断言
+#+BEGIN_SRC java
+  // Private helper function for a recursive sort
+  private static void sort(long a[], int offset, int length) {
+          assert a != null;
+          assert offset >= 0 && offset <= a.length;
+          assert length >= 0 && length <= a.length - offset;
+  // Do the computation
+  }
+#+END_SRC
+
+** 总结
++ 必须特别注意那些只是用来被保存的参数，比如构造器中的参数往往不会参与运算，一旦设置错误会导致以后难以追查的bug
++ 有些计算和方法会隐式的执行必要的有效性检查，这种抛出的异常往往需要异常转译
++ 并不一定参数校验越严厉越好，方法应该追求通用性
+
+* 必要时进行保护性拷贝
+总是假设客户端会尽可能地破坏类的约束条件，所以在编写类的时候要考虑防御性
+
+粗看BrokenPeriod是一个不可变类
+#+BEGIN_SRC java
+  // Broken "immutable" time period class
+  public class BrokenPeriod {
+
+          private final Date start;
+          private final Date end;
+
+          /**
+           ,* @param start the beginning of the period
+           ,* @param end the end of the period; must not precede start
+           ,* @throws IllegalArgumentException if start is after end
+           ,* @throws NullPointerException if start or end is null
+           ,*/
+          public BrokenPeriod(Date start, Date end) {
+                  if (start.compareTo(end) > 0) {
+                          throw new IllegalArgumentException(
+                                  start + " after " + end);
+                  }
+                  this.start = start;
+                  this.end = end;
+          }
+
+          public Date start() {
+                  return start;
+          }
+
+          public Date end() {
+                  return end;
+          }
+  }
+#+END_SRC
+
+对于BrokenPeriod来说不可变的只是start,end成员的引用，但是Date类是可变的，所以start,end内部的属性依旧是可变的
+#+BEGIN_SRC java
+  // Attack the internals of a Period instance
+  Date start = new Date();
+  Date end = new Date();
+  BrokenPeriod p = new BrokenPeriod(start, end);
+  System.out.println(p.end());
+          
+  end.setYear(78); // Modifies internals of p!
+  System.out.println(p.end());
+#+END_SRC
+
+如果要保证类的可变性，请对构造器的参数使用防御性拷贝，并且拷贝必须在校验参数前。注意：保护性拷贝不要使用clone方法，因为clone可以返回一个成员的子类，而这个子类是否安全是未知的
+#+BEGIN_SRC java
+  // Repaired constructor - makes defensive copies of parameters
+  public Period(Date start, Date end) {
+          this.start = new Date(start.getTime());
+          this.end = new Date(end.getTime());
+          if (this.start.compareTo(this.end) > 0)
+                  throw new IllegalArgumentException(start +" after "+ end);
+  }
+#+END_SRC
+
+但是客户端依旧可以通过start(), end()方法获得成员的对象引用，这些对象内部状态依旧可以被改变
+#+BEGIN_SRC java
+  // Second attack on the internals of a Period instance
+  Date start = new Date();
+  Date end = new Date();
+  Period p = new Period(start, end);
+  p.end().setYear(78); // Modifies internals of p!
+#+END_SRC
+
+返回私有对象引用也必须是防御性拷贝
+#+BEGIN_SRC java
+  // Repaired accessors - make defensive copies of internal fields
+  public Date start() {
+          return new Date(start.getTime());
+  }
+
+  public Date end() {
+          return new Date(end.getTime());
+  }
+#+END_SRC
+
+长度非零的数组总是可变的。把内部数组返回给客户端之前，应该总要进行保护性拷贝，或者给客户端返回该数组的不可变视图
+
+保护性拷贝会引起性能问题，如果方法不暴露给客户端，可以考虑不需要进行保护性拷贝
+
+* 谨慎设计方法签名
++ 谨慎地选择方法的名称
++ 不要过于追求提供便利的方法,这回导致方法粒度太细
++ 避免过长的参数列表，同类型的长参数序列格外有害，分解成多个方法或创建辅助嵌套类
++ 对于参数类型，要优先使用接口而不是类
++ 避免boolean参数，要优先使用两个元素的枚举类型
+
+* 慎用重载 
+覆盖是动态的，也就是在运行时候决定调用哪个子类的方法
+#+BEGIN_SRC java
+  public class Overriding {
+          public static void main(String[] args) {
+                  Wine[] wines = {
+                          new Wine(), new SparklingWine(), new Champagne()
+                  };
+                  //wine
+                  //sparkling wine
+                  //champagne
+                  for (Wine wine : wines) {
+                          System.out.println(wine.name());
+                  }
+          }
+  }
+
+  class Wine {
+          String name() {
+                  return "wine";
+          }
+  }
+
+  class SparklingWine extends Wine {
+          String name() {
+                  return "sparkling wine";
+          }
+  }
+
+  class Champagne extends SparklingWine {
+          String name() {
+                  return "champagne";
+          }
+  }
+#+END_SRC
+
+但是重载是静态的，在编译的时候就决定了会调用哪个重载方法
+  #+BEGIN_SRC java
+    // Broken! - What does this program print?
+    public class BrokenCollectionClassifier {
+
+            public static String classify(Set<?> s) {
+                    return "Set";
+            }
+
+            public static String classify(List<?> lst) {
+                    return "List";
+            }
+
+            public static String classify(Collection<?> c) {
+                    return "Unknown Collection";
+            }
+
+            public static void main(String[] args) {
+                    Collection<?>[] collections = {
+                            new HashSet<String>(),
+                            new ArrayList<BigInteger>(),
+                            new HashMap<String, String>().values()
+                    };
+
+                    //Unknown Collection
+                    //Unknown Collection
+                    //Unknown Collection        
+                    for (Collection<?> c : collections) {
+                            System.out.println(classify(c));
+                    }
+            }
+    }
+  #+END_SRC
+
+只提供一个接受Collection<?>参数的方法，在方法内部使用instanceof判断
+#+BEGIN_SRC java
+  public static String classify(Collection<?> c) {
+          return c instanceof Set ? "Set"
+                  : c instanceof List ? "List" : "Unknown Collection";
+  }
+      
+  public static void main(String[] args) {
+          Collection<?>[] collections = {
+                  new HashSet<String>(),
+                  new ArrayList<BigInteger>(),
+                  new HashMap<String, String>().values()
+          };
+
+          //Set
+          //List
+          //Unknown Collection        
+          for (Collection<?> c : collections) {
+                  System.out.println(classify(c));
+          }
+  }
+#+END_SRC
+
+尽量避免提供两个参数数量相同的重载方法！ 
+
+* 返回零长度的数组或集合，而不是null
+返回类型为数组或集合的方法没理由返回null，应该是返回一个零长度的数组或集合，这样可以避免客户端做非空校验
+
++ 正确地从一个列表返回一个数组
+#+BEGIN_SRC java
+  // The right way to return an array from a collection
+  private final List<Cheese> cheesesInStock = ...;
+  private static final Cheese[] EMPTY_CHEESE_ARRAY = new Cheese[0];
+
+  /**
+   ,* @return an array containing all of the cheeses in the shop.
+   ,*/
+  public Cheese[] getCheeses() {
+          return cheesesInStock.toArray(EMPTY_CHEESE_ARRAY);
+  }
+#+END_SRC
+
++ 正确地返回一个集合的拷贝
+#+BEGIN_SRC java
+  // The right way to return a copy of a collection
+  public List<Cheese> getCheeseList() {
+          if (cheesesInStock.isEmpty())
+                  return Collections.emptyList(); // Always returns same list
+          else
+                  return new ArrayList<Cheese>(cheesesInStock);
+  }
+#+END_SRC
+
+* 为所有导出的API编写Javadoc
+必须为每个被导出的类、接口、构造器、方法和成员编写Javadoc
+
+** 基本原则
++ 文档注释的第一句话应该是所属元素的概要描述
++ 同一个类或者接口中的两个成员或者构造器不应该具有同样的概要描述
++ 应该包含线程安全性
++ 最好是在源码中和产生的文档中都应该是易于阅读的，如果两者不可兼顾，文档阅读性优先于代码阅读性
+
+** 特殊标签
++ @code：展示代码
+  #+BEGIN_SRC java
+    /** ({@code index < 0 || index >= this.size()})
+  #+END_SRC
+
++ @literal：防止特殊符号被html处理
+  #+BEGIN_SRC java
+    /** The triangle inequality is {@literal |x + y| < |x| + |y|}.
+  #+END_SRC
+
+** 分类举例
+*** 方法
+应该简洁地描述出方法和客户端之间的约定，列出这个方法所有的前提条件和后置条件，以及可能产生的副作用
++ @param：确保在文档中说明所有的参数
++ @return：确保在文档中说明返回类型
++ @throws：确保说明所有的受检查异常，以及尽可能列出抛出的非受检查异常。每个异常需要说明产生的条件
++ this一般指的是“调用当前方法的对象引用”
+  #+BEGIN_SRC java
+    /**
+     ,* Returns the element at the specified position in this list.
+     ,*
+     ,* <p>This method is <i>not</i> guaranteed to run in constant
+     ,* time. In some implementations it may run in time proportional
+     ,* to the element position.
+     ,*
+     ,* @param index index of element to return; must be
+     ,*
+     non-negative and less than the size of this list
+     ,* @return the element at the specified position in this list
+     ,* @throws IndexOutOfBoundsException if the index is out of range
+     ,*
+     ({@code index < 0 || index >= this.size()})
+    ,*/
+    E get(int index);
+  #+END_SRC
+
+*** 范型
+确保描述所有的类型参数
+    #+BEGIN_SRC java
+      /**
+       ,* An object that maps keys to values. A map cannot contain
+       ,* duplicate keys; each key can map to at most one value.
+       ,*
+       ,* (Remainder omitted)
+       ,*
+       ,* @param <K> the type of keys maintained by this map
+       ,* @param <V> the type of mapped values
+       ,*/
+      public interface Map<K, V> {
+              ... // Remainder omitted
+      }
+    #+END_SRC
+
+
+*** 枚举
+确保中说明所有的常量
+#+BEGIN_SRC java
+  /**
+   ,* An instrument section of a symphony orchestra.
+   ,*/
+  public enum OrchestraSection {
+  /** Woodwinds, such as flute, clarinet, and oboe. */
+          WOODWIND,
+  /** Brass instruments, such as french horn and trumpet. */
+          BRASS,
+  /** Percussion instruments, such as timpani and cymbals */
+          PERCUSSION,
+  /** Stringed instruments, such as violin and cello. */
+          STRING;
+  }
+#+END_SRC
+
+*** 注解
+确保在文档中说明所有成员，以及类型本身
+#+BEGIN_SRC java
+  /**
+   ,* Indicates that the annotated method is a test method that
+   ,* must throw the designated exception to succeed.
+   ,*/
+  @Retention(RetentionPolicy.RUNTIME)
+  @Target(ElementType.METHOD)
+  public @interface ExceptionTest {
+  /**
+   ,* The exception that the annotated test method must throw
+   ,* in order to pass. (The test is permitted to throw any
+   ,* subtype of the type described by this class object.)
+   ,*/
+          Class<? extends Exception> value();
+  }
+#+END_SRC
+[[file:principle.org][Next：通用原则]]   
+
+[[file:concurrency.org][Previous：同步]]
+
+[[file:effj.org][Home：目录]]

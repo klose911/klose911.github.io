@@ -1,0 +1,233 @@
+#+TITLE: 完整实例
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: error-handle.html   
+#+HTML_LINK_HOME: fault-tolerance.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+现在来改进 Messager 程序以增加该程序的健壮性：
+
+#+begin_src erlang 
+  -module(messenger).
+  -export([start_server/0, server/0, 
+	   logon/1, logoff/0, message/2, client/2]).
+
+  %%% Change the function below to return the name of the node where the
+  %%% messenger server runs
+  server_node() ->
+      messenger@super.
+
+  %%% This is the server process for the "messenger"
+  %%% the user list has the format [{ClientPid1, Name1},{ClientPid22, Name2},...]
+  server() ->
+      process_flag(trap_exit, true),
+      server([]).
+
+  server(User_List) ->
+      receive
+	  {From, logon, Name} ->
+	      New_User_List = server_logon(From, Name, User_List),
+	      server(New_User_List);
+	  {'EXIT', From, _} ->
+	      New_User_List = server_logoff(From, User_List),
+	      server(New_User_List);
+	  {From, message_to, To, Message} ->
+	      server_transfer(From, To, Message, User_List),
+	      io:format("list is now: ~p~n", [User_List]),
+	      server(User_List)
+      end.
+
+  %%% Start the server
+  start_server() ->
+      register(messenger, spawn(messenger, server, [])).
+
+  %%% Server adds a new user to the user list
+  server_logon(From, Name, User_List) ->
+      %% check if logged on anywhere else
+      case lists:keymember(Name, 2, User_List) of
+	  true ->
+	      From ! {messenger, stop, user_exists_at_other_node},  %reject logon
+	      User_List;
+	  false ->
+	      From ! {messenger, logged_on},
+	      link(From),
+	      [{From, Name} | User_List]        %add user to the list
+      end.
+
+  %%% Server deletes a user from the user list
+  server_logoff(From, User_List) ->
+      lists:keydelete(From, 1, User_List).
+
+  %%% Server transfers a message between user
+  server_transfer(From, To, Message, User_List) ->
+      %% check that the user is logged on and who he is
+      case lists:keysearch(From, 1, User_List) of
+	  false ->
+	      From ! {messenger, stop, you_are_not_logged_on};
+	  {value, {_, Name}} ->
+	      server_transfer(From, Name, To, Message, User_List)
+      end.
+
+  %%% If the user exists, send the message
+  server_transfer(From, Name, To, Message, User_List) ->
+      %% Find the receiver and send the message
+      case lists:keysearch(To, 2, User_List) of
+	  false ->
+	      From ! {messenger, receiver_not_found};
+	  {value, {ToPid, To}} ->
+	      ToPid ! {message_from, Name, Message}, 
+	      From ! {messenger, sent} 
+      end.
+
+  %%% User Commands
+  logon(Name) ->
+      case whereis(mess_client) of 
+	  undefined ->
+	      register(mess_client, 
+		       spawn(messenger, client, [server_node(), Name]));
+	  _ -> already_logged_on
+      end.
+
+  logoff() ->
+      mess_client ! logoff.
+
+  message(ToName, Message) ->
+      case whereis(mess_client) of % Test if the client is running
+	  undefined ->
+	      not_logged_on;
+	  _ -> mess_client ! {message_to, ToName, Message},
+	       ok
+      end.
+
+  %%% The client process which runs on each user node
+  client(Server_Node, Name) ->
+      {messenger, Server_Node} ! {self(), logon, Name},
+      await_result(),
+      client(Server_Node).
+
+  client(Server_Node) ->
+      receive
+	  logoff ->
+	      exit(normal);
+	  {message_to, ToName, Message} ->
+	      {messenger, Server_Node} ! {self(), message_to, ToName, Message},
+	      await_result();
+	  {message_from, FromName, Message} ->
+	      io:format("Message from ~p: ~p~n", [FromName, Message])
+      end,
+      client(Server_Node).
+
+  %%% wait for a response from the server
+  await_result() ->
+      receive
+	  {messenger, stop, Why} -> % Stop the client 
+	      io:format("~p~n", [Why]),
+	      exit(normal);
+	  {messenger, What} ->  % Normal response
+	      io:format("~p~n", [What])
+      after 5000 ->
+	      io:format("No response from server~n", []),
+	      exit(timeout)
+      end.
+#+end_src
+
+Messager 服务器捕捉进程退出：如果它收到进程终止信号， _{'EXIT',From,Reason}_ ，则说明 _客户端进程已经终止_ 或者由于下面的原因变得不可达：
++ 用户主动退出登录（替代了前面版本里的 “logoff” 消息）
++ 与客户端连接的网络已经断开
++ 客户进程所处的结点崩溃
++ 客户进程执行了某些非法操作 
+
+如果服务器收到上面所述的退出信号，将调用 server_logoff 函数将 {From, Name} 元组从 User_Lists 列表中删除
+
+#+begin_src erlang 
+  server() ->
+      process_flag(trap_exit, true),
+      server([]).
+
+  server(User_List) ->
+      receive
+	  {From, logon, Name} ->
+	      New_User_List = server_logon(From, Name, User_List),
+	      server(New_User_List);
+	  {'EXIT', From, _} ->
+	      New_User_List = server_logoff(From, User_List),
+	      server(New_User_List);
+	  {From, message_to, To, Message} ->
+	      server_transfer(From, To, Message, User_List),
+	      io:format("list is now: ~p~n", [User_List]),
+	      server(User_List)
+      end.
+#+end_src
+
+
+如果服务端所在的结点崩溃了，那么系统将将自动产生进程终止信号，并将其发送给所有的客户端进程：'EXIT',MessengerPID,noconnection} ，客户端进程收到该消息后会终止自身 
+
+#+begin_src erlang 
+  server_logon(From, Name, User_List) ->
+      %% check if logged on anywhere else
+      case lists:keymember(Name, 2, User_List) of
+	  true ->
+	      From ! {messenger, stop, user_exists_at_other_node},  %reject logon
+	      User_List;
+	  false ->
+	      From ! {messenger, logged_on},
+	      link(From),
+	      [{From, Name} | User_List]        %add user to the list
+      end.
+#+end_src 
+
+#+begin_example
+  这里的 link 调用就是把 服务器的messenger 进程和 客户端的mess_client进程 绑定起来，
+
+  一旦服务器进程崩溃，就会发送信号给客户端进程
+#+end_example
+
+#+begin_src erlang 
+  client(Server_Node) ->
+      receive
+	  logoff ->
+	      exit(normal);
+	  {message_to, ToName, Message} ->
+	      {messenger, Server_Node} ! {self(), message_to, ToName, Message},
+	      await_result();
+	  {message_from, FromName, Message} ->
+	      io:format("Message from ~p: ~p~n", [FromName, Message])
+      end,
+      client(Server_Node).
+#+end_src
+
+当用户主动退出后，调用 exit(normal)，这同样会把终止信号发送给服务器端的messenger进程，服务器端则会把这个用户移除用户列表。这说明 link 调用的连接是双向的，无论那一边的进程终止，都会发送信号给另一边
+
+
+#+begin_example
+  同样的道理：客户进程所处的结点崩溃 或者 客户进程执行了某些非法操作 也都会使客户端的 erlang 虚拟机发送信号给服务器端
+#+end_example
+
+最后在 await_result 函数中引入了一个 5 秒钟的定时器。也就是说，如果服务器 5 秒钟之类没有回复客户端，则客户端终止执行
+
+#+begin_src erlang 
+  await_result() ->
+      receive
+	  {messenger, stop, Why} -> % Stop the client 
+	      io:format("~p~n", [Why]),
+	      exit(normal);
+	  {messenger, What} ->  % Normal response
+	      io:format("~p~n", [What])
+      after 5000 ->
+	      io:format("No response from server~n", []),
+	      exit(timeout)
+      end.
+#+end_src
+
+#+begin_example
+  这个超时只是在服务端与客户端建立连接前的登录阶段需要
+
+  一个非常有意思的例子是如果客户端在服务端建立连接前终止会发生什么情况呢？
+
+  如果一个进程与另一个不存在的进程建立连接，则会收到一个终止信号 {'EXIT',From, noproc}，这就好像连接建立后进程立马就结束了一样
+#+end_example
+
+[[file:../misc/misc.org][Next：杂项]]
+
+[[file:error-handle.org][Previous：错误处理]]
+
+[[file:fault-tolerance.org][Home：容错编程]]

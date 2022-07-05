@@ -1,0 +1,774 @@
+#+TITLE: 错误处理
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: collection.html   
+#+HTML_LINK_HOME: rust.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+BEGIN_EXAMPLE
+  Rust 对可靠性的执着也延伸到了错误处理
+
+  错误对于软件来说是不可避免的，所以 Rust 有很多特性来处理出现错误的情况
+
+  在很多情况下，Rust 要求你承认出错的可能性，并在编译代码之前就采取行动
+
+  这些要求使得程序更为健壮，它们确保了你会在将代码部署到生产环境之前就发现错误并正确地处理它们！
+#+END_EXAMPLE
+
+Rust 将错误组合成两个主要类别：
++ 可恢复错误：通常代表向 _用户报告_ 错误和 _重试操作_ 是合理的情况，比如未找到文件
++ 不可恢复错误：不可恢复错误通常是 _bug_ 的同义词，比如尝试访问超过数组结尾的位置
+
+#+BEGIN_EXAMPLE
+  大部分语言并不区分这两类错误，并采用类似异常这样方式统一处理他们
+
+  Rust 并没有异常。相反，对于可恢复错误有 Result<T, E> 值，以及 panic!，它在遇到不可恢复错误时停止程序执行
+
+  这一章会首先介绍 panic! 调用，接着会讲到如何返回 Result<T, E>，还将探讨决定是尝试从错误中恢复还是停止执行时的注意事项
+#+END_EXAMPLE
+* panic! 与不可恢复的错误
+
+  突然有一天，代码出问题了，而你对此束手无策。对于这种情况，Rust 有 _panic!宏_ 。当执行这个宏时：
+  1. 程序会打印出一个错误信息
+  2. 展开并清理栈数据
+  3. 退出
+
+  #+BEGIN_EXAMPLE
+    出现这种情况的场景通常是检测到一些类型的 bug，而且程序员并不清楚该如何处理它
+  #+END_EXAMPLE
+** 对应 panic 时的栈展开或终止 
+   当出现 panic 时，程序默认会开始  _展开_ ，这意味着 Rust 会 _回溯栈_ 并清理它遇到的每一个函数的数据，不过这个回溯并清理的过程有很多工作
+
+   另一种选择是直接 _终止_ ，这会不清理数据就退出程序。那么程序所使用的内存需要由操作系统来清理
+   #+BEGIN_EXAMPLE
+     如果需要项目的最终二进制文件越小越好，panic 时通过在 Cargo.toml 的 [profile] 部分增加 panic = 'abort'，可以由展开切换为终止
+   #+END_EXAMPLE
+   例如，如果想要在release模式中 panic 时直接终止：
+
+   #+BEGIN_SRC toml 
+  [profile.release]
+  panic = 'abort'
+   #+END_SRC
+** panic! 宏
+   在一个简单的程序中调用 panic!：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      panic!("crash and burn");
+  }
+   #+END_SRC
+   运行程序将会出现类似这样的输出：
+
+   #+BEGIN_SRC sh 
+  $ cargo run
+     Compiling panic v0.1.0 (/mnt/c/Users/I514692/AppData/Roaming/Documents/programming/html/klose911.github.io/src/rust/src/error_handle/panic)
+      Finished dev [unoptimized + debuginfo] target(s) in 2.39s
+       Running `target/debug/panic`
+  thread 'main' panicked at 'crash and burn', src/main.rs:2:5
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace.
+   #+END_SRC
+
+   这里包含 panic! 调用造成的错误信息：
+   + 显示了 panic 提供的信息
+   + 指明了源码中 panic 出现的位置：src/main.rs:2:5
+     + src/main.rs 文件的第二行第五个字符
+
+   #+BEGIN_EXAMPLE
+     在这个例子中，被指明的那一行是代码的一部分，而且查看这一行的话就会发现 panic! 宏的调用
+
+     在其他情况下，panic! 可能会出现在我们的代码所调用的代码中。错误信息报告的文件名和行号可能指向别人代码中的 panic! 宏调用，而不是我们代码中最终导致 panic! 的那一行
+
+     这时候可以使用 panic! 被调用的函数的 backtrace 来寻找代码中出问题的地方
+   #+END_EXAMPLE
+** 使用 panic! 的 backtrace
+   看看另一个因为我们代码中的 bug 引起的别的库中 panic! 的例子，而不是直接的宏调用。下面是一个尝试通过索引访问 vector 中元素的例子：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let v = vec![1, 2, 3];
+
+      v[99];
+  }
+   #+END_SRC
+
+   报错信息如下：
+   #+BEGIN_SRC sh 
+  thread 'main' panicked at 'index out of bounds: the len is 3 but the index is 99', /rustc/73528e339aae0f17a15ffa49a8ac608f50c6cf14/src/libcore/slice/mod.rs:2796:10
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace.
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这指向了一个不是自己编写的文件，libcore/slice/mod.rs。其为 Rust 源码中 slice 的实现
+
+     这是当对 vector v 使用 [] 时 libcore/slice/mod.rs 中会执行的代码，也是真正出现 panic! 的地方
+   #+END_EXAMPLE
+
+   接下来的几行提醒我们可以设置 _RUST_BACKTRACE_  环境变量来得到一个 backtrace： 这是一个执行到目前位置所有被调用的函数的列表
+
+   #+BEGIN_EXAMPLE
+     Rust 的 backtrace 跟其他语言中的一样：
+
+     阅读 backtrace 的关键是从头开始读直到发现你编写的文件。这就是问题的发源地
+
+     这一行往上是你的代码所调用的代码；往下则是调用你的代码的代码
+
+     这些行可能包含核心 Rust 代码，标准库代码或用到的 crate 代码
+   #+END_EXAMPLE
+   将 RUST_BACKTRACE 环境变量设置为任何不是 0 的值来获取 backtrace 看看：
+
+   #+BEGIN_SRC sh 
+  $ RUST_BACKTRACE=1 cargo run
+      Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+       Running `target/debug/panic`
+  thread 'main' panicked at 'index out of bounds: the len is 3 but the index is 99', libcore/slice/mod.rs:2448:10
+  stack backtrace:
+     0: std::sys::unix::backtrace::tracing::imp::unwind_backtrace
+	       at libstd/sys/unix/backtrace/tracing/gcc_s.rs:49
+     1: std::sys_common::backtrace::print
+	       at libstd/sys_common/backtrace.rs:71
+	       at libstd/sys_common/backtrace.rs:59
+     2: std::panicking::default_hook::{{closure}}
+	       at libstd/panicking.rs:211
+     3: std::panicking::default_hook
+	       at libstd/panicking.rs:227
+     4: <std::panicking::begin_panic::PanicPayload<A> as core::panic::BoxMeUp>::get
+	       at libstd/panicking.rs:476
+     5: std::panicking::continue_panic_fmt
+	       at libstd/panicking.rs:390
+     6: std::panicking::try::do_call
+	       at libstd/panicking.rs:325
+     7: core::ptr::drop_in_place
+	       at libcore/panicking.rs:77
+     8: core::ptr::drop_in_place
+	       at libcore/panicking.rs:59
+     9: <usize as core::slice::SliceIndex<[T]>>::index
+	       at libcore/slice/mod.rs:2448
+    10: core::slice::<impl core::ops::index::Index<I> for [T]>::index
+	       at libcore/slice/mod.rs:2316
+    11: <alloc::vec::Vec<T> as core::ops::index::Index<I>>::index
+	       at liballoc/vec.rs:1653
+    12: panic::main
+	       at src/main.rs:4
+    13: std::rt::lang_start::{{closure}}
+	       at libstd/rt.rs:74
+    14: std::panicking::try::do_call
+	       at libstd/rt.rs:59
+	       at libstd/panicking.rs:310
+    15: macho_symbol_search
+	       at libpanic_unwind/lib.rs:102
+    16: std::alloc::default_alloc_error_hook
+	       at libstd/panicking.rs:289
+	       at libstd/panic.rs:392
+	       at libstd/rt.rs:58
+    17: std::rt::lang_start
+	       at libstd/rt.rs:74
+    18: panic::main
+   #+END_SRC
+
+   这里有大量的输出：
+   + 实际看到的输出可能因 _不同的操作系统_ 和 _Rust 版本_ 而有所不同
+   + 为了获取带有这些信息的 backtrace，必须 *启用 debug*  标识
+     + 当 *不使用*  _--release_ 参数运行 cargo build 或 cargo run 时 debug 标识会默认启用，就像这里一样 
+
+   #+BEGIN_EXAMPLE
+     输出中，backtrace 的 12 行指向了我们项目中造成问题的行：src/main.rs 的第 4 行
+
+     如果你不希望程序 panic，第一个提到我们编写的代码行的位置是你应该开始调查的，以便查明是什么值如何在这个地方引起了 panic
+
+     在示例中，我们故意编写会 panic 的代码来演示如何使用 backtrace，修复这个 panic 的方法就是不要尝试在一个只包含三个项的 vector 中请求索引是 100 的元素
+
+     当将来你的代码出现了 panic，你需要搞清楚在这特定的场景下代码中执行了什么操作和什么值导致了 panic，以及应当如何处理才能避免这个问题
+   #+END_EXAMPLE
+* Result 与可恢复的错误
+  #+BEGIN_EXAMPLE
+    大部分错误并没有严重到需要程序完全停止执行。有时，一个函数会因为一个容易理解并做出反应的原因失败
+
+    例如，如果因为打开一个并不存在的文件而失败，此时可能想要创建这个文件，而不是终止进程
+  #+END_EXAMPLE
+
+  回忆一下 _Result_ 枚举，它定义有如下两个成员， _Ok_ 和 _Err_ ： 
+
+  #+BEGIN_SRC rust 
+  enum Result<T, E> {
+      Ok(T),
+      Err(E),
+  }
+  #+END_SRC
+
+  _T_ 和 _E_ 是泛型类型参数；
+  + T : _成功_ 时返回的 _Ok_ 成员中的 _数据的类型_ 
+  + E : _失败_ 时返回的 _Err_ 成员中的 _错误的类型_ 
+
+  #+BEGIN_EXAMPLE
+    因为 Result 有这些泛型类型参数，可以将 Result 类型和标准库中为其定义的函数用于很多不同的场景，这些情况中需要返回的成功值和失败值可能会各不相同
+  #+END_EXAMPLE
+
+  调用一个返回 Result 的函数，因为它可能会失败：如下所示打开一个文件：
+
+  #+BEGIN_SRC rust 
+  use std::fs::File;
+
+  fn main() {
+      let f:u32 = File ::open("hello.txt");
+  }
+  #+END_SRC
+
+  试着编译下，会有下面的编译报错：
+  #+BEGIN_SRC sh 
+  error[E0308]: mismatched types
+   --> src/main.rs:4:18
+    |
+  4 |     let f: u32 = File ::open("hello.txt");
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^ expected u32, found enum
+  `std::result::Result`
+    |
+    = note: expected type `u32`
+	       found type `std::result::Result<std::fs::File, std::io::Error>`
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    这就告诉我们 File ::open 函数的返回值类型是 Result<T, E>
+
+    这里泛型参数 T 放入了成功值的类型 std::fs::File，它是一个文件句柄
+    E 被用在失败值上时 E 的类型是 std::io::Error
+
+  #+END_EXAMPLE
+  这个返回值类型说明 File ::open 调用：
+  + 可能会成功并返回一个可以进行读写的文件句柄，变量 f 的值将会是一个包含文件句柄的 Ok 实例
+  + 这个函数也可能会失败，f 的值会是一个包含更多关于出现了何种错误信息的 Err 实例。例如：
+    + 文件可能并不存在
+    + 可能没有访问文件的权限
+
+  #+BEGIN_EXAMPLE
+    File ::open 需要一个方式告诉我们是成功还是失败，并同时提供给我们文件句柄或错误信息
+
+    而这些信息正是 Result 枚举可以提供的
+
+  #+END_EXAMPLE
+  根据 File ::open 返回值进行不同处理的逻辑。下面示例展示了一个使用基本工具处理 Result 的例子：
+
+  #+BEGIN_SRC rust 
+  use std::fs::File;
+
+  fn main() {
+      let f = File ::open("hello.txt");
+
+      let f = match f {
+	  Ok(file) => file,
+	  Err(error) => {
+	      panic!("Problem opening the file: {:?}", error)
+	  },
+      };
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    注意：与 Option 枚举一样，Result 枚举和其成员也被导入到了 prelude 中，所以就不需要在 match 分支中的 Ok 和 Err 之前指定 Result::
+  #+END_EXAMPLE
+
+  + 当结果是 Ok 时，返回 Ok 成员中的 file 值，然后将这个文件句柄赋值给变量 f。match 之后，可以利用这个文件句柄来进行读写
+  + match 的另一个分支处理从 File ::open 得到 Err 值的情况。在这种情况下，选择调用 panic! 宏。如果当前目录没有一个叫做 hello.txt 的文件，当运行这段代码时会看到如下来自 panic! 宏的输出：
+
+  #+BEGIN_SRC sh 
+  thread 'main' panicked at 'Problem opening the file: Error { repr:
+  Os { code: 2, message: "No such file or directory" } }', src/main.rs:9:12
+  #+END_SRC
+** 匹配不同的错误
+   #+BEGIN_EXAMPLE
+     上面的代码不管 File ::open 是因为什么原因失败都会 panic!
+
+     真正希望的是对不同的错误原因采取不同的行为：
+     如果 File ::open因为文件不存在而失败，希望创建这个文件并返回新文件的句柄
+
+     如果 File ::open 因为任何其他原因失败，例如没有打开文件的权限，仍然希望像示例那样 panic!
+   #+END_EXAMPLE
+
+   为 match 增加了另一个分支： 
+
+   #+BEGIN_SRC rust 
+  use std::fs::File;
+  use std::io::ErrorKind;
+
+  fn main() {
+      let f = File ::open("hello.txt");
+
+      let f = match f {
+	  Ok(file) => file,
+	  Err(error) => match error.kind() {
+	      ErrorKind::NotFound => match File ::create("hello.txt") {
+		  Ok(fc) => fc,
+		  Err(e) => panic!("Problem creating the file: {:?}", e),
+	      },
+	      other_error => panic!("Problem opening the file: {:?}", other_error),
+	  },
+      };
+  }
+   #+END_SRC
+
+
+   File ::open 返回的 Err 成员中的值类型 _io::Error_ ，它是一个标准库中提供的结构体：这个结构体有一个返回 _io::ErrorKind_ 值的 _kind_ 方法可供调用：
+   + io::ErrorKind 是一个标准库提供的枚举，它的成员对应 _io_ 操作可能导致的不同错误类型：
+     + 感兴趣的成员是 _ErrorKind::NotFound_ ，它代表尝试 *打开的文件并不存在* 
+
+   #+BEGIN_EXAMPLE
+     希望在匹配守卫中检查的条件是 error.kind() 的返回值是 ErrorKind的 NotFound 成员
+
+     如果是，则尝试通过 File ::create 创建文件
+     然而因为 File ::create 也可能会失败，还需要增加一个内部 match 语句。当文件不能被打开，会打印出一个不同的错误信息
+
+     外部 match 的最后一个分支保持不变，这样对任何除了文件不存在的错误会使程序 panic
+   #+END_EXAMPLE
+
+   然而这里有很多的嵌套的 match 操作符，Result<T, E> 有很多接受 _闭包_ 的方法，并采用 match 表达式实现。一个更老练的 Rustacean 可能会这么写：
+
+   #+BEGIN_SRC rust 
+  use std::fs::File;
+  use std::io::ErrorKind;
+
+  fn main() {
+      let f = File ::open("hello.txt").unwrap_or_else(|error| {
+	  if error.kind() == ErrorKind::NotFound {
+	      File ::create("hello.txt").unwrap_or_else(|error| {
+		  panic!("Problem creating the file: {:?}", error);
+	      })
+	  } else {
+	      panic!("Problem opening the file: {:?}", error);
+	  }
+      });
+  }
+
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     虽然这段代码和开始一样的行为，但比大量的 match 表达式且更容易阅读
+
+     在处理错误时，还有很多这类方法可以消除大量嵌套的 match 表达式
+   #+END_EXAMPLE
+
+** 失败时 panic 的简写：unwrap 和 expect
+   #+BEGIN_EXAMPLE
+   match 能够胜任它的工作，不过它可能有点冗长并且不总是能很好的表明其意图
+   #+END_EXAMPLE
+
+   Result<T, E> 类型定义了很多辅助方法来处理各种情况。其中之一叫做 _unwrap_ ：
+   + 如果 Result 值是成员 Ok，unwrap 会返回 Ok 中的值
+   + 如果 Result 是成员 Err，unwrap 会调用 panic!
+
+   这里是一个实践 unwrap 的例子：
+
+   #+BEGIN_SRC rust 
+  use std::fs::File;
+
+  fn main() {
+      let f = File ::open("hello.txt").unwrap();
+  }
+   #+END_SRC
+
+   如果调用这段代码时不存在 hello.txt 文件，将会看到一个 unwrap 调用 panic! 时提供的错误信息：
+
+   #+BEGIN_SRC sh 
+  thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Error {repr: Os { code: 2, message: "No such file or directory" } }',src/libcore/result.rs:906:4
+   #+END_SRC
+
+   另一个类似于 unwrap 的方法 _expect_ ，它还允许选择 _panic! 的错误信息_ ： 
+   #+BEGIN_SRC rust 
+  use std::fs::File;
+
+  fn main() {
+      let f = File ::open("hello.txt").expect("Failed to open hello.txt");
+  }
+   #+END_SRC
+
+   expect 与 unwrap 的使用方式一样：返回文件句柄或调用 panic! 宏。expect 用来调用 panic! 的错误信息将会作为参数传递给 expect ，而不像unwrap 那样使用默认的 panic! 信息。它看起来像这样：
+
+   #+BEGIN_SRC sh 
+  thread 'main' panicked at 'Failed to open hello.txt: Error { repr: Os { code:2, message: "No such file or directory" } }', src/libcore/result.rs:906:4
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这个错误信息以指定的文本开始，Failed to open hello.txt，将会更容易找到代码中的错误信息来自何处
+
+     如果在多处使用 unwrap，则需要花更多的时间来分析到底是哪一个 unwrap 造成了 panic，因为所有的 unwrap 调用都打印相同的信息
+   #+END_EXAMPLE
+
+** 传播错误
+   当编写一个实现会调用一些可能会失败的操作的函数时，除了在这个函数中处理错误外，还可以选择让 *调用者知道这个错误* 并 *决定该如何处理* 。这被称为 _传播_ 错误
+
+   #+BEGIN_EXAMPLE
+     这样能更好的控制代码调用，因为比起实现代码所拥有的上下文，调用者可能拥有更多信息或逻辑来决定应该如何处理错误
+   #+END_EXAMPLE
+
+   例如，下面的示例展示了一个从文件中读取用户名的函数。如果文件不存在或不能读取，这个函数会将这些错误返回给调用它的代码：
+
+   #+BEGIN_SRC rust 
+  use std::io;
+  use std::io::Read;
+  use std::fs::File;
+
+  fn read_username_from_file() -> Result<String, io::Error> {
+      let f = File ::open("hello.txt");
+
+      let mut f = match f {
+	  Ok(file) => file,
+	  Err(e) => return Err(e),
+      };
+
+      let mut s = String::new();
+
+      match f.read_to_string(&mut s) {
+	  Ok(_) => Ok(s),
+	  Err(e) => Err(e),
+      }
+  }
+   #+END_SRC
+
+   这个函数的返回值： _Result<String, io::Error>_ 。这意味着函数返回一个 _Result<T, E>_ 类型的值，其中：
+   + T 的具体类型是 String：如果这个函数没有出任何错误成功返回，函数的调用者会收到一个包含“从文件中读取到用户名”的 Ok 值
+   + E 的具体类型是 io::Error：如果函数遇到任何错误，函数的调用者会收到一个 Err 值，它储存了一个包含更多这个问题相关信息的 io::Error 实例
+
+   #+BEGIN_EXAMPLE
+     这里选择 io::Error 作为函数的返回值是因为它正好是函数体中那两个可能会失败的操作的错误返回值：File ::open 函数和 read_to_string 方法
+   #+END_EXAMPLE
+
+   函数体：
+   1. 以 File ::open 函数开头
+   2. 使用 match 处理返回值 Result
+      + 当 Err 时不再调用 panic!，而是提早返回并将 File ::open 返回的错误值作为函数的错误返回值传递给调用者
+      + 如果 File ::open 成功了，将文件句柄储存在变量 f 中并继续
+   3. 在变量 s 中创建了一个新 String
+   4. 调用文件句柄 f 的 read_to_string 方法来将文件的内容读取到 s 中，read_to_string 方法也返回一个 Result 因为它也可能会失败：需要另一个 match 来处理这个 Result：
+      + 如果 read_to_string 成功了，那么这个函数就成功了，并返回文件中的用户名，它现在位于被封装进 Ok 的 s 中
+      + 如果read_to_string 失败了，则像之前处理 File ::open 的返回值的 match 那样返回错误值
+      + 并不需要显式的调用 return，因为这是函数的最后一个表达式
+
+
+   #+BEGIN_EXAMPLE
+     调用这个函数的代码最终会得到一个包含用户名的 Ok 值，或者一个包含 io::Error 的 Err 值
+
+     然而我们无从得知调用者会如何处理这些值。如果他们得到了一个 Err 值，他们可能会选择：
+     1. panic! 并使程序崩溃
+     2. 使用一个默认的用户名
+     3. 从文件之外的地方寻找用户名
+     ，，，
+
+     我们没有足够的信息知晓调用者具体会如何尝试，所以将所有的成功或失败信息向上传播，让他们选择合适的处理方法
+   #+END_EXAMPLE
+
+   这种传播错误的模式在 Rust 是如此的常见，以至于 Rust 提供了 _?_ 问号运算符来使其更易于处理
+
+*** 传播错误的简写：? 运算符
+    使用了 _?_ 运算符来实现上面的功能：
+
+    #+BEGIN_SRC rust 
+  use std::io;
+  use std::io::Read;
+  use std::fs::File;
+
+  fn read_username_from_file() -> Result<String, io::Error> {
+      let mut f = File ::open("hello.txt")?;
+      let mut s = String::new();
+      f.read_to_string(&mut s)?;
+      Ok(s)
+  }
+    #+END_SRC
+
+    Result 值之后的 ? 于上面 match 表达式有着完全相同的工作方式：
+    + 如果 Result 的值是 Ok，这个表达式将会返回 Ok 中的值而程序将 _继续执行_ 
+    + 如果值是 Err，Err 中的值将作为 _整个函数的返回值_ ，就好像使用了 return 关键字一样，这样错误值就被传播给了调用者
+
+
+    #+BEGIN_EXAMPLE
+      上面的示例中：
+
+      File ::open 调用结尾的 ? 将会把 Ok 中的值返回给变量 f
+      如果出现了错误，? 运算符会提早返回整个函数并将一些 Err 值传播给调用者
+
+      同理也适用于 read_to_string 调用结尾的 ?
+    #+END_EXAMPLE
+
+    match 表达式与问号运算符所做的有一点不同： ? 运算符所使用的错误值被传递给了 from 函数，收到的错误类型被转换为定义为当前函数返回的错误类型
+
+    #+BEGIN_EXAMPLE
+      from 函数定义于标准库的 From trait 中，其用来将错误从一种类型转换为另一种类型
+
+      这在当一个函数返回一个错误类型来代表所有可能失败的方式时很有用：
+      即使其可能会因很多种原因失败。只要每一个错误类型都实现了 from 函数来定义如将其转换为返回的错误类型，? 运算符会自动处理这些转换
+    #+END_EXAMPLE
+
+    ? 运算符消除了大量样板代码并使得函数的实现更简单。甚至可以在 ? 之后直接使用 _链式_ 方法调用来进一步缩短代码，如下所示： 
+
+    #+BEGIN_SRC rust 
+  use std::io;
+  use std::io::Read;
+  use std::fs::File;
+
+  fn read_username_from_file() -> Result<String, io::Error> {
+      let mut s = String::new();
+
+      File ::open("hello.txt")?.read_to_string(&mut s)?;
+
+      Ok(s)
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      在 s 中创建新的 String 被放到了函数开头；这一部分没有变化
+
+      对 File ::open("hello.txt")? 的结果直接链式调用了 read_to_string，而不再创建变量 f
+
+      当然仍然需要 read_to_string 调用结尾的 ?，而且当 File ::open 和 read_to_string 都成功没有失败时返回包含用户名 s 的 Ok 值
+
+      其功能是一样的，不过这是一个与众不同且更符合工程学的写法
+    #+END_EXAMPLE
+
+    甚至还有一个更短的写法：
+
+    #+BEGIN_SRC rust 
+  use std::io;
+  use std::fs;
+
+  fn read_username_from_file() -> Result<String, io::Error> {
+      fs::read_to_string("hello.txt")
+  }
+    #+END_SRC
+
+    将文件读取到一个字符串是相当常见的操作，所以 Rust 提供了名为 _fs::read_to_string_ 的函数，它会打开文件、新建一个 String、读取文件的内容，并将内容放入 String，接着返回它
+
+*** ? 运算符只可被用于返回 Result 的函数
+
+    ? 运算符可被用于返回值类型为 Result 的函数，因为他被定义为与示例中的 match 表达式有着完全相同的工作方式。match 的 _return Err(e)_ 部分要求返回值类型是 _Result_ ，所以函数的返回值必须是 Result 才能与这个 return 相兼容
+
+    #+BEGIN_EXAMPLE
+    看看在 main 函数中使用 ? 运算符会发生什么?
+    #+END_EXAMPLE
+
+    #+BEGIN_SRC rust 
+  use std::fs::File;
+
+  fn main() {
+      let f = File ::open("hello.txt")?;
+  }
+    #+END_SRC
+
+    当编译这些代码，会得到如下错误信息：
+    #+BEGIN_SRC sh 
+  error[E0277]: the `?` operator can only be used in a function that returns `Result` or `Option` (or another type that implements `std:$
+    --> src/main.rs:43:13
+     |
+  43 |     let f = File ::open("hello.txt")?;
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^ cannot use the `?` operator in a function that returns `()`
+     |
+     = help: the trait `std::ops::Try` is not implemented for `()`
+     = note: required by `std::ops::Try::from_error`
+    #+END_SRC
+
+    错误指出只能在返回 Result 或者其它实现了 std::ops::Try 的类型的函数中使用 ? 运算符。当期望在不返回 Result 的函数中调用其他返回 Result 的函数时使用 ? 的话，有两种方法修复这个问题：
+    1. 将函数返回值类型修改为 Result<T, E>，如果没有其它限制阻止你这么做的话
+    2. 通过合适的方法使用 match 或 Result 的方法之一来处理 Result<T, E>
+
+    main 函数是特殊的，其必须返回什么类型是有限制的。main 函数的一个有效的返回值是 ()，另一个有效的返回值是 _Result<T, E>_ ，如下所示：
+
+    #+BEGIN_SRC rust 
+  use std::error::Error;
+  use std::fs::File;
+
+  fn main() -> Result<(), Box<dyn Error>> {
+      let f = File ::open("hello.txt")?;
+
+      Ok(())
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      Box<dyn Error> 被称为 “trait 对象”，目前可以理解 Box<dyn Error> 为使用 ? 时 main 允许返回的 “任何类型的错误”
+    #+END_EXAMPLE
+
+
+* panic! 还是不 panic!
+  #+BEGIN_EXAMPLE
+  那么，该如何决定何时应该 panic! 以及何时应该返回 Result 呢？
+  #+END_EXAMPLE
+  + 如果代码 panic，就没有恢复的可能。可以选择对任何错误场景都调用 panic!，不管是否有可能恢复
+  #+BEGIN_EXAMPLE
+    不过这样就是你代替调用者决定了这是不可恢复的
+  #+END_EXAMPLE
+  + 选择返回 Result 值的话，就将选择权交给了调用者，而不是代替他们做出决定。调用者可能会选择：
+    +以符合他们场景的方式尝试恢复
+    + 也可能干脆就认为 Err 是不可恢复的，所以他们也可能会调用 panic! 并将可恢复的错误变成了不可恢复的错误
+
+  #+BEGIN_EXAMPLE
+    因此返回 Result 是定义可能会失败的函数的一个好的默认选择
+  #+END_EXAMPLE
+
+** 示例、代码原型和测试都非常适合 panic
+   当编写一个 _示例_ 来展示一些概念时，在拥有健壮的错误处理代码的同时也会使得 _例子不那么明确_ 
+   #+BEGIN_EXAMPLE
+     例如，调用一个类似 unwrap 这样可能 panic! 的方法可以被理解为一个你实际希望程序处理错误方式的占位符，它根据其余代码运行方式可能会各不相同
+   #+END_EXAMPLE
+
+   类似地，在准备好决定如何处理错误之前，unwrap和expect方法在 _原型_ 设计时非常方便
+   #+BEGIN_EXAMPLE
+   当准备好让程序更加健壮时，它们会在代码中留下清晰的标记
+   #+END_EXAMPLE
+
+   如果方法调用在 _测试_ 中失败了，当然希望这个测试都失败，即便这个方法并不是需要测试的功能
+   #+BEGIN_EXAMPLE
+   因为 panic! 是测试如何被标记为失败的，调用 unwrap 或 expect 就是应该发生的事情
+   #+END_EXAMPLE
+
+** 当我们比编译器知道更多的情况
+   当有一些其他的逻辑来确保 Result 会是 Ok 值时，调用 unwrap 也是合适的，虽然编译器无法理解这种逻辑。你仍然需要处理一个 Result 值：即使在你的特定情况下逻辑上是不可能的，你所调用的任何操作仍然有可能失败。如果通过人工检查代码来确保永远也不会出现 Err 值，那么调用 unwrap 也是完全可以接受的，这里是一个例子：
+
+   #+BEGIN_SRC rust 
+  use std::net::IpAddr;
+
+  let home: IpAddr = "127.0.0.1".parse().unwrap();
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     通过解析一个硬编码的字符来创建一个 IpAddr 实例
+
+     可以看出 127.0.0.1 是一个有效的 IP 地址，所以这里使用 unwrap 是可以接受的
+
+     然而，拥有一个硬编码的有效的字符串也不能改变 parse 方法的返回值类型：它仍然是一个 Result 值，而编译器仍然就好像还是有可能出现 Err 成员，那样要求我们处理 Result，因为编译器还没有智能到可以识别出这个字符串总是一个有效的 IP 地址
+
+     如果 IP 地址字符串来源于用户而不是硬编码进程序中的话，那么就 确实 有失败的可能性，这时就绝对需要我们以一种更健壮的方式处理 Result 了
+   #+END_EXAMPLE
+
+** 错误处理指导原则
+   + 在当有可能会导致 *有害状态* 的情况下建议使用 panic! 
+   #+BEGIN_EXAMPLE
+     有害状态是指当一些 假设 、 保证 、 协议 或 不可变性 被打破的状态
+
+     例如无效的值、自相矛盾的值或者被传递了不存在的值 
+   #+END_EXAMPLE
+   外加如下几种情况：
+   + 有害状态并不包含 *预期* 会偶尔发生的错误
+   + 之后的代码的运行 *依赖* 于处于这种有害状态
+   + 当没有可行的手段来将有害状态信息编码进所使用的类型中的情况
+
+   + 如果 _别人调用你的代码并传递了一个没有意义的值_ ，最好的情况也许就是 panic! 并警告使用你的库的人他的代码中有 bug 以便他能在开发时就修复它
+   + 类似的，panic! 通常适合调用 _不能够控制的外部代码_ 时，这时无法修复其返回的无效状态
+
+   然而当错误预期会出现时，返回 Result 仍要比调用 panic! 更为合适
+   #+BEGIN_EXAMPLE
+     这样的例子包括解析器接收到错误数据，或者 HTTP 请求返回一个表明触发了限流的状态
+
+     在这些例子中，应该通过返回 Result 来表明失败预期是可能的，这样将有害状态向上传播，调用者就可以决定该如何处理这个问题
+
+     使用 panic! 来处理这些情况就不是最好的选择
+   #+END_EXAMPLE
+
+   当代码对值进行操作时，应该首先验证值是有效的，并在其无效时 panic!
+
+   #+BEGIN_EXAMPLE
+     这主要是出于安全的原因：尝试操作无效数据会暴露代码漏洞
+     这就是标准库在尝试越界访问数组时会 panic! 的主要原因：尝试访问不属于当前数据结构的内存是一个常见的安全隐患
+
+     函数通常都遵循契约：他们的行为只有在输入满足特定条件时才能得到保证。当违反契约时 panic 是有道理的
+     因为这通常代表调用方的 bug，而且这也不是那种你希望调用方必须处理的错误
+     事实上也没有合理的方式来恢复调用方的代码：调用方的 程序员 需要修复其代码
+     函数的契约，尤其是当违反它会造成 panic 的契约，应该在函数的 API 文档中得到解释
+   #+END_EXAMPLE
+
+   然而在所有函数中都拥有许多错误检查是冗长而烦人的
+
+   #+BEGIN_EXAMPLE
+     幸运的是，可以利用 Rust 的类型系统（以及编译器的类型检查）为你进行很多检查
+
+     如果函数有一个特定类型的参数，可以在知晓编译器已经确保其拥有一个有效值的前提下进行你的代码逻辑。例如：
+     1. 如果你使用了一个不同于 Option 的类型，而且程序期望它是 有值 的并且不是 空值。你的代码无需处理 Some 和 None 这两种情况，它只会有一种情况就是绝对会有一个值，尝试向函数传递空值的代码甚至根本不能编译，所以你的函数在运行时没有必要判空
+     2. 使用像 u32 这样的无符号整型，也会确保它永远不为负
+   #+END_EXAMPLE
+
+*** 创建自定义类型进行有效性验证
+    可以使用 Rust 类型系统的思想来进一步确保值的有效性，并尝试创建一个自定义类型以进行验证
+    #+BEGIN_EXAMPLE
+      回忆一下开始的猜猜看游戏，代码要求用户猜测一个 1 到 100 之间的数字，在将其与秘密数字做比较之前我们从未验证用户的猜测是位于这两个数字之间的
+
+      当时只是只验证它是否为正。在这种情况下，其影响并不是很严重：“Too high” 或 “Too low” 的输出仍然是正确的
+
+      但是这是一个很好的引导用户得出有效猜测的辅助，例如当用户猜测一个超出范围的数字或者输入字母时采取不同的行为
+    #+END_EXAMPLE
+
+    一种实现方式是将猜测解析成 i32 而不仅仅是 u32，来默许输入负数，接着检查数字是否在范围内：
+
+    #+BEGIN_SRC rust 
+  loop {
+      // --snip--
+
+      let guess: i32 = match guess.trim().parse() {
+	  Ok(num) => num,
+	  Err(_) => continue,
+      };
+
+      if guess < 1 || guess > 100 {
+	  println!("The secret number will be between 1 and 100.");
+	  continue;
+      }
+
+      match guess.cmp(&secret_number) {
+      // --snip--
+  }
+    #+END_SRC
+
+    if 表达式检查了值是否超出范围，告诉用户出了什么问题，并调用 continue 开始下一次循环，请求另一个猜测if 表达式之后，就可以在知道 guess 在 1 到 100 之间的情况下与秘密数字作比较了
+    #+BEGIN_EXAMPLE
+      然而，这并不是一个理想的解决方案：
+
+      程序只处理 1 到 100 之间的值是绝对不可取的，而且如果有很多函数都有这样的要求
+
+      在每个函数中都有这样的检查将是非常冗余的（并可能潜在的影响性能）
+    #+END_EXAMPLE
+
+    可以创建一个 _新类型_ 来将 *验证* 放入创建其实例的函数中，而不是到处重复这些检查。这样就可以安全的在函数签名中使用新类型并相信他们接收到的值。下面示例展示了一个定义 _Guess 类型_ 的方法，只有在 new 函数接收到 1 到 100 之间的值时才会创建 Guess 的实例：
+
+    #+BEGIN_SRC rust 
+  pub struct Guess {
+      value: i32,
+  }
+
+  impl Guess {
+      pub fn new(value: i32) -> Guess {
+	  if value < 1 || value > 100 {
+	      panic!("Guess value must be between 1 and 100, got {}.", value);
+	  }
+
+	  Guess {
+	      value
+	  }
+      }
+
+      pub fn value(&self) -> i32 {
+	  self.value
+      }
+  }
+    #+END_SRC
+
+    1. 定义了一个包含 _i32 类型_ 字段 _value_ 的结构体 _Guess_ 。这里是 *储存猜测值* 的地方
+    2. 在 Guess 上实现了一个叫做 _new_ 的关联函数来 *创建 Guess 的实例* ：new 定义为接收一个 i32 类型的参数 value 并返回一个 Guess
+       + new 函数中代码的测试确保了其值是在 1 到 100 之间的
+	 + 如果 value 没有通过测试则调用 _panic!_ ，这会警告调用这个函数的程序员有一个需要修改的 bug，因为创建一个 value 超出范围的 Guess 将会违反 Guess::new 所遵循的契约
+	 + 如果 value 通过了测试：新建一个 Guess，其字段 value 将被设置为参数 value 的值，接着返回这个 Guess。
+    3. 实现了一个借用了 self 的方法 _value_ ，没有任何其他参数并返回一个 i32
+       + 这类方法有时被称为 getter，因为它的目的就是返回对应字段的数据
+       + 这样的公有方法是必要的，因为 Guess 结构体的 value 字段是私有的
+	 + 私有的字段 value 是很重要的，这样使用 Guess 结构体的代码将不允许直接设置 value 的值
+	 + 调用者 必须 使用 Guess::new 方法来创建一个 Guess 的实例
+	 + 这就确保了不会存在一个 value 没有通过 Guess::new 函数的条件检查的 Guess
+
+    #+BEGIN_EXAMPLE
+      如此获取一个参数并只返回 1 到 100 之间数字的函数就可以声明为获取或返回一个 Guess，而不是 i32，同时其函数体中也无需进行任何额外的检查
+    #+END_EXAMPLE
+
+** 总结
+   Rust 的错误处理功能被设计为帮助编写更加健壮的代码：
+   + panic! 宏代表一个程序无法处理的状态，并停止执行而不是使用无效或不正确的值继续处理
+   + Result 枚举代表操作可能会在一种可以恢复的情况下失败。可以使用 Result 来告诉代码调用者他需要处理潜在的成功或失败
+
+   在适当的场景使用 panic! 和 Result 将会使你的代码在面对不可避免的错误时显得更加可靠
+
+   [[file:generic.org][Next：泛型]]
+
+   [[file:collection.org][Previous：集合]]
+
+   [[file:rust.org][Home: 目录]]

@@ -1,0 +1,669 @@
+#+TITLE: 结构体
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: ownership.html   
+#+HTML_LINK_HOME: rust.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+_struct_ ，是一个 _自定义数据类型_ ，允许 *命名和包装* _多个相关的值_ ，从而形成一个 *有意义的组合* 
+
+#+BEGIN_EXAMPLE
+  如果熟悉一门面向对象语言，struct 就像Class
+
+  在本章中，会对比元组与结构体的异同，演示结构体的用法，并讨论如何在结构体上定义方法和关联函数来指定与结构体数据相关的行为
+#+END_EXAMPLE
+* 定义
+
+  #+BEGIN_EXAMPLE
+    结构体和以前讨论过的元组类似：和元组一样，结构体的每一部分可以是不同类型
+
+    但不同于元组，结构体需要命名各部分数据以便能清楚的表明其值的意义
+    由于有了这些名字，结构体比元组更灵活：不需要依赖顺序来指定或访问实例中的值
+  #+END_EXAMPLE
+
+  定义结构体，需要使用 _struct_ 关键字：
+  + 为整个结构体提供一个 _名字_ ，结构体的名字需要描述它所组合的数据的意义
+  + 在 _大括号_ 中，定义每一部分数据的名字和类型，称为 _字段_ 
+
+  下面示例展示了一个存储用户账号信息的结构体：
+  #+BEGIN_SRC rust 
+  struct User {
+      username: String,
+      email: String,
+      sign_in_count: u64,
+      active: bool,
+  }
+  #+END_SRC
+
+  一旦定义了结构体后，为了使用它，通过给 _每个字段_ *指定* _具体值_ 来 *创建* 这个结构体的 _实例_ ：
+  + 创建一个实例需要以 _结构体的名字_ 开头
+  + 在 _大括号_ 中使用 _key: value_ 键-值对的形式提供字段
+    + key: _字段的名字_ 
+    + value: 需要存储在 _字段中的数据值_ 
+  + 实例中 *字段的顺序不需要和它们在结构体中声明的顺序一致* 
+
+  #+BEGIN_EXAMPLE
+    换句话说：结构体的定义就像一个类型的通用模板
+    而实例则会在这个模板中放入特定数据来创建这个类型的值
+  #+END_EXAMPLE
+
+  例如，可以像下面实例这样来声明一个特定的用户：
+  #+BEGIN_SRC rust 
+  let user1 = User {
+      email: String::from("someone@example.com"),
+      username: String::from("someusername123"),
+      active: true,
+      sign_in_count: 1,
+  };
+  #+END_SRC
+
+  + 为了从结构体中 *获取* 某个特定的值，可以使用 _点号_ ：如果只想要用户的邮箱地址，可以用 user1.email
+  + 要 *更改* 结构体中的值，如果 _结构体的实例_ 是 _可变的_ ，可以使用 _点号_ 并为对应的 *字段赋值* 
+
+  下面示例展示了如何改变一个可变的 User 实例 email 字段的值：
+  #+BEGIN_SRC rust 
+  let mut user1 = User {
+      email: String::from("someone@example.com"),
+      username: String::from("someusername123"),
+      active: true,
+      sign_in_count: 1,
+  };
+
+  user1.email = String::from("anotheremail@example.com");
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    注意：“整个实例”必须是可变的
+
+    Rust 并不允许只将某个字段标记为可变
+  #+END_EXAMPLE
+
+  同其他任何表达式一样，可以在 _函数体的最后一个表达式_ 中 *构造* 一个 _结构体的新实例_ ，来 *隐式* 地 _返回_ 这个实例。下面显示了一个 build_user 函数，它返回一个带有给定的 email 和用户名的 User 结构体实例。active 字段的值为 true，并且 sign_in_count 的值为 1：
+
+  #+BEGIN_SRC rust 
+  fn build_user(email: String, username: String) -> User {
+      User {
+	  email: email,
+	  username: username,
+	  active: true,
+	  sign_in_count: 1,
+      }
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    为函数参数起与结构体字段相同的名字是可以理解的，但是不得不重复 email 和 username 字段名称与变量有些啰嗦。如果要重复更多这样的字段就显得更加烦人
+
+    幸运的是，rust提供了一些简便的方式
+  #+END_EXAMPLE
+** 简化语法
+*** 变量与字段同名时的字段初始化
+    函数的参数名与字段名都完全相同，可以使用 _字段初始化简写语法_ 来重写 build_user，这样其行为与之前完全相同，不过无需重复 email 和 username 了，如示例所示：
+
+    #+BEGIN_SRC rust 
+  fn build_user(email: String, username: String) -> User {
+      User {
+	  email,
+	  username,
+	  active: true,
+	  sign_in_count: 1,
+      }
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      这里创建了一个新的 User 结构体实例，它有一个叫做 email 的字段，然后想要将 email 字段的值设置为 build_user 函数 email 参数的值
+
+      因为 email 字段与 email 参数有着相同的名称，则只需编写 email 而不是 email: email
+    #+END_EXAMPLE
+*** 使用结构体更新语法从其他实例创建实例
+    #+BEGIN_EXAMPLE
+      使用旧实例的大部分值，但改变其部分值来创建一个新的结构体实例，通常是很有帮助的
+    #+END_EXAMPLE
+    这可以通过 _结构体更新语法_ 实现。首先，示例展示了不使用更新语法时，如何在 user2 中创建一个新 User 实例。为 email 和 username 设置了新的值，其他值则使用了前面创建的 user1 中的同名值：
+
+    #+BEGIN_SRC rust 
+  let user2 = User {
+      email: String::from("another@example.com"),
+      username: String::from("anotherusername567"),
+      active: user1.active,
+      sign_in_count: user1.sign_in_count,
+  };
+    #+END_SRC
+
+    使用结构体更新语法，通过更少的代码来达到相同的效果： _.._  语法指定了 *剩余未显式设置值* 的字段应有与 _给定实例_ 对应字段相同的值。如下所示：
+
+    #+BEGIN_SRC rust 
+  let user2 = User {
+      email: String::from("another@example.com"),
+      username: String::from("anotherusername567"),
+      ..user1
+  };
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      在 user2 中创建了一个新实例，其有不同的 email 和 username 值
+
+      不过 active 和 sign_in_count 字段的值与 user1 相同
+    #+END_EXAMPLE
+*** 使用没有命名字段的元组结构体来创建不同的类型
+    也可以定义与元组类似的结构体，称为 _元组结构体_ ：元组结构体有着 _结构体名称_ 提供的含义，但 *没有具体的字段名* ，只有 *字段的类型* 
+    #+BEGIN_EXAMPLE
+      当想给整个元组取一个名字，并使元组成为与其他元组不同的类型时，元组结构体是很有用的
+
+      这时像常规结构体那样为每个字段命名就显得多余和形式化了
+    #+END_EXAMPLE
+
+    要定义元组结构体，以 _struct_ 关键字和 _结构体名_ 开头并后跟 _元组中的类型_ 。例如，下面是两个分别叫做 Color 和 Point 元组结构体的定义和用法：
+
+    #+BEGIN_SRC rust 
+  struct Color(i32, i32, i32);
+  struct Point(i32, i32, i32);
+
+  let black = Color(0, 0, 0);
+  let origin = Point(0, 0, 0);
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      注意： black 和 origin 值的类型不同，因为它们是不同的元组结构体的实例
+    #+END_EXAMPLE
+
+    + 定义的每一个结构体有其自己的类型，即使结构体中的字段有着相同的类型。例如，一个获取 Color 类型参数的函数不能接受 Point 作为参数，即便这两个类型都由三个 i32 值组成
+    + 在其他方面，元组结构体实例类似于元组：可以将其解构为单独的部分，也可以使用 _._  后跟索引来访问单独的值
+*** 没有任何字段的类单元结构体
+    也可以定义一个 *没有任何字段* 的结构体，这被称为 _类单元结构体_ 因为它们类似于 *()* ，即 _unit 类型_ 
+
+    #+BEGIN_EXAMPLE
+      类单元结构体常常在想要在某个类型上实现 trait ，但不需要在类型中存储数据的时候发挥作用
+    #+END_EXAMPLE
+** 结构体的所有权
+   在 User 结构体的定义中，使用了 *自身拥有所有权* 的 _String 类型_ 而不是  _&str_ 字符串 *slice 类型* 。这是一个有意而为之的选择，因为想要这个 *结构体拥有它所有的数据* ，为此 *只要整个结构体是有效的话其数据也是有效的* 
+
+   #+BEGIN_EXAMPLE
+     可以使结构体存储被其他对象拥有的数据的引用，不过这么做的话需要用上“生命周期”
+
+     生命周期确保“结构体引用的数据有效性”跟 “结构体本身”保持一致
+   #+END_EXAMPLE
+
+   如果尝试在结构体中存储一个 _引用_ 而 *不指定生命周期* 将是无效的，比如这样：
+
+   #+BEGIN_SRC rust 
+  struct User {
+      username: &str,
+      email: &str,
+      sign_in_count: u64,
+      active: bool,
+  }
+
+  fn main() {
+      let user1 = User {
+	  email: "someone@example.com",
+	  username: "someusername123",
+	  active: true,
+	  sign_in_count: 1,
+      };
+  }
+   #+END_SRC
+
+   编译器会报错：
+   #+BEGIN_SRC sh 
+  error[E0106]: missing lifetime specifier
+   --> src/main.rs:2:15
+    |
+  2 |     username: &str,
+    |               ^ expected lifetime parameter
+
+  error[E0106]: missing lifetime specifier
+   --> src/main.rs:3:12
+    |
+  3 |     email: &str,
+    |            ^ expected lifetime parameter
+
+  error: aborting due to 2 previous errors
+
+  For more information about this error, try `rustc --explain E0106`.
+  error: could not compile `reference_without_lifetime`.
+   #+END_SRC
+* 实例
+  #+BEGIN_EXAMPLE
+    为了理解何时会需要使用结构体，让我们编写一个计算长方形面积的程序
+
+    从单独的变量开始，接着重构程序直到使用结构体替代他们为止
+  #+END_EXAMPLE
+
+  使用 Cargo 新建一个叫做 rectangles 的二进制程序，它获取以像素为单位的长方形的宽度和高度，并计算出长方形的面积。下面示例显示了位于项目的 src/main.rs 中的小程序，它刚刚好实现此功能：
+
+  #+BEGIN_SRC rust 
+  fn main() {
+      let width1 = 30;
+      let height1 = 50;
+
+      println!(
+	  "The area of the rectangle is {} square pixels.",
+	  area(width1, height1)
+      );
+  }
+
+  fn area(width: u32, height: u32) -> u32 {
+      width * height
+  }
+  #+END_SRC
+  现在使用 cargo run 运行程序：
+
+  #+BEGIN_SRC sh 
+  Running `target/debug/rectangles`
+  The area of the rectangle is 1500 square pixels.
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    虽然这个示例可以运行，并在调用 area 函数时传入每个维度来计算出长方形的面积，不过可以做的更好
+
+    宽度和高度是相关联的，因为他们在一起才能定义一个长方形
+  #+END_EXAMPLE
+
+  这个问题突显在 area 的签名上：
+  #+BEGIN_SRC rust 
+  fn area(width: u32, height: u32) -> u32 {
+  #+END_SRC
+
+  函数 area 本应该计算一个长方形的面积，不过函数却有两个参数
+
+  #+BEGIN_EXAMPLE
+    这两个参数是相关联的，不过程序本身却没有表现出这一点。将长度和宽度组合在一起将更易懂也更易处理
+
+    我们已经讨论过了一种可行的方法：元组
+  #+END_EXAMPLE
+** 使用元组重构
+
+   下面展示了使用 _元组_ 的另一个程序版本：
+
+   #+BEGIN_SRC rust 
+  fn main() {
+      let rect1 = (30, 50);
+
+      println!(
+	  "The area of the rectangle is {} square pixels.",
+	  area(rect1)
+      );
+  }
+
+  fn area(dimensions: (u32, u32)) -> u32 {
+      dimensions.0 * dimensions.1
+  }
+   #+END_SRC
+
+   在某种程度上说，这个程序更好一点了。元组帮助增加了一些结构性，并且现在只需传一个参数。不过在另一方面，这个版本却有一点不明确了：元组并 *没有给出元素的名称* ，所以计算变得更费解了，因为 *不得不使用索引* 来获取元组的每一部分
+
+   #+BEGIN_EXAMPLE
+     在计算面积时将宽和高弄混倒无关紧要，不过当在屏幕上绘制长方形时就有问题了！
+     必须牢记 width 的元组索引是 0，height 的元组索引是 1
+
+     如果其他人要使用这些代码，他们必须要搞清楚这一点，并也要牢记于心
+     很容易忘记或者混淆这些值而造成错误，因为没有在代码中传达数据的意图！
+   #+END_EXAMPLE
+** 使用结构体重构
+   使用结构体为数据命名来为其赋予意义。可以将正在使用的 _元组_ 转换成一个有整体名称而且每个部分也有对应名字的 *结构体* ，如下面所示：
+
+   #+BEGIN_SRC rust 
+  struct Rectangle {
+      width: u32,
+      height: u32,
+  }
+
+  fn main() {
+      let rect1 = Rectangle { width: 30, height: 50 };
+
+      println!(
+	  "The area of the rectangle is {} square pixels.",
+	  area(&rect1)
+      );
+  }
+
+  fn area(rectangle: &Rectangle) -> u32 {
+      rectangle.width * rectangle.height
+  }
+   #+END_SRC
+
+   + 定义了一个结构体并称其为 Rectangle：
+     + 在大括号中定义了字段 width 和 height，类型都是 u32
+   + 在 main 中，创建了一个具体的 Rectangle 实例
+     + 它的宽是 30，高是 50
+
+   函数 area 现在被定义为接收一个名叫 _rectangle_ 的参数，其类型是一个 _结构体 Rectangle 实例_ 的 _不可变借用_ ，这样 *main 函数就可以保持 rect1 的所有权* 并继续使用它，这就是为什么在 _函数签名_ 和 _调用_ 的地方会有 _&_ 
+
+   #+BEGIN_EXAMPLE
+     area 函数访问 Rectangle 实例的 width 和 height 字段
+
+     area 的函数签名现在明确的阐述了我们的意图：使用 Rectangle 的 width 和 height 字段，计算 Rectangle 的面积
+
+     这表明宽高是相互联系的，并为这些值提供了描述性的名称而不是使用元组的索引值 0 和 1
+
+     结构体胜在更清晰明了！
+   #+END_EXAMPLE
+*** 通过派生 trait 增加实用功能 
+    #+BEGIN_EXAMPLE
+      如果能够在调试程序时打印出 Rectangle 实例来查看其所有字段的值就更好了
+    #+END_EXAMPLE
+
+    下面示例像前面章节那样尝试使用 _println!_ 宏。但这并不行：
+
+    #+BEGIN_SRC rust 
+  struct Rectangle {
+      width: u32,
+      height: u32,
+  }
+
+  fn main() {
+      let rect1 = Rectangle { width: 30, height: 50 };
+
+      println!("rect1 is {}", rect1);
+  }
+    #+END_SRC
+
+    当运行这个代码时，会出现带有如下信息的错误：
+
+    #+BEGIN_SRC sh 
+  error[E0277]: `Rectangle` doesn't implement `std::fmt::Display`
+    #+END_SRC
+    _println!_ 宏能处理很多类型的格式，不过，{} 默认告诉 println! 使用被称为 _Display_ 的格式：意在提供给 _直接终端用户_ 查看的输出
+
+    #+BEGIN_EXAMPLE
+      目前为止见过的基本类型都默认实现了 Display，因为它就是向用户展示 1 或其他任何基本类型的唯一方式
+
+      不过对于结构体，println! 应该用来输出的格式是不明确的，因为这有更多显示的可能性：
+      是否需要逗号？
+      需要打印出大括号吗？
+      所有字段都应该显示吗？
+
+      由于这种不确定性，Rust 不会尝试猜测我们的意图，所以结构体并没有提供一个 Display 实现
+    #+END_EXAMPLE
+
+    如果继续阅读错误，将会发现这个有帮助的信息：
+
+    #+BEGIN_SRC sh 
+  = help: the trait `std::fmt::Display` is not implemented for `Rectangle`
+  = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+    #+END_SRC
+
+    按照报错信息的建议：修改 println! 宏调用后：
+    #+BEGIN_SRC rust 
+  println!("rect1 is {:?}", rect1); 
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      在 {} 中加入 ':?' 指示符告诉 println! 想要使用叫做“Debug的输出格式” 
+    #+END_EXAMPLE
+    Debug 是一个 _trait_ ，它允许以一种 *对开发者有帮助的方式打印结构体* ，以便当调试代码时能看到它的值。再次运行程序。但是仍然能看到一个错误：
+
+    #+BEGIN_SRC sh 
+  error[E0277]: `Rectangle` doesn't implement `std::fmt::Debug`
+    #+END_SRC
+
+    不过编译器又一次给出了一个有帮助的信息：
+    #+BEGIN_SRC sh 
+  = help: the trait `std::fmt::Debug` is not implemented for `Rectangle`
+  = note: add `#[derive(Debug)]` or manually implement `std::fmt::Debug`
+    #+END_SRC
+
+    Rust确实包含了打印出调试信息的功能，不过必须为 _结构体_ *显式选择* 这个功能。为此，在结构体定义之前加上 _#[derive(Debug)]_ 注解，如下面所示：
+
+    #+BEGIN_SRC rust 
+  #[derive(Debug)]
+  struct Rectangle {
+      width: u32,
+      height: u32,
+  }
+
+  fn main() {
+      let rect1 = Rectangle { width: 30, height: 50 };
+
+      println!("rect1 is {:?}", rect1);
+  }
+    #+END_SRC
+
+    再运行这个程序时，就不会有任何错误，并会出现如下输出：
+    #+BEGIN_SRC sh 
+  rect1 is Rectangle { width: 30, height: 50 }
+    #+END_SRC
+
+    这并不是最漂亮的输出，不过它显示这个实例的所有字段，毫无疑问这对调试有帮助。当有一个更大的结构体时，能有更易读一点的输出就好了，为此可以使用 _{:#?}_ 替换 println! 字符串中的 _{:?}_ 。输出会像这样：
+
+    #+BEGIN_SRC sh 
+  rect1 is Rectangle {
+      width: 30,
+      height: 50,
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      Rust 为提供了很多可以通过 derive 注解来使用的 trait，他们可以为自定义类型增加实用的行为
+    #+END_EXAMPLE
+* 结构体方法
+  #+BEGIN_EXAMPLE
+    上面的 area 函数是非常特殊的，它只计算长方形的面积
+
+    如果这个行为与 Rectangle 结构体再结合得更紧密一些就更好了，因为它不能用于其他类型
+
+    现在来看看如何继续重构这些代码，来将 area 函数协调进 Rectangle 类型定义的 area 方法 中
+  #+END_EXAMPLE
+  _方法_ 与函数类似：它们使用 *fn* 关键字和名称声明，可以拥有 _参数_ 和 _返回值_ ，同时包含在某处调用该方法时会执行的代码
+
+  不过方法与函数是不同的：
+  1. 因为它们在 _结构体的上下文_ 中被 *定义* （或者是 _枚举_ 或 _trait_ 对象的上下文）
+  2. 方法的 *第一个参数* 总是 _self_ ，它代表 _调用_ 该方法的 _结构体实例_
+
+** 定义方法
+   把前面实现的获取一个 Rectangle 实例作为参数的 area 函数，改写成一个定义于 Rectangle 结构体上的 area 方法，如下所示：
+
+   #+BEGIN_SRC rust 
+  #[derive(Debug)]
+  struct Rectangle {
+      width: u32,
+      height: u32,
+  }
+
+  impl Rectangle {
+      fn area(&self) -> u32 {
+	  self.width * self.height
+      }
+  }
+
+  fn main() {
+      let rect1 = Rectangle { width: 30, height: 50 };
+
+      println!(
+	  "The area of the rectangle is {} square pixels.",
+	  rect1.area()
+      );
+  }
+   #+END_SRC
+
+   + 为了使函数定义于 Rectangle 的上下文中：开始了一个 _impl 块_
+   + 将 area 函数移动到 impl 大括号中
+     + 将签名中的 _第一个参数_ 和函数体中其他地方的对应参数改成 *self* 
+   + 在 main 中将先前调用 area 方法并传递 rect1 作为参数的地方，改成在 *Rectangle实例* _rect1_ 上调用 *方法语法* area：
+     + 方法语法：获取一个 _实例_ 并加上一个 _点_ 号，后跟 _方法名_ 、 _圆括号_ 以及 _任何参数_ 
+
+   #+BEGIN_EXAMPLE
+     在 area 的签名中，使用 &self 来替代 rectangle: &Rectangle
+
+     因为该方法位于 Rectangle 的 impl上下文 中，所以编译器知道 self 的类型是 Rectangle
+   #+END_EXAMPLE
+
+   注意：仍然需要在 _self_ 前面加上 *&* ，就像 &Rectangle 一样。self参数和其他参数一样可以选择：
+   1. 获取 self 的所有权
+   2. 像这里一样不可变地借用 self
+   3. 可变地借用 self
+
+   #+BEGIN_EXAMPLE
+     这里选择 &self 的理由跟在函数版本中使用 &Rectangle 是相同的：并不想获取所有权，只希望能够读取结构体中的数据，而不是写入
+   #+END_EXAMPLE
+
+   如果想要在 _方法中_ *改变* 调用方法的 _实例_ ，需要将第一个参数改为 _&mut self_ 
+
+   #+BEGIN_EXAMPLE
+     通过仅仅使用 self 作为第一个参数来使方法获取实例的所有权是很少见的：
+
+     这种技术通常用在当方法将 self 转换成别的实例的时候，这时想要防止调用者在转换之后使用原始的实例
+   #+END_EXAMPLE
+
+   使用方法替代函数，除了可使用方法语法和不需要在每个函数签名中重复 self 的类型之外，其主要好处在于 *组织性* 
+
+   #+BEGIN_EXAMPLE
+     将某个类型实例能做的所有事情都一起放入 impl 块中，而不是让将来的用户在库中到处寻找 Rectangle 的功能
+   #+END_EXAMPLE
+
+*** -> 运算符到哪去了？
+    #+BEGIN_EXAMPLE
+      在 C/C++ 语言中，有两个不同的运算符来调用方法：
+
+      . 直接在对象上调用方法
+
+      -> 在一个对象的指针上调用方法，这时需要先解引用指针
+      换句话说，如果 object 是一个指针，那么 object->something() 就像 (*object).something() 一样
+    #+END_EXAMPLE
+
+    Rust 并没有一个与 _->_ 等效的运算符；相反，Rust 有一个叫 _自动引用和解引用_ 的功能
+
+    #+BEGIN_EXAMPLE
+      方法调用是 Rust 中少数几个拥有这种功能的地方
+    #+END_EXAMPLE
+
+    当使用 _object.something()_ 调用方法时，Rust 会 *自动为 object 添加*  _&_ 、 _&mut_ 或 _*_ 以便使 object 与方法签名匹配。也就是说，这些代码是等价的：
+
+    #+BEGIN_SRC rust 
+  p1.distance(&p2);
+  (&p1).distance(&p2);
+    #+END_SRC
+
+    第一行看起来简洁的多。这种自动引用的行为之所以有效，是因为 _方法_ 有一个 *明确的接收者* _self 的类型_ 
+
+    #+BEGIN_EXAMPLE
+      在给出接收者和方法名的前提下，Rust 可以明确地计算出方法是仅仅读取（&self），做出修改（&mut self）或者是获取所有权（self）
+
+      事实上，Rust 对方法接收者的隐式借用让所有权在实践中更友好
+    #+END_EXAMPLE
+
+** 带有更多参数的方法
+   #+BEGIN_EXAMPLE
+     现在在Rectangle结构体的上下文中定义另一个方法：首先获取另一个 Rectangle 实例
+
+     如果 self 能完全包含第二个长方形则返回 true；否则返回 false
+   #+END_EXAMPLE
+
+   一旦定义了 can_hold 方法，就可以编写下面中的代码：
+   #+BEGIN_SRC rust 
+  fn main() {
+      let rect1 = Rectangle { width: 30, height: 50 };
+      let rect2 = Rectangle { width: 10, height: 40 };
+      let rect3 = Rectangle { width: 60, height: 45 };
+
+      println!("Can rect1 hold rect2? {}", rect1.can_hold(&rect2));
+      println!("Can rect1 hold rect3? {}", rect1.can_hold(&rect3));
+  }
+   #+END_SRC
+
+   同时希望看到如下输出，因为 rect2 的两个维度都小于 rect1，而 rect3 比 rect1 要宽：
+   #+BEGIN_SRC sh 
+  Can rect1 hold rect2? true
+  Can rect1 hold rect3? false
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     如果想定义一个方法，它应该位于 impl Rectangle 块中，方法名是 can_hold，它会获取另一个 Rectangle 的不可变借用作为参数
+
+     通过观察调用方法的代码可以看出参数是什么类型的：rect1.can_hold(&rect2) 传入了 &rect2，它是一个 Rectangle 的实例 rect2 的不可变借用
+     1. 因为只需要读取 rect2（而不是写入，这意味着需要一个不可变借用）
+     2. 希望 main 保持 rect2 的所有权，这样就可以在调用这个方法后继续使用它
+
+     can_hold 的返回值是一个布尔值，其实现会分别检查 self 的宽高是否都大于另一个 Rectangle
+   #+END_EXAMPLE
+
+   在 impl 块中增加这个新的 can_hold 方法：
+
+   #+BEGIN_SRC rust 
+  impl Rectangle {
+      fn area(&self) -> u32 {
+	  self.width * self.height
+      }
+
+      fn can_hold(&self, other: &Rectangle) -> bool {
+	  self.width > other.width && self.height > other.height
+      }
+  }
+   #+END_SRC
+
+   在方法签名中，可以在 self 后增加多个参数，而且这些参数就像函数中的参数一样工作
+
+** 关联函数
+   impl 块的另一个有用的功能是：允许在 impl 块中定义 *不以 self 作为参数* 的函数。这被称为 _关联函数_ ，因为它们与结构体相关联
+
+   #+BEGIN_EXAMPLE
+     它们仍是函数而不是方法，因为它们并不作用于一个结构体的实例
+
+     就像已经使用过 String::from 关联函数了
+   #+END_EXAMPLE
+
+   关联函数经常被用作 *返回* 一个 _结构体新实例_ 的 *构造函数* 
+
+   #+BEGIN_EXAMPLE
+     例如可以提供一个关联函数，它接受一个维度参数并且同时作为宽和高
+
+     这样可以更轻松的创建一个正方形 Rectangle 而不必指定两次同样的值
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC rust 
+  impl Rectangle {
+      fn square(size: u32) -> Rectangle {
+	  Rectangle { width: size, height: size }
+      }
+  }
+   #+END_SRC
+
+   使用 _结构体名_ 和 _::_  语法来 *调用* 这个 _关联函数_ 比如：
+
+   #+BEGIN_SRC rust 
+  let sq = Rectangle::square(3);
+   #+END_SRC  
+
+   #+BEGIN_EXAMPLE
+     这个方法位于结构体的命名空间中，'::' 语法用于关联函数和模块创建的命名空间
+   #+END_EXAMPLE
+
+** 多个 impl 块
+   每个结构体都 *允许* 拥有 _多个 impl 块_ 。例如：
+
+   #+BEGIN_SRC rust 
+  impl Rectangle {
+      fn area(&self) -> u32 {
+	  self.width * self.height
+      }
+  }
+
+  impl Rectangle {
+      fn can_hold(&self, other: &Rectangle) -> bool {
+	  self.width > other.width && self.height > other.height
+      }
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这里没有理由将这些方法分散在多个 impl 块中，不过这是有效的语法
+
+     以后讨论泛型和 trait 时会看到实用的多 impl 块的用例
+   #+END_EXAMPLE
+
+* 总结
+  _结构体_ 可以 *创建* 出在领域中有意义的 _自定义类型_ 。通过结构体：
+  + 将相关联的数据片段联系起来并命名它们，这样可以使得代码更加清晰
+  + 方法：允许为结构体实例指定行为
+  + 关联函数：将特定功能置于结构体的命名空间中并且无需一个实例。
+
+  #+BEGIN_EXAMPLE
+    但结构体并不是创建自定义类型的唯一方法：比如枚举
+  #+END_EXAMPLE
+
+  [[file:pattern_match.org][Next: 枚举和模式]]
+
+  [[file:ownership.org][Previous: 所有权]]
+
+  [[file:rust.org][Home: 目录]]

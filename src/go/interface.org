@@ -1,0 +1,306 @@
+#+TITLE: 接口和方法
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: moretypes.html   
+#+HTML_LINK_HOME: go.html
+#+OPTIONS: num:nil timestamp:nil
+* 方法
+  Go 没有类，然而仍然可以在结构体类型上定义方法
+  
+  方法接收者 出现在 func 关键字和方法名之间的参数中
+  #+BEGIN_SRC go
+  type Vertex struct {
+          X, Y float64
+  }
+
+  // (v *Vertex)作为方法接收者出现在func关键字和方法名中间
+  func (v *Vertex) Abs() float64 {
+          return math.Sqrt(v.X*v.X + v.Y*v.Y)
+  }
+
+  func main() {
+          //v是一个结构体Vertex的指针
+          v := &Vertex{3, 4}
+          //5
+          fmt.Println(v.Abs())
+  }
+  #+END_SRC
+  
+  可以对包中的任意类型定义任意方法，而不仅仅是针对结构体。但是不能对来自其他包的类型或基础类型定义方法
+  #+BEGIN_SRC go
+   //定义新的类型MyFloat
+   type MyFloat float64
+
+   //Abs方法作用于MyFloat类型上
+   func (f MyFloat) Abs() float64 {
+           if f < 0 {
+                   return float64(-f)
+           }
+           return float64(f)
+   }
+
+   func main() {
+           //-1.4142135623730951
+           f := MyFloat(-math.Sqrt2)
+           //1.4142135623730951
+           fmt.Println(f.Abs())
+   }
+  #+END_SRC
+** 接收者为指针
+   有两个原因需要使用指针接收者
+1. 避免在每个方法调用中拷贝值（如果值类型是大的结构体的话会更有效率）
+2. 方法可以修改接收者指向的值！ 
+   
+假如Scale方法接收者不是结构体指针，而是结构体本身，那调用完v.Scale(5)后，x和y的值仍然是3和4
+#+BEGIN_SRC go
+  type Vertex struct {
+          X, Y float64
+  }
+
+  func (v *Vertex) Scale(f float64) {
+          v.X = v.X * f
+          v.Y = v.Y * f
+  }
+
+  func (v *Vertex) Abs() float64 {
+          return math.Sqrt(v.X*v.X + v.Y*v.Y)
+  }
+
+  func main() {
+          v := &Vertex{3, 4}
+          //Before scaling: &{X:3 Y:4}, Abs: 5
+          fmt.Printf("Before scaling: %+v, Abs: %v\n", v, v.Abs())
+          v.Scale(5)
+          //After scaling: &{X:15 Y:20}, Abs: 25
+          fmt.Printf("After scaling: %+v, Abs: %v\n", v, v.Abs())
+  }
+#+END_SRC
+* 接口
+  接口是定义一组方法定义的集合。接口类型的值可以存放实现这些方法的任何值
+  #+BEGIN_SRC go
+  type Abser interface {
+          Abs() float64
+  }
+
+  type MyFloat float64
+
+  func (f MyFloat) Abs() float64 {
+          if f < 0 {
+                  return float64(-f)
+          }
+          return float64(f)
+  }
+
+  type Vertex struct {
+          X, Y float64
+  }
+
+  func (v *Vertex) Abs() float64 {
+          return math.Sqrt(v.X*v.X + v.Y*v.Y)
+  }
+
+  func main() {
+          var a Abser
+          f := MyFloat(-math.Sqrt2)
+          a = f // a MyFloat 实现了 Abser
+          //1.4142135623730951
+          fmt.Println(f.Abs())
+
+          v := Vertex{3, 4}
+          // 下面一行，v 是一个 Vertex（而不是 *Vertex）
+          // 所以没有实现 Abser。
+          //a = v
+          a = &v // a *Vertex 实现了 Abser
+          //5
+          fmt.Println(a.Abs())
+  }
+  #+END_SRC
+** 隐式接口
+   类型通过实现方法来实现接口。 没有显式声明的必要，所以也就没有关键字implements。
+   
+   隐式接口解藕了实现接口的包和定义接口的包：互不依赖。因此，也就无需在每一个实现上增加新的接口名称，这样也鼓励了明确的接口定义。 
+   #+BEGIN_SRC go
+  type Reader interface {
+          Read(b []byte) (n int, err error)
+  }
+
+  type Writer interface {
+          Write(b []byte) (n int, err error)
+  }
+
+  type ReadWriter interface {
+          Reader
+          Writer
+  }
+
+  func main() {
+          var w Writer
+          // os.Stdout 实现了 Writer
+          w = os.Stdout
+          //hello, writer
+          fmt.Fprintf(w, "hello, writer\n")
+  }
+   #+END_SRC
+   os.Stdout只需要实现Write(b []byte) (n int, err error)方法，不需要显示声明implements Writer
+** 常用接口
+*** Stringers
+   一个普遍存在的接口是 fmt 包中定义的 Stringer, 类似于java的toString方法
+   #+BEGIN_SRC go
+   // Stringer 是一个可以用字符串描述自己的类型, `fmt`包 （还有许多其他包）使用这个来进行输出
+   type Stringer interface {
+       String() string
+   }
+   #+END_SRC
+   
+   
+   #+BEGIN_SRC go
+   type Person struct {
+           Name string
+           Age  int
+   }
+
+   func (p Person) String() string {
+           return fmt.Sprintf("%v (%v years)", p.Name, p.Age)
+   }
+
+   func main() {
+           a := Person{"Arthur Dent", 42}
+           z := Person{"Zaphod Beeblebrox", 9001}
+           //Arthur Dent (42 years) Zaphod Beeblebrox (9001 years)
+           fmt.Println(a, z)
+   }
+   #+END_SRC
+   
+*** error
+   Go 程序使用 error 值来表示错误状态
+   
+   error 类型是一个内建接口
+   #+BEGIN_SRC go
+  type error interface {
+          Error() string
+  }
+   #+END_SRC
+   通常函数会返回一个 error 值，调用的它的代码应当判断这个错误是否等于 nil， 来进行错误处理 
+   #+BEGIN_SRC go
+  i, err := strconv.Atoi("42")
+  if err != nil {
+          fmt.Printf("couldn't convert number: %v\n", err)
+          return
+  }
+  fmt.Println("Converted integer:", i)
+   #+END_SRC
+   
+   #+BEGIN_SRC go
+  type MyError struct {
+          When time.Time
+          What string
+  }
+
+  func (e *MyError) Error() string {
+          return fmt.Sprintf("at %v, %s",
+                  e.When, e.What)
+  }
+
+  func run() error {
+          return &MyError{
+                  time.Now(),
+                  "it didn't work",
+          }
+  }
+
+  func main() {
+          if err := run(); err != nil {
+                  //at 2016-12-16 16:18:31.903104 +0800 CST, it didn't work
+                  fmt.Println(err)
+          }
+  }
+   #+END_SRC
+   
+*** Reader
+   io 包指定了 io.Reader 接口， 它表示从数据流结尾读取。Go 标准库包含了这个接口的许多实现， 包括文件、网络连接、压缩、加密等等。
+   
+   io.Reader 接口有一个 Read 方法：
+   #+BEGIN_SRC go
+  //Read 用数据填充指定的字节 slice，并且返回填充的字节数和错误信息。 在遇到数据流结尾时，返回 io.EOF 错误
+  func (T) Read(b []byte) (n int, err error)
+   #+END_SRC
+   
+   #+BEGIN_SRC go
+  //创建了一个 strings.Reader， 并且以每次 8 字节的速度读取它的输出
+  r := strings.NewReader("Hello, Reader!")
+  b := make([]byte, 8)
+
+  // n = 8 err = <nil> b = [72 101 108 108 111 44 32 82]
+  // b[:n] = "Hello, R"
+  // n = 6 err = <nil> b = [101 97 100 101 114 33 32 82]
+  // b[:n] = "eader!"
+  // n = 0 err = EOF b = [101 97 100 101 114 33 32 82]
+  // b[:n] = ""
+  for {
+          n, err := r.Read(b)
+          fmt.Printf("n = %v err = %v b = %v\n", n, err, b)
+          fmt.Printf("b[:n] = %q\n", b[:n])
+          if err == io.EOF {
+                  break
+          }
+  }
+   #+END_SRC
+   
+*** web服务器
+   包 http 通过任何实现了 http.Handler 的值来响应 HTTP 请求
+   #+BEGIN_SRC go
+  package http
+
+  type Handler interface {
+      ServeHTTP(w ResponseWriter, r *Request)
+  }
+   #+END_SRC
+   
+   #+BEGIN_SRC go
+  type Hello struct{}
+
+  //类型 Hello 实现了 http.Handler, 收到任何请求每次都返回'Hello!'字符串
+  func (h Hello) ServeHTTP(
+          w http.ResponseWriter,
+          r *http.Request) {
+          fmt.Fprint(w, "Hello!")
+  }
+
+  func main() {
+          var h Hello
+          //监听4000端口
+          err := http.ListenAndServe("localhost:4000", h)
+          if err != nil {
+                  log.Fatal(err)
+          }
+  }
+
+   #+END_SRC
+   
+*** 图片
+   Package image 定义了 Image 接口
+   #+BEGIN_SRC go
+  package image
+
+  type Image interface {
+          //color.Model , 通常直接使用预定义的实现 image.RGBAModel 
+          ColorModel() color.Model
+          //Bounds 方法的 Rectangle 返回值实际上是一个 image.Rectangle， 其定义在 image 包中
+          Bounds() Rectangle
+          //color.Color , 通常直接使用预定义的实现 image.RGBA
+          At(x, y int) color.Color
+  }
+   #+END_SRC
+   
+   #+BEGIN_SRC go
+  m := image.NewRGBA(image.Rect(0, 0, 100, 100))
+  //(0,0)-(100,100)
+  fmt.Println(m.Bounds())
+  //0 0 0 0
+  fmt.Println(m.At(0, 0).RGBA())
+   #+END_SRC
+
+[[file:concurr.org][Next：并发]]
+
+[[file:moretypes.org][ Previous：数据类型]]
+
+[[file:go.org][Home：目录]]

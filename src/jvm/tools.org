@@ -1,0 +1,340 @@
+#+TITLE: JDK工具
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: gc.html   
+#+HTML_LINK_HOME: jvm.html
+#+OPTIONS: num:nil timestamp:nil
+
+
+* 命令行工具
+  
+  给一个系统定位问题的时候，知识、经验是关键基础，数据是依据。工具是运用知识处理数据的手段。这里说的数据包括：
++ 运行日志
++ 异常堆栈
++ GC日志
++ 线程快照文件( _threaddump_ ) 文件
++ 堆转储快照 ( _heapdump/hprof_ ) 文件
+  
+  
+#+CAPTION: SUN JDK监控和故障处理工具
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 名称  | 主要作用 |
+| jps   | jvm process status tool,显示指定系统内所有的hotspot虚拟机进程 |
+| jstat     | jvm statistics monitoring tool,用于收集hotspot虚拟机各方面的运行数据 |
+| jinfo     | configuration info for java，显示虚拟机配置信息 |
+| jmap  | memory map for java,生成虚拟机的内存转储快照（heapdump文件） |
+| jhat  | jvm heap dump browser，用于分析heapmap文件，它会建立一个http/html服务器让用户可以在浏览器上查看分析结果 |
+| jstack    | stack trace for java ,显示虚拟机的线程快照 |
+
+
+** jps
+   jps( _JVM Process Status Tool_ )可以 *列出正在运行的虚拟机进程，并显示虚拟机执行主类名称以及这些进程的本地虚拟机唯一ID* 。是使用频率最高的JDK命令行工具，因为其他的JDK工具大多需要输入它查询到的LVMID来确定要监控的是哪一个虚拟机进程。对于本地虚拟机进程来说，LVMID与操作系统的进程ID是一致的，使用任务管理器也能查询到虚拟机进程的LVMID，但是如果启动了多个虚拟机进程，无法根据进程名称定位时，就只能依赖jps命令来显示主类的功能才能区分了
+   
+   
+*** 格式
+    #+BEGIN_EXAMPLE
+    jps [options] [hostid]
+    #+END_EXAMPLE
+    
+    
+    #+CAPTION: jps常用options
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 属性  | 作用 |
+    | -p        | 只输出LVMID，省略主类的名称 |
+    | -m        | 输出虚拟机进程启动时传递给主类main（）函数的参数 |
+    | -l        | 输出主类的全名，如果进程执行的是jar包，输出jar路径 |
+    | -v        | 输出虚拟机进程启动时jvm参数 |
+    
+    
+*** 实例
+    下面是在linux上执行 *jps -l* 的例子，可以看到tomcat服务器的信息：
+    
+    #+BEGIN_SRC sh
+  [root@AY131228205040795d8cZ bin]# jps -l  
+  7862 org.apache.catalina.startup.Bootstrap  
+  1356 sun.tools.jps.Jps
+    #+END_SRC
+    
+** jstat
+   jstat( _JVM Statistics Monitoring Tool_ ) 是用于 *监视虚拟机各种运行状态信息* 的命令行工具，它可以显示本地或者远程虚拟机进程中的类装载、内存、垃圾收集、JIT编译等运行数据，在没有GUI图形界面，只提供了纯文本控制台环境的服务器上，它将是运行期定位虚拟机性能问题的首选工具
+   
+*** 格式
+    #+BEGIN_EXAMPLE
+    jstat [option vmid [interval [s|ms] [count]] ]
+    #+END_EXAMPLE
+    
++ VMID和LVMID：
+  + 如果是本地虚拟机进程：VMID和LVMID是一致的
+  + 如果是远程虚拟机：那VMID的格式应当是： _[protocol:] [//] lvmid[@hostname[:port]/servername]_ 
++ interval: 查询的间隔，省略为1
++ count：查询的次数，省略为1
+  
+#+CAPTION: jstat常用options
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 选项              | 作用                                                                                       |
+| -class            | 监视装载类、卸载类、总空间以及类装载所耗费的时间                     |
+| -gc               | 监视java堆状况，包括eden区、两个survivor区、老年代、永久代等的容量、已用空间、GC时间合计信息 |
+| -gccapacity       | 监视内容与-gc基本相同，但输出主要关注java堆各个区域使用到最大、最小空间 |
+| -gcutil           | 监视内容与-gc基本相同，但输出主要关注已使用控件占总空间的百分比 |
+| -gccause          | 与-gcutil功能一样，但是会额外输出导致上一次gc产生的原因               |
+| -gcnew            | 监视新生代GC情况                                                                      |
+| -gcnewcapacity    | 监视内容与-gcnew基本相同，输出主要关注使用到的最大、最小空间      |
+| -gcold            | 监视老年代GC情况                                                                      |
+| -gcoldcapacity    | 监视内容与-gcold基本相同，输出主要关注使用到的最大、最小空间      |
+| -gcpermcapacity   | 输出永久代使用到的最大、最小空间                                             |
+| -compiler         | 输出JIT编译过的方法、耗时等信息                                                |
+| -printcompilation | 输出已经被JIT编译过的方法                                                         |
+
+#+CAPTION: jstat输出
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| S0   | Heap上的 Survivor space 0 区已使用空间的百分比 |
+| S1   | Heap上的 Survivor space 1 区已使用空间的百分比 |
+| E    | Heap上的 Eden space 区已使用空间的百分比 |
+| O    | Heap上的 Old space 区已使用空间的百分比 |
+| P    | Perm space 区已使用空间的百分比          |
+| YGC  | 从应用程序启动到采样时发生 Young GC 的次数 |
+| YGCT | 从应用程序启动到采样时 Young GC 所用的时间(单位秒) |
+| FGC  | 从应用程序启动到采样时发生 Full GC 的次数 |
+| FGCT | 从应用程序启动到采样时 Full GC 所用的时间(单位秒) |
+| GCT  | 从应用程序启动到采样时用于垃圾回收的总时间(单位秒) |
+
+*** 实例
+    #+BEGIN_SRC sh
+  [root@AY131228205040795d8cZ bin]# jstat -gcutil 7862  
+  S0     S1     E      O      P     YGC     YGCT    FGC    FGCT     GCT     
+  5.17   0.00  49.73  99.81  82.29    716    7.960    10    4.083   12.044  
+    #+END_SRC
+    
+** jinfo
+   jinfo（ _Configuration Info for Java_ ）可观察 *运行中的java程序的运行环境参数* ，参数：
++ Java System属性
++ JVM命令行参数
+  
+也可从core文件里面知道崩溃的Java应用程序的配置信息
+
+*** 格式
+    #+BEGIN_EXAMPLE
+    jinfo [option] pid
+    #+END_EXAMPLE
+    
+*** 实例
+    #+BEGIN_SRC sh
+  [root@AY131228205040795d8cZ bin]# jinfo -flag CMSInitiatingOccupancyFraction 7862  
+  -XX:CMSInitiatingOccupancyFraction=-1  
+    #+END_SRC
+    
+** jmap
+   jmap（ _Memory Map for Java_ ）命令用于 *生成堆转储快照* （一般称为 _headdump或dump_ 文件）。还可以 *查询finalize执行队列，Java堆和永久代的详细信息，如空间使用率、当前用的是哪种收集器* 等
+   
+*** 格式
+    #+BEGIN_EXAMPLE
+    jmap [option] vmid
+    #+END_EXAMPLE
+    
+    #+CAPTION: jmap常用options
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | -dump          | 生成java堆转储快照。格式为： -dump:[live,]format=b,file=,其中live子参数说明是否只dump出存活的对象 |
+    | -finalizerinfo | 显示在F-Queue中等待Finalizer线程执行finalize方法的对象。只在Linux/Solaris平台下有效 |
+    | -heap          | 显示java堆详细信息，如使用哪种收集器、参数配置、分代情况等，在Linux/Solaris平台下有效 |
+    | -jisto         | 显示堆中对象统计信息，包含类、实例对象、合集容量                          |
+    | -permstat      | 以ClassLoader为统计口径显示永久代内存状态。只在Linux/Solaris平台下有效     |
+    | -F             | 当虚拟机进程对-dump选项没有相应时。可使用这个选项强制生成dump快照。只在Linux/Solaris平台下有效 |
+    
+*** 实例
+    #+BEGIN_SRC sh
+  #观察到java heap的内存使用情况
+  [root@localhost bin]# jmap -heap 2083
+  #观察heap中所有对象的情况，包括对象数量和所占空间大
+  [root@localhost bin]# jmap -histo 2083 
+  [root@localhost bin]# jmap -histo:live 2083
+  #dump出所有对象文件可用于进一步分析
+  [root@localhost bin]# jmap -dump:format=b,file=heap.bin 2083 
+  #dump出存活的对象文件可用于进一步分析
+  [root@localhost bin]# jmap -dump:live,format=b,file=heap.bin 2083
+    #+END_SRC
+    
+** jhat
+   jhat（ _JVM Heap Analysis Tool_ ）与jmap搭配使用， *分析jmap生成的堆转储快照* 。jhat内置了一个微型的HTTP/HTML服务器，生成dump文件的分析结果后，可以在浏览器中查看。不过在实际中不使用jhat来分析dump，主要原因：
+1. 一般不在部署应用的服务器上直接分析dump文件，而要复制到其他机器上进行分析，因为是耗时且消耗硬件资源
+2. jhat功能比较简陋，如VisualVM，Eclipse Momery Analyzer、IBM HeapAnalyzer等都更强大
+   
+** jstack
+   jstack（ _Stack Trace for Java_ ）命令用于 *生成虚拟机当前时刻的线程快照* （一般称为 _thread dump_ ）。线程快照就是当前虚拟机内每一条线程正在执行的的方法堆栈的集合，生成线程快照的主要目的是定位线程出现长时间停顿的原因，如线程间的死锁、死循环、请求外部资源导致的长时间等待等都是导致线程长时间停顿的原因
+   
+*** 格式
+    #+BEGIN_EXAMPLE
+    jstack [option] vmid
+    #+END_EXAMPLE
+    
+    #+CAPTION: jstack常用options
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 选项  | 作用 |
+    | -F        | 当正常输出的请求不被响应时，强制输出线程堆栈 |
+    | -l        | 除堆栈外，显示关于锁的附加信息 |
+    | -m        | 如果调用到本地方法的话，可以显示c/c++的堆栈 |
+    
+*** 实例
+    #+BEGIN_SRC sh
+  [root@AY131228205040795d8cZ yuxi]# jstack -l 7862  
+  2014-06-12 11:04:05  
+  Full thread dump Java HotSpot(TM) 64-Bit Server VM (20.45-b01 mixed mode):  
+
+  "Attach Listener" daemon prio=10 tid=0x00007f6a84013800 nid=0xa8f waiting on condition [0x0000000000000000]  
+  java.lang.Thread.State: RUNNABLE  
+
+  Locked ownable synchronizers:  
+  - None  
+
+  "http-bio-8080-exec-345" daemon prio=10 tid=0x00007f6a980ee000 nid=0x5e31 waiting on condition [0x00007f6a715d4000]  
+  java.lang.Thread.State: WAITING (parking)  
+  at sun.misc.Unsafe.park(Native Method)  
+  - parking to wait for  <0x00000000e22bf280> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)  
+  at java.util.concurrent.locks.LockSupport.park(LockSupport.java:156)  
+  at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1987)  
+  at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:399)  
+  at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:104)  
+  at org.apache.tomcat.util.threads.TaskQueue.take(TaskQueue.java:32)  
+  at java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:957)  
+  at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:917)  
+  at java.lang.Thread.run(Thread.java:662)  
+
+  Locked ownable synchronizers:  
+  - None  
+    #+END_SRC
+    
+*** getAllStackTrace
+    JDK1.5中，java.lang.Thread类新增了一个 _getAllStackTrace()_ 方法用于 *获取虚拟机中所有线程的StackTraceElement对象* 。使用这个方法可以通过简单的几行代码就完成jstack的大部分功能，在实际项目可以调用这个方法做个管理员页面，可以随时使用浏览器查看线程堆栈，如代码所示：
+    
+    #+BEGIN_SRC html
+  <%@ page language="java" import="java.util.*" pageEncoding="UTF-8"%>  
+  <html>  
+    <head>  
+      <title>服务器线程信息</title>  
+    </head>  
+    <body>  
+      <pre>  
+        <%  
+          for(Map.Entry<Thread, StackTraceElement[]> stackTrace : Thread.getAllStackTraces().entrySet()){  
+          Thread thread = (Thread)stackTrace.getKey();  
+          StackTraceElement[] stack = (StackTraceElement[])stackTrace.getValue();  
+          if(thread.equals(Thread.currentThread())){  
+          continue;  
+          }  
+          out.print("\n线程:"+thread.getName()+"\n");  
+          for(StackTraceElement element : stack){  
+          out.print("\t"+element+"\n");  
+          }  
+          }  
+          %>  
+      </pre>  
+    </body>  
+  </html>  
+    #+END_SRC
+    
+** HSDIS
+   HSDIS是一个Sun官方推荐的 *HotSpot虚拟机JIT编译代码的反汇编插件* ，它包含在HotSpot虚拟机的源码之中，但没有提供编译后的程序。在Project Kenai的网站也可以下载到单独的源码。它的作用是让HotSpot的 _-XX：+PrintAssembly_ 指令调用它来把动态生成的本地代码还原为汇编代码输出，同时还生成了大量非常有价值的注释，这样就可以通过输出的代码来分析问题。可以根据自己的操作系统和CPU类型从Project Kenai的网站上下载编译好的插件，直接放到JDK_HOME/jre/bin/client和JDK_HOME/jre/bin/server目录中即可
+   
++ 如果使用的是 _Debug_ 或者 _FastDebug_ 版的HotSpot，那可以直接通过 _-XX：+PrintAssembly_ 指令使用插件
++ 如果使用的是 _Product_ 版的HotSpot，那还要额外加入一个 _-XX：+UnlockDiagnosticVMOptions_ 参数
+  
+#+BEGIN_SRC java
+  public class Bar { 
+          int a = 1;
+          static int b = 2;
+      
+          public int sum(int c){
+                  return a+b+c;
+          }
+      
+          public static void main(String[] args) {
+                  new Bar().sum(3);
+          }
+  }
+#+END_SRC
+
+使用javac编译：
+
+#+BEGIN_SRC sh
+  [root@AY131228205040795d8cZ my]# java -XX:+UnlockDiagnosticVMOptions -XX:+PrintAssembly -Xcomp -XX:CompileCommand=dontinline,*Bar.sum -XX:CompileCommand=compileonly,*Bar.sum Bar
+#+END_SRC
+
++ 参数 _-Xcomp_ 是让虚拟机以编译模式执行代码，这样代码可以不需要执行足够次数来预热就能出发JIT编译
++ 两个 _-XX:CompileCommand_ 的意思是让编译器不要内联sum()并且只编译sum()
++ _-XX:+PrintAssembly_ 就是输出反汇编内容
+  
+如果一切顺利的话，那么屏幕上会出现类似下边的代码：
+#+BEGIN_SRC asm
+  Java HotSpot(TM) 64-Bit Server VM warning: PrintAssembly is enabled; turning on DebugNonSafepoints to gain additional output
+  CompilerOracle: dontinline *Bar.sum
+  CompilerOracle: compileonly *Bar.sum
+  Loaded disassembler from hsdis-amd64.so
+  Decoding compiled method 0x00007f89c905fdd0:
+  Code:
+  [Disassembling for mach='i386:x86-64']
+  [Entry Point]
+  [Constants]
+    # {method} 'sum' '(I)I' in 'Bar'
+    # this:     rsi:rsi   = 'Bar'
+    # parm0:    rdx       = int
+    #           [sp+0x20]  (sp of caller)
+    0x00007f89c905ff20: mov    0x8(%rsi),%r10d
+    0x00007f89c905ff24: cmp    %r10,%rax
+    0x00007f89c905ff27: jne    0x00007f89c9037620  ;   {runtime_call}
+    0x00007f89c905ff2d: xchg   %ax,%ax
+  [Verified Entry Point]
+    0x00007f89c905ff30: push   %rbp
+    0x00007f89c905ff31: sub    $0x10,%rsp
+    0x00007f89c905ff35: nop                       ;*synchronization entry
+                                                  ; - Bar::sum@-1 (line 7)
+    0x00007f89c905ff36: mov    $0xfb0818c8,%r10   ;   {oop('Bar')}
+    0x00007f89c905ff40: mov    0x260(%r10),%r10d
+    0x00007f89c905ff47: add    0xc(%rsi),%r10d
+    0x00007f89c905ff4b: mov    %edx,%eax
+    0x00007f89c905ff4d: add    %r10d,%eax         ;*iadd
+                                                  ; - Bar::sum@9 (line 7)
+    0x00007f89c905ff50: add    $0x10,%rsp
+    0x00007f89c905ff54: pop    %rbp
+    0x00007f89c905ff55: test   %eax,0xbe130a5(%rip)        # 0x00007f89d4e73000
+                                                  ;   {poll_return}
+    0x00007f89c905ff5b: retq   
+    0x00007f89c905ff5c: hlt    
+    0x00007f89c905ff5d: hlt    
+    0x00007f89c905ff5e: hlt    
+    0x00007f89c905ff5f: hlt    
+  [Exception Handler]
+  [Stub Code]
+    0x00007f89c905ff60: jmpq   0x00007f89c905cfa0  ;   {no_reloc}
+  [Deopt Handler Code]
+    0x00007f89c905ff65: callq  0x00007f89c905ff6a
+    0x00007f89c905ff6a: subq   $0x5,(%rsp)
+    0x00007f89c905ff6f: jmpq   0x00007f89c90387c0  ;   {runtime_call}
+    0x00007f89c905ff74: add    %al,(%rax)
+    0x00007f89c905ff76: add    %al,(%rax)
+#+END_SRC
+
+一些命令的解释：
+1. push %rbp    ：保存上一栈帧基址
+2. sub   $0x10,%rsp      ：给新帧分配空间
+3. mov  $0xfb0818,%r10      ：取方法区的指针
+4. mov  0x260(%r10),%r10d      ：取类变量b，这里是访问方法区中的数据
+5. add   0xc(%rsi),%r10d      ：这里将实例变量a和上一句取得的b相加，放入r10d中
+6. mov  %edx,%eax      ：在上边“parm0：rdx=int”，说明c在rdx中，这里rdx应与edx一致，将c放入eax中
+7. add   %r10d, %eax      ：将r10d中a与b的和加上eax中的c，结果放入eax中，计算a+b+c完成
+8. add   $0x10,%rsp      ：对应上文的rsp，这里是撤销栈帧
+9. pop   %rbp      ：对应上文的push，这里是恢复上一栈帧
+10. test  %eax, 2xbe130a5(%rip)      ：轮询方法返回处的Safepoint
+11. retq  方法返回
+    
+* 可视化工具
+  
+** JConsole
+   启动JConsole后，将自动搜索本机运行的jvm进程，不需要jps命令来查询指定。双击其中一个jvm进程即可开始监控，也可使用  _远程进程_ 来连接远程服务器
+   
+** VisualVM
+   VisualVM是到目前为止随JDK发布的功能最强大的运行监视和故障处理工具
+   
+   [[file:optimize.org][Next：调优案例]]
+   
+   [[file:gc.org][Previous：垃圾回收器]]
+   
+   [[file:jvm.org][Home：目录]]
+   

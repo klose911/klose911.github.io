@@ -1,0 +1,264 @@
+#+TITLE: 窗口
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: operation-objects.html   
+#+HTML_LINK_HOME: ../elisp.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+
+_窗口_ 是 *屏幕上用于显示一个缓冲区* 的部分，和它要区分开来的一个概念是 _frame_ 。frame 是 *Emacs 能够使用屏幕的* 部分
++ 一个 frame 里可以容纳多个（至少一个）窗口
++ 而 Emacs 可以有多个 frame
+
+#+begin_example
+  可能需要和通常所说的窗口的概念要区分开来，一般来说，我们所说的其它程序的窗口更类似于 Emacs 的一个 frame，所以也有人认为这里 window 译为窗格更好一些
+
+  但是窗格这个词是一个生造出来的词，还是用窗口比较顺一些，大家自己注意就行了
+#+end_example
+
+在任何时候， 都有一个被选中的 frame，而在这个 frame 里有一个被选中的窗口，称为 _选择的窗口_ （selected window）
+* 分割窗口
+  刚启动时，emacs 都是只有一个 frame 一个窗口。多个窗口都是用 _分割窗口_ 的函数生成的。分割窗口的内建函数是 _split-window_ 。这个函数的参数如下：
+
+  #+begin_src lisp 
+  (split-window &optional window size horizontal)
+  #+end_src
+
+  这个函数的功能是把当前或者指定窗口进行分割：
+  + 默认分割方式是 _水平分割_ ，可以将参数中的 horizontal 设置为 non-nil 的值，变成垂直分割
+  + 如果不指定大小，则分割后两个窗口的大小是一样的
+
+  分割后的两个窗口里的缓冲区是 *同一个缓冲区* 。使用这个函数后， *光标仍然在原窗口* ，而返回的 _新窗口对象_ ： 
+
+  #+begin_src lisp 
+  (selected-window)                       ; => #<window 136 on *scratch*>
+  (split-window)                          ; => #<window 138 on *scratch*>
+  #+end_src
+
+  窗口的分割也需要用 *树的结构* 来看分割后的窗口，比如这样一个过程：
+
+  #+begin_example
+	+---------------+         +---------------+
+	|               |         |      |        |
+	| win1          |         | win1 | win2   |
+	|               |   -->   |      |        |
+	|               |         |      |        |
+	|               |         |      |        |
+	+---------------+         +---------------+
+					 |
+					 v
+	+---------------+         +---------------+
+	| win1   |      |         |       |       |
+	|        | win2 |         | win1  | win2  |
+	|--------|      |   <--   |-------|       |
+	| 3 | 4  |      |         | win3  |       |
+	|   |    |      |         |       |       |
+	+---------------+         +---------------+
+  #+end_example
+
+  可以看成是这样一种结构：
+  #+begin_src lisp 
+  (win1) ->  (win1 win2) -> ((win1 win3) win2) -> ((win1 (win3 win4)) win2)
+  #+end_src
+
+  事实上可以用 _window-tree_ 函数得到当前窗口的结构，如果忽略 minibuffer 对应的窗口，得到的应该类似这样的一个结果：
+
+  #+begin_src lisp 
+  (nil (0 0 170 42)
+       (t (0 0 85 42)
+	  #<win 3>
+	  (nil (0 21 85 42) #<win 8> #<win 10>))
+       #<win 6>)
+  #+end_src
+
+  _window-tree_ 返回值:
+  + 第一个元素代表 _子窗口的分割方式_ ：
+    + _nil_ :  _水平_ 分割
+    + _t_ : _垂直_ 分割
+  + 第二个元素代表 _整个结构的大小_ 
+    + 这四个数字可以看作是 _左上_ 和 _右下_ 两个顶点的坐标
+  + 其余元素是 _子窗口_ 
+    + 每个子窗口也是同样的结构
+
+  所以把前面这个列表还原成窗口排列应该是这样：
+  #+begin_example
+	 (0,0) +-------------------+
+	       |         |         |
+	       | win 3   |  win6   |
+	       |         |         |
+	(0,21) |---------|         |
+	       |    |    |         |
+	       | 8  | 10 |         |
+	       |    |    |         |
+	       +-------------------+ (170, 42)
+		       (85, 42)
+  #+end_example
+
+  注意：由 window-tree 返回的结果一些窗口的大小不能确定， 比如：上面的 win 8 和 win 10 只能知道它们合并起来的大小，不能确定它们分别的宽度是多少
+
+* 删除窗口
+  + 如果要让一个窗口不显示在屏幕上，要使用 _delete-window_ 函数，删除的窗口多出来的空间会自动加到它的邻接的窗口中：
+    + 如果没有指定参数，删除的窗口是 _当前选中的窗口_ 
+    + 如果指定了参数，删除的是 _这个参数对应的窗口_ 
+  + 如果要删除除了当前窗口之外的窗口，可以用 _delete-other-windows_ 函数
+
+  #+begin_src lisp 
+  (setq foo (selected-window))            ; => #<window 90 on *scratch*>
+  (delete-window)
+  (windowp foo)                           ; => t
+  (window-live-p foo)                     ; => nil
+  #+end_src
+
+  当一个窗口不可见之后，这个窗口对象也就消失了
+
+* 窗口配置
+  窗口配置包含了 frame 中所有窗口的位置信息：窗口 _大小_ ， _显示的缓冲区_ ，缓冲区中 _光标的位置_ 和 _mark_ ，还有 _fringe_ ， _滚动条_ 等等：
+  + 用 _current-window-configuration_ 得到当前窗口配置
+  + 用 _set-window-configuration_ 来还原
+
+** 窗口大小
+   窗口是一个 *长方形* 区域，所以窗口的大小信息包括它的 _高度_ 和 _宽度_ ，用来度量窗口大小的单位都是以 _字符数_ 来表示
+
+   #+begin_example
+     窗口高度为 45 指的是这个窗口可以容纳 45 行字符，宽度为 140 是指窗口一行可以显示 140 个字符
+   #+end_example
+
+   mode line 和 header line 都包含在窗口的高度里，所以有 _window-height_ 和 _window-body-height_ 两个函数，后者返回把 mode-line 和 header line 排除后 的高度 
+
+   #+begin_src lisp 
+  (window-height)                         ; => 45
+  (window-body-height)                    ; => 44
+   #+end_src
+   滚动条和 fringe 不包括在窗口的亮度里， _window-width_ 返回窗口的宽度
+
+   #+begin_src lisp 
+  (window-width)                          ; => 72
+   #+end_src
+   也可以用 _window-edges_ 返回各个顶点的坐标信息，返回的位置信息包含了滚动条、fringe、mode line、header line 在内
+
+   #+begin_src lisp 
+  (window-edges)                          ; => (0 0 73 45)
+   #+end_src
+
+   _window-inside-edges_ 返回的就是窗口的文本区域的位置：
+
+   #+begin_src lisp 
+  (window-inside-edges)                   ; => (1 0 73 44)
+   #+end_src
+
+   如果需要的话也可以得到用像素表示的窗口位置信息：
+
+   #+begin_src lisp 
+  (window-pixel-edges)                    ; => (0 0 511 675)
+  (window-inside-pixel-edges)             ; => (7 0 511 660)
+   #+end_src
+
+** 缓冲区
+   窗口对应的缓冲区可以用 _window-buffer_ 函数得到：
+
+   #+begin_src lisp 
+  (window-buffer)                         ; => #<buffer *scratch*>
+  (window-buffer (next-window))           ; => #<buffer *info*>
+   #+end_src
+
+   + 缓冲区对应的窗口也可以用 _get-buffer-window_ 得到
+     + 如果有多个窗口显示同一 个缓冲区，那这个函数只能返回其中的一个，由window-list决定
+   + 如果要得到所有的窗口，可以用 _get-buffer-window-list_ 
+
+   #+begin_src lisp 
+  (get-buffer-window (get-buffer "*scratch*"))
+  ;; => #<window 268 on *scratch*>
+  (get-buffer-window-list (get-buffer "*scratch*"))
+  ;; => (#<window 268 on *scratch*> #<window 270 on *scratch*>)
+   #+end_src
+
+   + 让某个窗口显示某个缓冲区可以用 _set-window-buffer_ 函数
+   + 让选中窗口显示某个缓冲区也可以用 _switch-to-buffer_ 
+
+   #+begin_example
+     但是一般不要在 elisp 编程中用 switch-to-buffer 
+
+     如果需要让某个缓冲区成为当前缓冲区使用 set-buffer 函数
+
+     如果要让当前窗口显示某个缓冲区，使用 set-window-buffer 函数 
+   #+end_example
+
+   + 让一个缓冲区可见可以用 display-buffer。默认的行为：
+     + 当缓冲区已经显示在某个窗口中时：
+       + 如果不是当前选中窗口，则返回那个窗口
+       + 如果是当前选中窗口， 且如果传递的 not-this-window 参数为 non-nil 时，会新建一个窗口，显示缓冲区
+     + 如果没有任何窗口显示这个缓冲区，则新建一个窗口显示缓冲区，并返回这个窗口
+
+   #+begin_example
+     display-buffer 是一个比较高级的命令，用户可以通过一些变量来改变这个命令的行为，具体可以查找文档
+
+     如果这些还不能满足你的要求，还可以自己写一个函数，将 display-buffer-function 设置成这个函数
+   #+end_example
+
+** 改变窗口显示区域
+   每个窗口会保存一个 *显示缓冲区的起点位置* ，这个位置对应于窗口 _左上角光标_ 在 _缓冲区_ 里的 _位置_ ：
+   + 用 _window-start_ 函数得到某个窗口的起点位置
+   + 通过 _set-window-start_ 来改变显示起点位置
+   + 可以 _pos-visible-in-window-p_ 来检测缓冲区中某个位置是否是可见的
+
+   #+begin_example
+     但是直接通过 set-window-start 来控制显示比较容易出现错误，因为 set-window-start 并不会改变 point 所在的位置，在窗口调用 redisplay 函数之后 point 会跳到相应的位置
+
+     如果你确实有这个需要，建议还是用： (with-selected-window window (goto-char pos)) 来代替
+   #+end_example
+
+* 选择窗口
+  可以用 _selected-window_ 得到当前光标所在的窗口
+
+  #+begin_src lisp 
+  (selected-window)                       ; => #<window 104 on *scratch*>
+  #+end_src
+
+
+  用 _select-window_ 函数使某个窗口变成选中的窗口
+
+  #+begin_src lisp
+  (progn
+    (setq foo (selected-window))
+    (message "Original window: %S" foo)
+    (other-window 1)
+    (message "Current window: %S" (selected-window))
+    (select-window foo)
+    (message "Back to original window: %S" foo))
+  #+end_src
+
+  两个特殊的宏可以保存窗口位置执行语句，它们的作用是在 _执行语句结束_ 后 _选择的窗口_ 仍留在 _执行语句之前的窗口_ ：
+  + save-selected-window：可以选择其它窗口
+  + with-selected-window: 选择当前的窗口
+
+  #+begin_src lisp 
+  ;; 让另一个窗口滚动到缓冲区开始
+  (save-selected-window
+    (select-window (next-window))
+    (goto-char (point-min)))
+  #+end_src
+
+  #+begin_example
+  这两个宏不会保存窗口的位置信息，如果执行语句结束后，保存的窗口已经消失，则会选择最后一个选择的窗口
+  #+end_example
+
+  当前 frame 里所有的窗口可以用 _window-list_ 函数得到
+  + 用 _next-window_ 来得到在 window-list 里排在某个 window 之后的窗口
+  + 用 _previous-window_ 得到排在某个 window 之前的窗口
+
+  #+begin_src lisp 
+    (selected-window)                       ; => #<window 245 on *scratch*>
+    (window-list)
+    ;; => (#<window 245 on *scratch*> #<window 253 on *scratch*> #<window 251 on *info*>)
+    (next-window)                           ; => #<window 253 on *scratch*>
+    (next-window (next-window))             ; => #<window 251 on *info*>
+    (next-window (next-window (next-window))) ; => #<window 245 on *scratch*>
+  #+end_src
+
+  + _walk-windows_ 可以遍历窗口，相当于 _(mapc proc (window-list))_
+  + _get-window-with-predicate_ 用于查找符合某个条件的窗口
+
+  [[file:file.org][Next：文件]]
+
+  [[file:window.org][Previous：窗口]]
+
+  [[file:operation-objects.org][TOP：操作对象]]

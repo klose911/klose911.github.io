@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/trait/summary/target/debug/summary: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/trait/summary/src/main.rs

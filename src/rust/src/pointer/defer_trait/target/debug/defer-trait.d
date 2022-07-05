@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/pointer/defer_trait/target/debug/defer-trait: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/pointer/defer_trait/src/main.rs

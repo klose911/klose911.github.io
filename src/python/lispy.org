@@ -1,0 +1,583 @@
+#+TITLE: 实现一个更好的Lisp解释器
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil 
+
+[[http://norvig.com/lispy.html][这篇博客]] 展示了如何在100行Python代码实现一个简单的Lisp解释器：[[https://github.com/klose911/klose911.github.io/blob/master/src/python/src/lisp/lis.py][lis.py]] 。[[https://github.com/klose911/klose911.github.io/blob/master/src/python/src/lisp/lispy.py][lispy.py]] 这个版本做了一些新的扩展，虽然代码量是原来的三倍左右，但这是一个更完整的 Lisp 实现
+* 数据类型：字符串，布尔值，复数，端口
+  #+BEGIN_EXAMPLE
+    增加一个新的数据类型可能有三个地方需要修改：
+
+    数据类型的内部表达方式
+    对这些数据类型的操作
+    读取新的数据类型的语法
+  #+END_EXAMPLE
+
+  下面是增加的四种数据类型：
+  1. 字符串：使用 _双引号_ 扩起来的。在一个字符串中， *\n* 代表着一个 _新行_ ， *\"* 表示一个 _双引号_
+  2. 布尔值： 
+     + _True_ 和 _False_ 的语法是： *#t* 和 *#f*
+     + 类型判断过程： *boolean?*
+  3. 复数：使用 *cmath* 模块 替换 _math_ 模块来支付复数。这样可以用 _3+4i_ 来表达复数常量
+  4. 端口：没有语法需要添加，但是需要新增 _port?_ ,  _load_ ,  _open-input-file_ ,  _close-input-port_ ,  _open-output-file_ ,  _close-output-port_ , _read_ ,  _read-char_ ,  _write_  and _display_ 
+     + 输出端口：使用 Python _原生 file 对象_ 来表达
+     + 输入端口：包装在一个 *InputPort* 类，这个类包含 _被读的 file 对象_ 和 _最后被读的那一行_ 
+  #+BEGIN_EXAMPLE
+    这四种新的数据结构，除了输入端口用了新实现的 InputPort 类，其他都使用了 Python 原生的数据结构
+
+    InputPort 类更加方便，因为 Scheme 输入端口不仅需要处理读取表达式，而且需要读取字符
+    与之相比原来的 tokenizer 只能处理一个完整行，而不是单独的字符
+  #+END_EXAMPLE
+
+  同时还有一种老的数据类型独立出来：
+  + 符号：在上一个版本的解释器中，符号被实现为字符串。为了和新增加的字符串类型作为区别，符号被实现为一个新的类 *Symbol* ，直接继承于 _str_ 类
+
+  #+BEGIN_SRC python 
+  class Symbol(str): pass
+
+  def Sym(s, symbol_table={}):
+      "Find or create unique Symbol entry for str s in symbol table."
+      if s not in symbol_table: symbol_table[s] = Symbol(s)
+      return symbol_table[s]
+
+  _quote, _if, _set, _define, _lambda, _begin, _definemacro, = map(Sym, 
+  "quote   if   set!  define   lambda   begin   define-macro".split())
+
+  _quasiquote, _unquote, _unquotesplicing = map(Sym,
+  "quasiquote   unquote   unquote-splicing".split())
+  #+END_SRC  
+
+  #+BEGIN_EXAMPLE
+    现在无法再使用 x[0] == 'if' ，因为 if 现在是一个字符串，而不是 Symbol 对象
+
+    相应地定义 _if 为 Sym('if') ，用 x[0] == _if 来做判断
+    其中 Sym 函数管理了一个 没有重复的符号表 ：symbol_table 
+  #+END_EXAMPLE
+* 新增语法: 字符串，注释，引用，#常量
+  + 增加字符串类型以后使得标记化过程变得复杂。现在无法再使用 _空白符_ 来分割标记，因为 *空白符同样会出现在字符串中* 。相应地需要使用复杂的 *正则表达式* 来把输入解析成标记
+  + 在 Scheme 中 _注释_ 是以' *;* '开头直到行尾。，必须把从' *;* '开头直到行尾收集到一个标记中，并且忽略到这个标记
+  + 还需要支持6中新的标记： 
+    + *#t* : _True_ 常量
+    + *#f* : _False_ 常量
+    + *'* : *引用* ( _quote_ ) 后面的表达式，例如 _'exp_ 等价于 _(quote exp)_ 
+    + *`* : *准引用* ( _quasiquote_ ) 后面的表达式 
+      + _准引用_ 是 *运行时获得值* ，而 _引用_ 是 *编译时值已经确定* ，因此 _准引用_ 可以 *包含变量* ，如果需要这个变量会在运行时被替换：
+	+ *,* : _,exp_ 表示 exp 是个 _变量_ ，替换这个 exp _变量的值_ 
+	+ *,@* : _,@exp_ 表示 exp 是个 _列表_ ，用这个 _列表中所有的元素_ 来做替换
+
+  #+BEGIN_SRC scheme
+  (define a 1)
+  (define b 2)
+
+  '(a b)                          ; => (a b) 
+  `(a b)                          ; => '(a b)
+
+  `(a ,b)                         ; => '(a 2), a 依旧是那个变量 a
+  (quasiquote (a (unquote b)))    ; => '(a 2), 和 `(a ,b) 等价
+
+  `(,a ,b)                        ; => '(1 2)
+
+  (define c '(3 4 5))
+  `(,b ,@c)                       ; => (2 3 4 5) 
+  #+END_SRC
+
+** InputPort 类
+   引入 InputPort 类之后使得 repl 循环变得更加强大：
+   + 支持多行读取
+   + 错误检查和打印
+
+   下面是 InputPort 的实现：
+
+   #+BEGIN_SRC python
+     class InPort(object):
+	 "An input port. Retains a line of chars."
+	 tokenizer = r"""\s*(,@|[('`,)]|"(?:[\\].|[^\\"])*"|;.*|[^\s('"`,;)]*)(.*)"""
+	 def __init__(self, file):
+	     self.file = file; self.line = ""
+	 def next_token(self):
+	     "Return the next token, reading new text into line buffer if needed."
+	     while True:
+		 if self.line == "": self.line = self.file.readline()
+		 if self.line == "": return eof_object
+		 token, self.line = re.match(InPort.tokenizer, self.line).groups()
+		 if token != '' and not token.startswith(';'):
+		     return token
+   #+END_SRC
+
+** readchar  和 readport 
+   #+BEGIN_SRC python 
+     eof_object = Symbol('#<eof-object>') # Note: uninterned; can't be read
+
+     def readchar(inport):
+	 "Read the next character from an input port."
+	 if inport.line != '':
+	     ch, inport.line = inport.line[0], inport.line[1:]
+	     return ch
+	 else:
+	     return inport.file.read(1) or eof_object
+
+     quotes = {"'":_quote, "`":_quasiquote, ",":_unquote, ",@":_unquotesplicing}
+
+     def read(inport):
+	 "Read a Scheme expression from an input port."
+	 def read_ahead(token):
+	     if '(' == token: 
+		 L = []
+		 while True:
+		     token = inport.next_token()
+		     if token == ')': return L
+		     else: L.append(read_ahead(token))
+	     elif ')' == token: raise SyntaxError('unexpected )')
+	     elif token in quotes: return [quotes[token], read(inport)]
+	     elif token is eof_object: raise SyntaxError('unexpected EOF in list')
+	     else: return atom(token)
+	     # body of read:
+	 token1 = inport.next_token()
+	 return eof_object if token1 is eof_object else read_ahead(token1)
+   #+END_SRC
+
+** token -> 原始数据类型
+   #+BEGIN_SRC python
+  def atom(token):
+      'Numbers become numbers; #t and #f are booleans; "..." string; otherwise Symbol.'
+      if token == '#t': return True
+      elif token == '#f': return False
+      elif token[0] == '"': return token[1:-1].decode('string_escape')
+      try: return int(token)
+      except ValueError:
+	  try: return float(token)
+	  except ValueError:
+	      try: return complex(token.replace('i', 'j', 1))
+	      except ValueError:
+		  return Sym(token)
+   #+END_SRC
+
+   原始数据类型转换成字符串：
+   #+BEGIN_SRC python 
+  def to_string(x):
+      "Convert a Python object back into a Lisp-readable string."
+      if x is True: return "#t"
+      elif x is False: return "#f"
+      elif isa(x, Symbol): return x
+      elif isa(x, str): return '"%s"' % x.encode('string_escape').replace('"',r'\"')
+      elif isa(x, list): return '('+' '.join(map(to_string, x))+')'
+      elif isa(x, complex): return str(x).replace('j', 'i')
+      else: return str(x)
+   #+END_SRC
+** 加强版 repl 
+   #+BEGIN_SRC python 
+     def repl(prompt='lispy> ', inport=InPort(sys.stdin), out=sys.stdout):
+	 "A prompt-read-eval-print loop."
+	 sys.stderr.write("Lispy version 2.0\n")
+	 while True:
+	     try:
+		 if prompt: sys.stderr.write(prompt)
+		 x = parse(inport)
+		 if x is eof_object: return
+		 val = eval(x)
+		 if val is not None and out: print >> out, to_string(val)
+	     except Exception as e:
+		 print '%s: %s' % (type(e).__name__, e)
+   #+END_SRC
+
+   现在可以支持从文件读取 sheme 代码
+   #+BEGIN_SRC python
+  def load(filename):
+      "Eval every expression from a file."
+      repl(None, InPort(open(filename)), None)
+   #+END_SRC
+** 测试
+   #+BEGIN_EXAMPLE
+  >>> repl()
+  Lispy version 2.0
+  lispy> (define (cube x)
+	    (* x (* x x))) ; input spans multiple lines
+
+  lispy> (cube 10)
+  1000
+
+  lispy> (cube 1) (cube 2) (cube 3) ; multiple inputs per line
+  1
+
+  lispy> 8
+
+  lispy> 27
+
+  lispy> (/ 3 0) ; error recovery
+  ZeroDivisionError: integer division or modulo by zero
+
+  lispy> (if 1 2 3 4 5) ; syntax error recovery
+  SyntaxError: (if 1 2 3 4 5): wrong length
+
+  lispy> (defun (f x)
+	    (set! 3 x)) ;; early syntax error detection
+  SyntaxError: (set! 3 x): can set! only a symbol
+
+  lispy> 
+   #+END_EXAMPLE
+
+* 宏
+  用户可以使用 _define-macro_ 特殊形式（和标准 Scheme 实现略有不同）来定义宏，这也可以被用来定义一些其他的类似 _and_ 的特殊形式。宏只能被定义在一个 _文件的顶层级别_ ， _交互式会话_ ，或在 _顶层执行环境_ 中以 _begin_ 开头 
+
+  下面定义了 _let_ 和 _and_ 宏，这两个例子也展示了 *'`'* ,  *','* ,  *',@'* 的使用方法： 
+
+  #+BEGIN_SRC python
+  def let(*args):
+      args = list(args)
+      x = cons(_let, args)
+      require(x, len(args)>1)
+      bindings, body = args[0], args[1:]
+      require(x, all(isa(b, list) and len(b)==2 and isa(b[0], Symbol)
+		     for b in bindings), "illegal binding list")
+      vars, vals = zip(*bindings)
+      return [[_lambda, list(vars)]+map(expand, body)] + map(expand, vals)
+
+  _append, _cons, _let = map(Sym("append cons let".split))
+
+  macro_table = {_let:let} ## More macros can go here
+
+  eval(parse("""(begin
+
+  (define-macro and (lambda args 
+     (if (null? args) #t
+	 (if (= (length args) 1) (car args)
+	     `(if ,(car args) (and ,@(cdr args)) #f)))))
+
+  ;; More macros can go here
+
+  )"""))
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    def let(*args):
+
+    这里的 *args 表示任何多个无名参数，它是一个tuple
+    类似的 **kwargs 表示关键字参数，它是一个dict
+  #+END_EXAMPLE
+
+  其中 _require_ 和 _expand_ 过程后面会讲
+
+* 尾递归
+
+  在原有的 _eval_ 逻辑，现在支持 *尾递归* 。实现尾递归的方式是：把 *原有的主体逻辑包装在一个 _while True_ 循环内* ，大部分情景下，代码无需改动，只有下面三种情况需要  *更新变量 x*  （ _被求值的字符串表达式_ ）： 
+  1. _if_ 表达式
+  2. _begin_ 表达式
+  3. 调用 _自定义的过程_ ：不仅需要把 x 更新为 _自定义的过程体_ ，还需要把 _环境_ 更新为一个 _新的帧_ （绑定了 _实参_ 和 _形参_ ） 
+
+  #+BEGIN_SRC python 
+  def eval(x, env=global_env):
+      "Evaluate an expression in an environment."
+      while True:
+	  if isa(x, Symbol):       # variable reference
+	      return env.find(x)[x]
+	  elif not isa(x, list):   # constant literal
+	      return x                
+	  elif x[0] is _quote:     # (quote exp)
+	      (_, exp) = x
+	      return exp
+	  elif x[0] is _if:        # (if test conseq alt)
+	      (_, test, conseq, alt) = x
+	      x = (conseq if eval(test, env) else alt) # 更新 x 
+	  elif x[0] is _set:       # (set! var exp)
+	      (_, var, exp) = x
+	      env.find(var)[var] = eval(exp, env)
+	      return None # 退出循环
+	  elif x[0] is _define:    # (define var exp)
+	      (_, var, exp) = x
+	      env[var] = eval(exp, env)
+	      return None # 退出循环
+	  elif x[0] is _lambda:    # (lambda (var*) exp)
+	      (_, vars, exp) = x
+	      return Procedure(vars, exp, env)
+	  elif x[0] is _begin:     # (begin exp+)
+	      for exp in x[1:-1]:
+		  eval(exp, env)
+		  x = x[-1]
+	  else:                    # (proc exp*)
+	      exps = [eval(exp, env) for exp in x]
+	      proc = exps.pop(0)
+	      if isa(proc, Procedure):
+		  x = proc.exp # 更新求值字符串为自定义过程体
+		  env = Env(proc.parms, exps, proc.env) # 更新环境体
+	      else:
+		  return proc(*exps)
+  #+END_SRC
+
+  _Procedure_  类和原来版本一样：
+  #+BEGIN_SRC python 
+  class Procedure(object):
+      "A user-defined Scheme procedure."
+      def __init__(self, parms, exp, env):
+	  self.parms, self.exp, self.env = parms, exp, env
+      def __call__(self, *args): 
+	  return eval(self.exp, Env(self.parms, args, self.env))
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    递归版本的累加：
+    (define (sum-to n)
+      (if (= n 0)
+	  0
+	  (+ n (sum-to (- n 1)))))
+
+    尾递归版本的累加：
+    (define (sum2 n acc)
+      (if (= n 0)
+	  acc
+	  (sum2 (- n 1) (+ n acc))))
+
+    尾递归版本的累加不会每次都开一个新的栈，但是更难编写
+  #+END_EXAMPLE
+
+* 续延
+  Scheme 可以用 _迭代_ 来替代 _递归_ ，因此不需要任何特殊类似 for 或者 while 的特殊语法。 但是像 python 中的 _try/except_ 或者 C 语言中的 _setjmp/longjmp_ 等非局部函数中的控制流程又怎么实现呢？ Scheme 提供了一种被称为 _call/cc_ (call with the current continuation) 的原始过程，来处理这个问题，先看几个例子： 
+
+  #+BEGIN_SRC scheme
+  (call/cc (lambda (throw) 
+	     (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (escape 3))))))))
+  ;; => (+ 5 (* 10 3)) = 35  
+
+  (call/cc (lambda (throw) 
+	     (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (throw 3))))))))
+  ;; => 3 
+  #+END_SRC
+  In the first example, evaluating (escape 3) causes Scheme to abort the current calculation and return 3 as the value of the enclosing call to call/cc. The result is the same as (+ 5 (* 10 3)) or 35.
+
+  + 第一个例子里，对于 (esacpe 3) 的求值导致 Scheme 放弃了当前的计算，并返回了 3 作为 _(call/cc (lambda (escape) (* 100 (escape 3))))_ 的返回值。最终的结果等于  _(+ 5 (* 10 3))_ 或者 35
+  + 第二个例子中，(throw 3) 放弃了两层计算，直接返回到顶层的续延，因此直接返回了 3 
+
+  通常来讲， _call/cc_ 有一个参数 _proc_ ，proc 也是一个 *只接受一个参数 _throw_ 的过程* ：
+  + throw 同样是一个 *只接受一个参数的过程* ，实际上这个参数就是所谓的 *续延*
+  + proc 有自己定义的过程体
+
+  当 call/cc 被调用时：
+  1. *当前计算环境的续延* 会被绑定到  _throw_ 参数上
+  2. 求值 proc 的过程体 
+     + 如果在这个过程体中 throw 被调用，那么 call/cc 就会立刻返回这个 _调用 throw 的参数值_ 
+     + 如果在这个过程体中 throw 没被调用，那么 call/cc 就会返回 _过程体的求值结果_ 
+
+  #+BEGIN_EXAMPLE
+     (call/cc (lambda (throw) 
+		 (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (throw 3))))))))
+
+    (call/cc proc) 中的 proc 就是 (lambda (throw) (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (throw 3)))))))
+    proc 只有一个参数  throw
+    proc 有一段自己定义的逻辑 (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (throw 3)))))) 作为过程体 
+
+    最难以理解的是这个 throw 哪里来的？实际上 throw 的绑定是由最外层的 call/cc 做的，它会把最外层的续延绑定到 throw
+
+    这个过程体会被求解：
+    如果在这个过程体里 throw 被一个参数 v 调用，整个 call/cc 就会返回这个 v , 类似这里的 (throw 3) ，因此这个 call/cc 的返回值就是 3 
+    如果在这个过程体里 throw 没有被调用，那 call/cc 就会返回这个过程体的求值结果
+  #+END_EXAMPLE
+
+  了解 续延的含义后，现在来看看他的实现：
+
+  #+BEGIN_SRC python
+  def callcc(proc):
+      "Call proc with current continuation; escape only"
+      ball = RuntimeWarning("Sorry, can't continue this continuation any longer.")
+      def throw(retval): ball.retval = retval; raise ball
+      try:
+	  return proc(throw)
+      except RuntimeWarning as w:
+	  if w is ball: return ball.retval
+	  else: raise w
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    现在这个实现仅仅允许能离开某个局部过程
+
+    但是，标准的 Scheme 不仅能通过 call/cc 返回一个值
+    还能把续延作为变量保存起来，而且可以被调用任意次，每次都会返回到同一个位置 
+  #+END_EXAMPLE
+* 不定长函数参数
+  Scheme 原生的 list 函数可以接受任意个参数：(list 1 2) , (list 1 2 3) 等。可以使用类似 (lambda args body) 的形式来定义一个函数，其中 _args_  是 一个符号 可以支持任意数量的参数列表，而 _body_ 是过程体
+
+  实现不定长参数很简单： 只需要在 Env 类的构造器中增加校验 _形参名_ 是否是一个 _符号_ 
+  + 如果是一个符号，则 _形参_ 绑定到一个 _所有实参组成的列表_ 上
+  + 如果不是一个符号，则 _每个形参_ 按照顺序绑定到 _对应的实参_ 上
+
+  #+BEGIN_SRC python
+  class Env(dict):
+      "An environment: a dict of {'var':val} pairs, with an outer Env."
+      def __init__(self, parms=(), args=(), outer=None):
+	  # Bind parm list to corresponding args, or single parm to list of args
+	  self.outer = outer
+	  if isa(parms, Symbol): 
+	      self.update({parms:list(args)})
+	  else: 
+	      if len(args) != len(parms):
+		  raise TypeError('expected %s, given %s, ' 
+				  % (to_string(parms), to_string(args)))
+	      self.update(zip(parms,args))
+      def find(self, var):
+	  "Find the innermost Env where var appears."
+	  if var in self: return self
+	  elif self.outer is None: raise LookupError(var)
+	  else: return self.outer.find(var)
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    真实的 Scheme 还支持 (lambda (arg1 arg2 . rest) ...) 这种形式
+    这表示：arg1 是一个定长的形参名，而 arg2 是一个不定长度的形参符号
+
+    这需要支持 pair 的列表，但因为这里使用了 python 内置的 list 数据类型，因此无法支持这种形式
+  #+END_EXAMPLE
+
+* 语法检查和宏扩展
+  思考下面的定义错误的代码：
+  #+BEGIN_SRC scheme
+  (define f (lambda (x) (set! 3 x)))
+  (define g (lambda (3) (if (x = 0))))
+  (define h (lambda (x) (if (x = 0) 1 2 3)))
+  #+END_SRC
+
+  上个版本中，这些定义被求值的时候不会有任何的报错提示。直到这些过程被调用，才会有错误产生。通常情况下，错误应该越早被报出越好，所以这个版本希望语法错误在定义的时候就被检查到，而不是直到他们被调用才抛出
+
+  错误检查可以通过改进原有的 _parse_ 函数来实现。上个版本中 parse 被实现为一个 _解析S表达式_ 的过程，换句话说，任何符合 S 表达式的字符串都会被认为是合法的程序。现在版本会校验表达式的合法性：
+  + 每个特殊语法形式的 _参数数量_ 是否正确
+  + _set!_ 和 _define_ 是否作用在一个 _符号_
+  + _宏_ 和 _准引用_ 会被扩展
+
+  | 被扩展的表达式              | 扩展后的表达式                      |
+  | (begin)                     | None                                |
+  | (if test conseq)            | (if test conseq None)               |
+  | (define (f arg...) body...) | (define f (lambda (arg...) body...) |
+  | (lambda (arg...) e1 e2...)  | (lambda (arg...) (begin e1 e2...))  |
+  | `exp 和 (quasiquote exp)    | expand , and ,@ within exp          |
+  | (macro-name arg...)         | expansion of (macro-name arg...)    |
+
+  _parse_ 函数的实现如下：
+
+  #+BEGIN_SRC python
+  def parse(inport):
+      "Parse a program: read and expand/error-check it."
+      # Backwards compatibility: given a str, convert it to an InPort
+      if isinstance(inport, str): inport = InPort(StringIO.StringIO(inport))
+      return expand(read(inport), toplevel=True)
+  #+END_SRC
+
+  _expand_ 函数实现如下：
+
+  #+BEGIN_SRC python
+  def expand(x, toplevel=False):
+      "Walk tree of x, making optimizations/fixes, and signaling SyntaxError."
+      require(x, x!=[])                    # () => Error
+      if not isa(x, list):                 # constant => unchanged
+	  return x
+      elif x[0] is _quote:                 # (quote exp)
+	  require(x, len(x)==2)
+	  return x
+      elif x[0] is _if:                    
+	  if len(x)==3: x = x + [None]     # (if t c) => (if t c None)
+	  require(x, len(x)==4)
+	  return map(expand, x)
+      elif x[0] is _set:                   
+	  require(x, len(x)==3); 
+	  var = x[1]                       # (set! non-var exp) => Error
+	  require(x, isa(var, Symbol), "can set! only a symbol")
+	  return [_set, var, expand(x[2])]
+      elif x[0] is _define or x[0] is _definemacro: 
+	  require(x, len(x)>=3)            
+	  _def, v, body = x[0], x[1], x[2:]
+	  if isa(v, list) and v:           # (define (f args) body)
+	      f, args = v[0], v[1:]        #  => (define f (lambda (args) body))
+	      return expand([_def, f, [_lambda, args]+body])
+	  else:
+	      require(x, len(x)==3)        # (define non-var/list exp) => Error
+	      require(x, isa(v, Symbol), "can define only a symbol")
+	      exp = expand(x[2])
+	      if _def is _definemacro:     
+		  require(x, toplevel, "define-macro only allowed at top level")
+		  proc = eval(exp)       
+		  require(x, callable(proc), "macro must be a procedure")
+		  macro_table[v] = proc    # (define-macro v proc)
+		  return None              #  => None; add v:proc to macro_table
+	      return [_define, v, exp]
+      elif x[0] is _begin:
+	  if len(x)==1: return None        # (begin) => None
+	  else: return [expand(xi, toplevel) for xi in x]
+      elif x[0] is _lambda:                # (lambda (x) e1 e2) 
+	  require(x, len(x)>=3)            #  => (lambda (x) (begin e1 e2))
+	  vars, body = x[1], x[2:]
+	  require(x, (isa(vars, list) and all(isa(v, Symbol) for v in vars))
+		  or isa(vars, Symbol), "illegal lambda argument list")
+	  exp = body[0] if len(body) == 1 else [_begin] + body
+	  return [_lambda, vars, expand(exp)]   
+      elif x[0] is _quasiquote:            # `x => expand_quasiquote(x)
+	  require(x, len(x)==2)
+	  return expand_quasiquote(x[1])
+      elif isa(x[0], Symbol) and x[0] in macro_table:
+	  return expand(macro_table[x[0]](*x[1:]), toplevel) # (m arg...) 
+      else:                                #        => macroexpand if m isa macro
+	  return map(expand, x)            # (f arg...) => expand each
+  #+END_SRC
+
+  _expand_ 函数比起 _eval_ 函数大概长了一倍，这并不令人惊讶：
+  1. 它不但要处理正确的表达式，还要校验错误的表达式，并给出出错信息
+  2. 它需要支持宏扩展
+
+  _require_ 函数：校验表达式是否正确，如果不正确则抛错
+
+  #+BEGIN_SRC python
+  def require(x, predicate, msg="wrong length"):
+      "Signal a syntax error if predicate is false."
+      if not predicate: raise SyntaxError(to_string(x)+': '+msg)
+  #+END_SRC
+
+  expand _ quasiquote 函数：替换准引用
+  #+BEGIN_SRC python
+  def expand_quasiquote(x):
+      """Expand `x => 'x; `,x => x; `(,@x y) => (append x y) """
+      if not is_pair(x):
+	  return [_quote, x]
+      require(x, x[0] is not _unquotesplicing, "can't splice here")
+      if x[0] is _unquote:
+	  require(x, len(x)==2)
+	  return x[1]
+      elif is_pair(x[0]) and x[0][0] is _unquotesplicing:
+	  require(x[0], len(x[0])==2)
+	  return [_append, x[0][1], expand_quasiquote(x[1:])]
+      else:
+	  return [_cons, expand_quasiquote(x[0]), expand_quasiquote(x[1:])]
+  #+END_SRC
+
+* 更多原始过程
+  在add _ globals中添加更多的原始过程（函数）：
+
+  #+BEGIN_SRC python
+  def add_globals(self):
+      "Add some Scheme standard procedures."
+      import math, cmath, operator as op
+      self.update(vars(math))
+      self.update(vars(cmath))
+      self.update({
+       '+':op.add, '-':op.sub, '*':op.mul, '/':op.div, 'not':op.not_, 
+       '>':op.gt, '<':op.lt, '>=':op.ge, '<=':op.le, '=':op.eq, 
+       'equal?':op.eq, 'eq?':op.is_, 'length':len, 'cons':lambda x,y:[x]+list(y), 
+       'car':lambda x:x[0], 'cdr':lambda x:x[1:], 'append':op.add,  
+       'list':lambda *x:list(x), 'list?': lambda x:isa(x,list),
+       'null?':lambda x:x==[], 'symbol?':lambda x: isa(x, Symbol),
+       'boolean?':lambda x: isa(x, bool), 'pair?':is_pair, 
+       'port?': lambda x:isa(x,file), 'apply':lambda proc,l: proc(*l), 
+       'eval':lambda x: eval(expand(x)), 'load':lambda fn: load(fn), 'call/cc':callcc,
+       'open-input-file':open,'close-input-port':lambda p: p.file.close(), 
+       'open-output-file':lambda f:open(f,'w'), 'close-output-port':lambda p: p.close(),
+       'eof-object?':lambda x:x is eof_object, 'read-char':readchar,
+       'read':read, 'write':lambda x,port=sys.stdout:port.write(to_string(x)),
+       'display':lambda x,port=sys.stdout:port.write(x if isa(x,str) else to_string(x))})
+      return self
+
+  global_env = add_globals(Env())
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+  这里总共有75个左右的原始过程被定义，离 Scheme 标准大概还差80个左右没有被定义，如果想定义可以被添加在这里
+  #+END_EXAMPLE
+
+* 测试
+  [[https://github.com/klose911/klose911.github.io/blob/master/src/python/src/lisp/lispytest.py][lispytest.py]] 被用来测试当前版本的 lispy 实现
+
+  #+BEGIN_EXAMPLE
+    这个版本的lispy只能在 python2.7 运行， 不能在 python3 下运行
+  #+END_EXAMPLE

@@ -1,0 +1,202 @@
+#+TITLE: 数组
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: data_type.html   
+#+HTML_LINK_HOME: ../elisp.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+_序列_ 是 _列表_ 和 _数组_ 的统称，也就是说列表和数组都是序列。它们的共性是 _内部的元素_ 都是 *有序的* 。elisp 里的 _数组_ 包括 _字符串_ 、 _向量_ 、 _char-table_ 和 _布尔向量_ 。它们的关系可以用下面图表示：
+
+#+BEGIN_EXAMPLE
+
+  _____________________________________________
+  |                                             |
+  |          Sequence                           |
+  |  ______   ________________________________  |
+  | |      | |                                | |
+  | | List | |             Array              | |
+  | |      | |    ________       ________     | |
+  | |______| |   |        |     |        |    | |
+  |          |   | Vector |     | String |    | |
+  |          |   |________|     |________|    | |
+  |          |  ____________   _____________  | |
+  |          | |            | |             | | |
+  |          | | Char-table | | Bool-vector | | |
+  |          | |____________| |_____________| | |
+  |          |________________________________| |
+  |_____________________________________________|
+#+END_EXAMPLE
+
+数组有这样一些特性：
++ 数组内的 _元素_ 都对应一个 _下标_ ，第一个元素下标为 0，接下来是 1
+#+BEGIN_EXAMPLE
+数组内 的元素可以在常数时间内访问
+#+END_EXAMPLE
++ 数组在创建之后就 *无法改变* 它的 _长度_ 
++ 数组是 *自求值的* 
++ 数组里的元素都可以用 _aref_ 来访问，用 _aset_ 来设置
+
+* 比较
+  + 向量：可以看成是一种通用的数组，它的 *元素可以是任意的对象*
+  + 字符串：一种特殊的数组，它的 *元素只能是字符* 
+  #+BEGIN_EXAMPLE
+    如果元素是字符时，使用字符串相比向量更好，因为字符串需要的空间更少（只需要向量的1/4），输出更直观，能用文本属性
+
+    但是有时必须使用向量，比如存储按键序列
+
+    由于 char-table 和 bool-vector 使用较少
+  #+END_EXAMPLE
+
+* 测试
+  + _sequencep_ : 用来测试一个对象是否是一个序列
+  + _arrayp_ : 测试对象是否是数组
+  + _vectorp_: 测试对象是否是向量
+  + _char-table-p_ : 测试对象是否 char-table
+  + _bool-vector-p_ : 测试对象是否 bool-vector
+
+* 序列的通用函数
+  一个重要的函数 _length_ ，它可以得到 _序列的长度_ 
+
+  #+BEGIN_EXAMPLE
+    但是这个函数只对真列表有效，对于一个点列表和环形列表这个函数就不适用了
+
+    点列表会出参数类型不对的错误，而环形列表就更危险，会陷入死循环
+  #+END_EXAMPLE
+
+  如果不确定参数类型，不妨用 _safe-length_ ：
+
+  #+BEGIN_SRC lisp 
+  (safe-length '(a . b))                  ; => 1
+  (safe-length '#1=(1 2 . #1#))           ; => 3
+  #+END_SRC
+
+  取得序列里第 n 个元素可以用 _elt_ 函数
+  #+BEGIN_EXAMPLE
+    对于已知类型的序列，还是用对应的函数比较好。也就是说，如果是列表就用 nth，如果是数组就用 aref
+
+    这样一方面是省去 elt 内部的判断，另一方面读代码时能很清楚知道序列的类型
+  #+END_EXAMPLE
+
+  _copy-sequence_ 在前面已经提到了
+
+  #+BEGIN_EXAMPLE
+    不过同样 copy-sequence 不能用于点列表和环形列表
+
+    对于点列表可以用 copy-tree 函数
+
+    环形列表就没有办法复制了。 好在这样的数据结构很少用到
+  #+END_EXAMPLE
+
+* 数组操作
+  创建字符串已经说过了。创建向量可以用 _vector_ 函数：
+
+  #+BEGIN_SRC lisp 
+  (vector 'foo 23 [bar baz] "rats")
+  #+END_SRC
+
+  也可以直接用 _向量的读入语法_ 创建向量，但是由于数组是 _自求值的_ ，所以这样得到的向量和原来是一样的，也就是说 *参数不进行求值* ，看下面的例子就明白了：
+
+  #+BEGIN_SRC lisp 
+  (setq foo '(a b)) 
+  foo                                     ; => (a b)
+  [foo]                                   ; => [foo]
+  (vector foo)                            ; => [(a b)]
+  #+END_SRC
+
+  用 _make-vector_ 可以生成元素相同的向量
+
+  #+BEGIN_SRC lisp 
+  (make-vector 9 'Z)                      ; => [Z Z Z Z Z Z Z Z Z]
+  #+END_SRC
+
+  _fillarray_ 可以把整个数组用某个元素填充 
+
+  #+BEGIN_SRC lisp 
+  (fillarray (make-vector 3 'Z) 5)        ; => [5 5 5]
+  #+END_SRC
+
+  _aref_ 和 _aset_ 可以用于访问和修改数组的元素
+
+  #+BEGIN_EXAMPLE
+    如果使用下标超出数组长度的话，会产生一个错误。所以要先确定数组的长度才能用这两个函数！！
+  #+END_EXAMPLE
+
+  _vconcat_ 可以把多个序列连接成一个向量。但是这个序列必须是 *真列表* 。这也是把列表转换成向量的方法 
+
+  #+BEGIN_SRC lisp 
+  (vconcat [A B C] "aa" '(foo (6 7)))     ; => [A B C 97 97 foo (6 7)]
+  #+END_SRC
+
+  把向量转换成列表可以用 append 函数 
+
+* 应用
+
+** 测试列表是否是环形列表
+   这个算法是从 safe-length 定义中得到的。可以直接看它的源码
+
+   #+BEGIN_SRC lisp 
+  (defun circular-list-p (list)
+    (and (consp list)
+	 (circular-list-p-1 (cdr list) list 0)))
+
+  (defun circular-list-p-1 (tail halftail len)
+    (if (eq tail halftail)
+	t
+      (if (consp tail)
+	  (circular-list-p-1 (cdr tail)
+			     (if (= (% len 2) 0)
+				 (cdr halftail)
+			       halftail)
+			     (1+ len))
+	nil)))
+   #+END_SRC
+
+** 转换字符的 tr 函数
+   #+BEGIN_EXAMPLE
+     如果知道 elisp 的 let 绑定和循环的使用方法，不妨试试实现一个 elisp 的 tr 函数，它接受三个参数：
+     1. 要操作的字符串
+     2. 要替换的字符集
+     3. 对应的替换后的字符集（当它是空集时，删除字符串中所有对应的字符）
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC lisp 
+  (defun my-tr (str from to)
+    (if (= (length to) 0)                 ; 空字符串
+	(progn
+	  (setq from (append from nil))
+	  (concat
+	   (delq nil
+		 (mapcar (lambda (c)
+			   (if (member c from)
+			       nil c))
+			 (append str nil)))))
+	(let (table newstr pair)
+	  ;; 构建转换表
+	  (dotimes (i (length from))
+	    (push (cons (aref from i) (aref to i)) table))
+	  (dotimes (i (length str))
+	    (push
+	     (if (setq pair (assoc (aref str i) table))
+		 (cdr pair)
+		 (aref str i))
+	     newstr))
+	  (concat (nreverse newstr) nil))))
+   #+END_SRC
+
+   这里用到的 dotimes 函数相当于一个 C 里的 for 循环。如果改写成 while 循环，相当于：
+   #+BEGIN_SRC lisp 
+  (let (var)
+    (while (< var count)
+      body
+      (setq var (1+ var)))
+    result)
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     从这个例子也可以看出，由于列表具有丰富的函数和可变长度，使列表比数组使用更方便，而且效率往往更高
+   #+END_EXAMPLE
+
+   [[file:symbol.org][Next：符号]]
+
+   [[file:list.org][Previous：列表]]
+
+   [[file:data_type.org][Top：数据类型]]

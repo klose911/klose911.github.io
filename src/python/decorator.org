@@ -1,0 +1,357 @@
+#+TITLE: Python装饰器
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+想理解Python的装饰器，首先要知道在Python中函数也是一个对象，所以可以：
++ 将函数赋值给变量
++ 将函数当做参数
++ 返回一个函数
+  
+* 引子
+  如果想在login函数中输出调试信息，可以这样做：
+  #+BEGIN_SRC python
+    #!/usr/bin/python
+    # -*- coding:utf-8 -*-  
+    #Filename: print_debug.py
+
+    def login():
+        print('in login')
+        
+    def printdebug(func):
+        print('enter the login')
+        func()
+        print('exit the login')
+        
+    printdebug(login)
+  #+END_SRC
+  测试结果：
+  #+BEGIN_SRC
+   enter the login
+   in login
+   exit the login
+  #+END_SRC
+  缺点就是每次调用login都通过printdebug来调用
+  
+* 函数式调用
+  既然函数可以作为返回值，可以赋值给变量，那让代码优美一点：
+  #+BEGIN_SRC python
+    #!/usr/bin/python
+    # -*- coding:utf-8 -*-  
+    #Filename: print_debug_with_function.py
+
+    def login():
+        print('in login')
+        
+    def printdebug(func): #func函数作为参数传入
+        def __decorator():
+            print('enter the login')
+            func()
+            print('exit the login')
+        return __decorator  #函数作为返回值
+
+    debug_login = printdebug(login)  #将函数赋值给变量
+
+    debug_login()  #通过变量来调用的函数
+  #+END_SRC
+  这样每次只要调用debug_login就可以了。将原先的两个函数printdebug和login绑定到一起，成为debug_login。这种耦合叫内聚
+  
+* 语法糖
+  printdebug和login是通过
+  #+BEGIN_SRC python
+  debug_login = printdebug(login)
+  #+END_SRC
+  来结合的，但这似乎也是多余的，我们希望在定义login上加个标注，从而将printdebug和login结合起来。Python的解决方案是提供一个语法糖，用一个@符号来结合它们：
+  #+BEGIN_SRC python
+  def printdebug(func):
+      def __decorator():
+          print('enter the login')
+          func()
+          print('exit the login')
+      return __decorator  
+
+  @printdebug  #把login做为func的实际参数传入printdebug的
+  def login():
+      print('in login')
+      
+  login()  #使得调用更加自然, 实际上是在调用printdebug(login)()
+  #+END_SRC
+  __decorator函数就是一个：使用函数作参数并且返回函数的函数。这样改进的好处是：
++ 更简短的代码，将结合点放在函数定义时
++ 不改变原函数的函数名
+  
+事实上在Python解释器发现login调用时，会将login转换为：
+#+BEGIN_SRC python
+  printdebug(login)()
+
+  __decorator ()
+#+END_SRC
+也就是说真正执行的是__decorator(把func绑定成实参login函数)这个函数
+
+* 加上参数
+  
+** login函数有参数
+   login函数可能有参数，比如login的时候传人user的信息。也就是说，要这样调用login：
+   #+BEGIN_SRC python
+login(user)
+   #+END_SRC
+   Python会将login的参数直接传给__decorator这个函数。因此可以直接在__decorator中使用user变量：
+   #+BEGIN_SRC python
+     #!/usr/bin/python
+     # -*- coding:utf-8 -*-  
+     #Filename: login_with_param_decorator.py
+     def printdebug(func):
+         def __decorator(user):    # 增加传递给login的参数
+             print('enter the login')
+             func(user)  # login调用带上参数
+             print('exit the login')
+         return __decorator  
+
+     @printdebug 
+     def login(user):
+         print('in login:' + user)
+         
+     login('jatsz')  # 真实调用是__decorator('jatsz') 
+   #+END_SRC
+   
+   测试结果:
+   #+BEGIN_SRC
+enter the login
+in login:jatsz
+exit the login
+   #+END_SRC
+   
+   事实上的调用过程是：
+   #+BEGIN_SRC python
+  login('jatsz')
+
+  printdebug(login)('jatsz')
+
+  __decorator('jatsz') 
+   #+END_SRC
+   
+** 装饰器本身有参数
+   在定义decorator时，也可以带入参数，比如这样使用decorator，传入一个参数来指定debug level
+   #+BEGIN_SRC python
+  #!/usr/bin/python
+  # -*- coding:utf-8 -*-  
+  #Filename: decorator_with_param.py
+
+  def printdebug_level(level):  #通过wrapper来增加装饰器的参数
+      def printdebug(func):
+          def __decorator(user):    
+              print('enter the login, and debug level is: ' + str(level)) #打印debug等级
+              func(user)  
+              print('exit the login')
+          return __decorator  
+      return printdebug    #返回原始的装饰器
+
+  @printdebug_level(level=5)   #传入装饰器的debug等级参数为5
+  def login(user):
+      print('in login:' + user)
+      
+  login('jatsz') #等价于printdebug_level(5) (login) ('jatsz') 
+   #+END_SRC
+   测试结果：
+   #+BEGIN_SRC
+     enter the login, and debug level is: 5
+     in login:jatsz
+     exit the login
+   #+END_SRC
+   此时的pringdebug函数相当于pringdebug_level(5) 
+   
+* 装饰有返回值的函数
+  有时候login会有返回值，比如返回message来表明login是否成功：
+  #+BEGIN_SRC python
+  login_result = login(‘jatsz’)
+  #+END_SRC
+  
+  这时候需要将返回值在decorator和调用函数间传递：
+  #+BEGIN_SRC python
+  #!/usr/bin/python
+  # -*- coding:utf-8 -*-  
+  #Filename: decorator_return_result.py
+
+  def printdebug(func):
+      def __decorator(user):    
+          print('enter the login')
+          result = func(user)  
+          print('exit the login')
+          return result        #在装饰器函数返回调用func的结果
+      return __decorator  
+   
+  @printdebug 
+  def login(user):
+      print('in login:' + user)
+      msg = "success" if user == "jatsz" else "fail"
+      return msg  # login函数返回结果
+   
+  result1 = login('jatsz')
+  print(result1) #success 
+   
+  result2 = login('candy')
+  print (result2) #fail
+  #+END_SRC
+  测试结果：
+  #+BEGIN_SRC
+enter the login
+in login:jatsz
+exit the login
+success
+
+enter the login
+in login:candy
+exit the login
+fail
+  #+END_SRC
+  
+* 多个装饰器
+  可以对一个函数应用多个装饰器，这时需要留心的是应用装饰器的顺序对结果会产生影响。例如：
+  #+BEGIN_SRC python
+    #!/usr/bin/python
+    # -*- coding:utf-8 -*-  
+    #Filename: multiple_decorators.py
+
+    def printdebug(func):
+        def __decorator():    
+            print('enter the login')
+            func() 
+            print('exit the login')
+        return __decorator  
+
+    def others(func):    
+        def __decorator():
+            print ('***other decorator***')
+            func()
+        return __decorator
+
+    @others         #相当于others(printdebug(login)) ()
+    @printdebug
+    def login():
+        print('in login:')
+        
+    @printdebug    #相当于printdebug(others(login)) ()
+    @others
+    def logout():
+        print('in logout:')
+        
+    login()
+    print('---------------------------') 
+    logout()
+  #+END_SRC
+  测试结果：
+  #+BEGIN_SRC
+  ***other decorator***
+  enter the login
+  in login:
+  exit the login
+  ---------------------------
+  enter the login
+  ***other decorator***
+  in logout:
+  exit the login
+  #+END_SRC
+  login和logout输出截然相同。造成这个输出不同的原因是应用装饰器的顺序不同。回头看看login的定义，是先应用others，然后才是printdebug。而logout函数正好相反，在逻辑上可以将logout函数应用装饰器的过程这样看：
+  #+BEGIN_SRC python
+  @printdebug    
+  (
+      @others
+      (
+          def logout():
+              print('in logout:')
+      )
+  )
+  #+END_SRC
+  
+* 灵活运用
+  装饰器不能对函数的一部分应用，只能作用于整个函数。假如想对下面这行语句应用装饰器：
+  #+BEGIN_SRC python
+  msg = "success" if user == "jatsz" else "fail"
+  #+END_SRC
+  
+  那就需要对这行代码提取出一个函数，然后再对它应用修饰器：
+  #+BEGIN_SRC python
+  #!/usr/bin/python
+  # -*- coding:utf-8 -*-  
+  #Filename: validator_decorator.py
+
+  def printdebug(func):
+      def __decorator(user):    
+          print('enter the login')
+          result = func(user) 
+          print('exit the login')
+          return result      
+      return __decorator  
+   
+  def login(user):
+      print('in login:' + user)
+      msg = validate(user)  #抽取要应用修饰器的方法
+      return msg  
+   
+  @printdebug  #对validate函数应用修饰器
+  def validate(user):
+      msg = "success" if user == "jatsz" else "fail"
+      return msg
+   
+  result1 = login('jatsz');
+  print (result1)
+  #+END_SRC
+  测试结果：
+  #+BEGIN_SRC
+  in login:jatsz
+  enter the login
+  exit the login
+  success
+  #+END_SRC
+  
+  实际上validate往往是个耗时的过程。为了提高应用的性能，会将validate的结果cache一段时间(30 seconds)，借助decorator和上面的方法，可以这样实现：
+  #+BEGIN_SRC python
+  #!/usr/bin/python
+  # -*- coding:utf-8 -*-  
+  #Filename: cache_validator.py
+
+  import time
+
+  dictcache = {}
+
+  def cache(func):
+      def __decorator(user):    
+          now = time.time()
+          if (user in dictcache):
+              result,cache_time = dictcache[user]
+              if (now - cache_time) > 30:  #cache expired
+                  result = func(user)
+                  dictcache[user] = (result, now)  #cache the result by user
+              else:
+                  print('cache hits')
+          else:
+              result = func(user)
+              dictcache[user] = (result, now)
+          return result      
+      return __decorator  
+
+  def login(user):
+      print('in login:' + user)
+      msg = validate(user)  
+      return msg  
+
+  @cache  #apply the cache for this slow validation
+  def validate(user):
+      time.sleep(5)  #simulate 10 second block
+      msg = "success" if user == "jatsz" else "fail"
+      return msg
+
+  result1 = login('jatsz'); print (result1)  
+  result2 = login('jatsz'); print (result2)    #this login will return immediately by hit the cache
+  result3 = login('candy'); print (result3)
+  #+END_SRC
+  测试结果：
+  #+BEGIN_SRC
+  in login:jatsz
+  success
+
+  in login:jatsz
+  cache hits
+  success
+
+  in login:candy
+  fail
+  #+END_SRC

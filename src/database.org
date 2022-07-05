@@ -1,0 +1,143 @@
+#+TITLE: 数据库知识
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil
+* cluster index 
+** 聚集索引
+表中存储的数据按照索引的顺序存储 
++ 搜索效率高
++ 只能有1个，一般是主键
++ 更新数据影响大 
+** 非聚集索引
+数据存储在一个地方，索引存储在另一个地方，索引带有指针指向数据的存储位置
+1. 搜索效率稍低
+2. 能有多个
+3. 更新数据影响小 
+    # [[pic/cluster.jpg]]
+    
+* 事务隔离级别
+1. Read uncommitted 脏读 
+2. Read committed 不可重复读 Sql Server , Oracle
+3. Repeatable read 幻读 Mysql  
+4. Serializable 顺序执行，很少用
+    #+CAPTION: 事务隔离级别 
+    |                  | 脏读 | 不可重复读 | 幻读 |
+    |------------------+------+------------+------|
+    | Read uncommitted | √   | √         | √   |
+    |------------------+------+------------+------|
+    | Read committed   | ×   | √         | √   |
+    |------------------+------+------------+------|
+    | Repeatable read  | ×   | ×         | √   |
+    |------------------+------+------------+------|
+    | Serializable     | ×   | ×         | ×   |
+    |------------------+------+------------+------|
+
+* truncate和delete 
+1. delete会产生rollback的log，truncate不产生，速度快
+2. truncate只适用表
+3. truncate会释放空间，delete不会
+4. truncate会回滚high water mark，delete不会
+5. truncate是DDL操作，delete是DML操作
+   
+* group by，having，distinct
+1. HAVING后的条件不能用别名COUNT>3 必须使用COUNT(*) >3，否则报列名 "COUNT" 无效
+2. having子句中的每一个元素并不一定要出现在select列表中
+3. 使用GROUP BY 子句时，SELECT列表中的非汇总列必须为GROUP BY列表中的项
+4. ORDER BY 子句中的列必须出现在GROUP BY的列表项中 
+   
+* 优化SQL 
+** 选择最有效率的表名顺序 
+*** 数据库往往从右到左的顺序处理FROM子句中的表名
++ 选择记录条数最少的表作为基础表
++ 选择交叉表作为基础表 
+** WHERE子句中的连接顺序 
+*** 数据库往往自下而上的顺序解析WHERE子句
++ 过滤掉最大数量记录的条件必须写在WHERE子句的末尾 
+** SELECT子句中避免使用*
+** 尽量减少访问数据库的次数
+** 使用rowId高效删除重复记录
+   #+BEGIN_SRC sql
+     DELETE FROM EMP E
+     WHERE E.ROWID >
+           (SELECT MIN(X.ROWID) 
+                   FROM EMP X
+                   WHERE X.EMP_NO = E.EMP_NO);
+   #+END_SRC
+** 用TRUNCATE替代DELETE 
+** 尽量多使用COMMIT 
+*** COMMIT会释放的资源
++ 回滚段上用于恢复数据的信息
++ 释放程序语句获得的锁
++ redo log buffer 中的空间
+** 用Where子句替换HAVING子句 
+*** HAVING只会在检索出所有记录之后才对结果集进行过滤
+** 减少表的查询
+** 通过内部函数提高SQL效率 
+** 使用表的别名(Alias) 
+*** 使用表的别名并把别名前缀于每个Column上,可以减少解析的时间
+** 用EXISTS替代IN、用NOT EXISTS替代NOT IN
+*** exists 会尽量利用索引，而IN往往是全表查询 
+** 用EXISTS替换DISTINCT 
+   #+BEGIN_SRC sql
+     /*低效*/ 
+     SELECT DISTINCT DEPT_NO,DEPT_NAME FROM DEPT D , EMP E 
+     WHERE D.DEPT_NO = E.DEPT_NO 
+     /*高效*/  
+     SELECT DEPT_NO,DEPT_NAME FROM DEPT D WHERE EXISTS ( SELECT ‘X' 
+     FROM EMP E WHERE E.DEPT_NO = D.DEPT_NO); 
+   #+END_SRC
+** 用索引提高效率 
+*** 避免在索引上使用NOT 
+*** 避免在索引列上使用计算 
+    #+BEGIN_SRC sql
+      /* 低效 */
+      SELECT … FROM DEPT WHERE SAL * 12 > 25000; 
+      /* 高效 */ 
+      SELECT … FROM DEPT WHERE SAL > 25000/12; 
+    #+END_SRC
+*** 避免在索引列上使用IS NULL和IS NOT NULL 
+*** 总是使用索引的第一个列 
++ 索引是建立在多个列上, 只有在它的第一个列(leading column)被where子句引用时,优化器才会选择使用该索引 
+*** 当心索引失效
++ ‘!=' 将不使用索引。索引只能告诉你什么存在于表中, 而不能告诉你什么不存在于表中
++ ‘||'是字符连接函数。就象其他函数那样, 停用了索引
++ ‘+'是数学函数。就象其他数学函数那样, 停用了索引
++ 相同的索引列不能互相比较,这将会启用全表扫描
+*** 查询中不要改变索引列的数据类型 
+** 用>=替代> 
+    #+BEGIN_SRC sqlite
+      /* 高效 直接跳到第一个DEPT等于4的记录 */ 
+      SELECT * FROM EMP WHERE DEPTNO >=4 
+      /* 低效 首先定位到DEPTNO=3的记录并且向前扫描到第一个DEPT大于3的记录 */ 
+      SELECT * FROM EMP WHERE DEPTNO >3 
+    #+END_SRC
+** 用UNION替换OR (适用于索引列) 
+** 用UNION-ALL替换UNION 
+** 带有DISTINCT,UNION,MINUS,INTERSECT,ORDER BY的SQL语句会启动SQL引擎执行耗费资源的排序(SORT)功能 
+** 将不需要的记录在GROUP BY之前过滤掉
+   #+BEGIN_SRC sqlite
+     /* 低效 */  
+     SELECT JOB , AVG(SAL) 
+     FROM EMP 
+     GROUP BY JOB 
+     HAVING JOB = ‘PRESIDENT' 
+         OR JOB = ‘MANAGER' 
+     /* 高效 */ 
+     SELECT JOB , AVG(SAL) 
+     FROM EMP 
+     WHERE JOB = ‘PRESIDENT' 
+         OR JOB = ‘MANAGER' 
+     GROUP BY JOB 
+   #+END_SRC
+** sql profile 语句
+   #+BEGIN_SRC sqlite
+     SELECT EXECUTIONS , DISK_READS, BUFFER_GETS, 
+     ROUND((BUFFER_GETS-DISK_READS)/BUFFER_GETS,2) Hit_radio, 
+     ROUND(DISK_READS/EXECUTIONS,2) Reads_per_run, 
+     SQL_TEXT 
+     FROM V$SQLAREA 
+     WHERE EXECUTIONS>0 
+     AND BUFFER_GETS > 0 
+     AND (BUFFER_GETS-DISK_READS)/BUFFER_GETS < 0.8 
+     ORDER BY 4 DESC; 
+   #+END_SRC
+

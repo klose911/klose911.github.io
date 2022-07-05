@@ -1,0 +1,1442 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>编译器优化</title>
+<meta name="generator" content="Org mode" />
+<meta name="author" content="Wu, Shanliang" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { width: 90%; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2018 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="thread_safe.html"> UP </a>
+ |
+ <a accesskey="H" href="jvm.html"> HOME </a>
+</div><div id="content">
+<h1 class="title">编译器优化</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#orgfc90955">Javac编译器</a>
+<ul>
+<li><a href="#org685aff3">Javac的源码与调试</a></li>
+<li><a href="#org2f762e4">解析与填充符号表</a>
+<ul>
+<li><a href="#orgaeb8ad5">词法、语法分析</a></li>
+<li><a href="#orgf8e3287">填充符号表</a></li>
+</ul>
+</li>
+<li><a href="#org751c3ce">注解处理器</a></li>
+<li><a href="#org54f0b0f">语义分析与字节码生成</a>
+<ul>
+<li><a href="#org5939ccf">标注检查</a></li>
+<li><a href="#org29a3911">数据及控制流分析</a></li>
+<li><a href="#org4ed6a32">解语法糖</a></li>
+<li><a href="#org47e7ab9">字节码生成</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org217839f">语法糖</a>
+<ul>
+<li><a href="#orgbfffb1a">泛型与类型擦除</a></li>
+<li><a href="#orgb21c9cf">自动装箱、拆箱与遍历循环</a></li>
+<li><a href="#org6f66d3e">条件编译</a></li>
+</ul>
+</li>
+<li><a href="#orgcb16c62">插入式注解处理器</a>
+<ul>
+<li><a href="#org7a22a99">代码实现</a></li>
+<li><a href="#org0bbc9f9">运行测试</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<p>
+Java语言的 <b>编译期</b> 其实是一段 <span class="underline">不确定</span> 的操作过程，因为它可能是：
+</p>
+<ul class="org-ul">
+<li><b>前端</b> 编译器: 把 <span class="underline">java文件</span> 转化为 <span class="underline">class文件</span> 的过程</li>
+<li><b>后端</b> 运行期编译器（JIT编译器）: 把 <span class="underline">字节码</span> 转化为 <span class="underline">机器码</span> 的过程</li>
+<li><b>静态提前</b> 编译器（AOT编译器）：直接把 <span class="underline">java文件</span> 编译成 <span class="underline">本地机器代码</span> 的过程</li>
+</ul>
+
+<p>
+下面列举了这3类编译过程中一些比较有代表性的编译器：
+</p>
+<ol class="org-ol">
+<li>前端编译器：
+<ul class="org-ul">
+<li>Sun的Javac</li>
+<li>Eclipse JDT中的增量式编译器</li>
+</ul></li>
+<li>JIT编译器：
+<ul class="org-ul">
+<li>HotSpot VM的C1编译器</li>
+<li>HotSpot VM的C2编译器</li>
+</ul></li>
+<li>AOT编译器：
+<ul class="org-ul">
+<li>GNU Compiler for the Java(GCJ)</li>
+<li>Excelsior JET</li>
+</ul></li>
+</ol>
+
+<pre class="example">
+  这3类过程中最符合大家对Java程序编译认知的应该是第一类
+  这里提到的“编译期”和“编译器”都仅限于第一类编译过程
+
+  把第二类编译过程留到以后中讨论
+</pre>
+
+<p>
+限制了编译范围后，对于 <span class="underline">优化</span> 二字的定义就需要宽松一些，因为Javac这类编译器对代码的运行效率几乎没有任何优化措施。虚拟机设计团队把对性能的优化集中到了后端的即时编译器中，这样可以让那些不是由Javac产生的Class文件（如JRuby、Groovy等语言的Class文件）也同样能享受到编译器优化所带来的好处。但是Javac做了许多针对Java语言编码过程的优化措施来改善程序员的编码风格和提高编码效率。相当多新生的Java语法特性，都是靠编译器的 <b>语法糖</b> 来实现，而不是依赖虚拟机的底层改进来支持，可以说：
+</p>
+<ul class="org-ul">
+<li><span class="underline">即时编译器</span> 在运行期的优化过程对于 <b>程序运行</b> 来说更重要</li>
+<li><span class="underline">前端编译器</span> 在编译期的优化过程对于 <b>程序编码</b> 来说关系更加密切</li>
+</ul>
+
+<div id="outline-container-orgfc90955" class="outline-2">
+<h2 id="orgfc90955">Javac编译器</h2>
+<div class="outline-text-2" id="text-orgfc90955">
+<p>
+分析源码是了解一项技术的实现内幕最有效的手段，Javac编译器不像HotSpot虚拟机那样使用C++语言（包含C少量C语言）实现，它本身就是一个由Java语言编写的程序，这为纯Java的程序员了解它的编译过程带来了很大的便利
+</p>
+</div>
+
+<div id="outline-container-org685aff3" class="outline-3">
+<h3 id="org685aff3">Javac的源码与调试</h3>
+<div class="outline-text-3" id="text-org685aff3">
+<p>
+Javac的源码存放在JDK_SRC_HOME/langtools/src/share/classes/com/sun/tools/javac中，除了JDK自身的API外，就只用了JDK_SRC_HOME/langtools/src/share/classes/com/sum/*里面的代码，调试环境建立起来简单方便，因为基本上不需要处理依赖关系
+</p>
+
+<p>
+导入了Javac的源码后，就可以运行 <span class="underline">com.sun.tools.javac.Main</span> 的 <b>main()</b> 方法来执行编译了，与命令行中使用的Javac的命令没有什么区别
+</p>
+
+<pre class="example">
+     虚拟机规范严格定义了Class文件的格式
+
+     《JVM虚拟机规范（第二版）》中，虽然有专门的一章“Compiling for the Java Virtual Machine”，
+     但都是以举例的形式描述，并没有如何把Java源码文件转变为Class文件的编译过程进行十分严格的定义，
+     这导致Class文件编译在某种程度上是与具体JDK实现相关的
+
+     在一些极端情况，可能出现一段代码Javac编译器可以编译，但是ECJ编译器就不可以编译的问题
+</pre>
+
+<p>
+从Sun Javac的代码来看，编译过程大致可以分为3个过程，分别是：
+</p>
+<ol class="org-ol">
+<li><b>解析与填充符号表</b> 过程</li>
+<li>插入式注解处理器的 <b>注解处理</b> 过程</li>
+<li>分析与 <b>字节码生成</b> 过程</li>
+</ol>
+
+<p>
+这三个步骤之间的关系与交互顺序如图所示：
+</p>
+
+<div class="figure">
+<p><img src="pic/javac-compilation.jpg" alt="javac-compilation.jpg" width="70%" /> 
+</p>
+</div>
+
+<p>
+Javac编译动作的入口是 <b>com.sun.tools.javac.main.JavaCompiler</b> 类，上述3个过程的代码逻辑集中在这个类的 <span class="underline">compile()</span> 和 <span class="underline">compile2()</span> 方法中，其中主体代码如图所示，整个编译最关键的处理就由图中标注的8个方法来完成：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/JavaCompiler.jpg" alt="JavaCompiler.jpg" width="70%" /> 
+</p>
+</div>
+
+
+<div class="figure">
+<p><img src="pic/JavaCompiler.png" alt="JavaCompiler.png" width="70%" /> 
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org2f762e4" class="outline-3">
+<h3 id="org2f762e4">解析与填充符号表</h3>
+<div class="outline-text-3" id="text-org2f762e4">
+<p>
+解析步骤由 <span class="underline">parseFiles()</span>  方法完成，解析步骤包括了经典程序编译原理中的 <b>词法分析</b> 和 <b>语法分析</b> 两个过程 
+</p>
+</div>
+
+<div id="outline-container-orgaeb8ad5" class="outline-4">
+<h4 id="orgaeb8ad5">词法、语法分析</h4>
+<div class="outline-text-4" id="text-orgaeb8ad5">
+<p>
+词法分析：将源代码的 <span class="underline">字符流</span> 转变为 <span class="underline">标记</span> (Token) 集合
+</p>
+<ul class="org-ul">
+<li>单个字符是程序编写过程的最小元素，而标记则是 <b>编译过程的最小元素</b></li>
+<li>关键字、变量名、字面量、运算符都可以成为标记</li>
+<li>在 Javac 的源码中词法分析过程由 <b>com.sun.tools.javac.parser.Scanner</b> 类来实现</li>
+</ul>
+
+<pre class="example">
+      如 “int a=b+2” 这句代码包含了 6 个标记，分别是 int、a、=、b、+、2
+
+      虽然关键字 int 由 3 个字符构成，但是它只是一个 Token，不可再拆分
+</pre>
+<p>
+语法分析：根据 <span class="underline">Token 序列</span> 构造 <span class="underline">抽象语法树</span> 的过程
+</p>
+<ul class="org-ul">
+<li>抽象语法树(AST)：一种用来 <b>描述程序代码语法结构</b> 的树形表示方式
+<ul class="org-ul">
+<li>语法树的每一个节点都代表着程序代码中的一个语法结构(Construct)</li>
+</ul></li>
+<li>在 Javac 的源码中，语法分析过程由 <b>com.sun.tools.javac.parser.Parser</b> 类实现</li>
+<li>这个阶段产出的抽象语法树由 <b>com.sun.tools.javac.tree.JCTree</b> 类表示</li>
+</ul>
+<pre class="example">
+      例如 包 、 类型 、 修饰符 、 运算符 、 接口 、 返回值 甚至 代码注释 等都可以是一个语法结构
+</pre>
+
+<p>
+下图是根据 Eclipse AST View 插件分析出来的某段代码的抽象语法树视图，可以通过这张图对抽象语法树有一个直观的认识：
+</p>
+
+<div class="figure">
+<p><img src="pic/javac-ast.jpg" alt="javac-ast.jpg" width="70%" /> 
+</p>
+</div>
+
+<p>
+经过这个步骤之后，编译器就基本不会再对源码文件进行操作了，后续的操作都建立在抽象语法树之上
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgf8e3287" class="outline-4">
+<h4 id="orgf8e3287">填充符号表</h4>
+<div class="outline-text-4" id="text-orgf8e3287">
+<p>
+完成了语法分析和词法分析之后，下一步就是填充符号表的过程，也就是 <b>enterTrees()</b> 方法（过程 1.2）所做的事情：
+</p>
+<ul class="org-ul">
+<li>符号表(Symbol Table)：由一组 <b>符号地址</b> 和 <b>符号信息</b> 构成的表格，可以把它想象成哈希表中 K-V 值对的形式</li>
+<li>符号表中所登记的信息在编译的不同阶段都要用到：
+<ul class="org-ul">
+<li><span class="underline">语义分析</span> 中，符号表所登记的内容将用于 <b>语义检查</b> （如检查一个名字的使用和原先的说明是否一致）和产生 <b>中间代码</b></li>
+<li><span class="underline">目标代码</span> 生成阶段，当对符号名进行地址分配时， 符号表是 <b>地址分配的依据</b></li>
+</ul></li>
+</ul>
+
+<pre class="example">
+      实际上符号表不一定是哈希表实现，可以是有序符号表、树状符号表、栈结构符号表等
+</pre>
+
+<p>
+在 Javac 源代码中，填充符号表的过程由 <b>com.sun.tools.javac.comp.Enter</b> 类实现：
+</p>
+<ul class="org-ul">
+<li>此过程的出口是一个待处理列表（To Do List），包含了：
+<ul class="org-ul">
+<li>每一个编译单元的抽象语法树的顶级节点</li>
+<li>package-info.java（如果存在的话）的顶级节点</li>
+</ul></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org751c3ce" class="outline-3">
+<h3 id="org751c3ce">注解处理器</h3>
+<div class="outline-text-3" id="text-org751c3ce">
+<pre class="example">
+      在JDK1.5之后，Java语言提供了对 注解 (Annotation)的支持
+
+     这些注解与普通的Java代码一样，是在 运行期间 发挥作用的
+</pre>
+
+<p>
+在JDK1.6中实现了 <span class="underline">JSR-269</span> 规范，提供了一组 <b>插入式注解处理器的标准API</b> 在 <b>编译期间对注解</b> 进行处理，可以把它看做是一组 <span class="underline">编译器的插件</span> 
+</p>
+<ul class="org-ul">
+<li>在这些插件里面，可以 <span class="underline">读取</span> 、 <span class="underline">修改</span> 、 <span class="underline">添加</span> <b>抽象语法树</b> 中的 <b>任意元素</b></li>
+<li>如果这些插件在处理注解期间对语法树进行了修改，编译器将回到解析及填充符号表的过程重新处理，直到所有插入式注解处理器都没有再对语法树进行修改为止：每一次循环称为一个Round</li>
+</ul>
+
+<pre class="example">
+     有了编译器注解处理的标准API后，代码才有可能干涉编译器的行为
+
+     由于语法树中的任意元素，甚至包括代码注释都可以在插件之中访问到，所以通过插入式注解处理器实现的插件在功能上有很大的发挥空间
+
+     只要有足够的创意，程序员可以使用插入式注解处理器来实现许多原本只能在编码中完成的事情
+</pre>
+
+<p>
+在Javac源码中，插入式注解处理器的初始化过程是在 <span class="underline">initPorcessAnnotations()</span> 方法中完成的，而它的执行过程则是在 <span class="underline">processAnnotations()</span> 方法中完成的，这个方法判断是否还有新的注解处理器需要执行，如果有的话，通过 <b>com.sun.tools.javac.processing.JavacProcessingEnvironment</b> 类的 <span class="underline">doProcessing()</span> 方法生成一个新的JavaCompiler对象对编译的后续步骤进行处理
+</p>
+</div>
+</div>
+
+<div id="outline-container-org54f0b0f" class="outline-3">
+<h3 id="org54f0b0f">语义分析与字节码生成</h3>
+<div class="outline-text-3" id="text-org54f0b0f">
+<p>
+语法分析之后，编译器获得了程序代码的抽象语法树表示，语法树能表示一个结构正确的源程序的抽象，但无法保证源程序是符合逻辑的。而语义分析的主要任务是对 <b>结构上正确的源程序</b> 进行 <b>上下文有关性质的审查</b> ，如进行 <span class="underline">类型审查</span> 。举个例子，假设有如下的 3 个变量定义语句：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">a</span> = 1;  
+<span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">b</span> = <span style="color: #ffd700;">false</span>;  
+<span style="color: #98f5ff;">char</span> <span style="color: #4eee94;">c</span> = 2; 
+</pre>
+</div>
+
+<p>
+后续可能出现的赋值运算：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">d</span> = a + c;  
+<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">d</span> = b + c;  
+<span style="color: #98f5ff;">char</span> <span style="color: #4eee94;">d</span> = a + c; 
+</pre>
+</div>
+
+<p>
+后续代码中如果出现了如上 3 种赋值运算的话，那它们都能构成结构正确的语法树，但是只有第 1 种的写法在语义上是没有问题的，能够通过编译，其余两种在 Java 语言中是不合逻辑的，无法编译
+</p>
+
+<pre class="example">
+     是否合乎语义逻辑必须限定在语言与具体的上下文环境之中才有意义
+
+     如在 C 语言中，a、b、c 的上下文定义不变，第 2、3 种写法都是可以正确编译
+</pre>
+<p>
+Javac 的编译过程中，语义分析过程分为 <b>标注检查</b> 以及 <b>数据及控制流分析</b> 两个步骤，分别由 <span class="underline">attribute()</span> 和 <span class="underline">flow()</span> 方法（对应图中过程 3.1 和过程 3.2）完成
+</p>
+</div>
+
+<div id="outline-container-org5939ccf" class="outline-4">
+<h4 id="org5939ccf">标注检查</h4>
+<div class="outline-text-4" id="text-org5939ccf">
+<p>
+标注检查步骤检查的内容包括诸如：
+</p>
+<ul class="org-ul">
+<li><span class="underline">变量使用前是否已被声明</span></li>
+<li><span class="underline">变量与赋值之间的数据类型</span> 是否能够匹配等</li>
+</ul>
+
+<p>
+还有一个重要的动作称为 <b>常量折叠</b> ，如果在代码中写了如下定义：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">a</span> = 1 + 2;  
+</pre>
+</div>
+
+<p>
+那么在语法树上仍然能看到字面量 <span class="underline">1</span> 、 <span class="underline">2</span>  以及操作符 <span class="underline">+</span> ，但是在经过常量折叠之后，它们将会被折叠为字面量 <span class="underline">3</span> ，如图所示，这个插入式表达式的值已经在语法树上标注出来了： <span class="underline">ConstantExpressionValue:3</span>  。由于编译期间进行了常量折叠，所以在代码里面定义  <span class="underline">a=1+2</span>  比起直接定义 <span class="underline">a=3</span> ，并不会增加程序运行期哪怕仅仅一个 CPU 指令的运算量：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/javac-constant-expression.jpg" alt="javac-constant-expression.jpg" width="70%" /> 
+</p>
+</div>
+
+<p>
+标注检查步骤在 Javac 源码中的实现类是 <b>com.sun.tools.javac.comp.Attr</b> 类和 <b>com.sun.tools.javac.comp.Check</b> 类
+</p>
+</div>
+</div>
+
+<div id="outline-container-org29a3911" class="outline-4">
+<h4 id="org29a3911">数据及控制流分析</h4>
+<div class="outline-text-4" id="text-org29a3911">
+<p>
+数据及控制流分析：对 <b>程序上下文逻辑更进一步的验证</b> ，它可以检测出：
+</p>
+<ul class="org-ul">
+<li>程序局部变量是在使用前是否有赋值</li>
+<li>方法的每条路径是否都有返回值</li>
+<li>是否所有的受查异常都被正确处理了等问题</li>
+</ul>
+
+<p>
+编译时期的数据及控制流分析与类加载时数据及控制流分析的目的基本上是一致的，但校验范围有所区别，有一些校验只有在编译期或运行期才能进行。下面举一个关于 final 修饰符的数据及控制流分析的例子：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#20195;&#30721;&#28165;&#21333;10-1  final&#35821;&#20041;&#26657;&#39564;</span>
+<span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#26041;&#27861;&#19968;&#24102;&#26377;final&#20462;&#39280;</span>
+<span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">foo</span>(<span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">arg</span>){
+    <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">var</span> = 0;
+    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">do something</span>
+}
+
+<span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#26041;&#27861;&#20108;&#27809;&#26377;final&#20462;&#39280;</span>
+<span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">foo</span>(<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">arg</span>){
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">var</span> = 0;
+    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">do something</span>
+}
+</pre>
+</div>
+<p>
+在这两个foo()方法中，第一种方法的参数和局部变量定义使用了final修饰符，而第二种方法则没有
+</p>
+<ul class="org-ul">
+<li>在代码编写的时程序肯定会受到final修饰符的影响，不能再改变arg和var变量的值，但是 <b>这两段代码编译出来的Class文件是没有任何一点区别的</b></li>
+</ul>
+<pre class="example">
+      局部变量与字段（实例变量、类变量）是有区别的，它在常量池中没有CONSTANT_Fieldref_info的符号引用
+      自然就没有访问标志（Access_Flags）的信息，甚至可能连名称都不会保留下来（取决于编译时的选项）
+      自然在Class文件中不可能知道一个局部变量是不是声明为final了
+
+      因此，将局部变量声明为final，对运行期是没有影响的，变量的不变性仅仅由编译器在编译期间保障
+</pre>
+
+<p>
+在Javac的源码中，数据及控制流分析的入口是 <span class="underline">flow()</span> 方法（对应图中的过程3.2），具体操作有 <b>com.sun.tools.javac.comp.Flow</b> 类来完成
+</p>
+</div>
+</div>
+
+<div id="outline-container-org4ed6a32" class="outline-4">
+<h4 id="org4ed6a32">解语法糖</h4>
+<div class="outline-text-4" id="text-org4ed6a32">
+<pre class="example">
+语法糖（Syntactic Sugar），是由英国计算机科学家彼得・约翰・兰达（Perter J.Landin）发明的一个术语
+指在计算机语言中添加的某种语法，这种语法对语言的功能并没有影响，但是更方便程序员使用
+
+通常来说，使用语法糖能够增加程序的可读性，从而减少程序代码出错的机会
+
+Java 在现代编程语言之中属于 “低糖语言”（相对于 C# 及许多其他 JVM 语言来说），尤其是 JDK 1.5 之前的版本
+“低糖” 语法也是 Java 语言被怀疑已经 “落后” 的一个表面理由
+</pre>
+<p>
+Java 中最常用的语法糖主要是前面提到过的：
+</p>
+<ul class="org-ul">
+<li>泛型 : 并不一定都是语法糖实现，如 C# 的泛型就是直接由 CLR 支持的</li>
+<li>变长参数</li>
+<li>自动装箱 / 拆箱等</li>
+</ul>
+
+<p>
+虚拟机运行时不支持这些语法，它们在编译阶段还原回简单的基础语法结构，这个过程称为 <span class="underline">解语法糖</span> 
+</p>
+
+<p>
+在 Javac 的源码中，解语法糖的过程由 <span class="underline">desugar()</span> 方法触发，在 <b>com.sun.tools.javac.comp.TransTypes</b> 类和 <b>com.sun.tools.javac.comp.Lower</b>  类中完成 
+</p>
+</div>
+</div>
+<div id="outline-container-org47e7ab9" class="outline-4">
+<h4 id="org47e7ab9">字节码生成</h4>
+<div class="outline-text-4" id="text-org47e7ab9">
+<p>
+字节码生成是 Javac 编译过程的最后一个阶段，在 Javac 源码里面由 <b>com.sun.tools.javac.jvm.Gen</b> 类来完成。字节码生成阶段不仅仅是把前面各个步骤所生成的信息（语法树、符号表）转化成字节码写到磁盘中，编译器还进行了少量的 <b>代码添加和转换</b> 工作
+</p>
+
+<pre class="example">
+      例如，前面多次提到的实例构造器 _&lt;init&gt;()_ 方法和类构造器 _&lt;clinit&gt;()_ 方法就是在这个阶段添加到语法树之中的
+      注意：这里的实例构造器并不是指默认的构造函数
+      如果用户代码中没有提供任何构造函数，那编译器将会添加一个没有参数的、访问性（public、protected 或 private）与当前类一直的默认构造函数
+      这个工作在填充符号表阶段就已经完成，这两个构造器的产生过程实际上是一个代码收敛的过程
+
+      编译器会把语句块：
+      对于实力构造器而言是 “{}” 块，对于类构造器而言是 “static{}” 块
+      变量初始化（实力变量和类变量）
+
+      调用父类的实例构造器：仅仅是实例构造器，&lt;clinit&gt;() 方法中无须调用父类的 &lt;clinit&gt;() 方法，虚拟机会自动保证父类构造器的执行
+      但在 &lt;clinit&gt;() 方法中经常会生成调用 java.lang.Object 的 &lt;init&gt;() 方法的代码等操作收敛到 &lt;init&gt;() 和 &lt;clinit&gt;() 方法之中
+      并且保证一定是按先执行父类的实例构造器，然后初始化变量，最后执行语句块的顺序进行
+
+      上面所述的动作由 Gen.normalizeDef() 方法来实现
+
+      除了生成构造器以外，还有其他的一些代码替换工作用于优化程序的实现逻辑：
+      如把字符串的加操作替换为 StringBuffer 或 StringBuilder（取决于目标代码的版本是否大于或等于 JDK 1.5）的 append() 操作等
+</pre>
+
+<p>
+完成了对语法树的遍历和调整之后，就会把填充了所有所需信息的符号表交给 <b>com.sun.tools.javac.jvm.ClassWriter</b> 类，由这个类的 <span class="underline">writeClass()</span> 方法输出字节码， <b>生成最终的 Class 文件</b> ，到此为止整个编译过程宣告结束
+</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org217839f" class="outline-2">
+<h2 id="org217839f">语法糖</h2>
+<div class="outline-text-2" id="text-org217839f">
+<p>
+几乎各种语言或多或少都提供过一些语法糖来方便程序员的代码开发，这些语法糖虽然不会提供实质性的功能改进，但是它们或能提高效率，或能提升语法的严谨性，或能减少编码出错的机会。不过也有一种观点认为语法糖并不一定都是有益的，大量添加和使用 “含糖” 的语法，容易让程序员产生依赖，无法看清语法糖的糖衣背后，程序代码的真实面目
+</p>
+
+<p>
+总而言之，语法糖可以看做是编译器实现的一些 “小把戏”，这些 “小把戏” 可能会使得效率 “大提升”，但也应该去了解这些 “小把戏” 背后的真实世界，那样才能利用好它们，而不是被它们所迷惑
+</p>
+</div>
+
+<div id="outline-container-orgbfffb1a" class="outline-3">
+<h3 id="orgbfffb1a">泛型与类型擦除</h3>
+<div class="outline-text-3" id="text-orgbfffb1a">
+<p>
+泛型是 JDK 1.5 的一项新增特性，它的本质是 <b>参数化类型</b> (Parametersized Type)的应用，也就是说 <b>操作的数据类型被指定为一个参数</b> 。这种参数类型可以用在类、接口和方法的创建中，分别称为 <span class="underline">泛型类</span> 、 <span class="underline">泛型接口</span> 和 <span class="underline">泛型方法</span> 
+</p>
+
+<pre class="example">
+     泛型思想早在 C++ 语言的模板 (Template) 中就开始生根发芽
+
+     在 Java 语言处于还没有出现泛型的版本时，只能通过 Object 是所有类型的父类和类型强制转换两个特点的配合来实现类型泛化
+     例如，在哈希表的存取中，JDK 1.5 之前使用 HashMap 的 get() 方法，返回值就是一个 Object 对象
+     由于 Java 语言里面所有的类型都继承于 java.lang.Object，所以 Object 转型成任何对象都是有可能的
+     但是也因为有无限的可能性，就只有程序员和运行期的虚拟机才知道这个 Object 到底是什么类型的对象
+
+     在编译期间，编译器无法检查这个 Object 的强制转型是否成功
+     如果仅仅依赖程序员去保障这项操作的正确性，许多 ClassCastException 的风险就会转嫁到程序运行期之中
+</pre>
+<p>
+泛型技术在 C# 和 Java之中的使用方式看似相同，但实现上却有着根本性的分歧，C# 里面泛型无论是在程序源码中、编译后的 IL 中（Intermediate Language，中间语言，这时候泛型是一个占位符），或是运行期的 CLR 中，都是切实存在的， <b>List&lt;int&gt; 与 List&lt;String&gt; 就是两个不同的类型</b> ，它们在系统运行期生成，有自己的虚方法表和类型数据，这种实现称为 <span class="underline">类型膨胀</span> ，基于这种方法实现的泛型称为 <span class="underline">真实泛型</span> 
+</p>
+
+<p>
+Java 语言中的泛型则不一样，它 <b>只在程序源码中存在</b> ，在编译后的字节码文件中，就已经替换为原来的 <span class="underline">原生类型</span> (Raw Type)了，并且在相应的地方 <b>插入了强制类型</b> 代码，因此，对于运行期的 Java 语言来说， <b>ArrayList&lt;int&gt; 与 ArrayList&lt;String&gt; 就是同一个类</b> ，所以泛型技术实际上是 Java 语言的一颗语法糖，Java 语言中的泛型实现方法称为 <span class="underline">类型擦除</span> ，基于这种方法实现的泛型称为 <span class="underline">伪泛型</span> 
+</p>
+
+<p>
+下面代码是一段简单的 Java 泛型的例子，可以看一下它编译后的结果是怎样的：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">String</span>[] <span style="color: #4eee94;">args</span>) {  
+    <span style="color: #98f5ff;">Map</span>&lt;<span style="color: #98f5ff;">String</span>, <span style="color: #98f5ff;">String</span>&gt; <span style="color: #4eee94;">map</span> = <span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">HashMap</span>&lt;&gt;();  
+    map.put(<span style="color: #deb887;">"hello"</span>, <span style="color: #deb887;">"&#20320;&#22909;"</span>);  
+    map.put(<span style="color: #deb887;">"how are you?"</span>, <span style="color: #deb887;">"&#21507;&#20102;&#27809;&#65311;"</span>);  
+    System.out.println(map.get(<span style="color: #deb887;">"hello"</span>));  
+    System.out.println(map.get(<span style="color: #deb887;">"how are you?"</span>));  
+}  
+</pre>
+</div>
+
+<p>
+把这段 Java 代码编译成 Class 文件，然后再用字节码反编译工具进行反编译后，将会发现泛型都不见了（用jd-gui 查看发现声明的时候泛型还在，其他地方就变成了强制类型转换），程序又变回了 Java 泛型出现之前的写法，泛型类型都变回了原生类型
+</p>
+
+<pre class="example">
+     当初 JDK 设计团队为什么选择类型擦除的方式来实现 Java 语言的泛型支持呢？是因为实现简单、兼容性考虑还是别的原因？
+
+     现在已不得而知，但确实有不少人对 Java 语言提供的伪泛型颇有微词
+
+     在当时众多的批评之中，有一些是比较表面的：
+     从性能上说泛型会由于强制转型操作和运行期缺少针对类型的优化等从而导致比 C# 的泛型慢一些，则是完全偏离了方向
+
+     姑且不论 Java 泛型是不是真的会比 C# 泛型慢，选择从性能的角度上评价用于提升语义准确性的泛型思想就不太恰当
+</pre>
+
+<p>
+通过擦除法来实现泛型丧事了一些泛型思想应有的优雅，例如：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">GenericTypes</span> {  
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">method</span>(<span style="color: #98f5ff;">List</span>&lt;<span style="color: #98f5ff;">String</span>&gt; <span style="color: #4eee94;">list</span>) {  
+        System.out.println(<span style="color: #deb887;">"invoke method(List&lt;String&gt; list)"</span>);  
+    }  
+
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">method</span>(<span style="color: #98f5ff;">List</span>&lt;<span style="color: #98f5ff;">Integer</span>&gt; <span style="color: #4eee94;">list</span>) {  
+        System.out.println(<span style="color: #deb887;">"invoke method(List&lt;Integer&gt; list)"</span>);  
+    }  
+}  
+</pre>
+</div>
+
+<p>
+这段代码是不能被编译的，因为参数 List&lt;Integer&gt; 和 List&lt;String&gt; 编译之后都被擦除了，变成了一样的原生类型 List&lt;E&gt;，擦除动作导致这两种方法的特征签名变得一模一样。初步看来，无法重载的原因已经找到了，但真的就是如此吗？只能说，泛型擦除成相同的原生类型只是无法重载的其中一部分原因，请再接着看一看：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">GenericTypes</span> {  
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">String</span> <span style="color: #daa520; font-weight: bold;">method</span>(<span style="color: #98f5ff;">List</span>&lt;<span style="color: #98f5ff;">String</span>&gt; <span style="color: #4eee94;">list</span>) {  
+        System.out.println(<span style="color: #deb887;">"invoke method(List&lt;String&gt; list)"</span>);  
+        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #deb887;">""</span>;  
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">method</span>(<span style="color: #98f5ff;">List</span>&lt;<span style="color: #98f5ff;">Integer</span>&gt; <span style="color: #4eee94;">list</span>) {  
+        System.out.println(<span style="color: #deb887;">"invoke method(List&lt;Integer&gt; list)"</span>);  
+        <span style="color: #00bfff; font-weight: bold;">return</span> 1;  
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">String</span>[] <span style="color: #4eee94;">args</span>) {  
+        method(<span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">ArrayList</span>&lt;<span style="color: #98f5ff;">String</span>&gt;());  
+        method(<span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">ArrayList</span>&lt;<span style="color: #98f5ff;">Integer</span>&gt;());  
+    }  
+
+}  
+</pre>
+</div>
+
+<pre class="example">
+invoke method(List&lt;String&gt; list)  
+invoke method(List&lt;Integer&gt; list) 
+
+</pre>
+
+<pre class="example">
+   上面这个例子从JDK7开始已经无法编译
+</pre>
+<p>
+两者的差别是两个 method 方法添加了 <b>不同的返回值</b> ，由于这两个返回值的加入，方法重载居然成功了，即这段代码可以被编译和执行。这是对 Java 语言中返回值不参与重载选择的基本认知的挑战吗？
+</p>
+
+<pre class="example">
+     重载当然不是根据返回值来确定的
+
+     但所以这次能编译和执行成功，确实是因为两个 method() 方法加入了不同的返回值后才能共存在一个 Class 文件之中。
+
+     前面介绍 Class 文件方法表的数据结构时曾经提到过
+     方法重载要求方法具备不同的特征签名，返回值并不包含在方法的特征签名之中，所以返回值不参与重载选择
+
+     但是在 Class 文件格式之中，只要描述符不是完全一致的两个方法就可以共存
+     也就是说，两个方法如果有相同的名称和特征签名，但返回值不同，那它们也是可以合法地共存于一个 Class 文件中的
+</pre>
+
+<p>
+由于 Java 泛型的引入，各种场景（虚拟机解析、反射等）下的方法调用都有可能对原有的基础产生影响和新的需求，如在泛型类中如何获取传入的参数化类型等。因此，JCP 组织对虚拟机规范作出了相应的修改，引入了诸如 <span class="underline">Signature</span> 、 <span class="underline">LocalVariableTable</span> 等新的属性用于解决伴随而来的参数类型的识别问题，Signature是其中最重要的一项属性，它的作用就是 <b>存储一个方法在字节码层面的特征签名</b> ，这个属性中 <b>保存的参数类型并不是原生类型</b> ，而是包括了 <b>参数化类型的信息</b> 。修改后的虚拟机规范要求所有能识别 <span class="underline">49.0</span>  以上版本的 Class 文件的虚拟机都要能 <b>正确地识别 Signature 参数</b> 
+</p>
+
+<pre class="example">
+     从上面的例子可以看到擦除法对实际编码带来的影响
+
+     由于 List&lt;String&gt; 和 List&lt;Integer&gt; 擦除后是同一个类型，只能添加两个并不需要实际使用到的返回值才能完成重载
+
+     这是一种毫无优雅和美感可言的解决方案，并且存在一定语意上的混乱
+</pre>
+<p>
+另外，从 Signature 属性的出现还可以得出结论，擦除法所谓的擦除，仅仅是对 <b>方法的 Code 属性中的字节码进行擦除</b> ，实际上 <b>元数据中还是保留了泛型信息</b> ，这也是能通过 <span class="underline">反射手段</span> 取得 <span class="underline">参数化类型</span> 的根本依据
+</p>
+</div>
+</div>
+
+
+<div id="outline-container-orgb21c9cf" class="outline-3">
+<h3 id="orgb21c9cf">自动装箱、拆箱与遍历循环</h3>
+<div class="outline-text-3" id="text-orgb21c9cf">
+<p>
+从纯技术的角度来讲，自动装箱、自动拆箱与遍历循环（For each 循环）这些语法糖，无论是实现上还是思想上都不能和上文介绍的泛型相比，两者的难度和深度都有很大差距。来讲解它们只有一个理由：毫无疑问，它们是 Java 语言里使用得最多的语法糖。通过代码来看看这些语法糖在编译后会发生什么样的变化：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">String</span>[] <span style="color: #4eee94;">args</span>) {  
+    <span style="color: #98f5ff;">List</span>&lt;<span style="color: #98f5ff;">Integer</span>&gt; <span style="color: #4eee94;">list</span> = Arrays.asList(1, 2, 3, 4);  
+    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#22914;&#26524;&#22312; JDK 1.8 &#20013;&#65292;&#36824;&#26377;&#21478;&#22806;&#19968;&#39063;&#35821;&#27861;&#31958;  </span>
+    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#33021;&#35753;&#19978;&#38754;&#36825;&#21477;&#20195;&#30721;&#36827;&#19968;&#27493;&#31616;&#20889;&#25104; List&lt;Integer&gt; list = [1, 2, 3, 4];  </span>
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">sum</span> = 0;  
+    <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> : list) {  
+        sum += i;  
+    }  
+    System.out.println(sum);  
+}  
+</pre>
+</div>
+
+<p>
+这里总共包含了 <span class="underline">泛型</span> 、 <span class="underline">自动装箱</span> 、 <span class="underline">自动拆箱</span> 、 <span class="underline">遍历循环</span> 与 <span class="underline">变长参数</span> 5 种语法糖，下面代码则展示了它们在编译后的变化：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">String</span>[] <span style="color: #4eee94;">args</span>) {
+        <span style="color: #98f5ff;">List</span> <span style="color: #4eee94;">list</span> = Arrays.asList(<span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">Integer</span>[]{
+            Integer.valueOf(1),
+            Integer.valueOf(2),
+            Integer.valueOf(3),
+            Integer.valueOf(4)
+        });
+
+        <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">sum</span> = 0;
+        <span style="color: #00bfff; font-weight: bold;">for</span>(<span style="color: #98f5ff;">Iterator</span> <span style="color: #4eee94;">localIterator</span> = list.iterator(); localIterator.hasNext();){
+        <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = ((<span style="color: #98f5ff;">Integer</span>) localIterator.next()).intValue();
+        sum += i;
+        }
+        System.out.println(sum);
+}
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>泛型就不必说了</li>
+<li>自动装箱、拆箱在编译之后被转换成了对应的包装和还原方法，如本例中的 <span class="underline">Integer.valueOf()</span> 与 <span class="underline">Integer.intValue()</span> 方法</li>
+<li>遍历循环则把代码还原成了 <span class="underline">迭代器</span> 的实现，这也是为何遍历循环需要被遍历的类实现Iterable接口的原因</li>
+<li><p>
+变长参数，它在调用的时候变成了一个 <span class="underline">数组类型的参数</span> ，在变长参数出现之前，程序员就是使用数组来完成类似功能的
+</p>
+
+<p>
+这些语法糖虽然看起来很简单，但也不见得就没有任何值得注意的地方，下面代码演示了自动装箱的一些错误用法：
+</p></li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">String</span>[] <span style="color: #4eee94;">args</span>) {  
+    <span style="color: #98f5ff;">Integer</span> <span style="color: #4eee94;">a</span> = 1;  
+    <span style="color: #98f5ff;">Integer</span> <span style="color: #4eee94;">b</span> = 2;  
+    <span style="color: #98f5ff;">Integer</span> <span style="color: #4eee94;">c</span> = 3;  
+    <span style="color: #98f5ff;">Integer</span> <span style="color: #4eee94;">d</span> = 3;  
+    <span style="color: #98f5ff;">Integer</span> <span style="color: #4eee94;">e</span> = 321;  
+    <span style="color: #98f5ff;">Integer</span> <span style="color: #4eee94;">f</span> = 321;  
+    <span style="color: #98f5ff;">Long</span> <span style="color: #4eee94;">g</span> = 3L;  
+    System.out.println(c == d); <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">true  </span>
+    System.out.println(e == f);  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">false </span>
+    System.out.println(c == (a + b));  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">true </span>
+    System.out.println(c.equals(a + b));  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">true </span>
+    System.out.println(g == (a + b));  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">true </span>
+    System.out.println(g.equals(a + b));  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">false </span>
+}
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>包装类的 <span class="underline">==</span> 运算在 <b>不遇到算术运算的情况下不会自动拆箱</b></li>
+<li>包装类的 <span class="underline">equals()</span> 方法 <b>不处理数据转型</b></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org6f66d3e" class="outline-3">
+<h3 id="org6f66d3e">条件编译</h3>
+<div class="outline-text-3" id="text-org6f66d3e">
+<pre class="example">
+许多程序设计语言都提供了条件编译的途径，如 C、C++ 中使用预处理器指示符（#ifdef）来完成条件编译
+
+C、C++ 的预处理其最初的任务是解决编译时的代码依赖关系（如非常常用的 #include 预处理命令）
+
+而在 Java 语言之中并没有使用预处理器，因为 Java 语言天然的编译方式
+编译器并非一个个地编译 Java 文件，而是将所有编译单元的语法树顶级节点输入到待处理列表后再进行编译
+因此各个文件直接能够互相提供符号信息，所以无须使用预处理器
+
+那 Java 语言是否有办法实现条件编译呢？
+</pre>
+
+<p>
+Java 语言当然也可以进行条件编译，方法就是使用 <b>条件为常量的 if 语法</b> 。如下面代码所示：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">String</span>[] <span style="color: #4eee94;">args</span>) {  
+    <span style="color: #00bfff; font-weight: bold;">if</span> (<span style="color: #ffd700;">true</span>) {  
+        System.out.println(<span style="color: #deb887;">"block 1"</span>);  
+    } <span style="color: #00bfff; font-weight: bold;">else</span> {  
+        System.out.println(<span style="color: #deb887;">"block 2"</span>);  
+    }  
+} 
+</pre>
+</div>
+<p>
+此代码中的 if 语句不同于其他 Java 代码，它在编译阶段就会被 “运行”，生成的字节码之中之包括 <span class="underline">System.out.println("block 1");</span>  一条语句，并不会包含 if 语句及另外一个分子中的 <span class="underline">System.out.println("block 2);</span> 。上述代码编译后 Class 文件的反编译结果：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">String</span>[] <span style="color: #4eee94;">args</span>) {  
+    System.out.println(<span style="color: #deb887;">"block 1"</span>);  
+} 
+</pre>
+</div>
+
+<p>
+只能使用 <b>条件为常量</b> 的 if 语句才能达到上述效果，如果使用常量与其他带有条件判断能力的语句搭配，则可能在控制流分析中提示错误，被拒绝编译，如下面代码所示的代码就会被编译器拒绝编译：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">String</span>[] <span style="color: #4eee94;">args</span>) {  
+    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#32534;&#35793;&#22120;&#23558;&#20250;&#25552;&#31034; "Unreachable code"  </span>
+    <span style="color: #00bfff; font-weight: bold;">while</span> (<span style="color: #ffd700;">false</span>) {  
+        System.out.println(<span style="color: #deb887;">""</span>);  
+    }  
+} 
+</pre>
+</div>
+
+<p>
+Java语言中条件编译的实现，也是Java语言的一颗语法糖，根据布尔常量值的真假，编译器将会把 <b>分支中不成立的代码块消除掉</b> ，这一工作将在编译器解除语法糖阶段 <span class="underline">com.sun.tools.javac.comp.Lower</span> 类中完成
+</p>
+<pre class="example">
+     由于这种条件编译的实现方式使用了if语句，所以它必须遵循最基本的Java语法，只能写在方法体内部
+
+     因此它只能实现语句基本块(Block)级别的条件编译，而没有办法实现根据条件调整整个Java类的结构 
+</pre>
+
+<p>
+除了本节中介绍的泛型、自动装箱、自动拆箱、遍历循环、变长参数和条件编译之外，Java语言还有不少其他的语法糖，如 <span class="underline">内部类</span> 、 <span class="underline">枚举类</span> 、 <span class="underline">断言语句</span> 、对 <span class="underline">枚举和字符串的switch支持</span> （在JDK1.7中支持）、 <span class="underline">try语句中定义和关闭资源</span> （在JDK1.7中支持）等
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgcb16c62" class="outline-2">
+<h2 id="orgcb16c62">插入式注解处理器</h2>
+<div class="outline-text-2" id="text-orgcb16c62">
+<pre class="example">
+  通过阅读Javac编译器的源码，了解编译器在把Java程序源码编译为字节码的时候，会对Java程序源码做各方面的检查校验
+
+  这些校验主要以程序“写得对不对”为出发点，虽然也有各种WARNING的信息，但总体来讲还是较少去校验程序“写得好不好”
+
+  有鉴于此，业界出现了许多针对程序“写得好不好”的辅助校验工具，如CheckStyle、FindBug、Klocwork等
+
+  这些代码校验工具有一些是基于Java的源码进行校验，还有一些是通过扫描字节码来完成
+
+  在本节的实战中，将会使用注解处理器API来编写一款拥有自己编码风格的校验工具：NameCheckProcessor
+</pre>
+
+<p>
+由于实战都是为了学习和演示技术原理，NameCheckProcessor的目标也仅定为对Java程序命名进行检查，根据《Java语言规范（第3版）》中第6.8节的要求，Java程序命名应当符合下列格式的书写规范：
+</p>
+<ul class="org-ul">
+<li>类（或接口）：符合驼式命名法，首字母大写</li>
+<li>方法：符合驼式命名法，首字母小写</li>
+<li>字段：
+<ul class="org-ul">
+<li>类或实例变量：符合驼式命名法，首字母小写</li>
+<li>常量：要求全部由大写字母或下划线构成，并且第一个字符不能是下划线</li>
+</ul></li>
+</ul>
+
+<p>
+上文提到的驼式命名法，正如它的名称所表示的那样，是指混合使用大小写字母来分割构成变量或函数的名字，犹如驼峰一般，这是当前Java语言中主流的命名规范，实战目标就是为Javac编译器添加一个额外的功能，在编译程序时检查程序名是否符合上述对类（或接口）、方法、字段的命名要求
+</p>
+</div>
+<div id="outline-container-org7a22a99" class="outline-3">
+<h3 id="org7a22a99">代码实现</h3>
+<div class="outline-text-3" id="text-org7a22a99">
+<p>
+要通过注解处理器API实现一个编译器插件，首先需要了解这组API的一些基本知识。实现注解处理器的代码需要继承抽象类 <b>javax.annotation.processing.AbstractProcessor</b> ，这个抽象类中只有一个必须覆盖的abstract方法： <span class="underline">process()</span> ，它是Javac编译器在执行注解处理器代码时要调用的过程：
+</p>
+<ul class="org-ul">
+<li>第一个参数 <span class="underline">annotations</span> ：获取到此注解处理器 <b>所要处理的注解集合</b></li>
+<li>第二个参数 <span class="underline">roundEnv</span> :  访问到当前这个Round中的 <b>语法树节点</b> ，每个语法树节点在这里表示为一个 <span class="underline">Element</span> 。在JDK 1.6新增的 <span class="underline">javax.lang.model</span> 包中定义了16类Element，包括了Java代码中最常用的元素，如：
+<ul class="org-ul">
+<li>包：PACKAGE</li>
+<li>枚举：ENUM</li>
+<li>类：CLASS</li>
+<li>注解：ANNOTATION_TYPE</li>
+<li>接口：INTERFACE</li>
+<li>枚举值：ENUM_CONSTANT</li>
+<li>字段：FIELD</li>
+<li>参数：PARAMETER</li>
+<li>本地变量：LOCAL_VARIABLE</li>
+<li>异常：EXCEPTION_PARAMETER</li>
+<li>方法：METHOD</li>
+<li>构造函数：CONSTRUCTOR</li>
+<li>静态语句块：STATIC_INIT，即static{}块</li>
+<li>实例语句块：INSTANCE_INIT，即{}块</li>
+<li>参数化类型：TYPE_PARAMETER，既泛型尖括号内的类型</li>
+<li>未定义的其他语法树节点：OTHER</li>
+</ul></li>
+</ul>
+
+<p>
+除了 process() 方法的传入参数之外，还有一个很常用的实例变量 <span class="underline">processingEnv</span> ，它是AbstractProcessor中的一个protected变量，在注解处理器初始化的时候（init()方法执行的时候）创建，继承了AbstractProcessor的注解处理器代码可以直接访问到它。它代表了 <b>注解处理器框架提供的一个上下文环境</b> ，要 <span class="underline">创建新的代码</span> 、向 <span class="underline">编译器输出信息</span> 、 <span class="underline">获取其他工具类</span> 等都需要用到这个实例变量
+</p>
+
+<p>
+注解处理器除了还有两个可以配合使用的Annotations： 
+</p>
+<ul class="org-ul">
+<li>@SupportedAnnotationTypes：这个注解处理器对哪些注解感兴趣，可以使用星号“*”作为通配符代表对所有的注解都感兴趣</li>
+<li>@SupportedSourceVersion：这个注解处理器可以处理哪些版本的Java代码</li>
+</ul>
+
+<p>
+每一个注解处理器在运行的时候都是 <b>单例</b> 的，如果不需要改变或生成语法树的内容，process() 方法就可以返回一个值为 <span class="underline">false</span> 的布尔值，通知编译器这个Round中的代码未发生变化，无须构造新的JavaCompiler实例，在这次实战的注解处理器中只对程序命名进行检查，不需要改变语法树的内容，因此process()方法的返回值都是false。下面来看看注解处理器NameCheckProcessor的具体代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">annotation</span>.<span style="color: #ffd700;">processing</span>.<span style="color: #98f5ff;">AbstractProcessor</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">annotation</span>.<span style="color: #ffd700;">processing</span>.<span style="color: #98f5ff;">ProcessingEnvironment</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">annotation</span>.<span style="color: #ffd700;">processing</span>.<span style="color: #98f5ff;">RoundEnvironment</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">annotation</span>.<span style="color: #ffd700;">processing</span>.<span style="color: #98f5ff;">SupportedAnnotationTypes</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">lang</span>.<span style="color: #ffd700;">model</span>.<span style="color: #ffd700;">element</span>.<span style="color: #98f5ff;">Element</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">lang</span>.<span style="color: #ffd700;">model</span>.<span style="color: #ffd700;">element</span>.<span style="color: #98f5ff;">TypeElement</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">java</span>.<span style="color: #ffd700;">util</span>.<span style="color: #98f5ff;">Set</span>;
+
+<span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#21487;&#20197;&#29992;"*"&#34920;&#31034;&#25903;&#25345;&#25152;&#26377;Annotations</span>
+<span style="color: #ffd700;">@SupportedAnnotationTypes</span>(<span style="color: #deb887;">"*"</span>)
+<span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">@SupportedSourceVersion(SourceVersion.RELEASE_7)</span>
+<span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">NameCheckProcessor</span> <span style="color: #00bfff; font-weight: bold;">extends</span> <span style="color: #98f5ff;">AbstractProcessor</span> {
+
+    <span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #98f5ff;">NameChecker</span> <span style="color: #4eee94;">nameChecker</span>;
+
+    <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">     * &#21021;&#22987;&#21270;&#21517;&#31216;&#26816;&#26597;&#25554;&#20214;</span>
+<span style="color: #ffebcd;">     */</span>
+    <span style="color: #ffd700;">@Override</span>
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">init</span>(<span style="color: #98f5ff;">ProcessingEnvironment</span> <span style="color: #4eee94;">processingEnv</span>) {
+        <span style="color: #00bfff; font-weight: bold;">super</span>.init(processingEnv);
+        nameChecker = <span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">NameChecker</span>(processingEnv);
+    }
+
+    <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">     * &#23545;&#36755;&#20837;&#30340;&#35821;&#27861;&#26641;&#30340;&#21508;&#20010;&#33410;&#28857;&#36827;&#34892;&#36827;&#34892;&#21517;&#31216;&#26816;&#26597;</span>
+<span style="color: #ffebcd;">     */</span>
+    <span style="color: #ffd700;">@Override</span>
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">boolean</span> <span style="color: #daa520; font-weight: bold;">process</span>(<span style="color: #98f5ff;">Set</span>&lt;? <span style="color: #00bfff; font-weight: bold;">extends</span> <span style="color: #98f5ff;">TypeElement</span>&gt; <span style="color: #4eee94;">annotations</span>, <span style="color: #98f5ff;">RoundEnvironment</span> <span style="color: #4eee94;">roundEnv</span>) {
+        <span style="color: #00bfff; font-weight: bold;">if</span> (!roundEnv.processingOver()) {
+            <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">Element</span> <span style="color: #daa520; font-weight: bold;">element</span> : roundEnv.getRootElements())
+                nameChecker.checkNames(element);
+        }
+        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">false</span>;
+    }
+
+}
+</pre>
+</div>
+
+<p>
+NameCheckProcessor不限于特定的注解，对任何代码都“感兴趣”，而在process() 方法中是把当前Round中的每一个RootElement传递到一个名为 <span class="underline">NameChecker</span> 的检查器中执行 <b>名称检查</b> 。NameChecker的代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">annotation</span>.<span style="color: #ffd700;">processing</span>.<span style="color: #98f5ff;">Messager</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">annotation</span>.<span style="color: #ffd700;">processing</span>.<span style="color: #98f5ff;">ProcessingEnvironment</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">lang</span>.<span style="color: #ffd700;">model</span>.<span style="color: #ffd700;">element</span>.*;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">lang</span>.<span style="color: #ffd700;">model</span>.<span style="color: #ffd700;">util</span>.<span style="color: #98f5ff;">ElementScanner8</span>;
+
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #ffd700;">java</span>.<span style="color: #ffd700;">util</span>.<span style="color: #98f5ff;">EnumSet</span>;
+
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #ffd700;">com</span>.<span style="color: #ffd700;">sun</span>.<span style="color: #ffd700;">tools</span>.<span style="color: #ffd700;">javac</span>.<span style="color: #ffd700;">parser</span>.<span style="color: #ffd700;">Tokens</span>.<span style="color: #ffd700;">TokenKind</span>.*;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">lang</span>.<span style="color: #ffd700;">model</span>.<span style="color: #ffd700;">element</span>.<span style="color: #ffd700;">ElementKind</span>.*;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">lang</span>.<span style="color: #ffd700;">model</span>.<span style="color: #ffd700;">element</span>.<span style="color: #ffd700;">ElementKind</span>.<span style="color: #98f5ff;">INTERFACE</span>;
+<span style="color: #00bfff; font-weight: bold;">import</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #ffd700;">javax</span>.<span style="color: #ffd700;">tools</span>.<span style="color: #ffd700;">Diagnostic</span>.<span style="color: #ffd700;">Kind</span>.<span style="color: #98f5ff;">WARNING</span>;
+
+<span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;"> * &#31243;&#24207;&#21517;&#31216;&#35268;&#33539;&#30340;&#32534;&#35793;&#22120;&#25554;&#20214;&#65306;</span><span style="color: #ffd700;">&lt;br&gt;</span>
+<span style="color: #ffebcd;"> * &#22914;&#26524;&#31243;&#24207;&#21629;&#21517;&#19981;&#21512;&#35268;&#33539;&#65292;&#23558;&#20250;&#36755;&#20986;&#19968;&#20010;&#32534;&#35793;&#22120;&#30340;WARNING&#20449;&#24687;</span>
+<span style="color: #ffebcd;"> */</span>
+<span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">NameChecker</span> {
+    <span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">Messager</span> <span style="color: #4eee94;">messager</span>;
+
+    <span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #98f5ff;">NameCheckScanner</span> <span style="color: #4eee94;">nameCheckScanner</span> = <span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">NameCheckScanner</span>();
+
+    <span style="color: #daa520; font-weight: bold;">NameChecker</span>(<span style="color: #98f5ff;">ProcessingEnvironment</span> <span style="color: #4eee94;">processsingEnv</span>) {
+        <span style="color: #00bfff; font-weight: bold;">this</span>.messager = processsingEnv.getMessager();
+    }
+
+    <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">     * &#23545;Java&#31243;&#24207;&#21629;&#21517;&#36827;&#34892;&#26816;&#26597;&#65292;&#26681;&#25454;&#12298;Java&#35821;&#35328;&#35268;&#33539;&#12299;&#31532;&#19977;&#29256;&#31532;6.8&#33410;&#30340;&#35201;&#27714;&#65292;Java&#31243;&#24207;&#21629;&#21517;&#24212;&#24403;&#31526;&#21512;&#19979;&#21015;&#26684;&#24335;&#65306;</span>
+<span style="color: #ffebcd;">     *</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;ul&gt;</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;li&gt;</span><span style="color: #ffebcd;">&#31867;&#25110;&#25509;&#21475;&#65306;&#31526;&#21512;&#39548;&#24335;&#21629;&#21517;&#27861;&#65292;&#39318;&#23383;&#27597;&#22823;&#20889;&#12290;</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;li&gt;</span><span style="color: #ffebcd;">&#26041;&#27861;&#65306;&#31526;&#21512;&#39548;&#24335;&#21629;&#21517;&#27861;&#65292;&#39318;&#23383;&#27597;&#23567;&#20889;&#12290;</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;li&gt;</span><span style="color: #ffebcd;">&#23383;&#27573;&#65306;</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;ul&gt;</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;li&gt;</span><span style="color: #ffebcd;">&#31867;&#12289;&#23454;&#20363;&#21464;&#37327;: &#31526;&#21512;&#39548;&#24335;&#21629;&#21517;&#27861;&#65292;&#39318;&#23383;&#27597;&#23567;&#20889;&#12290;</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;li&gt;</span><span style="color: #ffebcd;">&#24120;&#37327;: &#35201;&#27714;&#20840;&#37096;&#22823;&#20889;&#12290;</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;/ul&gt;</span>
+<span style="color: #ffebcd;">     * </span><span style="color: #ffd700;">&lt;/ul&gt;</span>
+<span style="color: #ffebcd;">     */</span>
+    <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">checkNames</span>(<span style="color: #98f5ff;">Element</span> <span style="color: #4eee94;">element</span>) {
+        nameCheckScanner.scan(element);
+    }
+
+    <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">     * &#21517;&#31216;&#26816;&#26597;&#22120;&#23454;&#29616;&#31867;&#65292;&#32487;&#25215;&#20102;JDK 8&#20013;&#26032;&#25552;&#20379;&#30340;ElementScanner8</span><span style="color: #ffd700;">&lt;br&gt;</span>
+<span style="color: #ffebcd;">     * &#23558;&#20250;&#20197;Visitor&#27169;&#24335;&#35775;&#38382;&#25277;&#35937;&#35821;&#27861;&#26641;&#20013;&#30340;&#20803;&#32032;</span>
+<span style="color: #ffebcd;">     */</span>
+    <span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">NameCheckScanner</span> <span style="color: #00bfff; font-weight: bold;">extends</span> <span style="color: #98f5ff;">ElementScanner8</span>&lt;<span style="color: #98f5ff;">Void</span>, <span style="color: #98f5ff;">Void</span>&gt; {
+
+        <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">         * &#27492;&#26041;&#27861;&#29992;&#20110;&#26816;&#26597;Java&#31867;</span>
+<span style="color: #ffebcd;">         */</span>
+        <span style="color: #ffd700;">@Override</span>
+        <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">Void</span> <span style="color: #daa520; font-weight: bold;">visitType</span>(<span style="color: #98f5ff;">TypeElement</span> <span style="color: #4eee94;">e</span>, <span style="color: #98f5ff;">Void</span> <span style="color: #4eee94;">p</span>) {
+            scan(e.getTypeParameters(), p);
+            checkCamelCase(e, <span style="color: #ffd700;">true</span>);
+            <span style="color: #00bfff; font-weight: bold;">super</span>.visitType(e, p);
+            <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">null</span>;
+        }
+
+        <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">         * &#26816;&#26597;&#26041;&#27861;&#21629;&#21517;&#26159;&#21542;&#21512;&#27861;</span>
+<span style="color: #ffebcd;">         */</span>
+        <span style="color: #ffd700;">@Override</span>
+        <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">Void</span> <span style="color: #daa520; font-weight: bold;">visitExecutable</span>(<span style="color: #98f5ff;">ExecutableElement</span> <span style="color: #4eee94;">e</span>, <span style="color: #98f5ff;">Void</span> <span style="color: #4eee94;">p</span>) {
+            <span style="color: #00bfff; font-weight: bold;">if</span> (e.getKind() == METHOD) {
+                <span style="color: #98f5ff;">Name</span> <span style="color: #4eee94;">name</span> = e.getSimpleName();
+                <span style="color: #00bfff; font-weight: bold;">if</span> (name.contentEquals(e.getEnclosingElement().getSimpleName()))
+                    messager.printMessage(WARNING, <span style="color: #deb887;">"&#19968;&#20010;&#26222;&#36890;&#26041;&#27861; &#8220;"</span> + name + <span style="color: #deb887;">"&#8221;&#19981;&#24212;&#24403;&#19982;&#31867;&#21517;&#37325;&#22797;&#65292;&#36991;&#20813;&#19982;&#26500;&#36896;&#20989;&#25968;&#20135;&#29983;&#28151;&#28102;"</span>, e);
+                checkCamelCase(e, <span style="color: #ffd700;">false</span>);
+            }
+            <span style="color: #00bfff; font-weight: bold;">super</span>.visitExecutable(e, p);
+            <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">null</span>;
+        }
+
+        <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">         * &#26816;&#26597;&#21464;&#37327;&#21629;&#21517;&#26159;&#21542;&#21512;&#27861;</span>
+<span style="color: #ffebcd;">         */</span>
+        <span style="color: #ffd700;">@Override</span>
+        <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">Void</span> <span style="color: #daa520; font-weight: bold;">visitVariable</span>(<span style="color: #98f5ff;">VariableElement</span> <span style="color: #4eee94;">e</span>, <span style="color: #98f5ff;">Void</span> <span style="color: #4eee94;">p</span>) {
+            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#22914;&#26524;&#36825;&#20010;Variable&#26159;&#26522;&#20030;&#25110;&#24120;&#37327;&#65292;&#21017;&#25353;&#22823;&#20889;&#21629;&#21517;&#26816;&#26597;&#65292;&#21542;&#21017;&#25353;&#29031;&#39548;&#24335;&#21629;&#21517;&#27861;&#35268;&#21017;&#26816;&#26597;</span>
+            <span style="color: #00bfff; font-weight: bold;">if</span> (e.getKind() == ENUM_CONSTANT || e.getConstantValue() != <span style="color: #ffd700;">null</span> || heuristicallyConstant(e))
+                checkAllCaps(e);
+            <span style="color: #00bfff; font-weight: bold;">else</span>
+                checkCamelCase(e, <span style="color: #ffd700;">false</span>);
+            <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">null</span>;
+        }
+
+        <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">         * &#21028;&#26029;&#19968;&#20010;&#21464;&#37327;&#26159;&#21542;&#26159;&#24120;&#37327;</span>
+<span style="color: #ffebcd;">         */</span>
+        <span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #98f5ff;">boolean</span> <span style="color: #daa520; font-weight: bold;">heuristicallyConstant</span>(<span style="color: #98f5ff;">VariableElement</span> <span style="color: #4eee94;">e</span>) {
+            <span style="color: #00bfff; font-weight: bold;">if</span> (e.getEnclosingElement().getKind() == INTERFACE)
+                <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">true</span>;
+            <span style="color: #00bfff; font-weight: bold;">else</span>
+                <span style="color: #00bfff; font-weight: bold;">return</span> e.getKind() == FIELD &amp;&amp; e.getModifiers().containsAll(EnumSet.of(PUBLIC, STATIC, FINAL));
+        }
+
+        <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">         * &#26816;&#26597;&#20256;&#20837;&#30340;Element&#26159;&#21542;&#31526;&#21512;&#39548;&#24335;&#21629;&#21517;&#27861;&#65292;&#22914;&#26524;&#19981;&#31526;&#21512;&#65292;&#21017;&#36755;&#20986;&#35686;&#21578;&#20449;&#24687;</span>
+<span style="color: #ffebcd;">         */</span>
+        <span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">checkCamelCase</span>(<span style="color: #98f5ff;">Element</span> <span style="color: #4eee94;">e</span>, <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">initialCaps</span>) {
+            <span style="color: #98f5ff;">String</span> <span style="color: #4eee94;">name</span> = e.getSimpleName().toString();
+            <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">previousUpper</span> = <span style="color: #ffd700;">false</span>;
+            <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">conventional</span> = <span style="color: #ffd700;">true</span>;
+            <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">firstCodePoint</span> = name.codePointAt(0);
+
+            <span style="color: #00bfff; font-weight: bold;">if</span> (Character.isUpperCase(firstCodePoint)) {
+                previousUpper = <span style="color: #ffd700;">true</span>;
+                <span style="color: #00bfff; font-weight: bold;">if</span> (!initialCaps) {
+                    messager.printMessage(WARNING, <span style="color: #deb887;">"&#21517;&#31216;&#8220;"</span> + name + <span style="color: #deb887;">"&#8221;&#24212;&#24403;&#20197;&#23567;&#20889;&#23383;&#27597;&#24320;&#22836;"</span>, e);
+                    <span style="color: #00bfff; font-weight: bold;">return</span>;
+                }
+            } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (Character.isLowerCase(firstCodePoint)) {
+                <span style="color: #00bfff; font-weight: bold;">if</span> (initialCaps) {
+                    messager.printMessage(WARNING, <span style="color: #deb887;">"&#21517;&#31216;&#8220;"</span> + name + <span style="color: #deb887;">"&#8221;&#24212;&#24403;&#20197;&#22823;&#20889;&#23383;&#27597;&#24320;&#22836;"</span>, e);
+                    <span style="color: #00bfff; font-weight: bold;">return</span>;
+                }
+            } <span style="color: #00bfff; font-weight: bold;">else</span>
+                conventional = <span style="color: #ffd700;">false</span>;
+
+            <span style="color: #00bfff; font-weight: bold;">if</span> (conventional) {
+                <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">cp</span> = firstCodePoint;
+                <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = Character.charCount(cp); i &lt; name.<span style="color: #98f5ff;">length</span>(); i += Character.charCount(cp)) {
+                    cp = name.codePointAt(i);
+                    <span style="color: #00bfff; font-weight: bold;">if</span> (Character.isUpperCase(cp)) {
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (previousUpper) {
+                            conventional = <span style="color: #ffd700;">false</span>;
+                            <span style="color: #00bfff; font-weight: bold;">break</span>;
+                        }
+                        previousUpper = <span style="color: #ffd700;">true</span>;
+                    } <span style="color: #00bfff; font-weight: bold;">else</span>
+                        previousUpper = <span style="color: #ffd700;">false</span>;
+                }
+            }
+
+            <span style="color: #00bfff; font-weight: bold;">if</span> (!conventional)
+                messager.printMessage(WARNING, <span style="color: #deb887;">"&#21517;&#31216;&#8220;"</span> + name + <span style="color: #deb887;">"&#8221;&#24212;&#24403;&#31526;&#21512;&#39548;&#24335;&#21629;&#21517;&#27861;&#65288;Camel Case Names&#65289;"</span>, e);
+        }
+
+        <span style="color: #ffebcd;">/**</span>
+<span style="color: #ffebcd;">         * &#22823;&#20889;&#21629;&#21517;&#26816;&#26597;&#65292;&#35201;&#27714;&#31532;&#19968;&#20010;&#23383;&#27597;&#24517;&#39035;&#26159;&#22823;&#20889;&#30340;&#33521;&#25991;&#23383;&#27597;&#65292;&#20854;&#20313;&#37096;&#20998;&#21487;&#20197;&#26159;&#19979;&#21010;&#32447;&#25110;&#22823;&#20889;&#23383;&#27597;</span>
+<span style="color: #ffebcd;">         */</span>
+        <span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">checkAllCaps</span>(<span style="color: #98f5ff;">Element</span> <span style="color: #4eee94;">e</span>) {
+            <span style="color: #98f5ff;">String</span> <span style="color: #4eee94;">name</span> = e.getSimpleName().toString();
+
+            <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">conventional</span> = <span style="color: #ffd700;">true</span>;
+            <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">firstCodePoint</span> = name.codePointAt(0);
+
+            <span style="color: #00bfff; font-weight: bold;">if</span> (!Character.isUpperCase(firstCodePoint))
+                conventional = <span style="color: #ffd700;">false</span>;
+            <span style="color: #00bfff; font-weight: bold;">else</span> {
+                <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">previousUnderscore</span> = <span style="color: #ffd700;">false</span>;
+                <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">cp</span> = firstCodePoint;
+                <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = Character.charCount(cp); i &lt; name.<span style="color: #98f5ff;">length</span>(); i += Character.charCount(cp)) {
+                    cp = name.codePointAt(i);
+                    <span style="color: #00bfff; font-weight: bold;">if</span> (cp == (<span style="color: #98f5ff;">int</span>) <span style="color: #deb887;">'_'</span>) {
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (previousUnderscore) {
+                            conventional = <span style="color: #ffd700;">false</span>;
+                            <span style="color: #00bfff; font-weight: bold;">break</span>;
+                        }
+                        previousUnderscore = <span style="color: #ffd700;">true</span>;
+                    } <span style="color: #00bfff; font-weight: bold;">else</span> {
+                        previousUnderscore = <span style="color: #ffd700;">false</span>;
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (!Character.isUpperCase(cp) &amp;&amp; !Character.isDigit(cp)) {
+                            conventional = <span style="color: #ffd700;">false</span>;
+                            <span style="color: #00bfff; font-weight: bold;">break</span>;
+                        }
+                    }
+                }
+            }
+
+            <span style="color: #00bfff; font-weight: bold;">if</span> (!conventional)
+                messager.printMessage(WARNING, <span style="color: #deb887;">"&#24120;&#37327;&#8220;"</span> + name + <span style="color: #deb887;">"&#8221;&#24212;&#24403;&#20840;&#37096;&#20197;&#22823;&#20889;&#23383;&#27597;&#25110;&#19979;&#21010;&#32447;&#21629;&#21517;&#65292;&#24182;&#19988;&#20197;&#23383;&#27597;&#24320;&#22836;"</span>, e);
+        }
+    }
+}
+</pre>
+</div>
+
+<p>
+NameChecker的代码看起来有点长，但实际上注释占了很大一部分，其实即使算上注释也不到190行。它通过一个继承于 <span class="underline">javax.lang.model.util.ElementScanner6</span> 的 <span class="underline">NameCheckScanner</span> 类，以 <b>Visitor</b> 模式来完成对语法树的遍历，分别执行 <span class="underline">visitType()</span>  、 <span class="underline">visitVariable()</span>  和 <span class="underline">visitExecutable()</span> 方法来访问类、字段和方法，这3个visit方法对各自的命名规则做相应的检查，checkCamelCase() 与checkAllCaps() 方法则用于实现 <span class="underline">驼式命名法</span> 和 <span class="underline">全大写命名</span> 规则的检查
+</p>
+</div>
+</div>
+
+<div id="outline-container-org0bbc9f9" class="outline-3">
+<h3 id="org0bbc9f9">运行测试</h3>
+<div class="outline-text-3" id="text-org0bbc9f9">
+<p>
+为了验证实战成果，下面提供了一段命名规范的“反面教材”代码，其中的每一个类、方法及字段的命名都存在问题，但是使用普通的Javac编译这段代码时不会提示任何一个Warning信息：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">BADLY_NAMED_CODE</span> {
+
+    <span style="color: #00bfff; font-weight: bold;">enum</span> <span style="color: #98f5ff;">colors</span> {
+        <span style="color: #4eee94;">red</span>, <span style="color: #4eee94;">blue</span>, <span style="color: #4eee94;">green</span>;
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">_FORTY_TWO</span> = 42;
+
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">NOT_A_CONSTANT</span> = _FORTY_TWO;
+
+    <span style="color: #00bfff; font-weight: bold;">protected</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">BADLY_NAMED_CODE</span>() {
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">NOTcamelCASEmethodNAME</span>() {
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    }
+}
+</pre>
+</div>
+
+
+<ul class="org-ul">
+<li>通过Javac命令的 <span class="underline">-processor</span> 参数来 <b>执行编译时需要附带的注解处理器</b> ，如果有多个注解处理器的话，用逗号分隔</li>
+<li>还可以使用 <span class="underline">-XprintRounds</span> 和 <span class="underline">-XprintProcessorInfo</span> 参数来 <b>查看注解处理器运作的详细信息</b></li>
+</ul>
+
+<p>
+这里用NameCheckProcessor的编译及执行过程如下： 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">klose@ubuntu16-188 ~/tmp/src $ javac com/sun/tools/javac/main/NameChecker.java
+
+klose@ubuntu16-188 ~/tmp/src $ javac com/sun/tools/javac/main/NameCheckProcessor.java
+
+klose@ubuntu16-188 ~/tmp/src $ javac -processor  com.sun.tools.javac.main.NameCheckProcessor BADLY_NAMED_CODE.java
+
+warning: No SupportedSourceVersion annotation found on com.sun.tools.javac.main.NameCheckProcessor, returning RELEASE_6.
+warning: Supported source version <span style="color: #deb887;">'RELEASE_6'</span> from annotation processor <span style="color: #deb887;">'com.sun.tools.javac.main.NameCheckProcessor'</span> less than -source <span style="color: #deb887;">'1.8'</span>
+BADLY_NAMED_CODE.java:1: warning: &#21517;&#31216;&#8220;BADLY_NAMED_CODE&#8221;&#24212;&#24403;&#31526;&#21512;&#39548;&#24335;&#21629;&#21517;&#27861;&#65288;Camel Case Names&#65289;
+public class BADLY_NAMED_CODE {
+       ^
+BADLY_NAMED_CODE.java:3: warning: &#21517;&#31216;&#8220;colors&#8221;&#24212;&#24403;&#20197;&#22823;&#20889;&#23383;&#27597;&#24320;&#22836;
+        enum colors {
+        ^
+BADLY_NAMED_CODE.java:4: warning: &#24120;&#37327;&#8220;red&#8221;&#24212;&#24403;&#20840;&#37096;&#20197;&#22823;&#20889;&#23383;&#27597;&#25110;&#19979;&#21010;&#32447;&#21629;&#21517;&#65292;&#24182;&#19988;&#20197;&#23383;&#27597;&#24320;&#22836;
+                red, blue, green;
+                ^
+BADLY_NAMED_CODE.java:4: warning: &#24120;&#37327;&#8220;blue&#8221;&#24212;&#24403;&#20840;&#37096;&#20197;&#22823;&#20889;&#23383;&#27597;&#25110;&#19979;&#21010;&#32447;&#21629;&#21517;&#65292;&#24182;&#19988;&#20197;&#23383;&#27597;&#24320;&#22836;
+                red, blue, green;
+                     ^
+BADLY_NAMED_CODE.java:4: warning: &#24120;&#37327;&#8220;green&#8221;&#24212;&#24403;&#20840;&#37096;&#20197;&#22823;&#20889;&#23383;&#27597;&#25110;&#19979;&#21010;&#32447;&#21629;&#21517;&#65292;&#24182;&#19988;&#20197;&#23383;&#27597;&#24320;&#22836;
+                red, blue, green;
+                           ^
+BADLY_NAMED_CODE.java:7: warning: &#24120;&#37327;&#8220;_FORTY_TWO&#8221;&#24212;&#24403;&#20840;&#37096;&#20197;&#22823;&#20889;&#23383;&#27597;&#25110;&#19979;&#21010;&#32447;&#21629;&#21517;&#65292;&#24182;&#19988;&#20197;&#23383;&#27597;&#24320;&#22836;
+        static final int _FORTY_TWO = 42;
+                         ^
+BADLY_NAMED_CODE.java:9: warning: &#21517;&#31216;&#8220;NOT_A_CONSTANT&#8221;&#24212;&#24403;&#20197;&#23567;&#20889;&#23383;&#27597;&#24320;&#22836;
+        public static int NOT_A_CONSTANT = _FORTY_TWO;
+                          ^
+BADLY_NAMED_CODE.java:11: warning: &#19968;&#20010;&#26222;&#36890;&#26041;&#27861; &#8220;BADLY_NAMED_CODE&#8221;&#19981;&#24212;&#24403;&#19982;&#31867;&#21517;&#37325;&#22797;&#65292;&#36991;&#20813;&#19982;&#26500;&#36896;&#20989;&#25968;&#20135;&#29983;&#28151;&#28102;
+        protected void BADLY_NAMED_CODE() {
+                       ^
+BADLY_NAMED_CODE.java:11: warning: &#21517;&#31216;&#8220;BADLY_NAMED_CODE&#8221;&#24212;&#24403;&#20197;&#23567;&#20889;&#23383;&#27597;&#24320;&#22836;
+        protected void BADLY_NAMED_CODE() {
+                       ^
+BADLY_NAMED_CODE.java:15: warning: &#21517;&#31216;&#8220;NOTcamelCASEmethodNAME&#8221;&#24212;&#24403;&#20197;&#23567;&#20889;&#23383;&#27597;&#24320;&#22836;
+        public void NOTcamelCASEmethodNAME() {
+                    ^
+12 warnings
+</pre>
+</div>
+
+<pre class="example">
+NameCheckProcessor的实战例子只演示了JSR-269嵌入式注解处理器API中的一部分功能
+
+基于这组API支持的项目还有用于校验Hibernate标签使用正确性的Hibernate Validator Annotation Processor
+本质上与NameCheckProcessor所做的事情差不多
+
+自动为字段生成getter和setter方法的Project Lombok：根据已有元素生成新的语法树元素等
+</pre>
+
+<p>
+<a href="runtime_optimize.html">Next：运行期优化</a>
+</p>
+
+<p>
+<a href="thread_safe.html">Previous：线程安全</a>
+</p>
+
+<p>
+<a href="jvm.html">Home：目录</a>
+</p>
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

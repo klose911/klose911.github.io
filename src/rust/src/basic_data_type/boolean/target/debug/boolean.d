@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/basic_data_type/boolean/target/debug/boolean: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/basic_data_type/boolean/src/main.rs

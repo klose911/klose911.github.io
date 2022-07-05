@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/lifetime/longest/target/debug/longest: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/lifetime/longest/src/main.rs

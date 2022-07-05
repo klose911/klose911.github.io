@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/ownership/first_word/target/debug/first_word: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/ownership/first_word/src/main.rs

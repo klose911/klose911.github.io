@@ -1,0 +1,341 @@
+#+TITLE: 复杂类型
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: flow.html   
+#+HTML_LINK_HOME: go.html
+#+OPTIONS: num:nil timestamp:nil
+* 指针
+  指针保存了变量的内存地址
+  
+  类型 *T 是指向类型 T 的值的指针，其原始值是nil
+  #+BEGIN_SRC go
+  var p *int
+  #+END_SRC
+  
+  &符号会生成一个指向其作用对象的指针 
+  #+BEGIN_SRC go
+  i := 42
+  p = &i
+  #+END_SRC
+  
+  *符号表示指针指向的底层的值,  这也就是通常所说的“间接引用”或“非直接引用”
+  #+BEGIN_SRC go
+  fmt.Println(*p) // 通过指针 p 读取 i
+  ,*p = 21         // 通过指针 p 设置 i
+  #+END_SRC
+  
+  注意：go没有指针算术运算！ 
+* 结构体
+  struct 就是一个字段的集合
+  #+BEGIN_SRC go
+   type Vertex struct {
+           X int
+           Y int
+   }
+
+   func main() {
+           fmt.Println(Vertex{1, 2})
+   }
+  #+END_SRC
+** 结构体字段
+   结构体字段使用 . 来访问
+   #+BEGIN_SRC go
+  type Vertex struct {
+          X int
+          Y int
+  }
+
+  func main() {
+          v := Vertex{1, 2}
+          v.X = 4
+          fmt.Println(v.X)
+  }
+   #+END_SRC
+** 结构体指针
+   结构体字段可以通过结构体指针来访问，通过指针间接的访问是透明的。
+   
+   注意：和C语言不一样，通过结构体指针访问字段依然用 . 不是用-> 
+   #+BEGIN_SRC go
+  type Vertex struct {
+          X int
+          Y int
+  }
+
+  func main() {
+          v := Vertex{1, 2}
+          p := &v
+          p.X = 1e9
+          fmt.Println(v)
+  }
+   #+END_SRC
+** 结构体文法
+   通过结构体字段的值作为列表来定义一个结构体。使用 Name: 语法可以仅列出部分字段。特殊的前缀 & 返回一个指向结构体的指针
+   
+   #+BEGIN_SRC go
+  type Vertex struct {
+          X, Y int
+  }
+
+  var (
+          v1 = Vertex{1, 2}  // 类型为 Vertex
+          v2 = Vertex{X: 1}  // Y:0 被省略
+          v3 = Vertex{}      // X:0 和 Y:0
+          p  = &Vertex{1, 2} // 类型为 *Vertex
+  )
+   #+END_SRC
+* 数组
+  类型 [n]T 是一个有 n 个类型为 T 的值的数组
+  #+BEGIN_SRC go
+//定义变量 a 是一个有十个整数的数组 
+  var a [10]int
+  #+END_SRC
+  数组的长度是其类型的一部分，因此数组不能改变大小! 
+* slice
+  slice会指向一个列表的值，并且包含了长度信息
+  #+BEGIN_SRC go
+  //一个元素类型为 T 的 slice
+  var a []T s
+  //返回 slice s 的长度
+  len(s)
+  #+END_SRC
+  slice 可以包含任意的类型，包括另一个 slice 
+  #+BEGIN_SRC go
+    // Create a tic-tac-toe board.
+    game := [][]string{
+            []string{"_", "_", "_"},
+            []string{"_", "_", "_"},
+            []string{"_", "_", "_"},
+    }
+
+    // The players take turns.
+    // X _ X
+    // O _ _
+    // X _ O
+    game[0][0] = "X"
+    game[2][2] = "O"
+    game[2][0] = "X"
+    game[1][0] = "O"
+    game[0][2] = "X"
+  #+END_SRC
+** 构造切片
+   slice 由函数 make 创建。这会分配一个全是零值的数组并且返回一个 slice 指向这个数组：
+   #+BEGIN_SRC go
+   //slice a的长度是5，cap是无限
+   a := make([]int, 5)  // len(a)=5, cap(a)=5
+
+   //为了指定容量，可传递第三个参数到 make：
+   b := make([]int, 0, 5) // len(b)=0, cap(b)=5
+   b = b[:cap(b)] // len(b)=5, cap(b)=5
+   b = b[1:]      // len(b)=4, cap(b)=4
+   #+END_SRC
+** 重新切片
+   slice 可以重新切片，创建一个新的 slice 值指向相同的数组
+   #+BEGIN_SRC go
+   //表示从 lo 到 hi-1 的 slice 元素，含前端，不包含后端
+   s[lo:hi]
+
+   //是空的
+   s[lo:lo]
+
+   //包含s[lo]这个元素
+   s[lo: lo + 1]
+   #+END_SRC
+** 空切片
+   未初始化的slice 值是 nil ，一个 nil 的 slice 的长度和容量是 0
+   #+BEGIN_SRC go
+  var z []int
+  //[] 0 0
+  fmt.Println(z, len(z), cap(z))
+  //nil!
+  if z == nil {
+          fmt.Println("nil!")
+  }
+   #+END_SRC
+** 向切片添加元素
+   内建函数 append ：向slice末尾添加元素
+   #+BEGIN_SRC go
+  func append(s []T, vs ...T) []T
+   #+END_SRC
++ s 是一个元素类型为 T 的 slice ，其余类型为 T 的值将会附加到该 slice 的末尾
++ 返回是一个包含原 slice 所有元素加上新添加的元素的 slice
++ 如果 s 的底层数组太小，而不能容纳所有值时，会分配一个更大的数组。 返回的 slice 会指向这个新分配的数组
+  
+* range
+  for 循环的 range 格式可以对 slice 或者 map 进行迭代循环
+  
+  当使用 for 循环遍历一个 slice 时，每次迭代 range 将返回两个值。 第一个是当前下标（序号），第二个是该下标所对应元素的一个拷贝！
+  #+BEGIN_SRC go
+  var pow = []int{1, 2, 4, 8, 16, 32, 64, 128}
+  // 2**0 = 1
+  // 2**1 = 2
+  // 2**2 = 4
+  // 2**3 = 8
+  // 2**4 = 16
+  // 2**5 = 32
+  // 2**6 = 64
+  // 2**7 = 128
+  func main() {
+          //i是当前下标，v是当前下标对应元素的一个拷贝
+          for i, v := range pow {
+                  fmt.Printf("2**%d = %d\n", i, v)
+          }
+  }
+  #+END_SRC
+  
+  可以通过赋值给 _ 来忽略序号和值，如果只需要索引值，去掉 “ , value ” 的部分即可
+  #+BEGIN_SRC go
+  pow := make([]int, 10)
+  //如果只需要索引值，去掉 “ , value ” 的部分
+  for i := range pow {
+          pow[i] = 1 << uint(i)
+  }
+  //通过赋值给 _ 来忽略序号和值
+  for _, value := range pow {
+          fmt.Printf("%d\n", value)
+  }
+  #+END_SRC
+  
+* map
+  map 在使用之前必须用 make 来创建。值为 nil 的 map 是空的，并且不能对其赋值！ 
+  #+BEGIN_SRC go
+   type Vertex struct {
+           Lat, Long float64
+   }
+
+   var m map[string]Vertex
+
+   func main() {
+           m = make(map[string]Vertex)
+           m["Bell Labs"] = Vertex{
+                   40.68433, -74.39967,
+           }
+           fmt.Println(m["Bell Labs"])
+   }
+  #+END_SRC
+  
+** map文法
+   map 的文法跟结构体文法相似，不过必须有键名
+   #+BEGIN_SRC go
+   type Vertex struct {
+           Lat, Long float64
+   }
+
+   var m = map[string]Vertex{
+           "Bell Labs": Vertex{
+                   40.68433, -74.39967,
+           },
+           "Google": Vertex{
+                   37.42202, -122.08408,
+           },
+   }
+   #+END_SRC
+   若顶级类型只是一个类型名，你可以在文法的元素中省略它
+   #+BEGIN_SRC go
+  type Vertex struct {
+          Lat, Long float64
+  }
+
+  var m = map[string]Vertex{
+          "Bell Labs": {40.68433, -74.39967},
+          "Google":    {37.42202, -122.08408},
+  }
+   #+END_SRC
+   
+** 修改map
++ 在 map m 中插入或修改一个元素
+#+BEGIN_SRC go
+  m[key] = elem
+#+END_SRC
++ 获得元素
+#+BEGIN_SRC go
+  elem = m[key]
+#+END_SRC
++ 删除元素
+  #+BEGIN_SRC go
+    delete(m, key)
+  #+END_SRC
++ 通过双赋值检测某个键是否存在
+#+BEGIN_SRC go
+  //如果 key 在 m 中， ok 为 true。否则， ok 为 false，并且 elem 是 map 的元素类型的零值 
+  elem, ok = m[key]
+#+END_SRC
+
+
+#+BEGIN_SRC go
+  m := make(map[string]int)
+  m["Answer"] = 42
+  //The value: 42
+  fmt.Println("The value:", m["Answer"])
+
+  m["Answer"] = 48
+  //The value: 48
+  fmt.Println("The value:", m["Answer"])
+
+  delete(m, "Answer")
+  //The value: 0
+  fmt.Println("The value:", m["Answer"])
+
+  v, ok := m["Answer"]
+  //The value: 0 Present? false
+  fmt.Println("The value:", v, "Present?", ok)
+#+END_SRC
+
+* 函数指针
+  函数也是值，可以像其他值一样传递，比如，函数值可以作为函数的参数或者返回值
+  
+  注意：不需要向C一样显示声明函数指针，在Go中这是透明的
+  
+  
+  #+BEGIN_SRC go
+   func compute(fn func(float64, float64) float64) float64 {
+           return fn(3, 4)
+   }
+
+   func main() {
+           //声明一个函数
+           hypot := func(x, y float64) float64 {
+                   return math.Sqrt(x*x + y*y)
+           }
+           //13 调用hypot函数：sqrt(5 * 5 + 12 * 12)
+           fmt.Println(hypot(5, 12))
+           //5 把hypot函数作为参数传递给compute: sqrt(3*3 + 4 * 4)
+           fmt.Println(compute(hypot))
+           //81 把Math.Pow作为参数传递给compute: pow(3, 4)
+           fmt.Println(compute(math.Pow))
+   }
+  #+END_SRC
+  
+** 函数闭包
+   函数可以是一个闭包。闭包是一个函数值，它引用了函数体之外的变量。 函数可以对这个引用的变量进行访问和赋值；换句话说这个函数被“绑定”在这个变量上。
+   
+   #+BEGIN_SRC go
+  //函数 adder 返回一个闭包，每个返回的闭包都被绑定到其各自的 sum 变量上
+  func adder() func(int) int {
+          sum := 0
+          //这个匿名函数可以对sum变量进行访问和赋值，这个函数就像是被绑定在sum变量上
+          return func(x int) int {
+                  sum += x
+                  return sum
+          }
+  }
+
+  func main() {
+          pos, neg := adder(), adder()
+          // 0 0
+          // 1 -2
+          // 3 -6
+          // 6 -12
+          // 10 -20
+          for i := 0; i < 5; i++ {
+                  fmt.Println(
+                          pos(i),
+                          neg(-2*i),
+                  )
+          }
+  }
+   #+END_SRC
+
+[[file:interface.org][Next：接口和方法]]
+
+[[file:flow.org][Previous：流程控制]]
+
+[[file:go.org][Home：目录]]

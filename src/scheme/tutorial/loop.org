@@ -1,0 +1,178 @@
+#+TITLE: 循环
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: local_variable.html   
+#+HTML_LINK_HOME: slt.html
+#+OPTIONS: num:nil timestamp:nil
+
+本章中会介绍循环。通过循环，可以编写“通常的”程序
+
+虽然也可以使用 _do表达式_ ，但 Scheme 中通常 *通过递归实现循环* 
+* 递归
+  在 *自己的定义中调用自己* 的函数叫做 _递归函数_ （Recursive Function）。虽然这听起来很奇怪，但是循环的常见方法。如果你把函数类比为机器的话，递归似乎毫无道理。然而，正 *因为函数是过程* ，函数调用自己是有意义的。比如说，来考察一下文献调研吧。可能需要去阅读你正在阅读的文献所引用的文献（cited-1）。进一步，你可能还需要去阅读文件（cite-1）所引用的其它文献。这样，文献调研就是一个递归的过程，也可以重复这个调研过程直到满足了特定条件（比如说，你累了）。这样，将程序设计语言中的函数类比为人类活动（比如文献调研）将有助于理解递归函数
+
+  通常使用计算阶乘来解释递归：
+
+  #+BEGIN_SRC scheme
+  (define (fact n)
+    (if (= n 1)
+	1
+	(* n (fact (- n 1)))))
+
+  (fact 5) ; => 120
+  #+END_SRC
+
+  _(fact 5)_ 的计算过程如下：
+
+  #+BEGIN_EXAMPLE
+    (fact 5)
+    => 5 * (fact 4)
+    => 5 * 4 * (fact 3)
+    => 5 * 4 * 3 * (fact 2)
+    => 5 * 4 * 3 * 2 * (fact 1)
+    => 5 * 4 * 3 * 2 * 1
+    => 5 * 4 * 3 * 2
+    => 5 * 4 * 6
+    => 5 * 24
+    => 120
+  #+END_EXAMPLE
+  (fact 5) 调用 (fact 4)，(fact 4) 调用 (fact 3)，最后 (fact 1) 被调用。(fact 5)，(fact 4)……以及(fact 1)都被 *分配了不同的存储空间* ，直到 (fact (- i 1))返回一个值之前，(fact i)都会保留在内存中，由于存在函数调用的开销，这通常会 *占用更多地内存空间和计算时间* 
+
+  然而， 递归函数可以以 *一种简单的方式表达重复* 。表是被 _递归定义_ 的，进而 *表和递归函数可以很好地配合* 
+
+  #+BEGIN_EXAMPLE
+    例如，一个让表中所有元素翻倍的函数可以像下面这样写
+
+    如果参数是空表，那么函数应该停止计算并返回一个空表
+  #+END_EXAMPLE
+
+  #+BEGIN_SRC scheme
+  (define (list*2 ls)
+    (if (null? ls)
+	'()
+	(cons (* 2 (car ls))
+	      (list*2 (cdr ls)))))
+
+  (list*2 '(1 2 3)) ; => (2 4 6) 
+  #+END_SRC
+* 尾递归
+  普通的递归调用并不高效因为它 _既浪费存储空间_ 又具有 _函数调用开销_ 。与之相反，尾递归函数 *包含了计算结果，当计算结束时直接将其返回* 。特别地，由于Scheme规范要求 *尾递归调用转化为循环* ，因此尾递归调用就不存在函数调用开销。下面是函数fact的尾递归版本：
+
+  #+BEGIN_SRC scheme
+  ;;; tail recursive
+  (define (fact-tail n)
+    (fact-rec n n))
+
+  (define (fact-rec n p)
+    (if (= n 1)
+	p
+	(let ((m (- n 1)))
+	  (fact-rec m (* p m)))))
+
+  (fact-tail 5) ; 120
+  #+END_SRC
+
+  _fact-tail_ 计算阶乘的过程像这样：
+
+  #+BEGIN_EXAMPLE
+    (fact-tail 5)
+    => (fact-rec 5 5)
+    => (fact-rec 4 20)
+    => (fact-rec 3 60)
+    => (fact-rec 2 120)
+    => (fact-rec 1 120)
+    => 120
+  #+END_EXAMPLE
+  因为 _fact-rec_ 并不 *等待其它函数的计算结果* ，因此当它 *计算结束时即从内存中释放* 。计算通过 *修改 fact-rec 的参数来演进* ，这基本上等同于循环
+
+  #+BEGIN_EXAMPLE
+    Scheme将尾递归转化为循环，Scheme 就无需提供循环的语法来实现重复
+  #+END_EXAMPLE
+* 命名 let 
+  _命名 let_ 可以用来 *表达循环* 。函数 _fact-let_ 展示了如何使用 _命名 let_ 来计算阶乘：
+  #+BEGIN_SRC scheme
+  (define (fact-let n)
+    (let loop((n1 n) (p n))           ; 1
+      (if (= n1 1)                    
+	  p
+	  (let ((m (- n1 1)))
+	    (loop m (* p m))))))      ; 2
+
+  (fact-let 5) ; 120 
+  #+END_SRC
+
+  这里使用了一个 命名 let 表达式 _loop_ ，这与之前展示的 fact-rec 函数是不同的
+  + 在被注释为 ;1 的那行，将参数 n1 和 p 都初始化为 n
+  + 每次循环后，参数在被注释为 ;2 的那行更新：
+    + 将 n1 减 1
+    + 将 p 乘以 (n1 - 1) 
+
+  #+BEGIN_EXAMPLE
+    在Scheme中，用 命名let 来表达循环是俗成的方法
+  #+END_EXAMPLE
+* letrec 表达式
+  _letrec_ 类似于 let，但它 *允许一个名字递归地调用它自己* 。语法 letrec通常用于 *定义复杂的递归函数* 。下面展示了 fact 函数的 _letrec_ 版本：
+
+  #+BEGIN_SRC scheme
+  (define (fact-letrec n)
+    (letrec ((iter (lambda (n1 p)
+		     (if (= n1 1)
+			 p
+			 (let ((m (- n1 1)))
+			   (iter m (* p m)))))))     ; *
+      (iter n n)))
+
+  (fact-letrec 5) ; 120 
+  #+END_SRC
+
+  注释为 ;* 的那行代码所示：局部函数 _iter_ 可以在它的定义里面调用它自己
+
+  #+BEGIN_EXAMPLE
+    语法 letrec 是定义局部函数的俗成方式
+  #+END_EXAMPLE
+* do 表达式
+  虽然并不常见，但语法 _do_ 也可用于表达 *重复* 。它的格式如下：
+
+  #+BEGIN_EXAMPLE
+    (do binds (predicate value)
+	body)
+  #+END_EXAMPLE
+
+  _变量_ 在 _binds部分_ 被 *绑定* : 
+  + 如果 _predicate_ 被求值为 *真* ，则函数从 *循环中逃逸* 出来，并 *返回值value*
+  + 否则， 循环 _body_ 继续进行
+
+  _binds_ 部分的格式如下所示：
+  #+BEGIN_EXAMPLE
+    [binds] → ((p1 i1 u1)
+	       (p2 i2 u2) ... )
+  #+END_EXAMPLE
+
+  + 变量p1，p2，...被分别 *初始化* 为 i1，i2，...
+  + 在循环后分别被 *更新* 为 u1，u2，...
+
+  #+BEGIN_SRC scheme
+  (define (fact-do n)
+    (do ((n1 n (- n1 1))
+	 (p n (* p (- n1 1))))
+	((= n1 1) p)))
+
+  (fact-do 5) ; 120 
+  #+END_SRC
+
+  + 变量 n1 和 p 分别被初始化为 n和 n
+  + 在每次循环后分别被 减去1 和 乘以 (n1 - 1)
+  + 当 n1变为1 时，函数返回 p 
+
+  #+BEGIN_EXAMPLE
+    我个人认为 do 比 命名let 还要复杂一些
+  #+END_EXAMPLE
+* 总结
+  + _命名let_ ： 编写 *简单的循环*
+  + _letrec_ ： 写 *复杂的局部递归函数* 
+
+  [[file:high_order_function.org][Next：高阶函数]]
+
+  [[file:local_variable.org][Previous：局部变量]]
+
+  [[file:slt.org][Home：目录]]
+

@@ -1,0 +1,65 @@
+#+TITLE: Kublet的认证授权
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: tls.html
+#+HTML_LINK_HOME: security.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+* 概览
+  Kubelet 的 _HTTPS 端点_ 对外 *暴露* 了用于 _访问不同敏感程度数据的 API_ ，并允许在节点或者容器内执行不同权限级别的操作
+
+  #+begin_example
+    接下来描述如何通过认证授权来访问 kubelet 的 HTTPS 端点
+  #+end_example
+* 认证
+  默认情况下，所有未被配置的其他身份验证方法会被拒绝的，对 kubelet 的 HTTPS 端点的请求将被视为 _匿名请求_ ，并被授予 _system:anonymous_ 用户名和 _system:unauthenticated_ 组：
+  + 如果要禁用匿名访问并发送 401 Unauthorized 的未经身份验证的请求的响应：
+    + 启动 kubelet 时指定 _--anonymous-auth=false_ 标志
+  + 如果要对 kubelet 的 HTTPS 端点启用 _X509 客户端证书_ 身份验证：
+    + 启动 kubelet 时指定 _--client-ca-file_ 标志， *提供*  _CA bundle_ 以验证客户端证书
+    + 启动 apiserver 时指定 _--kubelet-client-certificate_ 和 _--kubelet-client-key_ 标志
+  + 启用 _API bearer token_ （包括 service account token）用于向 kubelet 的 HTTPS 端点进行身份验证：
+    + 确保在 API server 中 *开启* 了 _authentication.k8s.io/v1beta1 API 组_
+    + 启动 kubelet 时指定 _--authentication-token-webhook_ ，  _--kubeconfig_ 和 _--require-kubeconfig_ 标志
+    + Kubelet 在配置的 API server 上调用 _TokenReview API_ 以确定来自 bearer token 的用户信息
+
+* 授权
+  对任何成功验证的请求（包括匿名请求）授权。默认授权模式为 _AlwaysAllow_ ，允许所有请求
+
+  #+begin_example
+    需要细分访问 kubelet API 有很多原因：
+
+    启用匿名认证，但匿名用户调用 kubelet API 的能力应受到限制
+    启动 bearer token 认证，但是 API 用户（如 service account）调用 kubelet API 的能力应受到限制
+    客户端证书身份验证已启用，但只有那些配置了 CA 签名的客户端证书的用户才可以使用 kubelet API
+  #+end_example
+  
+  如果要细分访问 kubelet API，将授权委托给 API server：
+  + 确保 API server 中启用了 _authorization.k8s.io/v1beta1 API_ 组
+  + 启动 kubelet 时指定 _--authorization-mode=Webhook_ 、  _--kubeconfig_ 和 _--require-kubeconfig_ 标志
+  + kubelet 在配置的 API server 上调用 _SubjectAccessReview API_ ，以确定每个请求是否被授权
+
+  kubelet 使用与 apiserver 相同的 请求属性 方法来授权 API 请求：
+  + Verb（动词）是根据传入的请求的 HTTP 动词确定的：
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | HTTP 动词 |	request 动词 |
+    | POST | create |
+    | GET, HEAD | get |
+    | PUT	| update | 
+    | PATCH | patch | 
+    | DELETE | delete |
+  + 资源和子资源根据传入请求的路径确定：
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | Kubelet    | API 资源   | 子资源  |
+    | /stats/*   | nodes      | stats   |
+    | /metrics/* | nodes      | metrics |
+    | /logs/*    | nodes      | log     |
+    | /spec/*    | nodes      | spec    |
+    | all others | nodes      | proxy   |
+  + Namespace 和 API 组属性总是空字符串，资源的名字总是 kubelet 的 Node API 对象的名字
+  + 当以该模式运行时，请确保用户为 apiserver 指定了 --kubelet-client-certificate 和 --kubelet-client-key 标志并授权了如下属性：
+    + verb=*, resource=nodes, subresource=proxy
+    + verb=*, resource=nodes, subresource=stats
+    + verb=*, resource=nodes, subresource=log
+    + verb=*, resource=nodes, subresource=spec
+    + verb=*, resource=nodes, subresource=metrics
+
+| [[file:tls_bootstrap.org][Next: TLS Bootstrap]] | [[file:tls.org][Previous: TLS]] | [[file:security.org][Home：安全]] |

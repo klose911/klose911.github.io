@@ -1,0 +1,853 @@
+#+TITLE: 续延
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil 
+
+*续延* 是在 *运行中被暂停了的程序* ：即含有 *计算状态* 的 *单个函数型对象* 。当这个对象被求值时，就会在它上次停下来的地方重新启动之前保存下来的计算
+
+* 定义
+  *续延* 是一个代表着 _计算的将来_ 的函数。不管是哪一个表达式被求值，总会有谁在翘首以待它将要返回的值：
+  #+BEGIN_SRC scheme
+  (/ (- x 1) 2)
+  #+END_SRC
+  例如，当求值  _(- x 1)_ 时，外面的 _/_ 表达式就在等着这个值，依此类推下去，最后总是回到toplevel上 _print_ 正等在那里
+
+  无论何时，都可以把续延视为 *带一个参数的函数* 。上面的表达式被输入到 toplevel，那么当子表达式 _(- x 1)_ 被求值时，续延将是：
+  #+BEGIN_SRC scheme
+  (lambda (val) (/ val 2))
+  #+END_SRC
+
+  也就是说，接下来的计算可以通过在返回值上调用这个函数来重现。如果该表达式在下面的上下文中出现：
+  #+BEGIN_SRC scheme
+  (define (f1 w)
+    (let ((y (f2 w)))
+      (if (integer? y) (list 'a y) 'b)))
+
+  (define (f2 x)
+    (/ (- x 1) 2))
+  #+END_SRC
+
+  并且 _f1_ 在toplevel 下被调用，那么当 _(- x 1)_ 被求值时，续延将等价于：
+  #+BEGIN_SRC scheme
+    (lambda (val)
+      (let ((y (/ val 2)))
+	(if (integer? y) (list 'a y) 'b)))
+  #+END_SRC
+
+  续延可以理解成是一种广义的闭包：
+  + 闭包：一个 _函数_ 加上一些指向 _闭包创建时可见的词法变量的指针_
+  + 续延：一个 _函数_ 加上一个指向其 _创建时所在的整个栈的指针_ 
+
+  #+BEGIN_EXAMPLE
+    当续延被求值时，它返回的是使用自己的栈拷贝算出的结果，而没有用当前栈
+
+    如果某个续延是在 T1 时刻创建的，而在 T2 时刻被求值，那么它求值时使用的将是 T1 时刻的栈
+  #+END_EXAMPLE
+
+* call/cc
+  在 Scheme 中，续延和函数同样是第一类对象。可以要求 Scheme 返回当前的续延，然后它将为你 *生成一个只有单个参数的函数* ，以表示 *未来的计算* 。可以任意长时间地保存这个对象，然后在你调用它时，它将重启当它被创建时所发生的计算
+
+  Scheme 程序通过内置操作符 _call-with-current-continuation_ (缩写为 _call/cc_ ) 来 *访问当前续延* 。当一个程序在一个单个参数的函数上调用 call/cc 时：
+
+  #+BEGIN_SRC scheme
+  (call-with-current-continuation
+    (lambda (cc)
+      ...)) 
+  #+END_SRC
+
+  #+BEGIN_SRC scheme
+  (define frozen '())
+
+  (append '(the call/cc returned)
+    (list (call-with-current-continuation
+	(lambda (cc)
+	  (set! frozen cc)
+	  'a))))
+  #+END_SRC
+
+  虽然这个 call/cc 返回了 a ，实际上会把 *当前续延* 通过参数 _cc_ 传入，然后保存在了全局变量 _frozen_ 中，当前续延等价于：
+
+  #+BEGIN_SRC scheme
+  (lambda (val)
+    (append '(the call/cc returned)
+	    (list val)))
+
+  (set! frozen (lambda (val)
+		 (append '(the call/cc returned)
+			 (list val))))
+  #+END_SRC
+
+  以后每次调用 _frozen_ 都可以认为是执行上面这段续延保存的过程：
+  #+BEGIN_SRC scheme
+  (frozen 'again) ; =>  (the call/cc returned again) 
+
+  (append '(the call/cc returned)
+	  (list 'again)) ; =>  (the call/cc returned again) 
+  #+END_SRC 
+
+  续延不会因为被求值而用完。它们可以被 *重复* 调用，就像任何其他的函数型对象一样：
+  #+BEGIN_SRC scheme
+  (frozen 'thrice) ; =>  (the call/cc returned thrice) 
+
+  (append '(the call/cc returned)
+	  (list 'thrice)) ; =>  (the call/cc returned thrice) 
+  #+END_SRC
+
+  当在某些其他的计算里调用一个续延时，可以更清楚地看到所谓返回到原先的栈上是什么意思：
+
+  #+BEGIN_SRC scheme
+  (+ 1 (frozen 'safely)) ; => (the call/cc returned safely)
+  #+END_SRC
+
+  注意：紧接着的 _+_ 当 _frozen_ 调用时被忽略掉了。后者返回到了它首次被创建时的栈上：先经过 list ，然后是 append ，直到 toplevel。如果 frozen 像正常函数调用那样返回了一个值，那么上面的表达式将在试图给一个列表加 1 时产生一个错误
+
+  各续延并不会每人都分到自己的一份栈的拷贝。它们可能跟其他续延或者当前正在进行的计算 *共享一些变量* 。两个续延共享了同一个栈：
+
+  #+BEGIN_SRC scheme
+  (define froz1 '())
+  (define froz2 '())
+
+  (let ((x 0))
+    (call-with-current-continuation
+      (lambda (cc)
+	(set! froz1 cc)
+	(set! froz2 cc)))
+    (set! x (+ 1 x))
+    x) ; => 1
+  #+END_SRC
+
+  因此调用任何一个都将返回后继的整数：
+  #+BEGIN_SRC scheme
+  (froz1 '()) ;=> 2
+
+  (froz2 '()) ;=> 3
+  #+END_SRC
+
+  由于 call/cc 表达式的值将被丢弃，所以无论给 _froz1_ 和 _froz2_ 什么参数都无关紧要
+
+* CPS 
+  *CPS* ( _continuation-programming-style_ ) 是一种编程方式： *附加的最后一个参数是一个函数，把原来的计算结果传入这个函数作为返回值* 
+
+  #+BEGIN_SRC scheme
+  (define (return x)
+    x)
+
+  (define (k+ a b k)
+    (k (+ a b)))
+
+  (define (k* a b k)
+    (k (* a b))) 
+  #+END_SRC 
+
+  使用CPS风格来计算 _(* (+ 1 2) 3)_ 
+  #+BEGIN_SRC scheme
+  (k+ 1 2
+      (lambda (x)
+	(k* x 3 return))) ; => 9
+  #+END_SRC
+
+  一般情况下，括号内的结算结果作为返回值，对于CPS而言括号内计算结果被传入下一个参数， 比如 _(+ 1 2)_ 被传入了 _(k * x 3 return)_ ，而 (* 3 3) 的结果被传入 _return_ 
+
+** 递归CPS 
+   递归函数仍然可以被写成CPS风格：
+   #+BEGIN_SRC scheme
+  ;;; normal factorial
+  (define (fact n)
+    (if (= n 1) 
+	1
+	(* n (fact (- n 1)))))
+
+  ;;; CPS factorial
+  (define (kfact n k)
+    (if (= n 1) 
+	(k 1)
+	(kfact (- n 1)
+	       (lambda (x) (k (* n x))))))
+
+  (kfact 5 return) ; =>  120
+
+  ;; (kfact 1 return) ; => (return 1)  => 1 
+
+  ;; (kfact 2 return) 
+  ;; (kfact 1 (lambda (x) (return (* 2 x)))) ;=> (return (* 2 (kfact 1 return))) => 2 
+
+  ;; (kfact 3 return)
+  ;; (kfact 2 (lambda (x) (return (* 3 x)))) ; => (return (* 3 (kfact 2 return))) => 6  
+   #+END_SRC
+
+   用CPS来计算 _(+ 3 (fact 4))_  
+   #+BEGIN_SRC scheme
+  ;;; normal
+  (+ 3 (fact 4)) ;=> 27
+
+  ;;; CPS
+  (kfact 4 (lambda (x) (k+ x 3 return))) ; => 27 
+   #+END_SRC
+
+   用CPS来计算多个数的乘积， 注意：这里使用了一个局部变量break来保存返回函数，是的出现数字0的情况下，可以马上返回
+   #+BEGIN_SRC scheme
+  ;;; normal
+  (define (product ls)
+    (let loop ((ls ls) (acc 1))
+      (cond
+       ((null? ls) acc)
+       ((zero? (car ls)) 0)
+       (else (loop (cdr ls) (* (car ls) acc))))))
+
+  ;;; CPS
+  (define (kproduct ls k)
+    (let ((break k))
+      (let loop ((ls ls) (k k))
+	(cond
+	 ((null? ls) (k 1))
+	 ((zero? (car ls)) (break 0))
+	 (else (loop (cdr ls) (lambda (x) (k (* (car ls) x)))))))))
+   #+END_SRC
+
+   计算 _(+ 100 (product '(2 4 7)))_ ：
+   #+BEGIN_SRC scheme
+  ;;; normal
+  (+ 100 (product '(2 4 7))) ; => 156 
+
+  ;;; CPS
+  (kproduct '(2 4 7)
+	    (lambda (x)
+	      (k+ x 100 return))) ;=> 156
+   #+END_SRC
+
+   尽管对于上面那些简单的例子而言：CPS编程风格显得有点迂回，但是对于复杂的问题，比如自然语言解析和逻辑式编程非常有用。因为这时候由于可以动态传入如何处理返回值，比起同样的判断返回值而言，显得灵活得多 
+
+   下面是一个异常处理的例子：
+
+   #+BEGIN_SRC scheme
+  (define (non-number-value-error x)
+    (display "Value error: ")
+    (display  x)
+    (display " is not number.")
+    (newline)
+    'error)
+
+  (define (kproduct ls k k-value-error)
+    (let ((break k))
+      (let loop ((ls ls) (k k))
+	(cond
+	 ((null? ls) (k 1))
+	 ((not (number? (car ls))) (k-value-error (car ls)))
+	 ((zero? (car ls)) (break 0))
+	 (else (loop (cdr ls) (lambda (x) (k (* (car ls) x)))))))))
+   #+END_SRC
+
+   测试结果：
+   #+BEGIN_SRC scheme
+  ;;; valid
+  (kproduct '(2 4 7) 
+	    (lambda (x) (k+ x 100 return)) 
+	    non-number-value-error) ; => 156
+
+  ;;; invalid
+  (kproduct '(2 4 7 hoge) 
+	    (lambda (x) (k+ x 100 return)) 
+	    non-number-value-error)
+
+  ;; Value error: hoge is not number.
+  ;; => error
+   #+END_SRC
+
+** 续延和CPS
+   实际上CPS风格的最后一个参数，就可以被认为是当前的续延。所以一种通用的实现续延的方式就是 *通过遍历代码，把代码转换成CPS风格来得到当前续延*
+
+* 应用
+  对于求解特定类型的问题，能够保存程序的状态并在之后重启是非常有用的：
+  + 在非确定性的搜索问题里，续延可以用来表示搜索树中的节点
+  + 在多进程中，续延可以很方便地表示挂起的进程
+
+** 实现amb 
+   用 *一组通过续延来连接的闭包链* 来实现回溯，这组链条使用一个全局续延变量 *amb-fail* 作为入口，每次调用 _amb-fail_ ， 都会把 _amb-fail_ 恢复成前一个续延
+*** amb-fail 全局变量
+    _amb-fail_ 是最近一个失败的分支设置的函数。如果执行没有参数的 _(amb)_ 就会转到这个 _amb-fail_
+
+    这里，把 _amb-fail_ 初始化成打印 “amb tree exhausted” ：
+
+    #+BEGIN_SRC scheme
+  (define amb-fail '*)
+
+  (define initialize-amb-fail
+    (lambda ()
+      (set! amb-fail
+	(lambda ()
+	  (error "amb tree exhausted")))))
+
+  (initialize-amb-fail)
+    #+END_SRC
+*** choose 函数
+    定义 _choose_ 函数：
+    1. 如果没有选择：那调用 _amb-fail_ 续延打印失败消息
+    2. 如果还有选择：
+       1. 保存 _amb-fail_ 到一个局部变量 _prev-amb-fail_
+       2. 调用 _当前续延cc_ 
+	  1) 创建一个新的匿名函数并赋值给 _amb-fail_ ，这个匿名函数： 
+	     + 恢复 _amb-fail_ 为保存的 _prev-amb-fail_ 
+	     + 在保存的 _续延 cc_ 中递归求值 _余下的选择_ 
+	  2) 在 _当前续延cc_ 内求值 _第一个选择_ ，无论求值是否成功，都直接返回
+
+    #+BEGIN_SRC scheme 
+      (define (choose . ls) ; . 表示可变参数
+	(if (null? ls) ; 如果没有选择：那调用 amb-fail 续延打印失败消息
+	    (amb-fail) 
+	  (let ((prev-amb-fail amb-fail)) ;  保存 amb-fail 到一个局部变量 prev-amb-fail
+	    (call/cc ; 调用当前续延cc
+	     (lambda (cc) 
+		(set! amb-fail ; 创建一个新的匿名函数并赋值给 amb-fail
+		      (lambda ()
+			(set! amb-fail prev-amb-fail) ; 恢复 amb-fail 为保存的 prev-amb-fail
+			(cc (apply choose (cdr ls))))) ; 在保存的续延 cc 中递归求值余下的选择
+		(cc (car ls))))))) ; 在当前续延cc内求值第一个选择，无论求值是否成功，都直接返回
+    #+END_SRC
+
+    计算一个满足勾股定律的结果：
+    #+BEGIN_SRC scheme
+  ;;; 平方
+  (define (sq x)
+    (* x x))
+
+  ;;; 勾股定律
+  (define (pythag a b c)
+    (if (= (+ (sq a) (sq b)) (sq c))
+	(list a b c)
+	(choose)))
+
+  (pythag (choose 1 2 3) (choose 3 4 5) (choose  4 5 6)) ; => (3 4 5)
+    #+END_SRC
+
+*** amb 宏
+    #+BEGIN_EXAMPLE
+      choose函数有一个问题是：可供选择的值必须是已经计算出来的，不能是S表达式 
+    #+END_EXAMPLE
+
+    需要把 _choose_ 函数改写成宏的形式，实际上这就是要实现的 _amb_ 操作符：
+
+    #+BEGIN_SRC scheme
+      (define-syntax amb
+	(syntax-rules ()
+	  ((_) (amb-fail))
+	  ((_ a) a)
+	  ((_ a b ...)
+	   (let ((prev-amb-fail amb-fail)) ; 把全局变量 amb-fail 赋值给 prev-amb-fail 供回溯 ;; 这里是续延1 
+	     (call/cc ;调用下面的匿名函数 lambda (k) ...  
+	      (lambda (k) ; 续延1 作为参数 k 传入
+		(set! amb-fail ; 设置全局变量 amb-fail 为下面匿名函数
+		      (lambda () ; 如果 (k a) 调用失败，会调用下面的函数
+			(set! amb-fail prev-amb-fail) ; 恢复全局变量 amb-fail 为续延1时候的值
+			(k (amb b ...)))) ; 在续延1 时候求值 b 表达式
+		(k a))))))) ; 续延1 时候求值 a 表达式，如果求值失败，调用 amb-fail
+    #+END_SRC
+
+    通过实例来理解这个宏：
+
+    #+BEGIN_SRC scheme
+      (amb 1 2 3) ; => 1
+      ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+      ;; 每调用一次 amb 都会触发 (amb-fail) 的调用，转而调用宏中的 (k (amb b) ...) ，这在保存的续延1中去求值下一个表达式 ;;
+      ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+      (amb) ; => 2
+      (amb) ; => 3
+      (amb) ;amb tree exhausted
+
+      (if (amb (> 1 2) (< 2 1) (> 5 1))
+	   1
+	   (amb)) 
+      ;; => 1
+    #+END_SRC
+
+**** 楼层问题
+     #+BEGIN_EXAMPLE
+       Baker、Cooper、Fletcher、Miller 和 Smith 住在五层公寓的不同层
+
+       Baker 没住顶层
+
+       Cooper 没住底层
+
+       Fletcher 没住顶层和底层
+
+       Miller 比 Cooper 住的高
+
+       Smith 没有住与 Fletcher 相邻的层
+
+       Fletcher 没有住与 Cooper 相邻的层
+
+       问：这些人各住在哪一层？
+     #+END_EXAMPLE
+
+     首先定义辅助逻辑函数：
+     #+BEGIN_SRC scheme 
+  ;;; 确保某个谓词必须为真
+  (define (require p)
+    (if (not p) (amb)))
+
+  ;;; 没有重复的元素
+  (define (distinct? . ls)
+    (let loop ((lst (car ls)))
+      (let ((first (car lst)) (rest (cdr lst)))
+	(cond 
+	 ((null? rest) #t)
+	 ((member first rest) #f)
+	 (else (loop rest))))))
+     #+END_SRC
+
+     现在只需要用 _amb_ 简单列举各种可能性，就可以得到这个问题的解：
+
+     #+BEGIN_SRC scheme
+  ;;; 初始化
+  (initialize-amb-fail)
+
+  ;;; 楼层问题
+  (define (multiple-dwelling)
+    (let ((baker (amb 1 2 3 4 5))
+	  (cooper (amb 1 2 3 4 5))
+	  (fletcher (amb 1 2 3 4 5))
+	  (miller (amb 1 2 3 4 5))
+	  (smith (amb 1 2 3 4 5)))
+      (require
+       (distinct? (list baker cooper fletcher miller smith))) ; 没有人住在同一层
+      (require (not (= baker 5))) ; baker 不住在 第5层
+      (require (not (= cooper 1))) ; cooper 不住在 第1层
+      (require (not (= fletcher 5))) ; fletcher 不住在 第5层
+      (require (not (= fletcher 1))) ; fletcher 不住在 第1层
+      (require (> miller cooper)) ; miller 比 cooper 住得高
+      (require (not (= (abs (- smith fletcher)) 1))) ; smith 和 fletcher 不住在相邻的两层
+      (require (not (= (abs (- fletcher cooper)) 1))) ; fletcher 和 cooper 不住在相邻的两层
+      (list (list 'baker baker) ; 输出结果
+	    (list 'cooper cooper)
+	    (list 'fletcher fletcher)
+	    (list 'miller miller)
+	    (list 'smith smith))))
+     #+END_SRC
+
+     测试：
+     #+BEGIN_SRC scheme
+  (multiple-dwelling) 
+  ;; => ((baker 3) (cooper 2) (fletcher 4) (miller 5) (smith 1))
+     #+END_SRC
+
+** 协程
+
+*** 二叉树匹配
+    #+BEGIN_EXAMPLE
+      现在有两棵二叉树，需要对它们进行比较，看这两棵树是否 “匹配”，也就是说它们在遍历时，途经的叶子结点是否相同
+
+      总是先访问左边的分支，再访问右边的分支
+    #+END_EXAMPLE
+
+    例如：
+
+    + _(1 (2 3))_ 和 _((1 2) 3)_ 是 *匹配* 的。因为遍历时，经过的叶子依次都是 1, 2, 3
+    + _(a (b c) d)_ 和 _(a b (d e))_ 是 *不匹配* 的。因为遍历时，经过的叶子依次是 _a, b, c, d_ 和 _a, b, d, e_ 
+
+
+**** 直观思路
+     最直观的算法: 
+     1. _深度优先遍历_ 两棵二叉树
+     2. 把途中遇到的叶子结点分别放到两个表里
+     3. 对这两个表的元素挨个进行比较
+
+     深度优先遍历二叉树，并把遇到的叶子节点放到一个表里：
+     #+BEGIN_SRC scheme
+  (define flatten
+    (lambda (tree)
+      (cond ((null? tree) '())
+	    ((pair? (car tree))
+	     (append (flatten (car tree))
+		     (flatten (cdr tree))))
+	    (else
+	     (cons (car tree)
+		   (flatten (cdr tree)))))))
+
+  ;; (flatten '(1 (2 3))) ; =>  (1 2 3)
+  ;; (flatten '((1 2) 3)) ; =>  (1 2 3)
+     #+END_SRC
+
+     对两个表进行比较：
+     #+BEGIN_SRC scheme
+  (define same-fringe?
+    (lambda (tree1 tree2)
+      (let loop ((ftree1 (flatten tree1))
+		 (ftree2 (flatten tree2)))
+	(cond ((and (null? ftree1) (null? ftree2)) #t)
+	      ((or (null? ftree1) (null? ftree2)) #f)
+	      ((eqv? (car ftree1) (car ftree2))
+	       (loop (cdr ftree1) (cdr ftree2)))
+	      (else #f)))))
+
+  ;; (same-fringe? '(1 (2 3)) '((1 2) 3)) ; => #t 
+  ;; (same-fringe? '(a (b c) d) '(a b (d e))) ; => #f
+     #+END_SRC
+
+     这种做法的问题是：必须先用一个展开过程遍历所有的叶结点，然而在比较时，往往到了中间某个叶结点(比如：c和d)就发生了不匹配，实际上后面的叶子根本不需要去访问
+
+     能不能在 *对两棵树进行遍历的同时就两两比较叶子是否相同？一旦发现途中有一对叶子不同，马上就可以断定这两棵树不匹配* 
+
+     #+BEGIN_EXAMPLE
+       这么自然的想法，实际上却不容易用普通的控制结构实现
+
+       在遇到一个叶子时，如何能够跳出遍历的过程，把这个叶子传递给一个比较过程？
+
+       比较之后，又如何回到刚才遍历的路径中？
+
+       如果要用 C 语言实现，该保存多少中间结果？是不是想用 longjump()，线程，甚至 server-client 结构，还要设计一套protocol？还是把递归展开，自己控制堆栈？
+
+       一个可行的办法是改变数据结构，不用普通的二叉树，而使用线索二叉树。可是这会给程序加上很多复杂度。而且万一遍历的不是二叉树而是图又怎么办？
+     #+END_EXAMPLE
+
+**** tree-generator 过程
+     现在用 _continuation_ 来解决这个问题，就可以避免遍历，核心思路在于：
+
+     #+BEGIN_EXAMPLE
+       构建一个 tree->genenator 的函数, 它接受一个 二叉树 作为参数，每次调用它时都 返回一个新构造的函数 generate-leaves
+
+       generate-leaves 函数就像在这棵二叉树里的步行者，它每次被调用时都会返回要访问的下一个叶子结点 
+     #+END_EXAMPLE
+
+     #+BEGIN_SRC scheme
+  (define (tree->generator tree) ; 续延 0，返回给外层的比较函数
+    (let ((caller '*)) ;; 初始化续延变量
+      (letrec
+	  ((generate-leaves ; 内部定义的函数 generate-leaves // 续延 1，返回给 续延 0   
+	    (lambda ()
+	      (let loop ((node tree)) ; named-let: 初始化 node 为 整课树 tree, 然后做遍历
+		(cond ((null? node) 'skip) ; 到达底部，返回 'skip 
+		      ((pair? node) ; 节点还是二叉树，顺序遍历 car, cdr 
+		       (loop (car node))
+		       (loop (cdr node)))
+		      (else ; 节点是叶子
+		       (call/cc ; 返回该叶节点作为生成器的结果，但是它会记住后续的循环并保存到 generate-leaves 变量
+			(lambda (rest-of-tree) ; 把续延 1 作为参数 rest-of-tree 传入
+			  (set! generate-leaves ; 重新设置 generate-leaves 过程
+				(lambda ()
+				  (rest-of-tree 'resume))) ; 记住续延1, ，下次调用 generate-leaves 时候，用来返回下一个访问到的节点
+			  (caller node)))))) ; 返回当前节点
+	      (caller '())))) ; => 循环结束才会被调用，返回一个空列表给caller。由于空列表不是一个合法的叶节点，用它来告诉生成器没有叶节点需要生成了
+	(lambda ()
+	  (call/cc
+	   (lambda (k) ; 调用 tree->generator 的 续延0 被作为参数 k 传入
+	     (set! caller k) ; 局部变量 caller 被初始化为 续延0 
+	     (generate-leaves))))))) ; 初次调用 generate-leaves 过程
+
+  ;; (define generator (tree-generator '(a (b c) d)))  ;
+  ;; (generator) ; => a 
+  ;; (generator) ; => b
+  ;; (generator) ; => c 
+  ;; (generator) ; => d 
+  ;; (generator) ; => () 
+  ;; (generator) ; => ()
+     #+END_SRC
+
+     + 当一个 _tree->generator_ 创建的生成器被调用时，这个生成器会把调用的续延存在 _caller_ 中，这样它就知道当找到叶节点时把它发送给谁
+     + 它调用一个内部定义的函数 _generate-leaves_ ，该函数会从左到右循环遍历这个树。当循环到一个叶节点时，该函数就使用 _caller_ 来返回该叶节点作为生成器的结果，但是它会记住后续的循环（被 _call/cc_ 捕获为一个续延）并保存到 _generate-leaves_ 变量，下次生成器被调用时，循环从刚才终止的地方恢复，这样它可以寻找下一个叶节点
+
+     #+BEGIN_EXAMPLE
+       注意: generate-leaves 做的最后一件事情，在循环结束后，它返回一个空列表给 caller
+
+       由于空列表不是一个合法的叶节点，可以用它来告诉生成器没有叶节点需要生成了 
+     #+END_EXAMPLE
+
+     最后改写 _same-fringe?_ ：把树作为参数来创建生成器，然后交替调用这两个生成器。只要一找到两个不同的叶节点就会返回失败：
+
+     #+BEGIN_SRC scheme
+  (define same-fringe?
+    (lambda (tree1 tree2)
+      (let ((gen1 (tree->generator tree1))
+	    (gen2 (tree->generator tree2)))
+	(let loop ()
+	  (let ((leaf1 (gen1))
+		(leaf2 (gen2)))
+	    (if (eqv? leaf1 leaf2)
+		(if (null? leaf1) #t (loop))
+		#f))))))
+
+  ;; (define tree1 '(((a b) (y z)) (3 4)))
+  ;; (define tree2 '(((a b) (t z)) (3 4)))
+  ;; (define tree3 '(((a (b y) z)) (3 4)))
+  ;; (same-fringe? tree1 tree2) ; => #f
+  ;; (same-fringe? tree1 tree3) ; => #t
+     #+END_SRC
+
+*** coroutine 
+    #+BEGIN_EXAMPLE
+      上面用到的生成器有个有趣的特点：每次被调用时，它都恢复计算，而且当它返回前会把它的续延保存在一个内部变量中，使得这个生成器可以再次恢复
+    #+END_EXAMPLE
+
+    如果对生成器进行推广，这样他们 *可以相互恢复其他的生成器，并且互相传递结果* 。这样的过程就叫 _协程_ 
+
+**** 函数实现
+     首先定义一个数据结构队列：
+     + 添加：把一个元素添加到队列的最后
+     + 取出：从队列的最开始取出一个元素，并移除出队列
+     #+BEGIN_SRC scheme
+  ;;; queue(FIFO) 
+  (define (make-queue)
+    (cons '() '()))
+
+  ;;; 把一个元素加入到队列最后
+  (define (enqueue! queue obj)
+    (let ((lobj (list obj)))
+      (if (null? (car queue))
+	  (begin
+	    (set-car! queue lobj)
+	    (set-cdr! queue lobj))
+	  (begin
+	    (set-cdr! (cdr queue) lobj)
+	    (set-cdr! queue lobj)))
+      (car queue)))
+
+  ;;; 从队列最前面取出一个元素
+  (define (dequeue! queue)
+    (let ((obj (car (car queue))))
+      (set-car! queue (cdr (car queue)))
+      obj))
+
+  ;; (define test-queue (make-queue))
+  ;; test-queue ;=>  (())
+  ;; (enqueue! test-queue 'a)
+  ;; test-queue ;=>   ((a) a)
+  ;; enqueue! test-queue 'b)
+  ;; test-queue ;=>   ((a b) b) 
+  ;; (enqueue! test-queue 'c)
+  ;; test-queue ;=>   ((a b c) c)
+  ;; (dequeue! test-queue) ; => a 
+  ;; test-queue ; => ((b c) c)
+  ;; (dequeue! test-queue) ; => b 
+  ;; test-queue ; => ((c) c)
+  ;; (dequeue! test-queue) ; => a
+  ;; test-queue ; => (() c) 
+     #+END_SRC
+
+     下面使用队列来定义协程：
+     + _process-queue_ : 协程组成的队列
+     #+BEGIN_SRC scheme 
+  (define process-queue (make-queue)) ; 协程队列
+     #+END_SRC
+     + _coroutine_ ：把一个协程添加到队列最后
+     #+BEGIN_SRC scheme
+  ;;; 把一个协程添加到队列最后
+  (define (coroutine thunk) 
+    (enqueue! process-queue thunk))
+     #+END_SRC
+     + _start_ : 获得队列中的第一个元素，并执行它
+     #+BEGIN_SRC scheme
+  ;;; 获得队列中的第一个元素，并执行它 
+  (define (start)
+     ((dequeue! process-queue)))
+     #+END_SRC
+     + pause: 把当前续延添加到队列的最后，并且执行当前队列的第一个元素。
+     #+BEGIN_SRC scheme
+  (define (pause)
+    (call/cc
+     (lambda (k) ; 当前续延作为参数 k 传入
+       (coroutine (lambda () (k #f))) ; 添加当前续延到最后
+       (start)))) ; 执行当前队列第一个元素
+     #+END_SRC
+
+     两个协程交替打印数字和字母：
+     #+BEGIN_SRC scheme
+    ;;; example
+  (coroutine (lambda ()
+	       (let loop ((i 0)) 
+		 (if (< i 10)
+		     (begin
+		       (display (1+ i)) 
+		       (display " ")
+		       (pause) 
+		       (loop (1+ i)))))))
+
+  (coroutine (lambda ()
+	       (let loop ((i 0)) 
+		 (if (< i 10)
+		     (begin
+		       (display (integer->char (+ i 97)))
+		       (display " ")
+		       (pause) 
+		       (loop (1+ i)))))))
+
+  (newline)
+  (start)
+  ;; 1 a 2 b 3 c 4 d 5 e 6 f 7 g 8 h 9 i 10 j
+     #+END_SRC
+
+**** 宏实现
+     #+BEGIN_EXAMPLE
+       上面的代码的问题在于：
+       1. 停止当前协程, 只能执行队列中的首个元素，这意味着我们需要考虑协程队列的顺序性
+       2. 协程之间无法互相通信，传递计算值
+     #+END_EXAMPLE
+
+     接下来定义 _coroutine宏_ ：创建一个协程
+     + 参数：
+       + _x_ : *协程的初始参数*
+       + _body_ : *协程执行内容* 
+     + 返回:  *一个参数的匿名函数*  
+
+     其主体包含 _resume调用_ ：保存当前协程的续延，转而执行另外一个协程
+     + 参数：
+       + _c_ ： 另外一个协程
+       + _v_ : 另外一个协程执行用的需要的参数
+
+     #+BEGIN_SRC scheme
+  (require compatibility/defmacro)
+
+  (define-macro coroutine
+    (lambda (x . body) ; x ：协程A的初始参数，body：协程A的内容
+      `(letrec ((+local-control-state (lambda (,x) ,@body)) ; 运行协程
+		(resume ; 两个参数的函数，保存协程A的续延，转而执行协程B 
+		 (lambda (c v) ; c: 另外一个协程B，v：执行用的参数
+		   (call/cc
+		    (lambda (k) ; 当前续延作为参数传入
+		      (set! +local-control-state k) ; 把当前续延保存到 +local-control-state 
+		      (c v)))))) ; 执行协程 B 
+	 (lambda (v)
+	   (+local-control-state v))))) ; 协程A恢复后，会从local-control-state变量里存放的续延开始
+     #+END_SRC
+
+     1. 调用 _coroutine宏_ 可以创建一个协程 _A_ ，这个协程可以有一个参数
+     2. _A_ 有一个内部变量叫做 _+local-control-state_ 来 *保存任意时刻这个协程接下来的计算*
+     3. 当调用 _resume_ 时，也就是调用另一个协程 _B_ 时：
+	1. 当前协程 _A_ 会更新它的 _+local-control-state_ 变量为之后的计算
+	2. 然后停止
+	3. 然后执行恢复了的协程 _B_ 
+     4. 当协程 _A_ 之后恢复时，它的计算会从 _+local-control-state_ 变量里 *存放的续延* 开始 
+***** 简化二叉树匹配问题
+      叶生成器协程：记住把它的节点返回给谁：
+      #+BEGIN_SRC scheme
+  (define (make-leaf-gen-coroutine tree matcher-cor) 
+    (coroutine dont-need-an-init-arg ; 任意参数
+	       (let loop ((node tree))
+		 (cond ((null? node) 'skip)
+		       ((pair? node)
+			(loop (car node))
+			(loop (cdr node)))
+		       (else
+			(resume matcher-cor node)))) ; 转而执行 matcher-cor 协程做比较，传递给 matcher-cor 的参数是当前的叶子节点 node   
+	       (resume matcher-cor '()))) ; 转而执行 matcher-cor 协程，传递给 matcher-cor 的参数是空列表，通知 macher-cor 协程遍历完毕
+      #+END_SRC
+
+      _匹配叶子节点协程_ ： 依赖另外两个 _叶生成器协程_ 提供各自的叶节点
+      #+BEGIN_SRC scheme
+  (define (make-matcher-coroutine tree-cor-1 tree-cor-2) 
+    (coroutine dont-need-an-init-arg ; 任意参数
+	       (let loop ()
+		 (let ((leaf1 (resume tree-cor-1 'get-1-a-leaf)) ; 转而执行 tree-cor-1 协程， 获取第一颗树的当前叶子节点，传递的参数可以任意
+		       (leaf2 (resume tree-cor-2 'get-2-a-leaf))) ; 转而执行 tree-cor-2 协程， 获取第二颗树的当前叶子节点，传递的参数可以任意
+		   (if (eqv? leaf1 leaf2)
+		       (if (null? leaf1) #t (loop))
+		       #f)))))
+      #+END_SRC
+
+      最后改写 _same-fringe?_ 函数：
+      #+BEGIN_SRC scheme
+  (define (same-fringe? tree1 tree2) 
+    (letrec ((tree-cor-1 ; 创建 遍历第一颗树 协程
+	      (make-leaf-gen-coroutine
+	       tree1
+	       (lambda (v) (matcher-cor v))))
+	     (tree-cor-2 ; 创建 遍历第二颗树 协程
+	      (make-leaf-gen-coroutine
+	       tree2
+	       (lambda (v) (matcher-cor v))))
+	     (matcher-cor ; 创建 比较叶子节点 协程
+	      (make-matcher-coroutine
+	       (lambda (v) (tree-cor-1 v))
+	       (lambda (v) (tree-cor-2 v)))))
+      (matcher-cor 'start-ball-rolling)))
+
+  ;; (define tree1 '(((a b) (y z)) (3 4)))
+  ;; (define tree2 '(((a b) (t z)) (3 4)))
+  ;; (define tree3 '(((a (b y) z)) (3 4)))
+  ;; (same-fringe? tree1 tree2) ; => #f
+  ;; (same-fringe? tree1 tree3) ; => #t
+      #+END_SRC
+
+      #+BEGIN_EXAMPLE
+	在这个版本的same-fringe里已经完全没有调用call/cc的痕迹。宏coroutine管理了所有的协程
+      #+END_EXAMPLE
+
+***** define-syntax版本宏
+      #+BEGIN_EXAMPLE
+      上面的宏有变量捕捉，变量名称可能冲突等问题
+      #+END_EXAMPLE
+
+      使用 _syntax-rules_ 来定义一个卫生宏：
+      #+BEGIN_SRC scheme
+  (define-syntax coroutine
+    (syntax-rules ()
+      ((coroutine arg resume body ...) ; 故意把 resume 放到了 coroutine 宏的参数列表中。创建协程时候，必须使用一个符号作为局部函数resume的名字
+       (letrec ((local-control-state
+		 (lambda (arg) body ...))
+		(resume
+		 (lambda (c v)
+		   (call/cc
+		    (lambda (k)
+		      (set! local-control-state k)
+		      (c v))))))
+	 (lambda (v)
+	   (local-control-state v))))))
+      #+END_SRC
+
+      #+BEGIN_EXAMPLE
+	这里故意把 resume 放到了 coroutine 宏的参数列表中。以后创建协程的时候，必须使用一个符号作为第二个参数
+
+	实际上这是把一个名字作为 resume 参数传递给 coroutine 宏，让它把这个名字绑定到一个局部函数
+
+	因此在创建协程时， 可以随意更换局部函数的名字，而不是像前面固定死为 resume
+      #+END_EXAMPLE
+
+      叶生成器协程，除了使用 _go-on_ 作为局部函数名字，其他完全一样
+      #+BEGIN_SRC scheme
+  (define (make-leaf-gen-coroutine tree matcher-cor) 
+    (coroutine dont-need-an-init-arg
+	       go-on ; 任意给定一个名字， 但下面必须使用这个名字来执行宏中resume的
+	       (let loop ((node tree))
+		 (cond ((null? node) 'skip)
+		       ((pair? node)
+			(loop (car node))
+			(loop (cdr node)))
+		       (else
+			(go-on matcher-cor node))))
+	       (go-on matcher-cor '()))) 
+      #+END_SRC
+
+      叶子节点比较协程：
+      #+BEGIN_SRC scheme
+  (define (make-matcher-coroutine tree-cor-1 tree-cor-2) 
+    (coroutine dont-need-an-init-arg 
+	       go-on ; 任意给定一个名字, 但下面必须使用这个名字来执行宏中resume的
+	       (let loop ()
+		 (let ((leaf1 (go-on tree-cor-1 'get-1-a-leaf)) 
+		       (leaf2 (go-on tree-cor-2 'get-2-a-leaf))) 
+		   (if (eqv? leaf1 leaf2)
+		       (if (null? leaf1) #t (loop))
+		       #f)))))
+      #+END_SRC
+
+      匹配函数和 _define-macro_ 版本完全一样：
+      #+BEGIN_SRC scheme
+  (define (same-fringe? tree1 tree2) 
+    (letrec ((tree-cor-1 
+	      (make-leaf-gen-coroutine
+	       tree1
+	       (lambda (v) (matcher-cor v))))
+	     (tree-cor-2 
+	      (make-leaf-gen-coroutine
+	       tree2
+	       (lambda (v) (matcher-cor v))))
+	     (matcher-cor 
+	      (make-matcher-coroutine
+	       (lambda (v) (tree-cor-1 v))
+	       (lambda (v) (tree-cor-2 v)))))
+      (matcher-cor 'start-ball-rolling)))
+
+  ;; (define tree1 '(((a b) (y z)) (3 4)))
+  ;; (define tree2 '(((a b) (t z)) (3 4)))
+  ;; (define tree3 '(((a (b y) z)) (3 4)))
+  ;; (same-fringe? tree1 tree2) ; => #f
+  ;; (same-fringe? tree1 tree3) ; => #t
+      #+END_SRC
+
+

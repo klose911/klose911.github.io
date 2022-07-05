@@ -1,0 +1,98 @@
+#+TITLE: 进程
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: concurrency.html   
+#+HTML_LINK_HOME: concurrency.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+begin_example
+相比于其它函数式编程语言，Erlang 的优势在于它的并发程序设计与分布式程序设计
+#+end_example
+
+_并发_ 是指一个程序中同时有多个线程在执行
+
+#+begin_example
+例如，现代操作系统允许你同时使用文字处理、电子制表软件、邮件终端和打印任务
+#+end_example
+
+在任意一个时刻，系统中每个处理单元（CPU）都只有一个进程（任务）在执行，但是可以通过以一定速率交替执行这些进程使得这些它们看上去像是在同时运行一样：
++ Erlang 中创建多进程非常简单，而且很容易就可以实现这些进程之间的通信
++ Erlang 中，每个执行的进程都称之为一个 _process_ 
+
+#+begin_example
+  进程 (process) 被用于“没有共享”数据的执行线程的场景，而线程 (thread) 则被用于“共享”数据的场景下
+
+  由于 Erlang 各执行线程之间不共享数据，所以一般将其称之为进程
+
+  此外Erlang 进程，与操作系统中的进程概念虽然差不多，但是 Erlang进程 是在 Erlang 虚拟机下重新实现的
+#+end_example
+
+Erlang 的内置函数 _spawn_ 可以用来 *创建* 一个新的进程： 
+#+begin_example
+spawn(Module, Exported_Function, List of Arguments)
+#+end_example
+
+* spawn 实例
+
+  #+begin_src erlang 
+    -module(spawn).
+
+    -export([start/0, say_something/2]).
+
+    say_something(What, 0) ->
+	done;
+    say_something(What, Times) ->
+	io:format("~p~n", [What]),
+	say_something(What, Times - 1).
+
+    start() ->
+	spawn(spawn, say_something, [hello, 3]),
+	spawn(spawn, say_something, [goodbye, 3]).
+  #+end_src
+
+  say_something 函数根据第二个参数指定的次数将第一个参数的值输出多次
+  #+begin_src sh 
+  2> spawn:say_something(hello, 3). 
+  hello
+  hello
+  hello
+  done
+  #+end_src
+  函数 start 启动两个 Erlang 进程，其中一个将 “hello” 输出 3 次，另一个进程将 “goodbye” 输出三次。所有的进程中都调用了 say_something 函数
+  + 需要注意的是，要想使用一个函数启动一个进程，这个函数就必须 *导出此模块* ，然后使用模块名来作为 _spawn_ 的参数 
+
+  #+begin_src sh 
+  3> spawn:start().
+  hello
+  goodbye
+  <0.90.0>
+  hello
+  goodbye
+  hello
+  goodbye
+  #+end_src
+
+  #+begin_example
+    这里并不是先输出 “goodbye” 三次后再输出 “goodbye” 三次
+
+    而是，第一个进程先输出一个 "hello"，然后第二个进程再输出一次 "goodbye"
+
+    接下来，第一个进程再输出第二个 "hello"。但是奇怪的是 <0.90.0> 到底是哪儿来的呢？
+  #+end_example
+  在 Erlang 系统中，一个函数的返回值是函数最后一个表达式的值，而 start 函数的第后一个表达式是：
+
+  #+begin_src erlang 
+  spawn(tut14, say_something, [goodbye, 3]).
+  #+end_src
+
+  spawn 返回的是 _进程的标识符_ ，简记为 pid。进程标识符是用来唯一标识 Erlang 进程的标记。所以说 _<0.90.0>_ 也就是 spawn 返回的一个进程标识符
+
+  #+begin_example
+    另外，这个例子中 io:format 输出用的不是 ~w 而变成了 ~p
+
+    引用用户手册的说法：“~p 与 ~w 一样都是将数据按标准语法的格式输出，但是当输出的内容需要占用多行时，~p 在分行处可以表现得更加智能。此外，它还会尝试检测出列表中的可输出字符串并将按字符串输出”
+  #+end_example
+
+  [[file:message.org][Next：消息传递]]
+
+  [[file:concurrency.org][Home：并发编程]]
+

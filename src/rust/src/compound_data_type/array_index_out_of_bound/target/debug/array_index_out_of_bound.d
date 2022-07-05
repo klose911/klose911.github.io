@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/compound_data_type/array_index_out_of_bound/target/debug/array_index_out_of_bound: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/compound_data_type/array_index_out_of_bound/src/main.rs

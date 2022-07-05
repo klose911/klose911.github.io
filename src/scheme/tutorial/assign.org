@@ -1,0 +1,199 @@
+#+TITLE: 赋值
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: io.html   
+#+HTML_LINK_HOME: slt.html
+#+OPTIONS: num:nil timestamp:nil
+
+因为 Scheme 是函数式语言，通常来说，可以编写不使用赋值的语句。  然而，如果使用赋值的话，有些算法就可以轻易实现了，尤其是 内部状态 和 续延 需要赋值
+
+#+BEGIN_EXAMPLE
+  尽管赋值非常常见，并且易于理解，但它有一些本质上的缺陷！！！
+#+END_EXAMPLE
+
+R5RS中规定的用于赋值的特殊形式是 _set!_ 、 _set-car!_ 、 _set-cdr!_ 、 _string-set!_ 、 _vector-set!_ 等
+#+BEGIN_EXAMPLE
+  由于赋值改变了参数的值，因此它具有破坏性
+
+  Scheme中，具有破坏性的方法都以 ! 结尾，以警示程序员
+#+END_EXAMPLE
+* set! 
+  _set!_ 可以为一个参数 *赋值* ，赋值前参数应 *被定义* 
+
+  #+BEGIN_SRC scheme
+  (define var 1)
+  (set! var (* var 10))
+  var ;  10
+
+  (let ((i 1))
+    (set! i (+ i 3))
+    i) ; 4 
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    与 Common Lisp 不同，set! 无法给一个 S-表达式 赋值
+  #+END_EXAMPLE
+* 内部状态
+** 静态作用域
+   Scheme 中 _变量的作用域_ 被 *限定* 在了 _源码中定义其的那个括号里_ 。 *作用域与源代码书写方式一致* 的作用域称为 *词法闭包* (  _Lexical closure_ ) 或 *静态作用域* ( _Static scope_ )。采用静态作用域减轻了程序员的负担，因为它已经在代码中体现了，因此可以很容易理解
+
+   #+BEGIN_EXAMPLE
+     另一方面，还有一种被称为“动态作用域 (Dynamic scope)”的作用域，这种作用域仅在程序运行时确定
+
+     由于会在调试时带来种种问题，这种作用域现在已经不再使用
+   #+END_EXAMPLE
+
+   特殊形式 _let_ 、 _lambda_ 、 _letrec_ *生成闭包* ：
+   + lambda 表达式 的参数仅在函数定义内部有效
+   + let 只是 lambda 的语法糖，因此二者无异
+** 赋值和闭包来实现内部状态
+   可以使用 _词法闭包_ 来实现 *带有内部状态* 的 _过程_ 
+   #+BEGIN_EXAMPLE
+     例如，用于模拟银行账户的过程可以按如下的方式编写：
+
+     初始资金是10美元
+
+     函数接收一个整形参数。正数表示存入，负数表示取出
+
+     为了简单起见，这里允许存款为负数
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC scheme
+  (define bank-account
+    (let ((balance 10))
+      (lambda (n)
+	(set! balance (+ balance n))
+	balance)))
+   #+END_SRC
+
+   该过程将 存款 赋值 为 _(+ balance n)_ 。下面是调用这个过程的结果：
+   #+BEGIN_SRC scheme
+  (bank-account 20)     ; donating 20 dollars 
+  ;; =>  30
+
+  (bank-account -25)     ; withdrawing 25 dollars
+  ;; => 5
+   #+END_SRC
+
+   因为在Scheme中，可以 *编写 _返回过程_ 的过程* ，因此可以编写一个 _创建银行账户_ 的函数：
+
+   #+BEGIN_SRC scheme
+  (define (make-bank-account balance)
+    (lambda (n)
+      (set! balance (+ balance n))
+      balance))
+   #+END_SRC
+
+   分别创建两个不同的银行账户，并进行各自的操作：
+
+   #+BEGIN_SRC scheme
+  (define gates-bank-account (make-bank-account 10))   ; Gates makes a bank account by donating  10 dollars
+  (gates-bank-account 50)                              ; donating 50 dollars
+  ;; 60
+  (gates-bank-account -55)                             ; withdrawing 55 dollars
+  ;; 5
+
+
+  (define torvalds-bank-account (make-bank-account 100))  ; Torvalds makes a bank account by donating 100 dollars
+  (torvalds-bank-account -70)                             ; withdrawing 70 dollars
+  ;; 30
+  (torvalds-bank-account 300)                             ; donating 300 dollars
+  ;; 330
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这个例子喻示着使用函数式程序设计语言可以很容易实现面向对象程序设计语言
+
+     实际上，只需要在这个基础上再加一点东西就可以实现一门面向对象程序设计语言了
+   #+END_EXAMPLE
+** 副作用 
+   Scheme过程的主要目的是：
+   + 返回一个 _值_ 
+   + *副作用* ( _Side Effect_ )： _赋值_ 和 _IO操作_ 就是副作用
+* 表的破坏性操作 
+  + _set-car!_ : 为一个 _cons单元_ 的 *car部分* 赋新值 
+  + _set-cdr!_ : 为一个 _cons单元_ 的 *cdr部分* 赋新值
+
+  #+BEGIN_SRC scheme
+  (define tree '((1 2) (3 4 5) (6 7 8 9))) 
+  (set-car! (car tree) 100)  ; changing 1 to 100 
+  tree ; => ((100 2) (3 4 5) (6 7 8 9))
+
+  (set-cdr! (third tree) '(a b c)) ; changing  '(7 8 9) to '(a b c) 
+  tree ; =>  ((100 2) (3 4 5) (6 a b c))
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    和 set! 不同，这两个操作可以为 S-表达式 赋值
+  #+END_EXAMPLE
+** 队列
+   *队列* 可以用 _set-car!_ 和 _set-cdr!_ 实现。队列是一种 *先进先出* 的数据结构，下图展示了队列的结构：
+   + _cons-cell-top_ 的 *car* 部分指向 _表头的cons单元_ 
+   + _cons-cell-top_ 的 *cdr* 部分指向 _表末的cons单元_ 
+
+     #+ATTR_HTML: image :width 60% 
+     [[file:pic/queue1a.png]] 
+
+   *入队* 操作按如下步骤进行：
+   1. 将 _当前最末的cons单元_ （通过 _cons-cell-top_ 取得）的 _cdr部分_ 重定向到 _新的元素_ 
+   2. 将 _cons-cell-top_ 的 _cdr部分_ 重定向到 _新的元素_ 
+
+      #+ATTR_HTML: image :width 60% 
+      [[file:pic/queue2a_e.png]] 
+
+   *出队* 操作按如下步骤进行：
+   1. 将 _队首元素_ 存放在一个 _局部变量_ 里
+   2. 将 _cons-cell-top_ 的 _car部分_ 重定向到 _表的第二个元素_ 
+
+      #+ATTR_HTML: image :width 60% 
+      [[file:pic/queue3a_e.png]] 
+
+   下面代码展示了如何实现队列：
+   + _enqueue!_ : 返回将元素 _obj_ 添加进队列 _queue_ 后的队列
+   + _dequeue!_ : 将 _队列的首元素_ 移出队列，将 _该元素的值_ 作为返回值
+
+   #+BEGIN_SRC scheme
+  (define (make-queue)
+    (cons '() '()))
+
+  (define (enqueue! queue obj)
+    (let ((lobj (cons obj '())))
+      (if (null? (car queue))
+	  (begin
+	    (set-car! queue lobj)
+	    (set-cdr! queue lobj))
+	  (begin
+	    (set-cdr! (cdr queue) lobj)
+	    (set-cdr! queue lobj)))
+      (car queue)))
+
+  (define (dequeue! queue)
+    (let ((obj (car (car queue))))
+      (set-car! queue (cdr (car queue)))
+      obj))
+   #+END_SRC
+
+   测试队列：
+   #+BEGIN_SRC scheme
+  (define q (make-queue))
+  q ;  (()) 
+
+  (enqueue! q 'a) ;  (a)
+  (enqueue! q 'b) ;  (a b)
+  (enqueue! q 'c) ; (a b c)
+
+  (dequeue! q) ; a
+
+  q ; ((b c) c)
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     队列是先进先出的
+
+     表/栈是先进后出的
+   #+END_EXAMPLE
+
+   [[file:string.org][Next：字符串]]
+
+   [[file:io.org][Previous：输入/输出]] 
+
+   [[file:slt.org][Home：目录]]

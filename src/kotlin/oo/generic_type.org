@@ -1,0 +1,387 @@
+#+TITLE: 范型
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: ./sealed_class.html
+#+HTML_LINK_HOME: ./oo.html
+#+OPTIONS: num:nil timestamp:nil
+
+与 Java 类似，Kotlin 中的类也可以有类型参数：
+
+#+BEGIN_SRC kotlin 
+  class Box<T>(t: T) {
+      var value = t
+  }
+#+END_SRC
+
+一般来说，要创建这样类的实例，需要提供类型参数：
+
+#+BEGIN_SRC kotlin 
+  val box: Box<Int> = Box<Int>(1)
+#+END_SRC
+
+但是如果类型参数可以推断出来，允许省略类型参数：
+
+#+BEGIN_EXAMPLE
+  例如：从构造函数的参数或者从其他途径
+#+END_EXAMPLE
+
+#+BEGIN_SRC kotlin 
+  val box = Box(1) // 1 具有类型 Int，所以编译器知道我们说的是 Box<Int>
+#+END_SRC
+* 型变
+
+  #+BEGIN_EXAMPLE
+    Java 类型系统中最棘手的部分之一是通配符类型。 而 Kotlin 中没有
+  #+END_EXAMPLE
+
+  相反，它有两个其他的东西： _声明处型变_ (declaration-site variance)与 _类型投影_ (type projections)
+
+  #+BEGIN_EXAMPLE
+    首先，思考为什么 Java 需要那些神秘的通配符。答案是：利用有限制通配符来提升 API 的灵活性
+
+    首先，Java 中的泛型是不型变的，这意味着 List<String> 并不是 List<Object> 的子类型
+  #+END_EXAMPLE
+
+  如果 List 不是不型变的，它就没比 Java 的数组好到哪去，因为如下代码会通过编译然后导致运行时异常：
+
+  #+BEGIN_SRC java 
+  // Java
+  List<String> strs = new ArrayList<String>();
+  List<Object> objs = strs; // ！！！即将来临的问题的原因就在这里。Java 禁止这样！
+  objs.add(1); // 这里我们把一个整数放入一个字符串列表
+  String s = strs.get(0); // ！！！ ClassCastException：无法将整数转换为字符串
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    因此，Java 禁止这样的事情以保证运行时的安全
+  #+END_EXAMPLE
+  但这样会有一些影响，例如，考虑 Collection 接口中的 addAll() 方法。该方法的签名应该是什么？直觉上会这样：
+
+  #+BEGIN_SRC java 
+  interface Collection<E> …… {
+    void addAll(Collection<E> items);
+  }
+  #+END_SRC
+
+  但随后，就无法做到以下简单的事情（这是完全安全）：
+
+  #+BEGIN_SRC java 
+  void copyAll(Collection<Object> to, Collection<String> from) {
+    to.addAll(from);
+    // ！！！对于这种简单声明的 addAll 将不能编译：
+    // Collection<String> 不是 Collection<Object> 的子类型
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    在 Java 中，艰难地学到了这个教训
+  #+END_EXAMPLE
+
+  这就是为什么 addAll() 的实际签名是以下这样：
+
+  #+BEGIN_SRC java 
+  interface Collection<E> …… {
+    void addAll(Collection<? extends E> items);
+  }
+  #+END_SRC
+
+  *通配符类型参数* _? extends E_ 表示此方法接受 _E_ 或者 _E_ 的 一些 *子类型对象* 的集合，而不只是 _E_ 自身
+
+  #+BEGIN_EXAMPLE
+    这意味着可以安全地从其中（该集合中的元素是 E 的子类的实例）读取 E，但不能写入， 因为不知道什么对象符合那个未知的 E 的子类型
+
+    反过来，该限制可以让Collection<String>表示为Collection<? extends Object>的子类型
+
+    简而言之，带 extends 限定（上界）的通配符类型使得类型是协变的（covariant）
+  #+END_EXAMPLE
+
+  理解为什么这个技巧能够工作的关键相当简单：
+  + 如果只能从集合中 *获取* 项目，那么使用 String 的集合， 并且从其中读取 Object 也没问题
+  + 反过来，如果只能向集合中 *放入* 项目，就可以用 Object 集合并向其中放入 String
+    #+BEGIN_EXAMPLE
+      在 Java 中有 List<? super String> 是 List<Object> 的一个超类
+    #+END_EXAMPLE
+
+
+  后者称为 *逆变性* _contravariance_ ：
+
+
+  #+BEGIN_EXAMPLE
+    对于 List <? super String> 只能调用接受 String 作为参数的方法 （例如，你可以调用 add(String) 或者 set(int, String)）
+
+
+    当然如果调用函数返回 List<T> 中的 T，得到的并非一个 String 而是一个 Object
+  #+END_EXAMPLE
+
+  #+BEGIN_EXAMPLE
+    Joshua Bloch 称那些你只能从中读取的对象为生产者，并称那些只能写入的对象为消费者
+
+    他建议：“为了灵活性最大化，在表示生产者或消费者的输入参数上使用通配符类型”，并提出了以下助记符：
+
+    PECS 代表生产者-Extens，消费者-Super（Producer-Extends, Consumer-Super）
+  #+END_EXAMPLE
+
+  注意：如果使用一个生产者对象，如 List<? extends Foo>，在该对象上不允许调用 add() 或 set()。但这并不意味着该对象是不可变的
+
+  #+BEGIN_EXAMPLE
+    例如，没有什么阻止调用 clear()从列表中删除所有项目，因为 clear() 根本无需任何参数
+
+    通配符（或其他类型的型变）保证的唯一的事情是类型安全。不可变性完全是另一回事
+  #+END_EXAMPLE
+** 声明处型变
+   假设有一个泛型接口 _Source<T>_ ，该接口中不存在任何以 _T_ 作为 *参数* 的方法，只是方法 *返回* _T_ 类型值：
+
+   #+BEGIN_SRC java
+  // Java
+  interface Source<T> {
+    T nextT();
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     那么，在 Source <Object> 类型的变量中存储 Source <String> 实例的引用是极为安全的：没有消费者-方法可以调用
+   #+END_EXAMPLE
+
+   但是 Java 并不知道这一点，并且仍然禁止这样操作：
+   #+BEGIN_SRC java 
+  // Java
+  void demo(Source<String> strs) {
+    Source<Object> objects = strs; // ！！！在 Java 中不允许
+    // ……
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     为了修正这一点，必须声明对象的类型为 Source<? extends Object>
+
+     这是毫无意义的，因为可以像以前一样在该对象上调用所有相同的方法，所以更复杂的类型并没有带来价值。但编译器并不知道
+   #+END_EXAMPLE
+
+   在 Kotlin 中，有一种方法向编译器解释这种情况。这称为 *声明处型变* ：我们 *标注* _Source_ 的类型参数 _T_ 来确保它仅从 Source<T> 成员中 *返回* （生产），并 *从不被消费* 。 为此提供 _out_ 修饰符：
+
+   #+BEGIN_SRC kotlin 
+  interface Source<out T> {
+      fun nextT(): T
+  }
+
+  fun demo(strs: Source<String>) {
+      val objects: Source<Any> = strs // 这个没问题，因为 T 是一个 out-参数
+      // ……
+  }
+   #+END_SRC
+
+   一般原则是：当一个 _类 C_ 的 _类型参数 T_ 被声明为 *out* 时，它就只能出现在 C 的成员的 _输出-位置_ ，但回报是 C<Base> 可以安全地作为 C<Derived>的超类
+
+   #+BEGIN_EXAMPLE
+     简而言之，他们说类 C 是在参数 T 上是协变的，或者说 T 是一个协变的类型参数。 可以认为 C 是 T 的生产者，而不是 T 的消费者
+   #+END_EXAMPLE
+
+   out修饰符称为 _型变注解_ ，并且由于它在类型参数声明处提供，所以称之为声明处型变
+
+   #+BEGIN_EXAMPLE
+     这与 Java 的使用处型变相反，其类型用途通配符使得类型协变
+   #+END_EXAMPLE
+
+   另外除了 out，Kotlin 又补充了一个型变注释：_in_ 。它使得一个类型参数逆变：只可以 *被消费* 而 *不可以被生产* 。逆变类型的一个很好的例子是 Comparable：
+
+   #+BEGIN_SRC kotlin 
+  interface Comparable<in T> {
+      operator fun compareTo(other: T): Int
+  }
+
+  fun demo(x: Comparable<Number>) {
+      x.compareTo(1.0) // 1.0 拥有类型 Double，它是 Number 的子类型
+      // 因此，我们可以将 x 赋给类型为 Comparable <Double> 的变量
+      val y: Comparable<Double> = x // OK！
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+       我们相信 in 和 out 两词是自解释的（因为它们已经在 C# 中成功使用很长时间了）， 因此上面提到的助记符不是真正需要的，并且可以将其改写为更高的目标：
+
+       存在性（The Existential） 转换：消费者 in, 生产者 out!
+   #+END_EXAMPLE
+
+** 类型投影
+
+*** 使用处型变：类型投影
+
+    #+BEGIN_EXAMPLE
+      将类型参数 T 声明为 out 非常方便，并且能避免使用处子类型化的麻烦，但是有些类实际上不能限制为只返回 T
+    #+END_EXAMPLE
+    一个很好的例子是 Array：
+
+    #+BEGIN_SRC kotlin 
+  class Array<T>(val size: Int) {
+      fun get(index: Int): T { …… }
+      fun set(index: Int, value: T) { …… }
+  }
+    #+END_SRC
+
+    该类在 T 上既不能是协变的也不能是逆变的。这造成了一些不灵活性。考虑下述函数：
+
+    #+BEGIN_SRC kotlin 
+  fun copy(from: Array<Any>, to: Array<Any>) {
+      assert(from.size == to.size)
+      for (i in from.indices)
+	  to[i] = from[i]
+  }
+    #+END_SRC
+
+    这个函数应该将项目从一个数组复制到另一个数组。尝试在实践中应用它：
+
+    #+BEGIN_SRC kotlin 
+  val ints: Array<Int> = arrayOf(1, 2, 3)
+  val any = Array<Any>(3) { "" } 
+  copy(ints, any)
+  //   ^ 其类型为 Array<Int> 但此处期望 Array<Any>
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      这里遇到同样熟悉的问题：Array <T> 在 T 上是不型变的，因此 Array <Int> 和 Array <Any> 都不是另一个的子类型。为什么？
+
+      再次重复，因为 copy 可能做坏事，也就是说，例如它可能尝试写一个 String 到 from， 并且如果实际上传递一个 Int 的数组，一段时间后将会抛出一个 ClassCastException 异常
+    #+END_EXAMPLE
+
+
+    那么，唯一要确保的是 copy() 不会做任何坏事。如果想阻止它写到 from，可以：
+
+    #+BEGIN_SRC kotlin 
+  fun copy(from: Array<out Any>, to: Array<Any>) { …… }
+    #+END_SRC
+
+    这里发生的事情称为 _类型投影_ ：from不仅仅是一个数组，而是一个受 *限制的( （投影的）数组，只可以调用返回类型为类型参数 T 的方法
+
+    #+BEGIN_EXAMPLE
+      如上，这意味着只能调用 get()，这就是我们的使用处型变的用法，并且是对应于 Java 的 Array<? extends Object>、 但使用更简单些的方式
+    #+END_EXAMPLE
+
+    也可以使用 in 投影一个类型：
+
+    #+BEGIN_SRC kotlin 
+  fun fill(dest: Array<in String>, value: String) { …… }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      Array<in String> 对应于 Java 的 Array<? super String>
+
+      也就是说，可以传递一个 CharSequence 数组或一个 Object 数组给 fill() 函数
+    #+END_EXAMPLE
+
+*** 星投影
+    #+BEGIN_EXAMPLE
+      有时你对类型参数一无所知，但仍然希望以安全的方式使用它
+
+      这里的安全方式是定义泛型类型的这种投影，该泛型类型的每个具体实例化将是该投影的子类型
+    #+END_EXAMPLE
+    Kotlin 为此提供了所谓的 *星投影* 语法：
+    + 对于 _Foo <out T : TUpper>_ ，其中 T 是一个具有上界 _TUpper_ 的 _协变类型_ 参数 。 _Foo <*>_  等价于 _Foo <out TUpper>_ 
+      #+BEGIN_EXAMPLE
+	这意味着当 T 未知时，你可以安全地从 Foo <*> 读取 TUpper 的值
+      #+END_EXAMPLE
+    + 对于 Foo _<in T>_ ，其中 _T_ 是一个 _逆变类型_ 参数， _Foo <*>_ 等价于 _Foo <in Nothing>_
+      #+BEGIN_EXAMPLE
+	这意味着当 T 未知时，没有什么可以以安全的方式写入 Foo <*>
+      #+END_EXAMPLE
+    + 对于 _Foo <T : TUpper>_ ，其中 T 是一个具有上界 TUpper 的 _不型变类型_ 参数，Foo<*> ：
+      + _读_ 值时等价于 _Foo<out TUpper>_
+      + _写_ 值时等价于 _Foo<in Nothing>_ 
+    + 如果泛型类型具有多个类型参数，则 _每个类型_ 参数都可以 *单独* 投影。 例如，如果类型被声明为 _interface Function <in T, out U>_ ，可以想象以下星投影：
+      + Function<*, String> 表示 Function<in Nothing, String>
+      + Function<Int, *> 表示 Function<Int, out Any?>
+      + Function<*, *> 表示 Function<in Nothing, out Any?> 
+
+    #+BEGIN_EXAMPLE
+      注意：星投影非常像 Java 的原始类型，但是安全
+    #+END_EXAMPLE
+
+* 泛型函数
+
+  #+BEGIN_EXAMPLE
+    不仅类可以有类型参数。函数也可以有
+  #+END_EXAMPLE
+
+  _类型参数_ 要放在 _函数名称_ 之前： 
+
+  #+BEGIN_SRC kotlin 
+  fun <T> singletonList(item: T): List<T> {
+      // ……
+  }
+
+  fun <T> T.basicToString(): String {  // 扩展函数
+      // ……
+  }
+  #+END_SRC
+
+  要调用泛型函数，在调用处 _函数名_ 之后 *指定* 类型参数即可：
+
+  #+BEGIN_SRC kotlin 
+  val l = singletonList<Int>(1)
+  #+END_SRC
+
+  如果可以省略能够从上下文中推断出来的类型参数，所以以下示例同样适用：
+
+  #+BEGIN_SRC kotlin 
+  val l = singletonList(1)
+  #+END_SRC
+
+* 泛型约束
+  能够替换给定类型参数的所有可能类型的集合可以由 _泛型约束_ 限制 
+
+** 上界
+   最常见的约束类型是与 Java 的 _extends_ 关键字对应的 _上界_ ： 
+
+   #+BEGIN_SRC kotlin 
+  fun <T : Comparable<T>> sort(list: List<T>) {  …… }
+   #+END_SRC
+
+
+   冒号之后指定的类型是上界：只有 Comparable<T> 的子类型可以替代 T。 例如：
+
+   #+BEGIN_SRC kotlin 
+  sort(listOf(1, 2, 3)) // OK。Int 是 Comparable<Int> 的子类型
+  sort(listOf(HashMap<Int, String>())) // 错误：HashMap<Int, String> 不是 Comparable<HashMap<Int, String>>
+   #+END_SRC
+
+   + 默认的上界（如果没有声明）是 _Any?_
+   + 在尖括号中只能指定一个上界
+   + 如果同一类型参数需要多个上界，需要一个单独的 where-子句：
+
+   #+BEGIN_SRC kotlin 
+  fun <T> copyWhenGreater(list: List<T>, threshold: T): List<String>
+      where T : CharSequence,
+	    T : Comparable<T> {
+      return list.filter { it > threshold }.map { it.toString() }
+  }
+   #+END_SRC
+
+
+   所传递的类型必须同时满足 where 子句的所有条件
+
+   #+BEGIN_EXAMPLE
+     在上述示例中，类型 T 必须既实现了 CharSequence 也实现了 Comparable
+   #+END_EXAMPLE
+
+
+* 类型擦除
+
+  Kotlin 为泛型声明用法执行的类型安全检测仅在 _编译期_ 进行。 运行时泛型类型的实例不保留关于其类型实参的任何信息。其类型信息称为 *被擦除* 
+
+  #+BEGIN_EXAMPLE
+    例如，Foo<Bar> 与 Foo<Baz?> 的实例都会被擦除为 Foo<*>
+  #+END_EXAMPLE
+
+  因此，并没有通用的方法在运行时检测一个泛型类型的实例是否通过指定类型参数所创建 ，并且编译器禁止这种 is 检测。类型转换为带有具体类型参数的泛型类型，如 foo as List<String> 无法在运行时检测
+
+  #+BEGIN_EXAMPLE
+    当高级程序逻辑隐含了类型转换的类型安全而无法直接通过编译器推断时， 可以使用这种非受检类型转换
+
+    编译器会对非受检类型转换发出警告，并且在运行时只对非泛型部分检测（相当于 foo as List<*>）
+  #+END_EXAMPLE
+
+  泛型函数调用的类型参数也同样只在编译期检测。在函数体内部， 类型参数不能用于类型检测，并且类型转换为类型参数（foo as T）也是非受检的
+
+  #+BEGIN_EXAMPLE
+    然而， 内联函数的具体化的类型参数会由调用处内联函数体中的类型实参所代入，因此可以用于类型检测与转换， 与上述泛型类型的实例具有相同限制
+  #+END_EXAMPLE
+
+  | [[file:inner_class.org][Next：嵌套类]] | [[file:sealed_class.org][Previous：密封类]] | [[file:oo.org][Home：面向对象]] |

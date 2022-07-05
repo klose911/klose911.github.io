@@ -1,0 +1,314 @@
+#+TITLE: 高级特性
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: commands.html   
+#+HTML_LINK_HOME: redis.html
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+
+* 备份和恢复
+** 备份
+SAVE命令用于创建当前数据库的备份，该命令将在redis安装目录中创建dump.rdb文件
+#+BEGIN_SRC sh
+  /var/lib/redis $ ls -l
+
+  total 4
+  -rw-r--r-- 1 redis redis 328 Feb  5 23:02 dump.rdb
+    
+  $ 127.0.0.1:6379> SAVE 
+  OK
+
+  var/lib/redis $ ls -l 
+  total 4
+  -rw-r--r-- 1 redis redis 328 Feb 11 10:36 dump.rdb
+#+END_SRC
+** 恢复
+如果需要恢复数据，只需将备份文件dump.rdb移动到redis安装目录并启动服务即可
+
+获取redis安装目录可以使用CONFIG命令:
+#+BEGIN_SRC sh
+  $ 127.0.0.1:6379> config get dir  
+  1) "dir"
+  2) "/var/lib/redis"
+#+END_SRC
+** bgsave
+创建redis备份文件也可以使用命令BGSAVE，该命令在后台执行。
+#+BEGIN_SRC sh
+  $ 127.0.0.1:6379> BGSAVE
+
+  Background saving started
+#+END_SRC
+
+* 安全
+  通过设置密码参数，这样客户端连接到redis服务就需要密码验证，让redis服务更安全
+  
+** 设置密码
+   查看是否设置了密码验证
+   #+BEGIN_SRC sh
+     $ 127.0.0.1:6379> CONFIG get requirepass
+     1) "requirepass"
+     2) ""
+   #+END_SRC
+   修改requirepass来设置密码
+   #+BEGIN_SRC sh
+  $ 127.0.0.1:6379> CONFIG set requirepass "klose"
+  OK
+   #+END_SRC
+   
+** 验证密码
+使用auth命令来验证密码
+   #+BEGIN_SRC C
+     $ 127.0.0.1:6379> CONFIG get requirepass
+     (error) NOAUTH Authentication required.
+             
+     $ 127.0.0.1:6379> auth "klose"
+     OK
+             
+     $ 127.0.0.1:6379> CONFIG get requirepass
+     1) "requirepass"
+     2) "klose"
+   #+END_SRC
+
+* 性能测试
+redis-benchmark命令语法：
+   #+BEGIN_SRC sh
+     redis-benchmark [option] [option value]
+   #+END_SRC
+** 可选参数
+#+CAPTION: redis-benchmark可选参数
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 参数  | 描述                                     | 默认值 |
+| -h    | 指定服务器主机名                   | 127.0.0.1 |
+| -p    | 指定服务器端口                      |      6379 |
+| -s    | 指定服务器socket                      |           |
+| -c    | 指定并发连接数                      |        50 |
+| -n    | 指定请求数                            |     10000 |
+| -d    | 以字节的形式指定SET/GET值的数据大小 |         2 |
+| -k    | 1=keep alive， 0=reconnect                |         1 |
+| -r    | SET/GET/INCR使用随机key，SADD使用随机值 |           |
+| -P    | 通过管道传输<numreq>请求           |         1 |
+| -q    | 强制退出redis，仅显示query/sec值的数据大小 |           |
+| - -csv  | 以CSV格式输出                         |           |
+| -l    | 生成循环，永久执行测试          |           |
+| -t    | 仅运行以逗号分隔的测试命令列表 |           |
+| -I    | Idle模式，仅打开N个idle连接并等待　｜ |           |
+
+** 实例
+主机为 127.0.0.1，端口号为 6379，执行的命令为 set,lpush，请求数为 10000，通过-q参数让结果只显示每秒执行的请求数
+#+BEGIN_SRC sh
+  $ sudo redis-benchmark -h 127.0.0.1 -p 6379 -t set,lpush -n 10000 -q
+  SET: 175438.59 requests per second
+  LPUSH: 178571.42 requests per second
+#+END_SRC
+
+* 客户端连接
+Redis通过监听一个TCP端口或者Unix socket的方式来接收来自客户端的连接，当一个连接建立后Redis内部会进行以下一些操作：
+1. 客户端socket会被设置为非阻塞模式，因为Redis在网络事件处理上采用的是非阻塞多路复用模型
+2. 为这个socket设置TCP_NODELAY属性，禁用Nagle算法
+3. 创建一个可读的文件事件用于监听这个客户端socket的数据发送
+
+
+** 最大连接数
+查看最大连接数
+#+BEGIN_SRC sh
+127.0.0.1:6379> CONFIG GET maxclients 
+1) "maxclients"
+2) "4064"
+#+END_SRC
+服务启动时设置最大连接数为100000
+#+BEGIN_SRC sh
+  $ sudo redis-server --maxclients 100000
+#+END_SRC
+
+** 客户端管理命令
+#+CAPTION: 客户端管理命令
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 命令 | 描述 |  
+| CLIENT LIST | 返回连接到redis服务的客户端列表 | 
+| CLIENT SETNAME | 设置当前连接的名称 | 
+| CLIENT GETNAME | 获取通过CLIENT SETNAME命令设置的服务名称 | 
+| CLIENT PAUSE | 挂起客户端连接，指定挂起的时间以毫秒计 | 
+| CLIENT KILL | 关闭客户端连接 | 
+
+列出所有的客户端连接
+#+BEGIN_SRC sh
+  $ 127.0.0.1:6379> client list 
+
+  id=1604 addr=127.0.0.1:46412 fd=5 name= age=240 idle=0 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=32768 obl=0 oll=0 omem=0 events=r cmd=client
+  id=1605 addr=127.0.0.1:46472 fd=6 name= age=4 idle=4 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=command
+#+END_SRC
+
+* 管道
+Redis是一种基于客户端-服务端模型以及请求/响应协议的TCP服务：
+1. 客户端向服务端发送一个查询请求，并监听Socket返回，通常是以阻塞模式等待服务端响应
+2. 服务端处理命令，并将结果返回给客户端
+
+管道技术可以在服务端未响应时，客户端可以继续向服务端发送请求，并最终一次性读取所有服务端的响应
+
+** 实例
+启动redis服务器后，在终端输入以下命令(需要安装netcat这个软件)：
+   #+BEGIN_SRC sh
+     $ (echo -en "AUTH klose\r\n PING\r\n SET runoobkey redis\r\nGET runoobkey\r\nINCR visitor\r\nINCR visitor\r\nINCR visitor\r\n"; sleep 10) | nc localhost 6379 
+
+     +OK
+     +PONG
+     +OK
+     $5
+     redis
+     :1
+     :2
+     :3
+   #+END_SRC
+首先输入密码，然后用PING命令查看redis服务是否可用， 之后设置了runoobkey的值为redis，然后我们获取runoobkey的值并使得visitor自增3次
+
+在返回的结果中可以看到这些命令一次性向redis服务提交，并最终一次性读取所有服务端的响应
+
+** 优势
+管道技术最显著的优势是提高了redis服务的性能
+
+* 分区
+分区是分割数据到多个Redis实例的处理过程，每个实例只保存key的一个子集
+
+** 优势
++ 利用多台计算机内存的和值，允许构造更大的数据库
++ 多核和多台计算机，允许扩展计算能力
++ 多台计算机和网络适配器，允许扩展网络带宽
+
+** 劣势
++ 涉及多个key的操作通常是不被支持的：比如当两个set映射到不同的redis实例上时，就不能对这两个set执行交集操作
++ 涉及多个key的redis事务不能使用
++ 当使用分区时数据处理较为复杂：比如你需要处理多个rdb/aof文件，并且从多个实例和主机备份持久化文件
++ 增加或删除容量也比较复杂：redis集群大多数支持在运行时增加、删除节点的透明数据平衡的能力，但是类似于客户端分区、代理等其他系统则不支持这项特性
+
+** 类型
+假设有4个Redis实例R0，R1，R2，R3，和类似user:1，user:2这样的表示用户的多个key，对既定的key有多种不同方式来选择这个key存放在哪个实例中
+
+*** 范围分区
+最简单的分区方式是按范围分区，就是映射一定范围的对象到特定的Redis实例
+
+比如ID从0到10000的用户会保存到实例R0，ID从10001到20000的用户会保存到R1以此类推
+
+这种方式是可行的，不足就是要有一个区间范围到实例的映射表。这个表要被管理，同时还需要各种对象的映射表
+
+*** 哈希分区
+1. 用一个hash函数将key转换为一个数字，比如使用crc32 hash函数。对key foobar执行crc32(foobar)会输出类似93024922的整数
+2. 对这个整数取模，将其转化为0-3之间的数字，就可以将这个整数映射到4个Redis实例中的一个了。93024922 % 4 = 2，就是说key foobar应该被存到R2实例中
+
+* Java
+
+** 安装
+1. 确保已经安装了redis服务且你的机器上能正常使用Java
+2. 下载jedis.jar驱动包
+3. 在classpath中包含该驱动包
+
+** 连接
+   #+BEGIN_SRC java
+     import redis.clients.jedis.Jedis;
+
+     public class RedisJava {
+             public static void main(String[] args) {
+                     //连接本地的 Redis 服务
+                     Jedis jedis = new Jedis("localhost");
+                     System.out.println("Connection to server sucessfully");
+                     //查看服务是否运行
+                     System.out.println("Server is running: "+jedis.ping());
+             }
+     }
+   #+END_SRC
+测试代码：
+   #+BEGIN_SRC sh
+     $ javac RedisJava.java
+     $ java RedisJava
+
+     Connection to server sucessfully
+     Server is running: PONG
+
+     Redis Java String Example
+   #+END_SRC
+
+** string
+   #+BEGIN_SRC java
+     import redis.clients.jedis.Jedis;
+
+     public class RedisStringJava {
+             public static void main(String[] args) {
+                     //连接本地的 Redis 服务
+                     Jedis jedis = new Jedis("localhost");
+                     System.out.println("Connection to server sucessfully");
+                     //设置 redis 字符串数据
+                     jedis.set("runoobkey", "Redis tutorial");
+                     // 获取存储的数据并输出
+                     System.out.println("Stored string in redis:: "+ jedis.get("runoobkey"));
+             }
+     }
+   #+END_SRC
+测试代码：
+#+BEGIN_SRC sh
+  $ javac RedisStringJava.java
+  $ java RedisStringJava
+
+  Connection to server sucessfully
+  Stored string in redis:: Redis tutorial
+#+END_SRC
+
+** list
+   #+BEGIN_SRC java
+     import redis.clients.jedis.Jedis;
+
+     public class RedisListJava {
+             public static void main(String[] args) {
+                     //连接本地的 Redis 服务
+                     Jedis jedis = new Jedis("localhost");
+                     System.out.println("Connection to server sucessfully");
+                     //存储数据到列表中
+                     jedis.lpush("tutorial-list", "Redis");
+                     jedis.lpush("tutorial-list", "Mongodb");
+                     jedis.lpush("tutorial-list", "Mysql");
+                     // 获取存储的数据并输出
+                     List<String> list = jedis.lrange("tutorial-list", 0 ,5);
+                     for(int i=0; i<list.size(); i++) {
+                             System.out.println("Stored string in redis:: "+list.get(i));
+                     }
+             }
+     }
+   #+END_SRC
+测试代码：
+#+BEGIN_SRC sh
+  $ javac RedisListJava.java
+  $ java RedisListJava
+
+  Connection to server sucessfully
+  Stored string in redis:: Redis
+  Stored string in redis:: Mongodb
+  Stored string in redis:: Mysql
+#+END_SRC
+
+** key
+   #+BEGIN_SRC java
+     import redis.clients.jedis.Jedis;
+
+     public class RedisKeyJava {
+             public static void main(String[] args) {
+                     //连接本地的 Redis 服务
+                     Jedis jedis = new Jedis("localhost");
+                     System.out.println("Connection to server sucessfully");
+           
+                     // 获取数据并输出
+                     List<String> list = jedis.keys("*");
+                     for(int i=0; i<list.size(); i++) {
+                             System.out.println("List of stored keys:: "+list.get(i));
+                     }
+             }
+     }
+   #+END_SRC
+测试代码：
+#+BEGIN_SRC sh
+  $ javac RedisKeyJava.java
+  $ java RedisKeyJava
+
+  Connection to server sucessfully
+  List of stored keys:: tutorial-name
+  List of stored keys:: tutorial-list
+#+END_SRC
+
+[[file:commands.org][Previous：命令]]
+
+[[file:redis.org][Home：目录]]

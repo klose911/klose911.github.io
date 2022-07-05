@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/ownership/string_slice/target/debug/string_slice: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/ownership/string_slice/src/main.rs

@@ -1,0 +1,214 @@
+#+TITLE: 通用方法
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: create_destroy_objects.html   
+#+HTML_LINK_HOME: effj.html
+#+OPTIONS: num:nil timestamp:nil
+* 覆盖equals方法请遵守通用规定
+** 不需要覆盖equals
++ 类的每个实例本质上都是唯一的，不变的
++ 不用关心类是否提供了“逻辑相等（logical equality）“
++ 超类已经覆盖了equals，从超类继承过来的行为对于子类也是合适的
++ 类是私有的或包级私有的，可以确定他的equals方法永远不会被调用
+
+** 覆盖equals的通用约定
+如果类具有自己特有的“逻辑想等”概念，而且超类还没有覆盖equals以实现期望的行为，这时就需要覆盖equals方法。这通常属于“值类”的情形 
++ 自反性（reflexivity）：对于任何非空引用值 x，x.equals(x) 都应返回 true
++ 对称性（symmetry）：对于任何非空引用值 x 和 y，当且仅当 y.equals(x) 返回 true 时，x.equals(y) 才应返回 true
++ 传递性（transitivity）：对于任何非空引用值 x、y 和 z，如果 x.equals(y) 返回 true，并且 y.equals(z) 返回 true，那么 x.equals(z) 应返回 true
++ 一致性（consistency）：对于任何非空引用值 x 和 y，多次调用 x.equals(y) 始终返回 true 或始终返回 false，前提是对象上 equals 比较中所用的信息没有被修改
++ 非空性（Non-nullity）：对于任何非空引用值 x，x.equals(null) 都应返回 false
+
+** 实现高质量equals方法的诀窍 
+1. 使用==操作符检查“参数是否为这个对象的引用”
+2. 使用instanceof操作符检查“参数是否为正确的类型”
+3. 把参数转换成正确的类型
+4. 对于该类中的每个“关键”域，检查参数中的域是否与该对象中对应的域相匹配（为了获得最佳性能，应该先比较最有可能不一致的域，或者开销最低的域，最理想的情况是两个条件同时满足的域）
+5. 当编写完equals方法后，应该问自己三个问题：它是否是对称的、传递的和一致的
+6. 覆盖equals时总要覆盖hashCode
+7. 不要企图让equals方法过于智能
+8. 不要将equals声明中的Object对象替换为其他类型
+ 
+* 覆盖equals方法时永远覆盖hashcode方法
+在每个覆盖了equals方法的类中，也必须覆盖hashCode方法。如果不那样做的话，就会违反Object.hashCode的通用约定，从而导致该类无法结合所有基于散列的集合一起正常运作，这样的集合包括HashMap、HashSet和Hashtable
+
+正确的hashCode方法
+#+BEGIN_SRC java
+  // A decent hashCode method
+  @Override public int hashCode() {
+          int result = 17;
+          result = 31  -  result + areaCode;
+          result = 31  -  result + prefix;
+          result = 31  -  result + lineNumber;
+          return result;
+  }
+#+END_SRC
+用移位和减法来代替乘法，可以得到更好的性能：31 - i == (i<<5)-i 
+ 
+* 永远覆盖toString方法
++ 提供好的toString实现可以使类用起来更加舒适，当对象被传递给println、printf、字符串练操作符（+）以及assert或者被调试器打印出来时，toString方法会被自动调用
++ toString方法应该返回对象中包含的所有值得关注的信息
++ 在文档中指定返回值的格式
+
+* 谨慎覆盖clone方法
+** Cloneable接口
+Cloneable接口只是表示某个类可以被克隆，如果某个类不实现Cloneable，调用super.clone会抛出CloneNotSupportedException，但接口本身并没有定义clone方法。clone方法存在于Object中，并且是protected。想要被克隆的类需要自己实现clone方法，而且不能是私有的
+** clone方法的通用约定
+1. x.clone() != x
+2. x.clone().getClass() == x.getClass()
+3. x.clone().equals(x)
+4. 不调用构造器
+但这都不是绝对要求，clone方法的通用约定是非常脆弱的
+** 正确覆盖clone方法
++ 非final子类中被覆盖的clone方法应该返回super.clone，否则将会返回错误的class类型
++ 如果一个类只有原始变量类型和final类型的成员时候，调用super.clone就能正确克隆
+  #+BEGIN_SRC java
+    public class PhoneNumber {
+            private int areaCode;
+            private int countryCode;
+            private int number;
+            private final String prefix;
+            
+            @Override public PhoneNumber clone() {
+                    try {
+                            return (PhoneNumber) super.clone();
+                    } catch(CloneNotSupportedException e) {
+                            throw new AssertionError(); // Can't happen
+                    }
+            }
+    }
+  #+END_SRC
++ 克隆必须保证将来不会伤害到原始的对象，并确保正确地创建被克隆对象中的约束条件。因此如果对象有可变的成员时候，只是调用super.clone是不足够的，必须逐个成员进行clone
+  #+BEGIN_SRC java
+    public class Stack {
+            private Object[] elements;
+            private int size = 0;
+            private static final int DEFAULT_INITIAL_CAPACITY = 16;
+
+            public Stack() {
+                    this.elements = new Object[DEFAULT_INITIAL_CAPACITY];
+            }
+
+            public void push(Object e) {
+                    ensureCapacity();
+                    elements[size++] = e;
+            }
+
+            public Object pop() {
+                    if (size == 0)
+                            throw new EmptyStackException();
+                    Object result = elements[--size];
+                    elements[size] = null; // Eliminate obsolete reference
+                    return result;
+            }
+    // Ensure space for at least one more element.
+            private void ensureCapacity() {
+                    if (elements.length == size)
+                            elements = Arrays.copyOf(elements, 2 * size + 1);
+            }
+    }
+  #+END_SRC
+简单调用super.clone会导致克隆对象的成员elements没有被正确复制，只是和旧的elements拥有相同引用，这意味着当克隆对象调用pop，push方法，旧的对象elements数组也会被修改
+#+BEGIN_SRC java
+  @Override public Stack clone() {
+          try {
+                  Stack result = (Stack) super.clone();
+                  result.elements = elements.clone();
+                  return result;
+          } catch (CloneNotSupportedException e) {
+                  throw new AssertionError();
+          }
+  }
+#+END_SRC
+clone方法与可变对象的final域是不兼容的，因为这会影响到旧的对象
++ 某些情况下，简单的调用成员clone方法仍然不够，必须手动复制
+  #+BEGIN_SRC java
+    public class HashTable implements Cloneable {
+            private Entry[] buckets = ...;
+            private static class Entry {
+                    final Object key;
+                    Object value;
+                    Entry next;
+                    Entry(Object key, Object value, Entry next) {
+                            this.key = key;
+                            this.value = value;
+                            this.next = next;
+                    }
+            }
+            // Remainder omitted
+
+            // Broken - results in shared internal state!
+            @Override public HashTable clone() {
+                    try {
+                            HashTable result = (HashTable) super.clone();
+                            result.buckets = buckets.clone();
+                            return result;
+                    } catch (CloneNotSupportedException e) {
+                            throw new AssertionError();
+                    }
+            }
+    }
+  #+END_SRC
+虽然buckets对象被克隆了，但是这个数组中的对象还是和被克隆的拥有相同的对象引用，这种情况下必须手动进行deep copy　
+
+
+#+BEGIN_SRC java
+  public class HashTable implements Cloneable {
+          private Entry[] buckets = ...;
+          private static class Entry {
+                  final Object key;
+                  Object value;
+                  Entry next;
+                  Entry(Object key, Object value, Entry next) {
+                          this.key = key;
+                          this.value = value;
+                          this.next = next;
+                  }
+                  // Recursively copy the linked list headed by this Entry
+                  Entry deepCopy() {
+                          return new Entry(key, value,
+                                           next == null ? null : next.deepCopy());
+                  }
+          }
+          
+          @Override public HashTable clone() {
+                  try {
+                          HashTable result = (HashTable) super.clone();
+                          result.buckets = new Entry[buckets.length];
+                          for (int i = 0; i < buckets.length; i++)
+                                  if (buckets[i] != null)
+                                          result.buckets[i] = buckets[i].deepCopy();
+                          return result;
+                  } catch (CloneNotSupportedException e) {
+                          throw new AssertionError();
+                  }
+          }
+          ... // Remainder omitted
+  }
+#+END_SRC
++ clone方法需要考虑线程安全，实现同步
+** 替代clone
+1. 使用拷贝构造器
+   #+BEGIN_SRC java
+     public Yum(Yum yum);
+   #+END_SRC
+2. 使用拷贝静态工厂
+   #+BEGIN_SRC java
+     public static Yum newInstance(Yum yum);
+   #+END_SRC
+3. 使用不变类，克隆不变类毫无意义
+
+* 如果有必要覆盖compareTo方法
+当实现“值”类的时候，非常有必要继承Comparable接口，实现compareTo方法, 可以方便TreeSet, TreeMap等容器类的使用
+
+** compareTo方法的通用约定
+sgn(expression)符号表示数学中的signum函数，即根据expression是负数、零、或正数，分别返回-1、0、1
++ 对称性：必须保证对所有的x和y都有sgn(x.compareTo(y)) == -sgn(y.compareTo(x))。这也暗示当且仅当y.compareTo(x)抛出异常时，x.compareTo(y)才抛出异常
++ 传递性：必须保证比较关系是可传递的，如果x.compareTo(y) > 0 且y.compareTo(z) > 0，则x.compareTo(z) > 0
++ 必须保证x.compareTo(y) == 0 暗示着所有的z都有(x.compareTo(z)) == (y.compareTo(z))
++ 虽不强制要求，但强烈建议(x.compareTo(y) == 0) == (x.equals(y))。一般来说，任何实现了Comparable的类如果违反了这个约定，都应该明确说明
+
+[[file:class_interface.org][Next：类和接口]]
+
+[[file:create_destroy_objects.org][Previous：创建和销毁对象]] 
+
+[[file:effj.org][Home：目录]]

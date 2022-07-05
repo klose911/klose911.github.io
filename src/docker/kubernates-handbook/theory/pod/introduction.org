@@ -1,0 +1,107 @@
+#+TITLE: Pod 概述
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: pod.html   
+#+HTML_LINK_HOME: pod.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+* 理解 Pod
+
+
+  Pod 是 kubernetes 中可以 _创建_ 和 _部署_ 的 *最小也是最简* 的 _单位_ 。Pod 代表着 *集群中运行的进程* ：
+  + 封装了 _应用的容器_ （有的情况下是好几个容器）， _存储_ 、独立的 _网络 IP_
+  + 管理容器如何运行的策略选项
+  + 代表部署的一个单位：kubernetes 中应用的一个实例，可能由一个或者多个容器组合在一起共享资源
+
+  #+BEGIN_EXAMPLE
+    Docker 是 kubernetes 中最常用的容器运行时，但是 Pod 也支持其他容器运行时
+  #+END_EXAMPLE
+
+  在 Kubernetes 集群中 Pod 有如下两种使用方式：
+  + 一个 Pod 中运行一个容器
+    #+BEGIN_EXAMPLE
+      “每个 Pod 中一个容器” 的模式是最常见的用法
+
+      在这种使用方式中，可以把 Pod 想象成是单个容器的封装，kuberentes 管理的是 Pod 而不是直接管理容器
+    #+END_EXAMPLE
+  + 在一个 Pod 中同时运行多个容器，可以同时封装几个需要紧密耦合互相协作的容器，它们之间共享资源
+    #+BEGIN_EXAMPLE
+      这些在同一个 Pod 中的容器可以互相协作成为一个 service 单位：一个容器共享文件，另一个 “sidecar” 容器来更新这些文件
+
+      Pod 将这些容器的存储资源作为一个实体来管理 
+    #+END_EXAMPLE
+
+  每个 Pod 都是应用的一个实例
+
+  #+BEGIN_EXAMPLE
+    如果想平行扩展应用的话（运行多个实例），应该运行多个 Pod，每个 Pod 都是一个应用实例
+
+    在 Kubernetes 中，这通常被称为 replication
+  #+END_EXAMPLE
+* 管理多个容器
+Pod 中可以同时运行多个进程（作为容器运行）协同工作。同一个 Pod 中的容器会 _自动的_ *分配* 到 _同一个 node_ 上。同一个 Pod 中的容器共享 _资源_ 、 _网络_ 环境和 _依赖_ ，它们总是被 *同时调度* 
+
+#+BEGIN_EXAMPLE
+  注意在一个 Pod 中同时运行多个容器是一种比较高级的用法。只有当容器需要紧密配合协作的时候才考虑用这种模式
+
+  例如，有一个容器作为 web 服务器运行，需要用到共享的 volume，有另一个 “sidecar” 容器来从远端获取资源更新这些文件
+#+END_EXAMPLE
+
+  #+ATTR_HTML: image :width 40% 
+  [[file:../../pic/pod-overview.png]]
+
+Pod 中可以共享两种资源： _网络_ 和 _存储_ 
+** 网络
+每个 Pod 都会被分配一个唯一的 IP 地址：
++ Pod 中的所有容器共享网络空间，包括 IP 地址和端口
++ Pod 内部的容器可以使用 _localhost_ 互相通信
++ Pod 中的容器与外界通信时，必须分配共享网络资源（例如使用宿主机的端口映射） 
+
+** 存储
+可以为一个 Pod 指定多个共享的 Volume：
++ Pod 中的所有容器都可以访问共享的 volume
++ Volume 也可以用来持久化 Pod 中的存储资源，以防容器重启后文件丢失 
+
+* 使用
+很少会直接在 kubernetes 中创建单个 Pod。因为 Pod 的生命周期是短暂的，用后即焚的实体。当 Pod 被创建后（不论是由你直接创建还是被其他 Controller），都会被 Kubernetes 调度到集群的 Node 上。直到 Pod 的进程终止、被删掉、因为缺少资源而被驱逐、或者 Node 故障之前这个 Pod 都会一直保持在那个 Node 上
+
+#+BEGIN_EXAMPLE
+  注意：重启 Pod 中的容器跟重启 Pod 不是一回事
+
+  Pod 只提供容器的运行环境并保持容器的运行状态，重启容器不会造成 Pod 重启
+#+END_EXAMPLE
+
+Pod 不会自愈：
++ 如果 Pod 运行的 Node 故障，或者是调度器本身故障，这个 Pod 就会被删除
++ 同样的，如果 Pod 所在 Node 缺少资源或者 Pod 处于维护状态，Pod 也会被驱逐
+
+#+BEGIN_EXAMPLE
+  Kubernetes 使用更高级的称为 Controller 的抽象层，来管理 Pod 实例
+
+  虽然可以直接使用 Pod，但是在 Kubernetes 中通常是使用 Controller 来管理 Pod 的
+#+END_EXAMPLE
+
+** Pod 和 Controller
+Controller 可以 *创建* 和 *管理* _多个 Pod_ ，提供 _副本管理_ 、 _滚动升级_ 和 _集群级别_ 的自愈能力
+
+#+BEGIN_EXAMPLE
+例如，如果一个 Node 故障，Controller 就能自动将该节点上的 Pod 调度到其他健康的 Node 上
+#+END_EXAMPLE
+
+包含一个或者多个 Pod 的 Controller 示例：
++ Deployment
++ StatefulSet
++ DaemonSet
+
+#+BEGIN_EXAMPLE
+通常，Controller 会用你提供的 Pod Template 来创建相应的 Pod
+#+END_EXAMPLE
+
+* Pod Templates
+Pod 模版是包含了其他 object 的 Pod 定义，例如 _Replication Controllers_ ， _Jobs_ 和 _DaemonSets_ 
+
+#+BEGIN_EXAMPLE
+  Controller 根据 Pod 模板来创建实际的 Pod
+#+END_EXAMPLE
+
+[[file:mechanism.org][Next：解析]]
+
+[[file:pod.org][Home: pod]]

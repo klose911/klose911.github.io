@@ -1,0 +1,151 @@
+#+TITLE: 状态模式
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+#+HTML_LINK_HOME: fdp.html
+
+允许一个对象在其内部状态改变时改变它的行为，对象看起来似乎修改了它的类
+
+* UML
+  #+ATTR_HTML: image :width 40% 
+  [[file:pic/state.png]] 
+  
+* Java
++ 定义状态接口：
+  #+BEGIN_SRC java
+    public interface State {
+            void method();
+    }
+  #+END_SRC
++ 实现具体状态类：
+  #+BEGIN_SRC java
+    public class State1 implements State {
+            @Override
+            public void method() {
+                    System.out.println("execute the first opt!");
+            }
+    }
+  #+END_SRC
+  
+  
+#+BEGIN_SRC java
+  public class State2 implements State {
+          @Override
+          public void method() {
+                  System.out.println("execute the second opt!");
+          }
+  }
+#+END_SRC
+
++ 实现状态切换类Context：
+  #+BEGIN_SRC java
+    public class Context {
+            private State state;
+
+            public Context(State state) {
+                    this.state = state;
+            }
+
+            public State getState() {
+                    return state;
+            }
+
+            public void setState(State state) {
+                    this.state = state;
+            }
+
+            public void method() {
+                    state.method();
+            }
+    }
+  #+END_SRC
+  
++ 测试代码：
+  #+BEGIN_SRC java
+    public class StateTest {
+            public static void main(String[] args) {
+                    State state = new State1();
+                    Context context = new Context(state);
+                    context.method();
+                    context.setState(new State2());
+                    context.method();
+            }
+    }
+  #+END_SRC
+  
++ 测试结果：
+  #+BEGIN_SRC sh
+    execute the first opt!
+    execute the second opt!
+  #+END_SRC
+  
+* Scheme
++ 基于消息传递实现状态1和状态2：
+  #+BEGIN_SRC scheme
+    (define (make-state-1)
+      (define (operation)
+        (begin
+          (display "execute the first opt!")
+          (newline)))
+      (define (dispatch m)
+        (cond ((eq? m 'operation) operation)
+              (else (error "Unknown request -- MAKE-STATE-1"
+                           m))))
+      dispatch)
+
+    ;; ((make-state-1) 'operation) 
+  #+END_SRC
+  
+#+BEGIN_SRC scheme
+  (define (make-state-2)
+    (define (operation)
+      (begin
+        (display "execute the second opt!")
+        (newline)))
+    (define (dispatch m)
+      (cond ((eq? m 'operation) operation) 
+            (else (error "Unknown request -- MAKE-STATE-2"
+                         m))))
+    dispatch)
+#+END_SRC
+
++ 实现状态切换：
+  #+BEGIN_SRC scheme
+    (define (make-context state)
+      (define (change s)
+        (set! state s))
+      (define (method)
+        ((state 'operation))) 
+      (define (dispatch m)
+        (cond ((eq? m 'change) change)
+              ((eq? m 'method) method)
+              (else (error "Unknown request -- MAKE-Context"
+                           m))))
+      dispatch) 
+  #+END_SRC
+  
++ 测试代码：
+  #+BEGIN_SRC scheme
+    (define context (make-context (make-state-1)))
+    ;; => ;Value: context
+    ((context 'method))
+    ;; => execute the first opt!
+    ((context 'change) (make-state-2))
+    ;; => #[compound-procedure 27 dispatch]
+    ((context 'method))
+    ;; => execute the second opt!
+  #+END_SRC
+  
+* 状态
+  既然状态在真实世界里存在，那么编程语言应该提供什么能力来处理状态呢？ 
+  
+1. OOP语言说“将状态隐藏”。状态仅仅通过访问方法来隐藏和可见
+2. 传统编程语言（C，Pascal）说状态的可见度由语言的scope规则来决定
+3. 纯声明式语言说没有状态。系统的全局状态转移到方法里然后从方法里出来。类似于monad(函数式编程语言)和DCG(逻辑语言)等机制被用来隐藏状态，这样它们可以像“有没有状态无所谓”一样来编程，但是对系统状态的完全访问是必需的
+   
+OOP语言所选择的“隐藏状态”可能是最坏的选择。它们不是将状态显示出来并寻找减少状态的坏处的方式，而是将状态隐藏起来!
+
+[[file:visitor.org][Next：访问者模式]]
+
+[[file:memento.org][Previous：备忘录模式]]
+
+[[file:fdp.org][Home：目录]] 

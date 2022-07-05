@@ -1,0 +1,248 @@
+#+TITLE: 仓库
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: container.html   
+#+HTML_LINK_HOME: docker.html
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+* Docker Hub 
++ 仓库（Repository）：集中存放镜像的地方
++ 注册服务器（registrery）： 管理仓库的具体服务器 
+
+每个服务器上可以有多个仓库，而每个仓库下面有多个镜像。仓库可以被认为是一个具体的项目或目录。例如对于仓库地址 dl.dockerpool.com/ubuntu 来说，dl.dockerpool.com 是注册服务器，ubuntu 是仓库名
+** 登录 
+通过执行 docker login 命令来输入用户名、密码和邮箱来完成注册和登录。 注册成功后，本地用户目录的 .dockercfg 中将保存用户的认证信息
+** 基本操作
+用户无需登录即可通过 docker search 命令来查找官方仓库中的镜像
+#+BEGIN_SRC bash
+  $ sudo docker search centos
+
+  NAME                        DESCRIPTION                                     STARS     OFFICIAL   AUTOMATED
+  centos                      The official build of CentOS.                   2939      [OK]
+  jdeathe/centos-ssh          CentOS-6 6.8 x86_64 / CentOS-7 7.3.1611 x8...   51                   [OK]
+  nimmis/java-centos          This is docker images of CentOS 7 with dif...   20                   [OK]
+  torusware/speedus-centos    Always updated official CentOS docker imag...   8                    [OK]
+  nathonfowlie/centos-jre     Latest CentOS image with the JRE pre-insta...   5                    [OK]
+  consol/sakuli-centos-xfce   Sakuli JavaScript based end-2-end testing ...   3                    [OK]
+  ......
+#+END_SRC
+用 docker pull 命令来将它下载到本地
+#+BEGIN_SRC bash
+  $ sudo docker pull centos
+
+  Pulling repository centos
+  ......
+#+END_SRC
+用户也可以在登录后通过 docker push 命令来将镜像推送到 Docker Hub
+** 自动创建 
+自动创建（Automated Builds）功能对于需要经常升级镜像内程序来说，十分方便。 有时候，用户创建了镜像，安装了某个软件，如果软件发布新版本则需要手动更新镜像
+
+而自动创建允许用户通过 Docker Hub 指定跟踪一个目标网站（目前支持 GitHub 或 BitBucket）上的项目，一旦项目发生新的提交，则自动执行创建
+
+要配置自动创建，包括如下的步骤：
+1. 创建并登录 Docker Hub，以及目标网站
+2. 在目标网站中连接帐户到 Docker Hub
+3. 在 Docker Hub 中 配置一个自动创建
+4. 选取一个目标网站中的项目（需要含 Dockerfile）和分支
+5. 指定 Dockerfile 的位置，并提交创建。
+
+之后，可以 在Docker Hub 的自动创建页面中跟踪每次创建的状态
+* 私有仓库
+有时候使用 Docker Hub 这样的公共仓库可能不方便，用户可以创建一个本地仓库供私人使用
+
+docker-registry 是官方提供的工具，可以用于构建私有的镜像仓库
+
+** 安装运行 docker-registry 
+*** 容器运行 
+在安装了 Docker 后，使用官方的 registry 镜像来启动本地的私有仓库
+#+BEGIN_SRC sh
+  $ sudo docker run -d -p 5000:5000 registry
+#+END_SRC
+通过指定参数来配置私有仓库位置，例如配置镜像存储到 Amazon S3 服务
+#+BEGIN_SRC sh
+  $ sudo docker run \
+           -e SETTINGS_FLAVOR=s3 \
+           -e AWS_BUCKET=acme-docker \
+           -e STORAGE_PATH=/registry \
+           -e AWS_KEY=AKIAHSHB43HS3J92MXZ \
+           -e AWS_SECRET=xdDowwlK7TJajV1Y7EoOZrmuPEJlHYcNP2k4j49T \
+           -e SEARCH_BACKEND=sqlalchemy \
+           -p 5000:5000 \
+           registry
+#+END_SRC
+指定本地路径（如 /home/user/registry-conf ）下的配置文件
+#+BEGIN_SRC sh
+  $ sudo docker run -d -p 5000:5000 \
+    -v /home/user/registry-conf:/registry-conf \
+    -e DOCKER_REGISTRY_CONFIG=/registry-conf/config.yml \
+    registry 
+#+END_SRC
+默认情况下，仓库会被创建在容器的 /tmp/registry 下。可以通过 -v 参数来将镜像文件存放在本地的指定路径。 例如下面的例子将上传的镜像放到 /opt/data/registry 目录
+#+BEGIN_SRC sh
+  $ sudo docker run -d -p 5000:5000 -v /opt/data/registry:/tmp/registry registry
+#+END_SRC
+*** 本地安装
+对于 Ubuntu  等发行版，可以直接通过源安装
+#+BEGIN_SRC sh
+  $ sudo apt-get install -y build-essential python-dev libevent-dev python-pip liblzma-dev
+  $ sudo pip install docker-registry
+#+END_SRC
+修改配置文件，主要修改 dev 模板段的 storage_path 到本地的存储仓库的路径
+#+BEGIN_SRC sh
+  $ cp config/config_sample.yml config/config.yml
+#+END_SRC
+启动 Web 服务
+#+BEGIN_SRC sh
+  $ sudo gunicorn --access-logfile - --error-logfile - -k gevent -b 0.0.0.0:5000 -w 4 --max-requests 100 docker_registry.wsgi:application
+#+END_SRC
+使用 curl 访问本地的 5000 端口，看到输出 docker-registry 的版本信息说明运行成功
+** 在私有仓库上传、下载、搜索镜像
+创建好私有仓库之后，就可以使用 docker tag 来标记一个镜像，然后推送它到仓库，别的机器上就可以下载下来了
+
+如私有仓库地址为 192.168.7.26:5000，使用docker tag 将 ba58 这个镜像标记为 192.168.7.26:5000/test（格式为 docker tag IMAGE[:TAG] [REGISTRYHOST/][USERNAME/]NAME[:TAG]）
+#+BEGIN_SRC sh
+  $ sudo docker images
+
+  REPOSITORY                        TAG                 IMAGE ID            CREATED             VIRTUAL SIZE
+  ubuntu                            latest              ba5877dc9bec        6 weeks ago         192.7 MB
+  ubuntu                            14.04               ba5877dc9bec        6 weeks ago         192.7 MB
+
+  $ sudo docker tag ba58 192.168.7.26:5000/test
+
+  $ sudo docker images
+
+  REPOSITORY                        TAG                 IMAGE ID            CREATED             VIRTUAL SIZE
+  ubuntu                            14.04               ba5877dc9bec        6 weeks ago         192.7 MB
+  ubuntu                            latest              ba5877dc9bec        6 weeks ago         192.7 MB
+  192.168.7.26:5000/test            latest              ba5877dc9bec        6 weeks ago         192.7 MB
+#+END_SRC
+
+使用 docker push 上传标记的镜像
+#+BEGIN_SRC sh
+  $ sudo docker push 192.168.7.26:5000/test
+
+  The push refers to a repository [192.168.7.26:5000/test] (len: 1)
+  Sending image list
+  Pushing repository 192.168.7.26:5000/test (1 tags)
+  Image 511136ea3c5a already pushed, skipping
+  Image 9bad880da3d2 already pushed, skipping
+  Image 25f11f5fb0cb already pushed, skipping
+  Image ebc34468f71d already pushed, skipping
+  Image 2318d26665ef already pushed, skipping
+  Image ba5877dc9bec already pushed, skipping
+  Pushing tag for rev [ba5877dc9bec] on {http://192.168.7.26:5000/v1/repositories/test/tags/latest}
+#+END_SRC
+
+用 curl 查看仓库中的镜像，这里可以看到 {"description": "", "name": "library/test"}，表明镜像已经被成功上传了
+#+BEGIN_SRC sh
+  $ curl http://192.168.7.26:5000/v1/search
+
+  {"num_results": 7, "query": "", "results": [{"description": "", "name": "library/miaxis_j2ee"}, {"description": "", "name": "library/tomcat"}, {"description": "", "name": "library/ubuntu"}, {"description": "", "name": "library/ubuntu_office"}, {"description": "", "name": "library/desktop_ubu"}, {"description": "", "name": "dockerfile/ubuntu"}, {"description": "", "name": "library/test"}]}
+#+END_SRC
+
+到另外一台机器去下载这个镜像
+#+BEGIN_SRC sh
+  $ sudo docker pull 192.168.7.26:5000/test
+
+  Pulling repository 192.168.7.26:5000/test
+  ba5877dc9bec: Download complete
+  511136ea3c5a: Download complete
+  9bad880da3d2: Download complete
+  25f11f5fb0cb: Download complete
+  ebc34468f71d: Download complete
+  2318d26665ef: Download complete
+
+  $ sudo docker images
+
+  REPOSITORY                         TAG                 IMAGE ID            CREATED             VIRTUAL SIZE
+  192.168.7.26:5000/test             latest              ba5877dc9bec        6 weeks ago         192.7 MB
+#+END_SRC
+
+使用[[https://raw.githubusercontent.com/yeasy/docker_practice/master/_local/push_images.sh][这个脚本]] 批量上传本地的镜像到注册服务器中，默认是本地注册服务器 127.0.0.1:5000
+#+BEGIN_SRC sh
+  $ wget https://github.com/yeasy/docker_practice/raw/master/_local/push_images.sh
+
+  $ sudo chmod a+x push_images.sh
+
+  $ ./push_images.sh ubuntu:latest centos:centos7
+
+  The registry server is 127.0.0.1
+  Uploading ubuntu:latest...
+  The push refers to a repository [127.0.0.1:5000/ubuntu] (len: 1)
+  Sending image list
+  Pushing repository 127.0.0.1:5000/ubuntu (1 tags)
+  Image 511136ea3c5a already pushed, skipping
+  Image bfb8b5a2ad34 already pushed, skipping
+  Image c1f3bdbd8355 already pushed, skipping
+  Image 897578f527ae already pushed, skipping
+  Image 9387bcc9826e already pushed, skipping
+  Image 809ed259f845 already pushed, skipping
+  Image 96864a7d2df3 already pushed, skipping
+  Pushing tag for rev [96864a7d2df3] on {http://127.0.0.1:5000/v1/repositories/ubuntu/tags/latest}
+  Untagged: 127.0.0.1:5000/ubuntu:latest
+  Done
+  Uploading centos:centos7...
+  The push refers to a repository [127.0.0.1:5000/centos] (len: 1)
+  Sending image list
+  Pushing repository 127.0.0.1:5000/centos (1 tags)
+  Image 511136ea3c5a already pushed, skipping
+  34e94e67e63a: Image successfully pushed
+  70214e5d0a90: Image successfully pushed
+  Pushing tag for rev [70214e5d0a90] on {http://127.0.0.1:5000/v1/repositories/centos/tags/centos7}
+  Untagged: 127.0.0.1:5000/centos:centos7
+  Done
+#+END_SRC
+* 配置文件
+Docker 的 Registry 利用配置文件提供了一些仓库的模板（flavor），用户可以直接使用它们来进行开发或生产部署
+** 模板
+在 config_sample.yml 文件中，可以看到一些现成的模板段：
++ common：基础配置
++ local：存储数据到本地文件系统
++ s3：存储数据到 AWS S3 中
++ dev：使用 local 模板的基本配置
++ test：单元测试使用
++ prod：生产环境配置（基本上跟s3配置类似）
++ gcs：存储数据到 Google 的云存储
++ swift：存储数据到 OpenStack Swift 服务
++ glance：存储数据到 OpenStack Glance 服务，本地文件系统为后备
++ glance-swift：存储数据到 OpenStack Glance 服务，Swift 为后备
++ elliptics：存储数据到 Elliptics key/value 存储
+
+用户也可以添加自定义的模版段，默认情况下使用的模板是 dev，要使用某个模板作为默认值，可以添加 SETTINGS_FLAVOR 到环境变量中
+#+BEGIN_SRC sh
+  export SETTINGS_FLAVOR=dev
+#+END_SRC
+
+配置文件中支持从环境变量中加载值，语法格式为 _env:VARIABLENAME[:DEFAULT]
+*** 示例配置
+    #+BEGIN_SRC yaml
+      common:
+          loglevel: info
+          search_backend: "_env:SEARCH_BACKEND:"
+          sqlalchemy_index_database:  "_env:SQLALCHEMY_INDEX_DATABASE:sqlite:////tmp/docker-registry.db"
+
+      prod:
+          loglevel: warn
+          storage: s3
+          s3_access_key: _env:AWS_S3_ACCESS_KEY
+          s3_secret_key: _env:AWS_S3_SECRET_KEY
+          s3_bucket: _env:AWS_S3_BUCKET
+          boto_bucket: _env:AWS_S3_BUCKET
+          storage_path: /srv/docker
+          smtp_host: localhost
+          from_addr: docker@myself.com
+          to_addr: my@myself.com
+
+      dev:
+          loglevel: debug
+          storage: local
+          storage_path: /home/myself/docker
+
+      test:
+          storage: local
+          storage_path: /tmp/tmpdockertmp
+    #+END_SRC
+
+[[file:storage.org][Next：数据卷]]
+
+[[file:container.org][Previous：容器]]
+
+[[file:docker.org][Home：目录]]

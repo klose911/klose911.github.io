@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/minigrep/target/debug/minigrep: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/minigrep/src/lib.rs /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/minigrep/src/main.rs

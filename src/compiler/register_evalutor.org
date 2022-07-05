@@ -1,0 +1,889 @@
+#+TITLE: 寄存求值器
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil 
+用 _寄存器语言_ 实现 _求值器_ 是低层次的工作，能揭示 Scheme 程序解释中的许多前面无法涉及的控制细节，包括：
++ 过程调用时 *参数值的传递* 和 *结果返回* 
++ *尾递归* 的实现
+
+#+BEGIN_EXAMPLE
+  这里还可以继续用前面求值器的基本数据结构和语法过程
+
+  完全可以用更基本的操作实现，做出一个可以直接对应到常规高级语言或常规机器语言的求值器
+#+END_EXAMPLE
+* 内存管理
+  为简化讨论，先假定有一个 *表结构* 的内存， _表操作_ 都是基本操作
+  #+BEGIN_EXAMPLE
+    这种抽象使人能集中精力考虑求值器的关键特征
+
+    但表存储是 Scheme 的基础，不理解它，对系统的理解有缺陷
+
+    为完整起见，下面先讨论怎样在常规的内存上实现表存储结构
+  #+END_EXAMPLE
+
+  表结构的实现要考虑两个问题：
+  1. 表示： 如何只用典型计算机的 _存储单元_ 和 _寻址_ 功能，把 *序对* 的 _指针盒子_ 结构映射到常规计算机的连续内存
+  2. 实现： 把管理内存的工作实现为一个计算过程
+  #+BEGIN_EXAMPLE
+    要支持 Scheme 程序的执行，系统必须能随时创建对象，包括：
+
+    程序里用的序对和其他对象
+    支持程序执行而隐式创建的对象，如环境、框架和参数表等
+
+    程序执行中可能创建很多对象，创建的数量并没有限制
+  #+END_EXAMPLE
+
+  如果计算机的存储无穷大，就可以创建任意多个对象。但 *实际计算机的存储总有限* ，因此需要有一种自动机制：利用有限的存储制造一种无穷假象， *当已分配的对象不再需要时自动将其回收* 。这就是 _垃圾回收_ 
+** 向量模拟内存
+   常规计算机的内存是一串很小的单元：
+   + 每个单元里可保存一点信息，有一个唯一的名字称为 _地址_
+   + 典型操作：
+     + *读特定单元的内容*
+     + *给特定单元赋新值* 
+   + 通过 _地址增量_ 操作可以 *顺序地访问* 一批单元
+   #+BEGIN_EXAMPLE
+     有些操作（指针）要求把地址作为数据，将其存入内存单元，或在寄存器里对地址做各种运算
+
+     “表处理”是指针运算的典型实例
+   #+END_EXAMPLE
+
+   为模拟计算机内存，下面介绍一种新数据结构称为 *向量* 。向量是一种复合数据对象，其元素可通过 *整数下标* 访问，访问所需时间与元素位置无关。用两个过程描述向量操作：
+   1. _(vector-ref <vector> <n>)_ : 返回向量里的第 n 个元素
+   2.  _(vector-set! <vector> <n> <value>)_ : 向量里第 n 个元素赋值为 <v>
+
+   对计算机内存单元的访问可以通过 *地址算术* 实现（用 _向量基址_ 加 _特定元素的偏移量_ ） 
+
+   #+BEGIN_EXAMPLE
+     新型计算机内存已很难用简单向量表现
+
+     它们有复杂的缓存系统，复杂的缓存一致性算法
+     多核的加入使情况进一步复杂化，理解其细节行为变得更加困难，需要通过复杂的模拟
+
+     但这种抽象模型仍反映了它的一部分情况和性质
+   #+END_EXAMPLE
+*** Scheme 序对的表示
+    用向量实现表存储器所需的序对结构：
+    1. 设想两个向量 _the-cars_ 和 _the-cdrs_ 
+    2. _指向序对的指针_ 用 *向量的下标* 表示， _序对的 car_ 就是 _向量 the-cars_ 里 *特定元素的内容* ，cdr 类似
+
+    #+ATTR_HTML: image :width 60% 
+    [[file:pic/pair-representaion.gif]] 
+
+    非序对数据用 *带类型指针* 表示。为此要扩充指针增加类型信息：
+    + 可以在指针里加 _标志位_ 
+    + 如果有带标志位的硬件机器，也可利用地址中不用的位 
+
+    #+BEGIN_EXAMPLE
+    eq? 就是比较指向序对的指针的值是否相同
+    #+END_EXAMPLE
+    *符号* 用 _带类型指针_ 表示：
+    + 实际的 Scheme 系统里有一个 *符号表* ，称为 _对象表_ 
+      + 读入遇到新符号时 _创建表项_ ，取得 _符号指针_ 
+*** 基本表操作实现
+    #+BEGIN_EXAMPLE
+      有了序对的上述表示，基本表操作都可以“代换”为向量操作
+    #+END_EXAMPLE
+    下面假定有 _向量访问_ 和 _赋值_ ， _指针算术运算_ ： 
+
+    寄存器机器支持的 _赋值_  指令 ：
+
+    #+BEGIN_EXAMPLE
+      ;;; reg2 寄存器中存放了一个序对在向量数组的下标，把这个序对的car内容放入到 reg1 寄存器
+      (assign <reg1> (op car) (reg <reg2>))
+
+      ;;; reg2 寄存器中存放了一个序对在向量数组的下标，把这个序对的car内容放入到 reg1 寄存器
+      (assign <reg1> (op cdr) (reg <reg2>))
+    #+END_EXAMPLE 
+
+    可以实现为： 
+
+    #+BEGIN_SRC scheme
+  ;;; 类似于调用 (vector-ref the-cars reg2)
+  ;;; the-cars 寄存器:  cars 向量的基础地址
+  ;;; reg2 寄存器: 序对在向量数组的下标
+  (assign <reg1> (op vector-ref) (reg the-cars) (reg <reg2>))
+
+  ;;; 类似于调用 (vector-ref the-cdrs reg2)
+  ;;; the-cdrs 寄存器:  cdrs 向量的基础地址
+  ;;; reg2 寄存器: 序对在向量数组的下标
+  (assign <reg1> (op vector-ref) (reg the-cdrs) (reg <reg2>))
+    #+END_SRC
+
+    寄存器机器的 _执行_ 指令：
+
+    #+BEGIN_EXAMPLE
+      ;;; 把 reg1 寄存器的内容 赋值给 reg2寄存器对应的序对的car上
+      (perform (op set-car!) (reg <reg1>) (reg <reg2>))
+
+      ;;; 把 reg1 寄存器的内容 赋值给 reg2寄存器对应的序对的cdr上
+      (perform (op set-cdr!) (reg <reg1>) (reg <reg2>))
+    #+END_EXAMPLE 
+
+    实现为： 
+    #+BEGIN_SRC scheme
+  ;;; 这里调用 (vector-set! the-cars reg2 reg1)
+  ;;; the-cars 寄存器：cars向量的基础地址
+  ;;; reg1 寄存器: 赋值内容
+  ;;; reg2 寄存器: 序对下标
+  (perform
+   (op vector-set!) (reg the-cars) (reg <reg1>) (reg <reg2>))
+
+  ;;; 这里调用 (vector-set! the-cdrs reg2 reg1)
+  ;;; the-cdrs 寄存器：cdrs向量的基础地址
+  ;;; reg1 寄存器: 赋值内容
+  ;;; reg2 寄存器: 序对下标
+  (perform
+   (op vector-set!) (reg the-cdrs) (reg <reg1>) (reg <reg2>))
+    #+END_SRC
+
+    执行 cons 时 *创建* 新序对单元，分别存入相应的 _car_ 和 _cdr_ 。假定特殊寄存器 *free*  总指向一个空闲下标，增加其值可得到下一可用下标（要
+    求空闲位置连续）。这时 _cons_ 指令 可以实现为： 
+
+    #+BEGIN_SRC scheme
+  ;;; (vector-set! the-cars free reg2) 
+  (perform
+   (op vector-set!) (reg the-cars) (reg free) (reg <reg2>))
+
+  ;;; (vector-set! the-cdrs free reg3) 
+  (perform
+   (op vector-set!) (reg the-cdrs) (reg free) (reg <reg3>))
+
+  ;;; free 赋值给 reg1  
+  (assign <reg1> (reg free))
+
+  ;;; free 的值增加 1 
+  (assign free (op +) (reg free) (const 1))
+    #+END_SRC
+
+    _eq?_ 操作只是简单比较 reg1 和 reg2 的值是否相同（向量中的下标值是否相同） 
+    #+BEGIN_EXAMPLE
+      (op eq?) (reg <reg1>) (reg <reg2>) 
+    #+END_EXAMPLE
+
+    _pair?_ ,  _null?_ ,  _symbol?_ ,  _number?_ 等操作还必须检查 *指针的类型* 是否相同
+*** 栈实现
+    寄存器机器需要的 _栈_ 可以用 *表* 模拟， _栈头序对_ 在 _向量中的下标_ （栈顶地址）用一个特殊寄存器 *the-stack* 来存放
+
+    #+BEGIN_EXAMPLE
+      这些操作都可以基于前面使用向量模拟的内存
+
+      实际系统里考虑实现效率，常另用一个向量来实现栈，压栈和出栈操作用改变栈顶寄存器的指针值来实现
+    #+END_EXAMPLE
+
+    压栈    _(save <reg>)_ 可以实现为： 
+    #+BEGIN_SRC scheme
+  ;;; (cons reg the-stack) 
+  ;;; reg 寄存器: 序对的下标
+  ;;; the stack 寄存器: 栈顶对应的下标
+  ;;; cons返回的新的序对的下标会被赋值给 the-stack 寄存器，这相当于修改了栈顶指针
+  (assign the-stack (op cons) (reg <reg>) (reg the-stack))
+    #+END_SRC
+
+    出栈    _(restore <reg>)_ 实现为： 
+
+    #+BEGIN_SRC scheme
+  ;;; 从栈顶读取值
+  (assign <reg> (op car) (reg the-stack))
+
+  ;;; “栈顶寄存器”赋值为“当前栈顶序对的cdr”的“向量下标”
+  (assign the-stack (op cdr) (reg the-stack))
+    #+END_SRC
+
+    初始化栈    _(perform (op initialize-stack))_ 实现为：
+    #+BEGIN_SRC scheme
+  (assign the-stack (const ()))
+    #+END_SRC
+
+** 垃圾回收机制
+   #+BEGIN_EXAMPLE
+     表结构的实现问题已经解决了，但有前提：保证执行 cons 时总有可用的自由空间，为此需要无穷大的存储
+
+     而在实际计算中不断执行 cons，最终将用尽整个序对空间
+   #+END_EXAMPLE
+
+   观察到： 所建立的序对里的很多都是用于保存各种 *临时* 数据
+   + 中间结果
+   + 临时建立的环境框架
+   + ......
+   相关数据用过后可以被丢弃，其存储也没有必要继续保留 
+
+   #+BEGIN_EXAMPLE
+     (accumulate + 0 (filter odd? (enumerate-interval 0 n)))
+
+     执行过程中构造了两个表：枚举表和奇数表，求和完成后都不再需要了
+   #+END_EXAMPLE
+
+   系统需要做出一种安排， _周期性_ 地 *回收* _已分配但不再有用_ 的内存。如果回收与分配的速度相当，而且程序每个时刻实际使用的单元不多于可供应的单元，系统就可以永远运转。这造成了一种无穷大存储的假象
+
+   #+BEGIN_EXAMPLE
+     要回收不用的序对，需要确定那些需对确实没用了，也就是说，其（内容）存在与否对后面的计算没有任何影响
+   #+END_EXAMPLE
+   下面提出的方法称为 *垃圾收集* ，其基本思想：
+   1. 确定所有的有用单元：从 _当前所有寄存器的内容_ 出发，通过一系列的 _car/cdr 操作_  *可以到达* 的单元
+   2. 不可达的单元都可以回收
+
+   #+BEGIN_EXAMPLE
+     典型的基本垃圾回收方法有两类，后来有许多发展：
+     包括分代式垃圾回收，并行垃圾回收，以及各种更复杂的环境里的垃圾回收等
+
+     垃圾回收已经成为支持软件系统运行的基本技术
+   #+END_EXAMPLE
+
+   简单的垃圾回收工作周期性地进行：
+   + 当时工作存储区满时中断计算，启动新一轮垃圾回收
+   + 回收完成后重启暂停的计算工作
+
+*** 垃圾回收算法
+    最早的技术称为“标记和清扫”(mark and sweep)，工作方式：
+    1. 从寄存器出发沿car 和 cdr 指针周游单元存储区，给单元加标记
+    2. 扫描整个存储器，回收无标记单元
+    #+BEGIN_EXAMPLE
+      标记清除算法最主要的缺点是会形成内存碎片
+    #+END_EXAMPLE
+    另一种技术 (stop-and-move)，基于复制有用对象（搬迁有用的对象），基本想法：把一片存储区里的有用对象都搬走，使得整个存储区都可以重用了
+    + 存储区分为相等的两个半区 _工作存储区_ 和 _自由存储区_
+    + cons 总在 _工作存储区_ 里顺序分配，每次分配下一位置
+    + _工作存储区_ 满时做垃圾收集，把 所有 *有用序对* 搬到 _自由存储区_ 
+      + 从所有寄存器出发追踪 _car_  和 _cdr_ 指针
+    + 如果工作存储区里存在无用单元，搬迁完成后自由存储区应 *剩下可用于分配的空闲单元*
+    + 完成一次搬迁后 *交换* _工作存储区_ 和 _自由存储区_ 的地位
+
+    #+BEGIN_EXAMPLE
+      复制算法的优点是效率更高，缺点是可用内存减少为一半
+    #+END_EXAMPLE
+
+**** 复制垃圾回收算法的实现
+     + 假定寄存器 root 值为一个指针，从所指的结构可以到达所有在用单元
+     + _the-cars_ 和 _the-cdrs_ 指向的两个向量是 *工作区*
+     + _new-cars_ 和 _new-cdrs_ 指的两个向量是 *自由区*
+     + _free_ 指向 _工作区里第一个空闲单元_ ，它的值随着分配移动，到达存储器右端时：空闲单元已用完
+     + 废料收集前后情况如图 
+     + 收集完成后 *交换两对向量指针* ，实现存储区的 _切换_ 
+
+       #+ATTR_HTML: image :width 70% 
+       [[file:pic/stop-and-move.gif]] 
+
+     收集过程维护两个指针 *free* 和 *scan* ，收集的 _初始化_ 操作：
+     1. 把 free 和 scan 设置为指向 _自由区起点_ 
+     2. 把 _root 所指单元_ 复制到 _自由区的第一个单元_ 
+     3. _root 所指单元的 car_ 设一个 *特殊标志* ， _root 所指单元的 cdr_  设为 *free*  (单元新位置)
+     4. _root_  指向 *新位置* ，更新 free 使之指向 *下一空单元* 
+
+     #+BEGIN_EXAMPLE
+       注意：scan 指向已移入新区(收集前的 自由区 ) 的单元，但其 car 和 cdr 所指单元可能还在老的工作区
+     #+END_EXAMPLE
+
+     收集过程: 若scan < free，反复做： 
+     + 若 scan 所指单元的 car 还在老区就将它搬到新区 free 处。设置原单元的 car 为特殊标志，cdr 为 free，将 free 增加一个单元
+     + 若 scan 所指单元的 cdr还在老区就将它搬到新区free 处。置原单元的 car 为特殊标志，cdr 为 free，将 free 增加一个单元
+     + 若发现被 scan 所指单元的 car/cdr 所指的老区单元有特殊标志，则更新这个 car/cdr，使之正确指向该单元的新位置
+     + 反复上述操作至 _scan_ 和 _free_  *相等时* 收集完成
+
+**** 寄存器语言实现垃圾回收
+     用寄存器机器语言描述算法。关键代码段 *relocate-old-result-in-new* 给表单元确定新位置，被移对象由寄存器 _old_ 当时的值确定，新位置由
+     寄存器 _free_ 当前值确定。将新位置存入寄存器 _new_ 并更新 *free* 。最后根据寄存器 _relocate-continue_ 的值转跳返回
+
+     启动垃圾收集后首先设置 _scan_ 和 _free_ ，而后调用上述子程序先为 root 所指单元重新分配位置
+
+     #+BEGIN_SRC scheme
+  begin-garbage-collection
+  (assign free (const 0))
+  (assign scan (const 0))
+  (assign old (reg root)) ;; 让 old 指向老工作区里被处理的单元 
+  (assign relocate-continue (label reassign-root)) 
+  (goto (label relocate-old-result-in-new)) ;; 将 root 单元搬到新区
+
+  reassign-root
+  (assign root (reg new)) ;; 让 root 指向结点的新位置
+  (goto (label gc-loop)) ;;  调用基本 gc 循环
+     #+END_SRC
+
+     gc-loop 主循环：
+     #+BEGIN_SRC scheme
+  gc-loop
+  ;; 检查是否还有未扫描单元 (scan 不等于 free)
+  (test (op =) (reg scan) (reg free)) 
+  (branch (label gc-flip)) ;; 基本收集循环结束，最后收尾
+  ;; 将 old 设为新区中 scan 指向的单元的 car 所指的单元（可能是需要搬迁的下一个老区单元，也可能已经搬过来了）
+  (assign old (op vector-ref) (reg new-cars) (reg scan))
+  ;; 将 relocate-continue 寄存器设置为 update-car ：因为复制完老的car后，还必须更新序对的car的值（新工作区的下标值）
+  (assign relocate-continue (label update-car))
+  ;; 执行 relocate-old-result-in-new 标号位置的代码：实际处理scan指向的car单元的搬迁工作
+  (goto (label relocate-old-result-in-new)) 
+     #+END_SRC
+
+     update-car 操作： 
+     #+BEGIN_SRC scheme
+  update-car
+  ;; 将 scan 所指单元的 car 设置为 new
+  (perform (op vector-set!) (reg new-cars) (reg scan) (reg new)) ;;  寄存器 new 里是 car 所指单元的新位置
+  ;;  将 old 设为新区中 scan 指向的单元的 cdr 所指的单元（可能是需要搬迁的下一个老区单元，也可能已经搬过来了）
+  (assign old (op vector-ref) (reg new-cdrs) (reg scan))
+  ;; 将 relocate-continue 寄存器设置为 update-cdr ：因为复制完老的cdr后，还必须更新序对的cdr的值（新工作区的下标值）
+  (assign relocate-continue (label update-cdr))
+  ;; 处理scan指向的cdr单元的搬迁工作
+  (goto (label relocate-old-result-in-new)) 
+     #+END_SRC
+
+     update-cdr 操作：
+     #+BEGIN_SRC scheme
+  update-cdr
+    ;; 将 scan 所指单元的 cdr 设置为 new
+    (perform (op vector-set!) (reg new-cdrs) (reg scan) (reg new)) ;; 寄存器 new 里是 car 所指单元的新位置
+    (assign scan (op +) (reg scan) (const 1)) ;; scan 自增 1 
+    (goto (label gc-loop)) ;; 重启垃圾收集主循环
+     #+END_SRC
+
+     relocate-old-result-in-new 核心过程：
+     #+BEGIN_SRC scheme
+  relocate-old-result-in-new
+  ;; 测试指针类型是否是“序对”
+  (test (op pointer-to-pair?) (reg old))
+  (branch (label pair))
+  (assign new (reg old))
+  (goto (reg relocate-continue)) ;; 非序对对象，直接返回 
+
+  pair
+  (assign oldcr (op vector-ref) (reg the-cars) (reg old))
+  (test (op broken-heart?) (reg oldcr)) ;; 这个对象是否已经回收过？ 
+  (branch (label already-moved))
+  (assign new (reg free)) ; new 寄存器设置为 free 寄存器的值
+  (assign free (op +) (reg free) (const 1)) ;; free 寄存器自增 1 
+  ;; 将这个单元的 car 和 cdr 拷贝到新位置
+  (perform (op vector-set!)
+	   (reg new-cars) (reg new) (reg oldcr))
+  (assign oldcr (op vector-ref) (reg the-cdrs) (reg old))
+  (perform (op vector-set!)
+	   (reg new-cdrs) (reg new) (reg oldcr)) 
+  ;; 构建 broken heart：在原位置设置的 car 设搬迁标志，cdr 设索引指针
+  (perform (op vector-set!)
+	   (reg the-cars) (reg old) (const broken-heart))
+  (perform
+   (op vector-set!) (reg the-cdrs) (reg old) (reg new))
+  (goto (reg relocate-continue))
+
+  already-moved
+  ;; 单元已在新区，直接设置 new 后返回
+  (assign new (op vector-ref) (reg the-cdrs) (reg old))
+  (goto (reg relocate-continue))
+     #+END_SRC
+
+     收尾工作 gc-flip ：交换两个（半）存储区的地位
+     #+BEGIN_SRC scheme
+  gc-flip
+    (assign temp (reg the-cdrs))
+    (assign the-cdrs (reg new-cdrs))
+    (assign new-cdrs (reg temp))
+    (assign temp (reg the-cars))
+    (assign the-cars (reg new-cars))
+    (assign new-cars (reg temp))
+     #+END_SRC
+
+* 寄存求值器
+  #+BEGIN_EXAMPLE
+    前面研究过把简单 Scheme 程序变换到寄存器机器描述
+
+    下面考虑变换元循环求值器：基于eval 和 apply 实现的 Scheme 解释器
+  #+END_EXAMPLE
+
+  + 这一工作的结果是一个 *显式控制* 的求值器，求值中过程调用的 _参数传递_ 都基于 *寄存器* 和 *栈描述*
+  + 这个寄存器语言描述接近 _常规机器语言_ ，可以反映实际 Scheme 实现的许多情况，可用 _寄存器机器模拟器_ 运行
+  #+BEGIN_EXAMPLE
+      它反映了用常规机器语言实现 Scheme 解释器的基本结构
+
+      可以从它出发实现真正能用的 Scheme 解释器，或者从它出发做出能解释 Scheme 程序的硬件处理器
+
+    Java 虚拟机（JVM）或其他脚本语言虚拟机，具有类似结构和功能
+  #+END_EXAMPLE
+
+** 寄存器和操作
+   #+BEGIN_EXAMPLE
+     元循环求值器用了一些语法过程，如 quoted?, make-procedure 等
+
+     如果做一个真正完整的寄存器机器，实际上需要把这些过程都展开为表操作。但那样做出的代码将非常长
+   #+END_EXAMPLE
+
+   为简化描述，下面仍以 _元循环求值器_ 的语法过程和 _表示环境_ 的过程作为寄存器机器的基本过程。要真正实现这个求值器，还需基于 *更基本的操
+   作* 将这些操作展开，并使用前面讨论的 *表结构* 表示 
+
+   下面求值器里用一个 _栈_ 和 7 个 _寄存器_ ：
+   + *exp*  :  _表达式_
+   + *val* : 在指定环境里求值表达式得到的 _结果_
+   + *env*  : 当时 _环境_
+   + *continue* : 用于实现 _递归_ 
+   + 三个寄存器用于组合式的实现
+     + *proc* :  _过程对象_
+     + *argl* : _实参值表_
+     + *unev* :  辅助寄存器，意为 _未求值的表达式_ 
+
+   具体操作隐含在控制器代码里，不专门列出（不明确写数据通路） 
+
+** 显式求值器的实现
+
+*** 核心代码
+    求值器核心部分从 *eval-dispatch* 开始：
+    1. 基于 _env_  环境对 _exp_  求值
+    2. 求出的值存在 _val_ 
+    3. 求值完成后按 _continue_ 寄存器转移
+
+    #+BEGIN_SRC scheme
+  eval-dispatch ;; 求值器核心代码
+  (test (op self-evaluating?) (reg exp)) ;; 自求值表达式
+  (branch (label ev-self-eval))
+  (test (op variable?) (reg exp)) ;; 变量表达式
+  (branch (label ev-variable))
+  (test (op quoted?) (reg exp)) ;; 引用表达式
+  (branch (label ev-quoted))
+  (test (op assignment?) (reg exp)) ;; 赋值表达式
+  (branch (label ev-assignment))
+  (test (op definition?) (reg exp)) ;; 定义表达式
+  (branch (label ev-definition))
+  (test (op if?) (reg exp)) ;; 条件表达式
+  (branch (label ev-if))
+  (test (op lambda?) (reg exp)) ;; lambda 表达式
+  (branch (label ev-lambda))
+  (test (op begin?) (reg exp)) ;; begin 表达式
+  (branch (label ev-begin))
+  (test (op application?) (reg exp)) ;; 过程表达式
+  (branch (label ev-application))
+  (goto (label unknown-expression-type)) ;; 无法求值
+    #+END_SRC
+
+*** 简单表达式的求值 
+    下面几段代码处理各种简单表达式：
+    #+BEGIN_SRC scheme
+  ev-self-eval
+  ;; exp 寄存器的值直接放入 val 寄存器
+  (assign val (reg exp)) 
+  (goto (reg continue))
+
+  ev-variable
+  ;; env 环境中查找 exp 变量，结果放入 val 寄存器
+  (assign val (op lookup-variable-value) (reg exp) (reg env))
+  (goto (reg continue))
+
+  ev-quoted
+  ;; exp 寄存器中的表达式 作为参数调用 text-of-quotation 过程，把值放入到 val 寄存器作为结果
+  (assign val (op text-of-quotation) (reg exp)) 
+  (goto (reg continue))
+
+  ev-lambda
+  ;; exp 表达式中获得形参表放入到 unev 寄存器
+  (assign unev (op lambda-parameters) (reg exp))
+  ;; exp 表达式中获得过程体放入到 exp 寄存器
+  (assign exp (op lambda-body) (reg exp))
+  ;; 形参表，过程体，当前环境调用 make-procedure 过程，创建一个新的匿名过程，放入到 val 寄存器
+  (assign val (op make-procedure)
+	  (reg unev) (reg exp) (reg env))
+  (goto (reg continue))
+    #+END_SRC
+    处理 lambda 时：
+    1. 先把 _形式参数表_ 和 _过程体_ 分别存入unev 和 exp
+    2. 调用 _make-procedure_ 构造过程对象
+
+*** 过程应用的求值
+    过程应用是组合式，其参数是 _运算符_ 和 _运算对象_ ：
+    1. 需要先求值 _运算符_ 和 _运算对象_ 
+    2. 调用 _apply_ 实现过程应用
+    #+BEGIN_EXAMPLE
+      显式求值时也要做同样工作
+
+      递归调用同样是利用栈实现，调用前保存一些寄存器，需要仔细考虑要保存哪些信息，怎样保存
+    #+END_EXAMPLE
+
+    ev-application 指令： 过程应用的入口
+    #+BEGIN_SRC scheme
+  ev-application
+  (save continue) ;; 保存续点，因为之后会设置续点为 ev-appl-did-operator
+  (save env) ;; 保存环境，因为后面对 operands 求值需要
+  (assign unev (op operands) (reg exp)) ;; 把 operands 表达式缓存到 unev 
+  (save unev) ;; 保存 operands 表达式
+  (assign exp (op operator) (reg exp)) ;; 把运算符 operator 放入到 exp寄存器 
+  (assign continue (label ev-appl-did-operator)) ;; 对运算符求值后，转去执行 ev-appl-did-operator
+  (goto (label eval-dispatch)) ;; 调用 eval-dispatch 来对运算符进行求值
+    #+END_SRC
+
+    上面代码把 ev-appl-did-operator 设为续点， _求值运算符表达式_ 后转去执行 _ev-appl-did-operator_ ，去求值各实参表达式。此时 ：
+    + 寄存器
+      + _val_ ：求出的运算符对象的值
+    + 栈：
+      + 第一项：运算参数表 (save unev) 
+      + 第二项：环境 (save env)
+      + 地三项： ev-application 被调用时的 continue 寄存器的值 (save continue) 
+
+    ev-appl-did-operator ： 求值实参表达式 
+    #+BEGIN_SRC scheme
+  ev-appl-did-operator
+  (restore unev)  ;; 恢复过程参数表                
+  (restore env) ;; 恢复环境表
+  (assign argl (op empty-arglist)) ;; argl 寄存器初始化为空列表
+  (assign proc (reg val))  ;; 将运算符过程存入 proc 寄存器
+  (test (op no-operands?) (reg unev)) ;; 测试过程参数表是否为空
+  (branch (label apply-dispatch)) ;; 如果过程参数表为空，则立刻调用 proc 运算符
+  (save proc) ;; 保存求出的运算符过程，而后向下求值运算对象
+  ev-appl-operand-loop
+    (save argl) ;; 保存实参表
+    (assign exp (op first-operand) (reg unev)) ;; 取出第一个运算对象表达式 -> exp 寄存器
+    (test (op last-operand?) (reg unev)) ;; 测试这个表达式是否是最后一个表达式
+    (branch (label ev-appl-last-arg)) ;; 如果是转而执行 ev-appl-last-arg 
+    (save env) ;; 保存当前环境
+    (save unev) ;; 保存“整个实参表达式”组成的表
+    (assign continue (label ev-appl-accumulate-arg)) ;; 续点设置为 "ev-appl-accumulate-arg"，累加求出的实参值
+    (goto (label eval-dispatch)) ;; 求值第一个运算对象
+    #+END_SRC
+
+    ev-appl-accumulate-arg : 累加求值后的实参值
+    #+BEGIN_SRC scheme
+  ev-appl-accumulate-arg
+    (restore unev) ;; 恢复保存的实参表达式组成的表 -> unev 
+    (restore env) ;; 恢复环境 -> env 
+    (restore argl) ;; 恢复保存的已经求值过的实参值组成的表 -> argl 
+    (assign argl (op adjoin-arg) (reg val) (reg argl)) ;; 把求出的实参值添加到“已经求值的实参值组成的表” -> argl 寄存器
+    (assign unev (op rest-operands) (reg unev)) ;; “实参表达式组成的表”中去掉已经刚才求值的表达式 -> unev 寄存器
+    (goto (label ev-appl-operand-loop)) ;; 求值下一个实参表达式
+    #+END_SRC
+
+    ev-appl-last-arg : 求值最后一个实参表达式
+    #+BEGIN_SRC scheme
+  ev-appl-last-arg
+  (assign continue (label ev-appl-accum-last-arg)) ;; 求值完最后一个运算对象后转到 'ev-appl-accum-last-arg' 
+  (goto (label eval-dispatch))
+  ev-appl-accum-last-arg 
+  (restore argl) ;; 恢复“已经求值的实参值表“ -> argl 
+  (assign argl (op adjoin-arg) (reg val) (reg argl)) ;; 把最后一个计算出来的实参值添加到“已经求值的实参值表“  -> argl 
+  (restore proc) ;; 恢复求值过的运算符对象 -> proc 
+  (goto (label apply-dispatch)) ;; 调用 apply 过程
+    #+END_SRC
+
+*** 过程应用
+    实际应用过程的工作，根据是 _基本过程_ 还是 _复合过程_ 分别处理。这时： 
+    + 寄存器
+      + *proc* : 运算符过程对象
+      + *argl*  : 实际参数表
+    + 栈
+      + 第一项： apply 完成后应该转去的继续点（当初在 ev-application时候保存的 continue 寄存器的值）
+
+    #+BEGIN_SRC scheme
+  apply-dispatch
+    (test (op primitive-procedure?) (reg proc)) ;; 测试是否是基本过程
+    (branch (label primitive-apply))
+    (test (op compound-procedure?) (reg proc))  ;; 测试是否是复合过程
+    (branch (label compound-apply))
+    (goto (label unknown-procedure-type))
+    #+END_SRC
+
+    基本过程求值： 直接用 apply-primitive-procedure 完成过程应用
+    #+BEGIN_SRC scheme
+  primitive-apply
+    (assign val (op apply-primitive-procedure)
+		(reg proc)
+		(reg argl))
+    (restore continue)
+    (goto (reg continue))
+    #+END_SRC
+
+    复合过程：
+    1. 先从 proc 里取出过程的 _形参表_ 和 _环境_ 
+    2. 将 _env_ 设置为 *扩充后的环境* 
+    3. 取出过程体，转到 *序列求值* 代码的入口 _ev-sequence_ 
+
+    #+BEGIN_SRC scheme
+  compound-apply 
+  (assign unev (op procedure-parameters) (reg proc)) ;; 取出运算符对象的形参表 -> unev 
+  (assign env (op procedure-environment) (reg proc)) ;; 取出运算符对象的环境 -> env 
+  (assign env (op extend-environment) 
+	  (reg unev) (reg argl) (reg env)) ;; 扩充运算符对象的环境：绑定形参表和实参表
+  (assign unev (op procedure-body) (reg proc)) ;; 取出运算符对象的过程体 -> unev 
+  (goto (label ev-sequence)) ;; 调用“序列求值”代码入口
+    #+END_SRC
+
+*** 序列求值
+    序列表达式求值（eval-sequence）有两种情况：
+    1. 要求值的是个表达式序列，如 _过程体_ 
+    2. 要求值的是 _begin 表达式_ ，去掉 begin 后，可以统一到前一情况
+
+    对 begin 表达式的处理由 _ev-begin_ 入口：
+    #+BEGIN_SRC scheme
+  ev-begin
+  (assign unev (op begin-actions) (reg exp)) ;; 取出 begin 的实际序列
+  (save continue)  ;;  保存求值完的继续点，与其他入口一致
+  (goto (label ev-sequence))
+    #+END_SRC
+
+    其他地方来的由 _ev-sequence_ 入口：
+    #+BEGIN_SRC scheme
+  ;;; 序列表达式求值入口
+  ev-sequence ;; 此时 unev 寄存器中是待求值的表达式序列
+  (assign exp (op first-exp) (reg unev)) ;; 取出序列中第一个表达式 
+  (test (op last-exp?) (reg unev)) ;; 测试是否是最后一个表达式
+  (branch (label ev-sequence-last-exp)) ;; 跳转到最后一个表达式的特殊处理 ev-sequence-last-exp 
+  (save unev) ;; 保存表达式序列
+  (save env) ;; 保存执行表达式的环境
+  (assign continue (label ev-sequence-continue)) ;; 设置求完当前表达式后的续点 ev-sequence-continue （求值余下的表达式） 
+  (goto (label eval-dispatch)) ;; 求值当前表达式
+  ;;; 当前表达式求值完毕
+  ev-sequence-continue 
+  (restore env) ;; 恢复原来的环境
+  (restore unev) ;; 恢复表达式列表
+  (assign unev (op rest-exps) (reg unev)) ;; 从表达式列表去掉已经求值过的表达式 -> unev 寄存器
+  (goto (label ev-sequence)) ;; 继续执行余下表达式序列求值
+  ;;; 做序列中最后一个表达式的求值
+  ev-sequence-last-exp 
+  (restore continue) ;;  恢复续点寄存器（调用 ev-sequence 前的 continue 寄存器中的值）
+  (goto (label eval-dispatch)) ;; 求值最后一个表达式
+    #+END_SRC
+
+**** 尾递归
+     前面说过，下面过程的形式是递归，但产生 _线性迭代_ 计算：
+     #+BEGIN_SRC scheme
+  (define (sqrt-iter guess x)
+    (if (good-enough? guess x)
+	guess
+	(sqrt-iter (improve guess x)
+		   x)))
+     #+END_SRC
+
+     原因是 *调用自身时不用保存任何信息* ，因此存储需求是常量。如果一个求值器在执行这种过程时可以 *不分配存储* ，称该求值器是 *尾递归* 的
+     #+BEGIN_EXAMPLE
+       元循环求值器是否尾递归的情况看不清，因为其求值细节依赖于基础系统
+
+       对于现在这个求值器，情况可以看得很清楚：
+       现在实现的求值器是尾递归的，因为它直接转去求值序列的最后一个表达式，没在栈里保存任何信息，没使用新的空间
+     #+END_EXAMPLE
+
+     如果不要尾递归（优化），可以统一处理所有子表达式（包括最后的子表达式）。得到的代码简单些，但丧失了尾递归性质：
+     #+BEGIN_SRC scheme
+  ev-sequence
+  (test (op no-more-exps?) (reg unev)) ;; 检查序列表达式是否为空
+  (branch (label ev-sequence-end)) ;; 如果为空则跳转执行 ev-serquence-end （返回原来的续点）
+  (assign exp (op first-exp) (reg unev)) ;; 获得第一个表达式 -> exp 
+  (save unev) ;; 序列表达式入栈
+  (save env) ;; 环境入栈
+  (assign continue (label ev-sequence-continue)) 
+  (goto (label eval-dispatch))
+  ev-sequence-continue
+  (restore env) ;; 环境出栈
+  (restore unev) ;; 序列表达式出栈
+  (assign unev (op rest-exps) (reg unev)) ;; 丢掉已经求值过的表达式
+  (goto (label ev-sequence)) ;; 继续求值下一个表单式
+  ev-sequence-end ;; 所有子表达式都已完成求值 
+  (restore continue) ;; 恢复调用 ev-sequence 前的续点寄存器的值
+  (goto (reg continue)) ;; 跳转到调用 ev-sequence 前的续点
+     #+END_SRC
+
+     看上去这和前面求值器只有一点区别：
+     + 前面的求值器：最后一个表达式的求值并不和其他的表达式求值在一个循环中
+     + 这里的求值器：最后一个表达式的求值和其他表达式是统一处理的（包含在一个save-restore的循环中）
+
+     #+BEGIN_EXAMPLE
+       虽然对于相同的表达式，两个求值器的结果是一致的
+
+       但是非递归求值器必须先做完最后一个表达式
+       然后返回到前一个表达式
+       然后返回到再前前一个表达式
+       ....
+     #+END_EXAMPLE
+
+     对于某些过程来说，是否尾递归可能非常致命： 
+     #+BEGIN_SRC scheme
+  (define (count n)
+    (newline)
+    (display n)
+    (count (+ n 1)))
+     #+END_SRC
+     + 尾递归：会一直迭代下去
+     + 非尾递归：由于栈空间不够，会爆栈
+
+*** 条件表达式
+    if 表达式：
+    + 先求值其 _谓词_ 部分，基于其值确定随后的求值
+    + 求值谓词之前保存 _整个 if 表达式_ 以便后面使用，也要保存 _环境_ 和 _继续点_ 
+
+    #+BEGIN_SRC scheme
+  ev-if
+    (save exp)                    ; 保存整个 if 表达式供后面使用
+    (save env)
+    (save continue)
+    (assign continue (label ev-if-decide)) ;; 谓词求值后，转而执行 ev-if-decide
+    (assign exp (op if-predicate) (reg exp)) ;; 获得谓词表达式
+    (goto (label eval-dispatch))  ; 对谓词进行求值
+    #+END_SRC
+
+    根据谓词表达式的结果跳转：
+    #+BEGIN_SRC scheme
+  ev-if-decide
+  (restore continue)
+  (restore env)
+  (restore exp)
+  (test (op true?) (reg val)) ;; ; 检测结果是否为真
+  (branch (label ev-if-consequent)) ;; 是真的时候，赚取执行 ev-if-consequent 
+  ev-if-alternative
+  (assign exp (op if-alternative) (reg exp)) ;; 获得 if 表达式中“谓词为假”对应的表达式 -> exp 
+  (goto (label eval-dispatch)) ;; 对 alternative 表达式进行求值
+  ev-if-consequent
+  (assign exp (op if-consequent) (reg exp)) ;; 获得 if 表达式中“谓词为真”对应的表达式 -> exp 
+  (goto (label eval-dispatch)) ;; 对 consequent 表达式进行求值
+    #+END_SRC
+
+*** 赋值表达式
+    赋值表达式用下面代码段处理：
+    #+BEGIN_SRC scheme
+  ev-assignment
+  (assign unev (op assignment-variable) (reg exp)) ;; 赋值表达式的变量名 -> unev 寄存器
+  (save unev)                   ;; 变量名压栈为以后使用
+  (assign exp (op assignment-value) (reg exp)) ;; 赋值表达式的“值表达式” -> exp 寄存器
+  (save env) ;; 环境入栈
+  (save continue) ;; 续点压栈
+  (assign continue (label ev-assignment-1)) ;; “变量值表达式”求值以后转而执行 ev-assignment-1 
+  (goto (label eval-dispatch))  ;; 对值表达式进行求值
+  ev-assignment-1
+  (restore continue) ;; 续点恢复
+  (restore env) ;; 环境恢复
+  (restore unev) ;; 变量恢复
+  (perform
+   (op set-variable-value!) (reg unev) (reg val) (reg env)) ;; 执行赋值操作(set-variable-value!) ，修改环境中的变量绑定
+  (assign val (const ok)) ;; 常量"ok" -> 结果寄存器 val 
+  (goto (reg continue)) ;; 继续执行调用 ev-assignment 前的续点
+    #+END_SRC
+
+*** 定义表达式
+    定义表达式和赋值处理类似：
+    #+BEGIN_SRC scheme
+  ev-definition
+    (assign unev (op definition-variable) (reg exp))
+    (save unev)                   
+    (assign exp (op definition-value) (reg exp))
+    (save env)
+    (save continue)
+    (assign continue (label ev-definition-1))
+    (goto (label eval-dispatch))  
+  ev-definition-1
+    (restore continue)
+    (restore env)
+    (restore unev)
+    (perform
+     (op define-variable!) (reg unev) (reg val) (reg env)) ;; 调用 scheme 实现的定义操作(define-variable!) 实现在环境中定义变量
+    (assign val (const ok))
+    (goto (reg continue))
+    #+END_SRC
+
+*** 驱动循环
+    要理解求值器的行为，需要执行它，监视其行为。先做一个驱动循环：
+    1. 打印提示语
+    2. 读取输入
+    3. 调用eval-dispatch 来对输入进行求值
+    4. 打印求值结果
+    5. 重复循环
+
+    #+BEGIN_SRC scheme
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; 显示求值器的 repl 循环 ;;
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  read-eval-print-loop
+  (perform (op initialize-stack)) ;; 初始化栈
+  (perform
+   (op prompt-for-input) (const ";;; EC-Eval input:")) ;; 打印提示语
+  (assign exp (op read)) ;; 读取输入 -> exp 寄存器
+  (assign env (op get-global-environment)) ;; 读取 global env -> env 寄存器
+  (assign continue (label print-result)) ;; print-result 指令标号 -> continue 寄存器
+  (goto (label eval-dispatch)) ;; 赚取执行 eval-dispatch 对 env 寄存器中的表达式进行求值
+  ;;; 打印求值结果
+  print-result 
+  (perform
+   (op announce-output) (const ";;; EC-Eval value:")) ;; 打印提示语
+  (perform (op user-print) (reg val)) ;; 调用 user-print 真实打印 val寄存器中的求值结果
+  (goto (label read-eval-print-loop)) ;; 重新开始 repl 循环
+    #+END_SRC
+
+    需要处理遇到的错误，出现错误时打印信息并回到驱动循环：
+    #+BEGIN_SRC scheme
+       ;;; 未知表达式类型
+  unknown-expression-type
+  (assign val (const unknown-expression-type-error))
+  (goto (label signal-error))
+       ;;; 未知过程类型
+  unknown-procedure-type
+  (restore continue)    ; clean up stack (from apply-dispatch)
+  (assign val (const unknown-procedure-type-error))
+  (goto (label signal-error))
+       ;;; 打印出错类型
+  signal-error
+  (perform (op user-print) (reg val))
+  (goto (label read-eval-print-loop)) ;;; 回到基本求值循环时将栈置空，重新开始新一次循环
+    #+END_SRC
+
+*** 构造求值器对应的寄存器机器模型
+    为完成这一机器，需要把本节的所有代码收集起来，调用前面寄存器机器模拟器的操作，构造一个机器模型
+
+    + 创建机器的操作列表，把所有要用的操作加入（取自元循环求值器）：
+    #+BEGIN_SRC scheme 
+  (define eceval-operations
+    (list (list 'self-evaluating? self-evaluating)
+	  <机器的完整操作表>)) 
+    #+END_SRC
+
+    + 构造机器模型的代码框架，其中应填入前面求值器的所有代码：
+    #+BEGIN_SRC scheme
+  (define eceval
+    (make-machine
+     '(exp env val proc argl continue unev)
+     eceval-operations
+     '(read-eval-print-loop
+       <上面给出的求值器机器代码>)))
+    #+END_SRC
+
+** 显示求值器的运行
+   运行前创建环境，而后启动这个求值器：
+   #+BEGIN_SRC scheme
+  (define the-global-environment (setup-environment))
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     (start eceval)
+
+     ;;; EC-Eval input:
+     (define (append x y)
+       (if (null? x)
+	   y
+	   (cons (car x)
+		 (append (cdr x) y))))
+
+     ;;; EC-Eval value:
+     ok
+
+     ;;; EC-Eval input:
+     (append '(a b c) '(d e f))
+
+     ;;; EC-Eval value:
+     (a b c d e f)
+   #+END_EXAMPLE
+
+*** 监视求值器的执行
+    在驱动循环里增加一段代码：
+    #+BEGIN_SRC scheme
+  print-result
+    (perform (op print-stack-statistics)) ;; 在操作表里加入统计操作
+    (perform
+     (op announce-output) (const ";;; EC-Eval value:"))
+  ;;;  ... ; same as before
+    #+END_SRC
+
+    监视实例：
+    #+BEGIN_EXAMPLE
+      ;;; EC-Eval input:
+      (define (factorial n)
+	(if (= n 1)
+	    1
+	    (* (factorial (- n 1)) n)))
+      (total-pushes = 3 maximum-depth = 3)
+
+      ;;; EC-Eval value:
+      ok
+
+      ;;; EC-Eval input:
+      (factorial 5)
+
+      (total-pushes = 144 maximum-depth = 28)
+      ;;; EC-Eval value:
+      120
+    #+END_EXAMPLE
+

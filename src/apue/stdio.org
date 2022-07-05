@@ -1,0 +1,1126 @@
+#+TITLE: 标准IO
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: file_directory.html   
+#+HTML_LINK_HOME: apue.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+BEGIN_EXAMPLE
+  本章说明标准I/O库
+
+  因为不仅在UNIX而且在很多操作系统上都实现此库，所以它由ANSIC标准说明
+
+  标准I/O库处理很多细节，例如缓存分配，以优化长度执行I/O等
+
+  标准I/O库是在系统调用函数基础上构造的 
+#+END_EXAMPLE
+
+* 标准I/O
+  #+BEGIN_EXAMPLE
+    前一章中所有I/O函数都是针对文件描述符的
+
+    当打开一个文件时，即返回一个文件描述符，然后该文件描述符就用于后读的I/O操作
+  #+END_EXAMPLE
+
+  对于标准I/O库，它们的操作则是围绕 _流_ (stream)进行的。当用标准I/O库打开或创建一个文件时已 *使一个流与一个文件* 相结合。当打开一个流时，标准I/O函数 *fopen* 返回一个 *指向FILE对象的指针* 
+  
+** 流和FILE对象
+   + FILE对象: 通常是一个结构，包含了I/O库为 *管理流所需要的所有信息* 
+     + 用于实际I/O的文件描述符
+     + 指向流缓存的指针
+     + 缓存的长度
+     + 当前在缓存中的字符数
+     + 出错标志
+     + ......
+   + 文件指针：指向FILE对象的指针 FILE* 　
+
+   #+BEGIN_EXAMPLE
+     为了引用一个流，需将文件指针作为参数传递给每个标准I/O函数
+   #+END_EXAMPLE
+
+** 标准输入、标准输出和标准出错
+   对一个进程预定义了三个流，它们自动地可为进程使用：
+   + stdin: 标准输入流
+   + stdout: 标准输出流
+   + stderr: 标准出错流
+
+   #+BEGIN_EXAMPLE
+     这三个标准I/O流和文件指针同样定义在头文件 <stdio.h> 中
+   #+END_EXAMPLE
+
+** 缓存
+   标准I/O提供缓存的目的是 *尽可能减少使用read和write调用的数量* 。它也对每个I/O流 *自动地进行缓存管理* ，简化了应用程序的实现
+   #+BEGIN_EXAMPLE
+     在一个流上执行第一次I/O操作时，相关标准I/O函数通常调用 malloc 获得需要的缓存
+   #+END_EXAMPLE
+   标准I/O提供了三种类型的缓存: 
+   1. 全缓存
+   2. 行缓存
+   3. 无缓存
+
+*** 全缓存
+    当 *填满标准I/O缓存* 后才进行实际I/O操作
+    #+BEGIN_EXAMPLE
+      对于驻在“磁盘上的文件”通常是由标准I/O库实施全缓存的
+    #+END_EXAMPLE
+*** 行缓存
+    当在输入和输出中 *遇到新行符* 时，标准I/O库执行I/O操作。这允许一次输出一个字符(用标准I/O fputc函数)，但只有 *在写了一行之后* 才进行实际I/O操作
+    
+    #+BEGIN_EXAMPLE
+      当流涉及一个“终端”时(例如标准输入和标准输出)，典型地使用行缓存
+    #+END_EXAMPLE
+
+    对于行缓存有两个限制：
+    1. 因为标准I/O库用来 *收集每一行的缓存的长度是固定的* ，所以只要填满了缓存，那么 *即使还没有写一个新行符，也进行I/O操作* 
+    2. 任何时候只要通过标准输入输出库要求从以下两种情况得到数据就会造成 *刷新所有行缓存输出流* 
+       + 一个 _不带缓存_ 的流：从不带缓存的一个流中进行输入要求 *只能从内核得到数据* 
+       + 一个 _行缓存_ 的流(它预先要求从内核得到数据)：所需的数据可能已在该缓存中，但 *并不要求内核在需要该数据时才进行该操作* 
+
+*** 不带缓存
+    标准I/O库 *不对字符进行缓存* 。如果用标准I/O函数写若干字符到不带缓存的流中，则相当于用write系统调用函数将这些字符写至相关联的打开文件上。
+    
+    #+BEGIN_EXAMPLE
+      “标准出错流stderr”通常是不带缓存的，这就使得出错信息可以尽快显示出来，而不管它们是否含有一个新行字符
+    #+END_EXAMPLE
+
+*** 默认实现
+    #+BEGIN_EXAMPLE
+      ANSIC要求下列缓存特征:
+
+      1. 当且仅当标准输入和标准输出并不涉及交互作用设备时，它们才是全缓存的
+      2. 标准出错决不会是全缓存的
+    #+END_EXAMPLE
+
+    UNIX系统默认使用下列类型的缓存:
+    1. _标准出错_ 是 _不带缓存_ 的 
+    2. 如若是涉及 _终端设备_ 的其他流，则它们是 _行缓存_ 的
+    3. 否则是 _全缓存_ 的
+
+*** setbuf和setvbuf函数
+    setbuf和setvbuf函数：设置文件流的缓存
+    #+BEGIN_SRC C
+      #include <stdio.h>
+
+      /**
+       ,* 打开或关闭文件流缓存
+       ,*
+       ,* fp: 文件指针
+       ,* buf: 缓存区指针，如果为NULL则关闭缓存，反之则打开缓存
+       ,*
+       ,* return: 若成功则为 0, 若出错则为 非0
+       ,* 
+       ,*/
+      int setbuf(FILE* fp, char* buf);
+
+      /**
+       ,* 设置文件流的缓存
+       ,*
+       ,* fp: 文件指针
+       ,* buf: 缓存区指针
+       ,* mode: 缓存类型，_IOFBF 全缓存，_IOLBF 行缓存, _IONBF 不带缓存
+       ,* size: 缓存区大小
+       ,*
+       ,* return: 若成功则为 0，若出错则为 非0
+       ,*
+       ,*/
+      int setvbuf(FILE* fp, char* buf, int mode, size_t size); 
+    #+END_SRC
+    
+    setbuf和setvbuf参数说明
+    
+    +----------+----------+----------+-----------------------+----------------+
+    |   函数   |   mode   |    buf   |       缓存及长度      | 缓存类型       |
+    +----------+----------+----------+-----------------------+----------------+
+    |          |          | nonNULL  |长度为BUFSIZE的用户缓存| 全缓存或行缓存 |
+    |  setbuf  |          +----------+-----------------------+----------------+
+    |          |          |   NULL   |       无缓存          | 　　无缓存     |
+    +----------+----------+----------+-----------------------+----------------+
+    |          |          | nonNULL  | 长度为size的用户缓存  |                |
+    |          |  _IOFBF  +----------+-----------------------+    全缓存      |
+    |          |          |   NULL   | 合适长度的系统缓存    |                |
+    |  setvbuf +----------+----------+-----------------------+----------------+
+    |          |          | nonNULL  | 长度为size的用户缓存  |                |
+    |          |  _IOLBF  +----------+-----------------------+    行缓存      |
+    |          |          |   NULL   | 合适长度的系统缓存    |                |
+    |          +----------+----------+-----------------------+----------------+
+    |          |  _IONBF  |   忽略   |        无缓存         |     无缓存     |
+    +----------+----------+----------+-----------------------+----------------+
+    
+*** fflush函数
+    #+BEGIN_EXAMPLE
+      刷新(flush)：标准I/O缓存的写操作。缓存可由：
+
+      标准I/O例程自动地刷新 ：例如当填满一个缓存时，或者可以调用函数fflush刷新一个流 
+    #+END_EXAMPLE
+
+    fflush：强制刷新一个流
+    #+BEGIN_SRC C
+      #include <stdio.h>
+
+      /**
+       ,* 强制刷新一个流，如果fp为NULL则刷新所有输出流
+       ,*
+       ,* fp: 文件指针
+       ,*
+       ,* return: 若成功则为 0，若出错则为 EOF
+       ,*
+       ,*/
+      int fflush(FILE* fp);
+    #+END_SRC
+    此函数使该流 _所有未写的数据_ 都被 *传递* 至 _内核_  
+    + 作为一种特殊情形如若 _fp是NULL_ ，则 *刷新所有 _输出_ 流* 
+    
+* 流操作
+** 打开流
+   以下三个函数用于打开一个I/O流
+   #+BEGIN_SRC C
+     #include <stdio.h>
+
+     /**
+      ,* 根据文件路径名打开IO流
+      ,*
+      ,* pathname: 文件路径名
+      ,* type: 该I/O流的读、写方式
+      ,*
+      ,* return: 若成功则为文件指针，若出错则为 NULL
+      ,*
+      ,*/
+     FILE *fopen(const char *pathname, const char *type);
+
+     /**
+      ,* 在一个特定的流上打开一个指定的文件，如果流已经打开，那先关闭流再打开
+      ,*
+      ,* pathname: 文件路径名
+      ,* type: 该I/O流的读、写方式
+      ,* fp: 特定的流
+      ,*
+      ,* return: 若成功则为文件指针，若出错则为 NULL
+      ,*
+      ,*/
+     FILE *freopen(const char *pathname, const char *type, FILE *fp);
+
+     /**
+      ,* 根据文件描述符打开IO流
+      ,*
+      ,* filedes: 文件描述符
+      ,* type: 该I/O流的读、写方式
+      ,*
+      ,* return: 若成功则为文件指针，若出错则为 NULL
+      ,*
+      ,*/
+     FILE *fdopen(int filedes, const char *type);
+   #+END_SRC
+   + fopen打开 _指定路径名_ 的一个文件
+   + freopen在一个特定的流上打开一个指定的文件，如若该流 _已经打开_ ，则先 *关闭该流* 
+   #+BEGIN_EXAMPLE
+     一般用于将一个指定的文件打开为一个预定义的流：标准输入、标准输出或标准出错
+   #+END_EXAMPLE
+   + fdopen取一个现存的 _文件描述符_ ，并使一个标准的I/O流与该描述符相结合
+   #+BEGIN_EXAMPLE
+      常用于由创建管道和网络通信通道函数获得的插述符
+
+     因为这些特殊类型的文件不能用标准I/O的fopen函数打开，首先必须先调用设备专用函数以获得一个文件描述符
+   #+END_EXAMPLE      
+*** 流读写方式
+    #+CAPTION: 打开标准I/O流的type参数
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | type | 说明 |
+    |------+------|
+    | r或rb | 为读而打开 |
+    | w或wb | 使文件成为0长，或为写而创建 |
+    | a或ab | 添加;为在文件尾写而打开，或为写而创建 |
+    | r+或r+b或rb+ | 为读和写而打开 |
+    | w+或w+b或wb+ | 使文件为0长，或为读和写而打开 |
+    | a+或a+b或ab+ | 为在文件尾读和写而打开或创建 |
+    
+    
+    + 字符 _b_ 作为type的一部分，使得标准I/O可以区分 *文本文件* 和 *二进制文件* 
+    #+BEGIN_EXAMPLE
+      但是UNIX并不对这两种文件进行区分，所以无意义
+    #+END_EXAMPLE 
+    + 在使用 _w_ 或 _a_ 选项时，若文件 *不存在则自动创建* 
+    #+BEGIN_EXAMPLE
+      新建文件的访问模式只能通过进程的umask限制，而无法手动指定权限
+    #+END_EXAMPLE 
+    + 当用字符 _a_ 打开一文件后，则每次写都将数据 *写到文件的当前尾端处* 
+    #+BEGIN_EXAMPLE
+      如若有多个进程用添加方式打开了同一文件，那么每个进程的数据都将正确地写到文件中
+    #+END_EXAMPLE
+    + 当以 _r+_ 或者 _w+_ 时，具有下列限制: 
+      - 如果中间没有 _fflush_ 、 _fseek_ 、 _fsetpos_ 或 _rewind_ ，则在 *输出的后面不能直接跟随输入* 
+      - 如果中间没有 _fseek_ 、 _fsetpos_ 或 _rewind_ 或者一个 _输出操作没有到达文件尾端_ ，则在 *输入操作之后不能直接跟随输出* 
+    + 对于 _fdopen_ 选项 _w_ *不能截文件为0* ，而由 *filedes的open函数决定* 
+
+
+    #+CAPTION: 打开标准I/O流的六种方式
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 限制           | r | w | a | r+ | w+ | a+ |
+    |------------------+---+---+---+----+----+----|
+    | 文件必须已存在 | • |   |   | •  |    |    |
+    | 文件截断为0 |   | • |   |    | •  |    |
+    |------------------+---+---+---+----+----+----|
+    | 流可以读     | • |   |   | •  | •  | •  |
+    | 流可以写     |   | • | • | •  | •  | •  |
+    | 流只可以在尾部写 |   |   | • |    |    | •  |
+** 关闭流
+   fclose：关闭一个打开的流
+   #+BEGIN_SRC C
+     #include <stdio.h>
+     /**
+      ,* 关闭一个开打的流
+      ,*
+      ,* fp: 文件指针
+      ,*
+      ,* return: 若成功则为 0，若出错则为 EOF
+      ,*
+      ,*/
+     int fclose(FILE *fp);
+   #+END_SRC
+   + 在文件被关闭之前， *刷新缓存中的输出数据* ， *缓存中的输入数据被丢弃*
+   + 如果标准I/O库已经为该流自动分配了一个缓存，则 *释放此缓存* 
+
+   #+BEGIN_EXAMPLE   
+     当一个进程正常终止时，则所有带未写缓存数据的标准I/O流都被刷新，所有打开的标准I/O流都被关闭
+   #+END_EXAMPLE
+** 读写流
+   一旦打开了流，则可在三种不同类型的 _非格式化I/O_ 中进行选择，对其进行读、写操作：
+   1. 每次 _一个字符_ 的I/O：一次 *读或写一个字符* 
+   2. 每次 _一行_ 的I/O：一次 *读或写一行* 。每行都以一个 *新行符* 终止
+   3. 直接I/O或 _二进制_ I/O：每次I/O操作 *读或写某种数量的对象* ，而 *每个对象具有指定的长度* 
+
+*** 单字符I/O
+    如果 _流是带缓存_ 的，则 *标准I/O函数处理所有缓存* 
+**** getc, fgetc, getchar函数
+     从文件流读取单个字符
+     #+BEGIN_SRC C
+       #include <stdio.h>
+       /**
+	,* 从文件指针读取一个字符，可以实现为宏，效率好于fgetc
+	,*
+	,* fp: 文件指针
+	,*
+	,* return: 若成功则为下一个字符，若已处文件尾端或出错则为 EOF
+	,*
+	,*/
+       int getc(FILE *fp);
+
+       /**
+	,* 从文件指针读取一个字符，不能实现为宏，效率比getc差
+	,*
+	,* fp: 文件指针
+	,*
+	,* return: 若成功则为下一个字符，若已处文件尾端或出错则为 EOF
+	,*
+	,*/
+       int fgetc(FILE *fp);
+
+       /**
+	,* 从标准输入读入一个字符，等价于getc(stdin)
+	,*
+	,* return: 若成功则为下一个字符，若已处文件尾端或出错则为 EOF
+	,*
+	,*/
+       int getchar(void);
+     #+END_SRC
+     + getc可以 *实现为宏* 
+     #+BEGIN_EXAMPLE
+       所以它的参数不应当是具有副作用的表达式
+     #+END_EXAMPLE
+     + 调用fgetc所需时间很可能长于调用getc
+     #+BEGIN_EXAMPLE
+       因为调用函数通常所需的时间长于调用宏
+     #+END_EXAMPLE
+     + 因为fgetc *一定是个函数* ，可以得到其地址
+     #+BEGIN_EXAMPLE
+       允许将fgetc的地址作为一个参数传送给另一个函数
+     #+END_EXAMPLE
+     + getchar()等价于 *getc(stdin)* 
+
+     这三个函数以 _unsigned char类型转换为int的方式_ 返回下一个字符。这样就可以 *返回所有可能的字符值再加上一个 _已发生错误_ 或 _已到达文件尾端_ 的指示值* 
+
+     #+BEGIN_EXAMPLE
+       在<stdio.h>中的常数EOF被要求是一个负值，其值经常是 -1
+
+       所以不能返回结果是一个无符号字符，而必须是一个带符号整数
+     #+END_EXAMPLE
+
+**** EOF判断
+     不管是出错还是到达文件尾端，这三个函数都返回同样的值 *EOF*  。为了区分这两种不同的情况，必须调用 _ferror_ 或 _feof_ 函数：
+     
+     + ferror函数：判断读取文件 *是否出错* 
+     + feop函数：判断读取文件 *是否结束* 
+
+     #+BEGIN_SRC C
+       #include <stdio.h>
+
+       /**
+	,* 读取文件是否出错
+	,*
+	,* fp: 文件指针
+	,*
+	,* return: 若读取出错则为 非0(真)，否则为 0(假)
+	,*
+	,*/
+       int ferror(FILE *fp);
+
+       /**
+	,* 文件是否结束
+	,*
+	,* fp: 文件指针
+	,*
+	,* return: 若文件结束则为 非0(真)，否则为 0(假)
+	,* 
+	,*/
+       int feof(FILE *fp);
+     #+END_SRC
+
+**** 清除EOF标记
+#+BEGIN_EXAMPLE
+  在大多数实现的 FILE对象 中，为每个流保持了两个标志：出错标志 和 文件结束标志 
+#+END_EXAMPLE
+
+     clearerr函数：清除这两个标志
+     #+BEGIN_SRC C
+       #include <stdio.h>
+
+       /**
+	,* 清楚文件出错和结尾两个标志
+	,*
+	,* fp: 文件指针
+	,*
+	,* 无返回
+	,*
+	,*/
+       void clearerr(FILE *fp);
+     #+END_SRC
+
+**** putc, fputc, putchar函数
+     输出单个字符到文件流     
+     #+BEGIN_SRC C
+       #include <stdio.h>
+
+       /**
+	,* 输出一个字符到流，可实现为宏
+	,*
+	,* c: 输出字符
+	,* fp: 文件指针
+	,*
+	,* return: 若成功则为 c，若出错则为 EOF
+	,* 
+	,*/
+       int putc(int c, FILE *fp);
+
+       /**
+	,* 输出一个字符到流，只可实现为函数
+	,*
+	,* c: 输出字符
+	,* fp: 文件指针
+	,*
+	,* return: 若成功则为 c，若出错则为 EOF
+	,* 
+	,*/
+       int fputc(int c, FILE *fp);
+
+       /**
+	,* 输出一个字符到标准输出流，等价于putc(c, stdout)
+	,* 
+	,* c: 输出字符
+	,*
+	,* return: 若成功则为 c，若出错则为 EOF
+	,* 
+	,*/
+       int putchar(int c);
+     #+END_SRC
+     
+     + putc可以实现为 _宏_ 
+     + fputc只能实现为 _函数_ 
+     + putchar(c)等价于 _putc(c, stdout)_ 
+
+**** ungetc函数
+     ungetc函数：将字符压入流中
+     #+BEGIN_SRC C
+       #include <stdio.h>
+
+       /**
+	,* 将字符压入流中
+	,*
+	,* c: 压入的字符
+	,* fp: 文件指针
+	,* 
+	,* return: 若成功则为 c，若出错则为 EOF
+	,* 
+	,*/
+       int ungetc(int c, FILE *fp);
+     #+END_SRC
+     _下次读取字符_ 读到的就是 *被ungetc压入的字符* ：
+     + 回送的字符不一定必须是上一次读到的字符
+     + EOF不能回送
+     #+BEGIN_EXAMPLE
+       当已经到达文件尾端时仍可以回送一个字符。下次读将返回该字符，再次读则返回EOF
+       能这样做的原因是一次成功的ungetc调用会清除该流的文件结束指示
+
+       有时读到第一个特殊字符时候，这个字符往往暂时没有用，需要先放回去，等处理完前面读出的数据后，再开始重新读
+     #+END_EXAMPLE
+
+*** 行I/O
+    
+**** fgets, gets函数
+     从文件流读取一行到缓存区
+     #+BEGIN_SRC C
+       #include <stdio.h>
+
+       /**
+	,* 从一个流读取一行到最多 n-1 个字符到缓存区buf，缓存区以 null 字符结束
+	,* 
+	,* buf: 缓存区
+	,* n: 读取字符长度
+	,* fp: 文件指针
+	,* 
+	,* return：若成功则为 buf，若已处文件尾端或出错则为 NULL
+	,*
+	,*/
+       char *fgets(char *buf, int n, FILE *fp);
+
+       /**
+	,* 从标准输入读取一行到到缓存区buf
+	,*
+	,* buf: 缓存区
+	,*
+	,* return: 若成功则为 buf，若已处文件尾端或出错则为 NULL
+	,*
+	,*/
+       char *gets(char *buf);
+     #+END_SRC
+     
+     + fgets函数：
+       + *必须指定缓存的长度n* 。一直读到 *下一个新行符* 为止，但是 *不超过n-1个字符* 
+       + 读入的字符 *被送入缓存* 。该 *缓存以 null 字符结尾* 
+       + 如若 _该行包括最后一个新行符的字符数超过n-1_ ，则只 *返回一个不完整的行* ，而且 *缓存总是以null字符结尾* 
+	 + 对fgets的下一次调用会继续读该行
+     + gets直接 *从标准输入流读取* 
+       + 会有验证 _缓存区溢出_ 的问题
+       + 缓存区 _也不会以null字符结尾_ 
+
+**** fputs, puts函数
+     缓存区输出一行到文件流
+     #+BEGIN_SRC C
+       #include <stdio.h>
+
+       /**
+	,* 输出一个以 null结尾 的字符串到文件流，终止符 null 不输出，新行符 \n 需要包含在字符串内
+	,*
+	,* str: 输出的字符串
+	,* fp: 文件指针
+	,*
+	,* return: 若成功则为输出的字符数，若出错则为 EOF
+	,*
+	,*/
+       int fputs(const char *str, FILE *fp);
+
+       /**
+	,* 输出一个 null结尾 的字符串到标准输出流，终止符 null 不输出，自动在最后添加新行符 \n
+	,*
+	,* str: 输出的字符串
+	,*
+	,* return: 若成功则为输出的字符数，若出错则为 EOF
+	,* 
+	,*/
+       int puts(const char *str);
+     #+END_SRC
+     
+     + fputs函数：将一个以 _null符终止_ 的 _字符串_ 写到 _指定的流_ 
+       + *终止符null不写出* 
+       + 必须 *手动* 在字符串包含 _新行符\n_ 
+     + puts函数：将一个以 _null符终止的字符串_ 写到 _标准输出_
+       + *终止符null不写出*
+       + *自动* 在最后将一个 _新行符\n_ 写到 _标准输出_ 
+
+     #+BEGIN_EXAMPLE
+       puts函数不像gets函数那么不安全，但也最好尽量避免使用
+     #+END_EXAMPLE
+
+*** 标准I/O效率比较
+    用getc和putc将标准输入复制到标准输出
+    #+BEGIN_SRC C
+  #include "apue.h"
+
+  int main(void) 
+  {
+          int c;
+          while ( (c = getc(stdin)) != EOF)
+                  if((putc(c, stdout)) == EOF)
+                          err_sys("output error");
+
+          if(ferror(stdin))
+                  err_sys("input error");
+
+          exit(0);
+          
+  }
+    #+END_SRC
+    用fgets和fputs将标准输入复制到标准输出
+    #+BEGIN_SRC C
+  #include "apue.h"
+
+  int main(void)
+  {
+          char buf[MAXLINE];
+
+          while(NULL != fgets(buf, MAXLINE, stdin))
+                  if(EOF == fputs(buf, stdout))
+                          err_sys("output error");
+
+          if(ferror(stdin))
+                  err_sys("input error");
+
+          exit(0);
+          
+  }
+    #+END_SRC
+    
+    表5-3中显示了对同一文件(1.5M字节，30，000行)进行操作所得的数据
+    #+CAPTION: 使用标准I/O例程得到的时间结果
+    #+ATTR_HTML: :border 1 :rules all :frame boader
+    | 函数              | 用户CPU(秒) | 系统CPU(秒) | 时钟时间(秒) | 程序正文字节数 |
+    | 表3.1中的最佳时间 | 0.0         | 0.3         | 0.3          |                |
+    | fgets,fputs    | 2.2         | 0.3         | 2.6          | 184            |
+    | getc,putc         | 4.3         | 0.3         | 4.8          | 384            |
+    | fgetc,fputc       | 4.6         | 0.3         | 5.0          | 152            |
+    | 表3.1中的单字节时间 | 23.8        | 397.9       | 423.4        |                |
+    
+    + 对于这三个标准I/O版本的每一个，其 *用户CPU时间都大于表3-1中的最佳read版本* 
+      + 每次读一个字符版本中有一个要 _执行150万次的循环_
+      + 每次读一行的版本中有一个要 _执行30000次的循环_
+      + 在read版本中，其循环只需执行 _180次_ (对于缓存长度为8192字节)
+    + 因为系统CPU时间都相同，所以 *用户CPU时间差别造成了时钟时间差别* 
+      + 因为所有这些程序对 *内核提出的读、写请求数相同* 
+      + 标准IO已经选择了 _最佳IO长度_ ，只需要考虑 *fgets时最大行长度* 
+    + 最后一列是 _每个main函数的文本空间字节数_ (由C编译产生的机器指令)
+      + 使用getc的版本在文本空间中作了getc和putc的宏代换 
+	+ 所以它所需使用的 *指令数超过了调用fgetc和fputc函数所需指令数* 
+	+ 但是在程序中作 *宏代换和调用两个函数在时间上并没有多大差别* 
+
+
+    fgetc版本较表3-1中BUFFSIZE=1的版本要快得多。两者都使用了 _约3百万次的函数调用_ ，而fgetc版本的速度在用户CPU时间方面，大约是后者的5倍，而在时钟时间方面则几乎是100倍。原因是：
+    + 使用read的版本 *执行了3百万次系统调用* 
+    + 而对于fgetc版本，它也执行3百万次函数调用，但是这只引起 *360次系统调用* 
+
+    #+BEGIN_EXAMPLE
+    系统调用与普通的函数调用相比是很花费时间的
+    #+END_EXAMPLE
+
+    总而言之： *标准IO与直接内核调用比起来并不慢很多，但却可以忽略不少细节！* 
+    
+*** 二进制I/O
+    #+BEGIN_EXAMPLE
+      如果想要读写某个结构，必须使用 fgetc 或者 fputc 一次读写一个字符来遍历整个结构
+      因为 fputs 在遇到null 字节时就停止，而在结构中可能含有 null 字节，所以不能使用每次一行函数
+      类似地如果输入数据中包含有null字节或新行符，则fgets也不能正确工作
+
+      但是每次单个读写字符即不方便也不高效
+    #+END_EXAMPLE
+    标准I/O库提供了以下两个函数来支撑面向结构化的I/O
+    #+BEGIN_SRC C
+      #include <stdio.h>
+
+      /**
+       ,* 从文件指针 fp 读取 nobj 个记录到 ptr 中，其中每个记录的长度为 size
+       ,*
+       ,* ptr: 缓存区
+       ,* size: 每条记录长度
+       ,* nobj: 记录个数
+       ,* fp: 文件指针
+       ,*
+       ,* return: 读的对象数，如果数量小于 nobj，应通过 feof 或 ferror 判断结果
+       ,*
+       ,*/
+      size_t fread(void *ptr, size_t size, size_t nobj, FILE *fp);
+
+
+      /**
+       ,* 从缓存区 ptr 中取 nobj 个记录写到 fp 指向的文件流中，其中每个记录的长度为 size
+       ,*
+       ,* ptr: 缓存区指针
+       ,* size: 每条记录的长度
+       ,* nobj: 记录的个数
+       ,* fp: 文件指针
+       ,*
+       ,* return: 写的数量，如果小于 nobj，一般是出错
+       ,*
+       ,*/
+      size_t fwrite(const void *ptr, size_t size, size_t nobj, FILE *fp);
+    #+END_SRC
+    fread和fwrite返回读或写的对象数：
+    + 对于读，如果 _出错_ 或到达 _文件尾端_ ，则此 *数字可以少于nobj* 
+    #+BEGIN_EXAMPLE
+      在这种情况，应调用ferror或feof以判断究竟是那一种情况
+    #+END_EXAMPLE
+    + 对于写，如果 _返回值少于所要求的nobj_ ，则 *出错* 
+    
+**** 读或写一个二进制数组
+     将一个浮点数组的第 2至第 5个元素写至一个文件上
+     #+BEGIN_SRC C
+  float data [10];
+
+  if(fwrite (&data[2], sizeof(float), 4, fp) != 4)
+          err_sys("fwrite error");
+     #+END_SRC
+     
+**** 读或写一个结构
+     读写自定义item结构
+     #+BEGIN_SRC C
+    struct 
+    {
+            short count;
+            long total;
+            char name[NAMESIZE];
+    } item;
+
+    if(fwrite(&item, sizeof(item), 1, fp) != 1)
+            err_sys("fwrite error");
+     #+END_SRC
+     
+**** 二进制I/O代码不可移植
+     #+BEGIN_EXAMPLE
+       二进制I/O只能用于读已写在同一系统上的数据。其原因是:
+
+       1. 在一个结构中同一成员的位移量可能随编译程序和系统的不同而异(由于不同的对准要求)
+       某些编译程序有一选择项允许紧密包装结构(节省存储空间，而运行性能则可能有所下降)或准确对齐(以便在运行时易于存取结构中的各成员)
+       这意味着即使在单系统上，一个结构的二进制存放方式也可能因编译程序的选择项而不同
+
+       2. 用来存储多字节整数和浮点值的二进制格式在不同的系统结构间也可能不同
+     #+END_EXAMPLE
+** 定位流
+   有两种方法定位标准I/O流：
+   1. _ftell_ 和 _fseek_ ：假定 _文件的位置_ 可以存放在一个 _long变量_ 中， *适用于Unix系统* 
+   2.  *fgetpos* 和 *fsetpos* ：由ANSIC引入，通过一个新的抽象数据类型 *fpos_t* 来 *记录文件的位置* 。在非UNIX系统中这种数据类型可以定义为记录一个文件的位置所需的长度
+
+#+BEGIN_EXAMPLE
+  需要移植到非UNIX系统上运行的应用程序应当使用fgetpos和fsetpos 
+#+END_EXAMPLE
+*** Unix
+    + _ftell_ 函数： *返回* 文件流当前位置 
+    + _fseek_ 函数： *设置* 文件流当前位置
+    + _frewind_ 函数： *重置* 文件流当前位置
+      #+BEGIN_SRC C
+	#include <stdio.h>
+
+	/**
+	 ,* 返回当前在文件流中的位置，以 long 为步长
+	 ,*
+	 ,* fp: 文件指针
+	 ,*
+	 ,* return: 若成功则为 当前文件位置指示，若出错则为 -1L
+	 ,*
+	 ,*/
+	long ftell(FILE *fp);
+
+	/**
+	 ,* 以 whence 指定的起始位置，将当前位置重新定位在 offset 处
+	 ,*
+	 ,* fp: 文件指针
+	 ,* offset: 步长
+	 ,* whence: 初始位置(SEEK_SET：文件开头，SEEK_CUR：当前位置，SEEK_END：文件末尾) 
+	 ,*
+	 ,* return: 若成功则返回 0，若出错则为 非0
+	 ,* 
+	 ,*/
+	int fseek(FILE *fp, long offset, int whence);
+
+	/**
+	 ,* 复位当前位置到文件开头
+	 ,*
+	 ,* fp: 文件指针
+	 ,*
+	 ,* return: 无返回值
+	 ,* 
+	 ,*/
+	void rewind(FILE *fp);
+      #+END_SRC
+
+*** ANSI
+    + fgetpos： *获取* 文件流当前位置
+    + fsetpos： *设置* 文件流当前位置
+    #+BEGIN_SRC C
+      #include <stdio.h>
+
+      /**
+       ,* 将文件流的当前位置存到pos对象中
+       ,*
+       ,* fp: 文件指针
+       ,* pos: 文件位置结构指针
+       ,*
+       ,* return: 若成功则为 0，若出错则为 非0
+       ,* 
+       ,*/
+      int fgetpos(FILE *fp, fpos_t *pos);
+
+      /**
+       ,* 将文件流当前位置设置为pos对象表达的位置
+       ,*
+       ,* fp: 文件流指针
+       ,* pos: 文件位置结构指针
+       ,*
+       ,* return: 若成功则为 0，若出错则为 非0
+       ,*
+       ,*/
+      int fsetpos(FILE *fp, const fpost_t *pos);
+    #+END_SRC
+* 格式化I/O
+#+BEGIN_EXAMPLE
+  可以使用的格式化标记可参考 K&R 编写的The C Programming Language一书
+
+  典型的使用包括 %4d,  %3.2f , %*.3f 等...
+#+END_EXAMPLE
+** 格式化输出
+   + _printf_ 函数：格式化字符串输出到 _标准输出流_ 
+   + _fprintf_ 函数：格式化字符串输出到 _文件流_ 
+   + _sprintf_ 函数：格式化字符串输出到 _缓存区_ 
+      + 在缓存区的尾端会 *自动加一个null字节* ，但该字节 *不包括在返回值* 中
+     #+BEGIN_SRC C
+       #include <stdio.h>
+
+       /**
+	,* 格式化字符串format输出到标准输出stdout
+	,*
+	,* format: 输出格式
+	,*
+	,* return: 若成功则为 输出字符数，若出错则为 负值
+	,*
+	,*/
+       int printf(const char *format, ...);
+
+       /**
+	,* 格式化字符串format输出到文件流fp
+	,*
+	,* fp: 文件指针
+	,* format: 输出字符串格式
+	,*
+	,* 若成功则为 输出字符数，若出错则为 负值
+	,* 
+	,*/
+       int fprintf(FILE *fp, const char *format, ...);
+
+       /**
+	,* 格式化字符串format输出到缓存区buf
+	,*
+	,* buf: 缓存区
+	,* format: 输出字符串格式
+	,*
+	,* return: 存入数组的字符数
+	,*
+	,*/
+       int sprintf(char *buf, const char *format, ...);
+     #+END_SRC
+
+#+BEGIN_EXAMPLE
+   注意：sprintf可能会造成由buf指向的缓存区溢出，保证该缓存有足够长度是调用者的责任！！！ 
+#+END_EXAMPLE
+
+*** 可变参数列表版本
+    #+BEGIN_SRC C
+      #include<stdarg.h>
+      #include<stdio.h>
+
+      int vprintf(const char *format, va_list arg);
+
+      int vfprintf(FILEfp,*const char* format, va_list arg);
+
+      int vsprintf(char *buf, const char* format, va_list arg);
+    #+END_SRC
+** 格式化输入
+   + _scanf_ 函数：从 _标准输入流_ 读取格式化的字符串
+   + _fscanf_ 函数：从 _文件流_ 读取格式化的字符串
+   + _sscanf_ 函数：从 _缓存区_ 读取格式化的字符串
+     #+BEGIN_SRC C
+       #include<stdio.h>
+
+       /**
+	,* 从标准输入流stdin读取format格式的字符串
+	,*
+	,* format: 输入字符串格式
+	,*
+	,* return: 成功则返回指定的输入项数，若出错或在任意变换前已至文件尾端则为 EOF
+	,*
+	,*/
+       int scanf(const　char* format, ...);
+
+       /**
+	,* 从文件流fp读取format格式的字符串
+	,*
+	,* fp: 文件指针
+	,* format: 输入字符串格式
+	,*
+	,* return: 成功则返回指定的 输入项数，若出错或在任意变换前已至文件尾端则为 EOF
+	,*
+	,*/
+       int fscanf(FILE* fp, const char* format, ...);
+
+       /**
+	,* 从字符缓存区buf读取format格式的字符串
+	,*
+	,* buf: 字符缓存区
+	,* format: 输入字符串格式
+	,*
+	,* return: 成功则返回指定的 输入项数，若出错或在任意变换前已至文件尾端则为 EOF
+	,* 
+	,*/
+       int sscanf(const char* buf, const char* format, ...);
+     #+END_SRC
+   + 使用时应 *输入必须和格式化的字符串* 匹配，否则 *第一个不匹配的字符后面的部分将被直接丢弃* ！
+   + *空白字符* (空格、制表符等)均归为转义符 _'\s'_ ;
+*** 可变参数列表版本
+    #+BEGIN_SRC C
+      #include <stdarg.h>
+      #include <stdio.h>
+
+      int vscanf(char *format, va_list arg);
+ 
+      int vfscanf(FILE *fp, const char *format, va_list arg); 
+
+      int vsscanf(char *buf, const char *format, va_list arg);
+    #+END_SRC
+
+* 实现细节
+  想要了解所使用的系统中标准I/O库的实现，最好从头文件<stdio.h>开始。从中可以看到：
+  + _FILE对象_ 是如何定义的
+  + 每个 _流标志_ 的定义
+  + 定义为 *宏* 的各个 _标准I/O例程_ (比如getc等) 
+
+#+BEGIN_EXAMPLE
+   在UNIX中，标准I/O库最终都要调用第3章中说明的I/O例程，每个I/O流都有一个与其相关联的文件描述符
+#+END_EXAMPLE
+** fileno
+   fileno函数：获得 _某个文件流_ 相关联的 *文件描述符* 
+   #+BEGIN_SRC C
+     #include <stdio.h>
+     /**
+      ,* 获得某个文件流相关联的文件描述符
+      ,*
+      ,* fp: 文件指针
+      ,*
+      ,* return: 与该流相关联的文件描述符
+      ,*
+      ,*/
+     int fileno(FILE *fp);
+   #+END_SRC
+#+BEGIN_EXAMPLE
+  如果要调用 dup 或 fcntl 等函数，需要 fileno 函数
+#+END_EXAMPLE
+*** 实例
+    为三个标准流以及一个与一个普通文件相关联的流打印有关缓存状态信息
+#+BEGIN_EXAMPLE
+  在打印缓存状态信息之前，先对每个流执行I/O操作，因为第一个I/O操作通常就造成为该流分配缓存
+
+  结构成员_flag、_bufsiz以及常数 _IONBF 和 _IOLBF 是由所使用的系统定义的
+#+END_EXAMPLE
+    #+BEGIN_SRC C
+      #include "apue.h"
+
+      void pr_stdio(const char *, FILE *);
+
+      int main(void) 
+      {
+              FILE *fp;
+              fputs("enter any characters\n", stdout);
+              if(EOF == getchar() )
+                      err_sys("getchar error");
+              
+              fputs("one line to standard error\n", stderr);
+
+              pr_stdio("stdin", stdin);
+              pr_stdio("stdout", stdout);
+              pr_stdio("stderr", stderr);
+
+              if(NULL == (fp = fopen("/etc/man.conf", "r")) )
+                      err_sys("fopen error");
+              if(EOF == getc(fp) )
+                      err_sys("getc error");
+
+              pr_stdio("/etc/man.conf", fp);
+
+              exit(0);
+              
+      }
+
+      void pr_stdio(const char *name, FILE *fp)
+      {
+              printf("stream= %s ", name);
+
+              if(fp->_flags & _IONBF)
+                      printf("unbuffered");
+              else if(fp->_flags & _IOLBF)
+                      printf("line buffered");
+              else
+                      printf("fully buffered");
+
+              printf(", buffer size = %d\n", (fp->_IO_buf_end - fp->_IO_buf_base));
+              
+      }
+    #+END_SRC
+    运行程序两次，一次使三个标准流与终端相连接，另一次使它们都重定向到普通文件，则所得结果是:
+    #+BEGIN_SRC sh
+  #stdin, stdout 和stderr都连至终端
+  klose@gentoo ~/Documents/programming/c/apue $ ./src/stdio/printfExample
+  enter any characters 
+  #键入新行符号
+  one line to standard error
+  stream= stdin fully buffered, buffer size = 1024
+  stream= stdout fully buffered, buffer size = 1024
+  stream= stderr unbuffered, buffer size = 1
+  stream= /etc/man.conf fully buffered, buffer size = 4096
+
+  #三个流都重定向到文件
+  klose@gentoo ~/Documents/programming/c/apue $ ./src/stdio/printfExample < /etc/profile > std.out 2> std.err　
+  klose@gentoo ~/Documents/programming/c/apue $ ls -l std.out std.err 
+  -rw-r--r-- 1 klose klose  27 Feb 12 21:30 std.err
+  -rw-r--r-- 1 klose klose 220 Feb 12 21:30 std.out
+
+  klose@gentoo ~/Documents/programming/c/apue $ cat std.out  
+  enter any characters
+  stream= stdin fully buffered, buffer size = 4096
+  stream= stdout fully buffered, buffer size = 4096
+  stream= stderr unbuffered, buffer size = 1
+  stream= /etc/man.conf fully buffered, buffer size = 4096
+
+  klose@gentoo ~/Documents/programming/c/apue $ cat std.err 
+  one line to standard error
+    #+END_SRC
+* 临时文件
+** tmpnam, tmpfile
+   标准I/O库提供了以下两个函数用来创建临时文件：
+   + _tmpnam_ ：产生 *临时文件名* 
+   + _tmpfile_ ：产生 *临时文件* 
+     #+BEGIN_SRC C
+       #include <stdio.h>
+
+       /**
+	,* 产生一个与现在文件名不同的一个有效路径名的字符串，若ptr为 NULL 则存放在一个全局静态缓存区，反之保存在 ptr 内
+	,*
+	,* ptr: 存放临时文件名的缓存区
+	,*
+	,* return: 指向一唯一路径名的指针
+	,*
+	,*/
+       char *tmpnam(char *ptr);
+
+       /**
+	,* 创建一个临时二进制文件(类型wb+)，在关闭该文件或程序结束时将自动删除这种文件
+	,*
+	,* return: 若成功则为 文件指针，若出错则为 NULL
+	,*
+	,*/
+       FILE *tmpfile(void);
+     #+END_SRC
++ tmpnam：它都产生一个不同的路径名，最多调用次数是 _TMP_MAX_ 常量
+   + 如果ptr是 NULL，则所产生的 *路径名存放在一个静态区中* ，指向该静态区的指针作为函数值返回
+      + 下一次再调用tmpnam时会重写该静态区
+   + 如果ptr不是NULL，则认为它指向长度至少是 _L_tmpnam_ 个字符的数组，所产生的 *路径名存放在该数组* 中， *ptr也作为函数值返回* 
++ tmpfile：创建一个临时二进制文件(类型 *wb+* )，在 _关闭该文件_ 或 _程序结束_ 时将 *自动删除这种文件* 
+
+#+BEGIN_EXAMPLE
+  tmpfile函数的实现：
+
+  1. 先调用 tmpnam产生一个唯一的路径名
+  2. 立即 unlink 它
+#+END_EXAMPLE
+*** 实例
+    #+BEGIN_SRC C
+      #include "apue.h"
+
+      int main(void)
+      {
+              char name[L_tmpnam], line[MAXLINE];
+              FILE *fp;
+
+              printf("%s\n", tmpnam(NULL) );
+
+              tmpnam(name);
+              printf("%s\n", name);
+
+              if(NULL == (fp = tmpfile() ) )
+                      err_sys("tempfile error");
+
+              fputs("Hello World\n", fp);
+              rewind(fp);
+              if(NULL == (fgets(line, sizeof(line), fp) ) )
+                      err_sys("fgets error");
+              fputs(line, stdout);
+
+              exit(0);
+              
+      }
+    #+END_SRC
+    测试代码：
+    #+BEGIN_SRC sh
+      klose@gentoo ~/Documents/programming/c/apue $ ./src/stdio/tempfileExample 
+      /tmp/fileO0xmAZ
+      /tmp/fileN1WvPl
+      Hello World
+    #+END_SRC
+** tempnam
+   tempnam函数：tmpnam的一个变体， 允许调用者为所产生的 *路径名指定目录和前缀* 
+   #+BEGIN_SRC C
+     #include <stdio.h>
+
+     /**
+      ,* 允许调用者为所产生的路径名指定目录和前缀
+      ,*
+      ,* directory: 文件目录名
+      ,* prefix: 文件前缀名，最多具有5个字符
+      ,*
+      ,* return: 指向一唯一路径名的指针
+      ,* 
+      ,*/
+     char *tempnam(const char *directory, const char *prefix);
+   #+END_SRC
+   对于目录有四种不同的选择，使用 *第一个条件为真* 的作为目录:
+   1. 如果定义了 _环境变量TMPDIR_ ，则用其作为目录
+   2. 如果 _参数directory非NULL_ ，则用其作为目录
+   3. 将 _<stdio.h>_ 中的字符串 _P_tmpdir_ 用作为目录
+   4. 将本地目录，通常是 _/tmp_ ，用作为目录
+
+   如果prefix非NULL，则它应该是 *最多包含5个字符* 的字符串，用其作为文件名的头几个字符
+*** 实例
+    根据输入目录名和前缀名打印产生的临时文件名
+    #+BEGIN_SRC C
+      #include "apue.h"
+
+      int main(int argc, char *argv[])
+      {
+              if(argc != 3)
+                      err_quit("usage tempfileName: <directory> <prefix>");
+
+              printf("%s\n", tempnam(argv[1][0] != ' ' ? argv[1] : NULL,
+                                     argv[2][0] != ' ' ? argv[2] : NULL));
+
+              exit(0);
+      }
+    #+END_SRC
+    测试代码:
+    #+BEGIN_SRC sh
+  #指定目录和前缀
+  $ ./src/stdio/tempfileName ~/tmp/ temp
+  /home/klose/tmp/tempKcMUjW
+
+  #使用默认目录：P_tmpdir
+  $ ./src/stdio/tempfileName " " PFX
+  /tmp/PFXK8lxrK
+
+  #使用环境变量，无前缀
+  $ TMPDIR=/usr/tmp ./src/stdio/tempfileName  /tmp " "
+  /usr/tmp/file2UoOUE
+
+  #忽略无效的环境变量
+  $ TMPDIR=/no/such/file ./src/stdio/tempfileName  " " QQQQ
+  /tmp/QQQQTL3shI
+
+  #忽略无效的环境变量和目录设置
+  $ TMPDIR=/no/such/directory ./src/stdio/tempfileName  /no/such/file QQQQ
+  /tmp/QQQQSSmQeI
+    #+END_SRC
+
+    [[file:system_file.org][Next：系统文件]]
+
+    [[file:file_directory.org][Previous：文件和目录]]
+
+    [[file:apue.org][Home：目录]]

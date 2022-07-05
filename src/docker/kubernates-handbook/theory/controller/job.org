@@ -1,0 +1,57 @@
+#+TITLE: Job
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: replica_set.html
+#+HTML_LINK_HOME: controller.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+Job负责 _批处理任务_ ，即仅执行一次的任务，它保证批处理任务的一个或多个Pod成功结束 
+* Spec格式
+
+  + _spec.template_ 格式与 Pod 相同
+  + _RestartPolicy_ 仅支持 _Never_ 或 _OnFailure_
+  + 单个Pod时，默认Pod成功运行后Job即结束
+  + _.spec.completions_ 标志 *Job结束需要成功运行的Pod个数* ，默认为 _1_
+  + _.spec.parallelism_ 标志 *并行运行的Pod的个数* ，默认为 _1_
+  + _spec.activeDeadlineSeconds_ 标志 *失败Pod的重试最大时间* ，超过这个时间不会继续重试 
+
+  一个简单的例子：
+
+  #+BEGIN_EXAMPLE
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: pi
+    spec:
+      template:
+	metadata:
+	  name: pi
+	spec:
+	  containers:
+	  - name: pi
+	    image: perl
+	    command: ["perl",  "-Mbignum=bpi", "-wle", "print bpi(2000)"]
+	  restartPolicy: Never
+  #+END_EXAMPLE
+
+  #+BEGIN_SRC sh 
+  $ kubectl create -f ./job.yaml
+  job "pi" created
+  $ pods=$(kubectl get pods --selector=job-name=pi --output=jsonpath={.items..metadata.name})
+  $ kubectl logs $pods -c pi
+  3.141592653589793238462643383279502...
+  #+END_SRC
+* Bare Pods 
+
+  所谓Bare Pods是指直接用PodSpec来创建的Pod（即不在ReplicaSets或者ReplicationController的管理之下的Pods）
+
+  #+BEGIN_EXAMPLE
+    这些Pod在Node重启后不会自动重启，但Job则会创建新的Pod继续任务
+
+    所以，推荐使用Job来替代Bare Pods，即便是应用只需要一个Pod
+  #+END_EXAMPLE
+
+  [[file:cronjob.org][Next: CronJob]]
+
+  [[file:replica_set.org][Previous: ReplicaSet]]
+
+  [[file:controller.org][Home：Controller]]

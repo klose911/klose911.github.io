@@ -1,0 +1,89 @@
+#+TITLE: 管理namespace中的资源配额
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: secret.html
+#+HTML_LINK_HOME: config.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+当用多个团队或者用户共用同一个集群的时候难免会有资源竞争的情况发生，这时候就需要对不同团队或用户的资源使用配额做出限制 
+* 开启
+  #+BEGIN_EXAMPLE
+    目前有两种资源分配管理相关的控制策略插件 ResourceQuota 和 LimitRange
+  #+END_EXAMPLE
+
+  要启用它们只要 API Server 的启动配置的 _KUBE_ADMISSION_CONTROL_ 参数中：
+  + 加入了 _ResourceQuota_ 的设置，这样就给集群开启了资源配额限制功能
+  + 加入 _LimitRange_ 可以用来限制一个资源申请的范围限制
+
+  #+BEGIN_EXAMPLE
+    两种控制策略的作用范围都是对于某 namespace：
+
+    ResourceQuota 用来限制 namespace 中所有的 Pod 占用的总的资源 request 和 limit
+
+    LimitRange 是用来设置 namespace 中 Pod 的默认的资源 request 和 limit 值
+  #+END_EXAMPLE
+  资源配额分为三种类型：
+  + _计算_ 资源配额
+  + _存储_ 资源配额
+  + _对象_ 数量配额
+* 示例
+  #+BEGIN_EXAMPLE
+    假设已经为 spark-cluster 这个 namespace 设置 ResouceQuota 和 LimitRange
+  #+END_EXAMPLE
+** 配置计算资源配额
+   #+BEGIN_EXAMPLE
+     apiVersion: v1
+     kind: ResourceQuota
+     metadata:
+       name: compute-resources
+       namespace: spark-cluster
+     spec:
+       hard:
+	 pods: "20"
+	 requests.cpu: "20"
+	 requests.memory: 100Gi
+	 limits.cpu: "40"
+	 limits.memory: 200Gi
+   #+END_EXAMPLE
+
+   要想查看该配置只要执行：
+
+   #+BEGIN_SRC sh 
+  kubectl -n spark-cluster describe resourcequota compute-resources
+   #+END_SRC
+** 配置对象数量限制
+   #+BEGIN_EXAMPLE
+     apiVersion: v1
+     kind: ResourceQuota
+     metadata:
+       name: object-counts
+       namespace: spark-cluster
+     spec:
+       hard:
+	 configmaps: "10"
+	 persistentvolumeclaims: "4"
+	 replicationcontrollers: "20"
+	 secrets: "10"
+	 services: "10"
+	 services.loadbalancers: "2"
+   #+END_EXAMPLE
+** 配置CPU和内存LimitRange
+   #+BEGIN_EXAMPLE
+     apiVersion: v1
+     kind: LimitRange
+     metadata:
+       name: mem-limit-range
+     spec:
+       limits:
+       - default:
+	   memory: 50Gi
+	   cpu: 5
+	 defaultRequest:
+	   memory: 1Gi
+	   cpu: 1
+	 type: Container
+   #+END_EXAMPLE
+
+   + default: limit 的值
+   + defaultRequest: request 的值
+
+| [[file:secret.org][Previous: Secret]] | [[file:config.org][Home：配置]] |

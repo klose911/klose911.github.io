@@ -1,0 +1,187 @@
+#+TITLE: 配置
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+* configMap
+  #+BEGIN_EXAMPLE
+    ConfigMap是存储通用的配置变量的，类似于配置文件，使用户可以将分布式系统中用于不同模块的环境变量统一到一个对象中管理
+  #+END_EXAMPLE
+
+
+** 创建
+   定义文件：
+   #+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+     name: my-config-map
+  data:
+     myKey: myValue
+     anotherKey: anotherValue
+   #+END_SRC
+
+   #+BEGIN_SRC sh 
+  kubectl create -f my-config.yml
+   #+END_SRC
+
+** 引用
+*** 环境变量
+    _configMapKeyRef_ :  
+    #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-configmap-pod
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', "echo $(MY_VAR) && sleep 3600"]
+      env:
+      - name: MY_VAR
+        valueFrom:
+          configMapKeyRef:
+          name: my-config-map
+          key: myKey
+    #+END_SRC
+*** 作为volume挂载
+    #+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-configmap-volume-pod
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', "echo $(cat /etc/config/myKey) && sleep 3600"]
+      volumeMounts:
+      - name: config-volume
+        mountPath: /etc/config
+    volumes:
+    - name: config-volume
+      configMap:
+      name: my-config-map
+    #+END_SRC
+
+    更多关于configMap的操作参见：[[https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/]]
+* Secret 
+  #+BEGIN_EXAMPLE
+  Secret和ConfigMap类似，用来保存敏感信息
+  #+END_EXAMPLE
+** 创建
+   #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: my-secret
+  stringData:
+    myKey: myPassword
+   #+END_SRC
+
+   #+BEGIN_SRC sh 
+  kubectl create -f my-secret.yml
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     在k8s中创建完Secret之后，应该删除对应的定义文件，避免泄漏
+   #+END_EXAMPLE
+
+** 引用
+   通过 _secretKeyRef_ 来引用：
+   #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-secret-pod
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', "echo Hello, Kubernetes! && sleep 3600"]
+      env:
+      - name: MY_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: my-secret
+            key: myKey
+   #+END_SRC
+
+* SecurityContext
+  以 _uid=2001_ 和 _gid=3001_ 来限制运行pod的用户和组：
+
+  #+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-securitycontext-pod
+  spec:
+    securityContext:
+      runAsUser: 2001
+      fsGroup: 3001
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', "cat /message/message.txt && sleep 3600"]
+      volumeMounts:
+      - name: message-volume
+        mountPath: /message
+    volumes:
+    - name: message-volume
+      hostPath:
+      path: /etc/message
+  #+END_SRC
+
+* ServiceAccount
+  #+BEGIN_EXAMPLE
+    ServiceAccount为了让pod中的进程可以调用Kubernate API或其他外部服务而设计的
+
+    注意：Service Account为服务提供了一种方便的认证机制，但它不关心授权的问题。必须配合RBAC来为Service Account鉴权
+  #+END_EXAMPLE
+
+** 创建
+   #+BEGIN_SRC sh 
+  kubectl create serviceaccount my-serviceaccount
+   #+END_SRC
+
+** 使用
+   在pod定义文件中指定 _serviceAccountName_ 属性
+   #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-serviceaccount-pod
+  spec:
+    serviceAccountName: my-serviceaccount
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', "echo Hello, Kubernetes! && sleep 3600"]
+   #+END_SRC
+
+* 资源限制
+
+  #+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-resource-pod
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', 'echo Hello Kubernetes! && sleep 3600']
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "250m"
+        limits:
+          memory: "128Mi"
+          cpu: "500m"
+  #+END_SRC
+
+  + resources.requests: 创建pod的时候申请的资源大小
+  + resources.limits: pod最多能使用的资源大小
+  + memory: "64Mi" 表示内存使用64MB
+  + cpu: "250m" 1000m代表一颗逻辑cpu，250m表示使用1/4core
+

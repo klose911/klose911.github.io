@@ -1,0 +1,273 @@
+#+TITLE: 分支
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: function.html   
+#+HTML_LINK_HOME: slt.html
+#+OPTIONS: num:nil timestamp:nil
+
+本章中会讲解如何通过 *条件* 编写过程。这个是编写使用程序很重要的一步
+* if 表达式
+  _if_ 表达式将过程分为两个部分。格式如下：
+
+  #+BEGIN_EXAMPLE
+    (if predicate then-value else-value)
+  #+END_EXAMPLE
+
+  如果 _predicate_ 部分为 *真* ，那么 _then-value_ 部分 *被求值* ，否则 _else-value_ 部分被 *求值* ，并且  _求得的值_ 会 *返回* 给 _if语句的括号外_  
+
+  *true* 是除 *false* 以外的任意值：
+  + _true_ 使用 *#t* 表示
+  + _false_ 用 *#f* 表示
+
+  #+BEGIN_EXAMPLE
+    在R5RS中，false #f 和空表 '() 是两个不同的对象
+
+    然而，在MIT-Scheme中，这两个为同一对象
+
+    这个不同可能是历史遗留问题，在以前的标准R4RS中，#f 和 '() 被定义为同一对象
+  #+END_EXAMPLE
+
+  从兼容性角度考虑，  _不应该使用表目录作为谓词_ 。使用函数 _null?_ 来判断 *表是否为空* 
+
+  #+BEGIN_SRC scheme
+  (null? '()) ; #t 
+
+  (null? '(a b c)) ; #f 
+  #+END_SRC
+
+  if 表达式是一个 _特殊形式_ ，因为它 *不对所有的参数求值* 
+  + 如果 predicate 为真，则只有 then-value 部分被求值
+  + 如果 predicate 为假，只有 else-value 部分被求值
+
+  例，首项为 a0，增长率 r，项数为 n 的几何增长数列之和：
+  #+BEGIN_SRC scheme
+  (define (sum-gp a0 r n)
+    (* a0
+       (if (= r 1)
+	   n
+	   (/ (- 1 (expt r n)) (- 1 r)))))   ; !!
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    通常来说，几何增长数列的求和公式如下：
+
+    a0 * (1 - r^n) / (1 - r)                      (r ≠ 1)
+    a0 * n                                               (r = 1)
+
+    如果 if 表达式对所有参数求值的话，那么有 ;!! 注释的那行就算在 r = 1 时也会被求值，这将导致产生一个 除数为0 的错误
+  #+END_EXAMPLE
+
+  可以省去 _else-value_ 项。当 _predicate_ 为假时， *返回值就没有被指定* 。如果你希望当predicate为假时返回 _#f_ ，那么就要明确地将它写出来
+
+  #+BEGIN_EXAMPLE
+    then-value 和 else-value 都应该是 S-表达式
+
+    如果你需要副作用 ，那么就应该使用 begin 表达式
+  #+END_EXAMPLE
+* 复合逻辑
+** not 
+
+   函数 _not_ 可用于对 *谓词取反* ：此函数只有 _一个参数_ 
+   + 如果参数值为 _#f_ 则返回 _#t_
+   + 参数值为 _#t_ 则返回 _#f_ 
+
+** and 
+   _and_ 具有 _任意个数的参数_ ，并从左到右对它们求值：
+   + 如果某一参数为 _#f_ ，那么它就返回 _#f_ ，而 *不对剩余参数求值* 
+   + 如果所有的参数都不是 _#f_ ，那么就返回 _最后一个参数的值_ 
+
+   #+BEGIN_SRC scheme
+  (and #f 0) ; #f
+  (and 1 2 3) ; #3 
+  (and 1 2 3 #f) ; #f 
+   #+END_SRC
+
+** or 
+   _or_ 具有 _可变个数的参数_ ，并从左到右对它们求值：
+   + 它返回第一个 _不是值#f的参数_ ，而 *余下的参数不会被求值* 
+   + 如果 _所有的参数的值都是 #f_ 的话，则返回 _#f_ 
+
+   #+BEGIN_SRC scheme
+  (or #f 0) ;  0 
+  (or 1 2 3) ; 1
+  (or #f 1 2 3) ; 1 
+  (or #f #f #f) ; #f
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     and 和 or 是用于组合条件的两个特殊形式
+
+     Scheme中的and和or不同于C语言中的约定
+	它们不返回一个布尔值（#t 或 #f）
+	而是返回给定的参数之一
+
+     and和or可以使你的代码更加短小
+   #+END_EXAMPLE
+
+* cond 表达式
+  #+BEGIN_EXAMPLE
+    尽管所有的分支都可以用 if表达式 表达
+
+    但当条件有更多的可能性时，就需要使用嵌套的if表达式了，这将使代码变得复杂
+  #+END_EXAMPLE
+  处理这种情况可以使用 *cond表达式* 。cond表达式的格式如下：
+
+  #+BEGIN_EXAMPLE
+    (cond
+      (predicate-1 clauses-1)
+      (predicate-2 clauses-2)
+	......
+      (predicate-n clauses-n)
+      (else        clauses-else))
+  #+END_EXAMPLE
+
+  在 _cond表达式_ 中， _predicates-i_ 是按照 *从上到下* 的顺序求值：
+  + 当 _predicates-i_ 为 *真* 时， _clause-i_ 会被 *求值并返回*
+  + _i_ 之后的 _predicates_ 和 _clauses_ *不会被求值*
+  + 如果所有的 _predicates-i_ 都是 *假* 的话，则返回 _cluase-else_ 
+
+  在一个子句中，可以写数条S-表达式，而 _clause_ 的值是 _最后一条 S-表达式_ 
+
+  #+BEGIN_EXAMPLE
+    例：城市游泳池的收费。
+
+    Foo市的城市游泳池按照顾客的年龄收费：
+
+    如果 age ≤ 3 或者 age ≥ 65 则 免费；
+    如果 介于 4 ≤ age ≤ 6 则 0.5美元；
+    如果 介于 7 ≤ age ≤ 12 则 1.0美元；
+    如果 介于 13 ≤ age ≤ 15 则 1.5美元；
+    如果 介于 16 ≤ age ≤ 18 则 1.8美元；
+    其它 则 2.0美元；
+  #+END_EXAMPLE
+
+  那么，一个返回城市游泳池收费的函数如下：
+  #+BEGIN_SRC scheme
+  (define (fee age)
+    (cond
+     ((or (<= age 3) (>= age 65)) 0)
+     ((<= 4 age 6) 0.5)
+     ((<= 7 age 12) 1.0)
+     ((<= 13 age 15) 1.5)
+     ((<= 16 age 18) 1.8)
+     (else 2.0)))
+  #+END_SRC
+
+* 谓词函数
+  这里将介绍一些用于做判断的函数。这些函数的名字都以 _'?'_ 结尾
+
+** eq?、eqv?和equal?
+   基本函数 _eq?_ 、 _eqv?_ 、 _equal?_ 具有 *两个参数* ，用于检查 *这两个参数是否“一致”* 。这三个函数之间略微有些区别：
+
+   _eq?_ 用来比较两个是否是 *同一个对象* （指向的地址是否相同）
+
+   #+BEGIN_EXAMPLE
+     例如，(eq? str str) 返回 #t，因为str本身的地址是一致的
+
+     与此相对的，因为字符串 "hello" 和 "hello" 被储存在了不同的地址中，函数将返回 #f
+
+     不要使用eq?来比较数字，因为不仅在R5RS中，甚至在MIT-Scheme实现中，它都没有指定返回值
+
+     使用eqv?或者=来比较数值
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC scheme
+  (define str "hello")
+
+  (eq? str str) ; #t 
+  (eq? "hello" "hello") ; #f
+
+  ;;; comparing numbers depends on implementations
+  (eq? 1 1) ; #t 
+  (eq? 1.0 1.0) ; #f 
+   #+END_SRC
+
+   _eqv?_ 该函数比较两个存储在内存中的 *对象的类型 和 值*  。如果类型和值都一致的话就返回 #t
+   #+BEGIN_EXAMPLE
+     eq? 一样，但相同的数字会被认为一样
+
+     对于过程（lambda表达式）的比较依赖于具体的实现
+
+     这个函数不能用于类似于 表 和 字符串 一类的序列比较，因为尽管这些序列看起来是一致的，但它们的值是存储在不同的地址中
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC scheme
+  (eqv? 1.0 1.0) ; #t 
+  (eqv? 1 1.0) ; #f 
+
+  ;;; don't use it to compare sequences
+  (eqv? (list 1 2 3) (list 1 2 3)) ; #f 
+
+  (eqv? "hello" "hello") ; #f 
+
+  ;;; the following depends on implementations
+  (eqv? (lambda(x) x) (lambda (x) x)) ; #f 
+   #+END_SRC
+
+   _equal?_  函数用于比较类似于 _表_ 或者 _字符串_ 一类的序列
+   #+BEGIN_EXAMPLE
+     不仅比较值，还会深层地比较变量的数据结构
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC scheme
+  (equal? (list 1 2 3) (list 1 2 3)) ; #t 
+  (equal? "hello" "hello") ; #t 
+   #+END_SRC
+
+** 检查数据类型
+   下面列举了几个用于 *检查类型* 的函数。这些函数都只有 _一个参数_ ：
+   + _pair?_  如果对象为 *序对* 则返回 _#t_
+   + _list?_  如果对象是一个 *表* 则返回 _#t_
+   + _null?_ 如果对象是 *空表* _'()_ 的话就返回 _#t_
+   + _symbol?_ 如果对象是一个 *符号* 则返回 _#t_
+   + _char?_ 如果对象是一个 *字符* 则返回 _#t_
+   + _string?_ 如果对象是一个 *字符串* 则返回 _#t_ 
+   + _number?_ 如果对象是一个 *数字* 则返回 _#t_ 
+   + _complex?_ 如果对象是一个 *复数* 则返回 _#t_ 
+   + _real?_ 如果对象是一个 *实数* 则返回 _#t_ 
+   + _rational?_ 如果对象是一个 *有理数* 则返回 _#t_ 
+   + _integer?_ 如果对象是一个 *整数* 则返回 _#t_ 
+   + _exact?_ 如果对象 *不是* 一个 *浮点数* 的话则返回 _#t_ 
+   + _inexact?_ 如果对象是一个 *浮点数* 的话则返回 _#t_ 
+
+   #+BEGIN_EXAMPLE
+   要小心的是空表 '() 是一个表，但不是一个序对
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC scheme
+  (pair? '()) ; #f 
+  (list? '())  ; #t 
+   #+END_SRC
+** 比较数值
+   *=* 、 *>* 、 *<* 、 *<=* 、 *>=* 这些函数都有 _任意个数的参数_ 。如果 *参数是按照这些函数的名字排序* 的话，函数就返回 _#t_ 
+
+   #+BEGIN_SRC scheme
+  (= 1 1 1.0) ; #t
+  (< 1 2 3) ; #t 
+  (< 1) ; #t
+  (<) ; #t 
+
+  (= 2 2 2) ; #t 
+  (< 2 3 3.1) ; #t 
+  (> 4 1 -0.2) ;#t 
+
+  (<= 1 1 1.1) ;#t 
+
+  (>= 2 1 1.0) ; #t 
+
+  (<= 3 4 3.9) ; #f 
+   #+END_SRC
+
+   _odd?_ 、 _even?_ 、 _positive?_ 、 _negative?_ 、 _zero?_ 这些函数仅有 _一个参数_ ，如果这些参数 *满足函数名所指示的条件* 话就返回 _#t_ 
+** 比较字符
+   在 *比较字符* 的时候可以使用 _char=?_ 、 _char<?_ 、 _char>?_ 、 _char<=?_ 以及 _char>=?_ 函数
+** 比较字符串
+   *比较字符串* 时，可以使用 _string=?_ 和 _string-ci=?_ 等函数
+
+   [[file:local_variable.org][Next：局部变量]]
+
+   [[file:function.org][Previous：定义函数]]
+
+   [[file:slt.org][Home：目录]]
+
+
+

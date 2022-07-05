@@ -1,0 +1,403 @@
+#+TITLE: 高阶函数与 lambda 表达式
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: ./function.html
+#+HTML_LINK_HOME: ./functional.html
+#+OPTIONS: num:nil timestamp:nil
+
+Kotlin 函数都是 *头等* 的，这意味着它们可以存储在变量与数据结构中、作为参数传递给其他高阶函数以及从其他高阶函数返回。可以像操作任何其他非函数值一样操作函数
+
+#+BEGIN_EXAMPLE
+  为促成这点，作为一门静态类型编程语言的 Kotlin 使用一系列函数类型来表示函数并提供一组特定的语言结构，例如 lambda 表达式
+#+END_EXAMPLE
+* 高阶函数
+
+  高阶函数是将 _函数_ 用作 *参数* 或 *返回值* 的函数 
+
+  #+BEGIN_EXAMPLE
+    一个不错的示例：是集合的函数式风格fold函数， 它接受一个初始累积值与一个接合函数，并通过将当前累积值与每个集合元素连续接合起来代入累积值来构建返回值
+  #+END_EXAMPLE
+
+  #+BEGIN_SRC kotlin 
+  fun <T, R> Collection<T>.fold(
+      initial: R, 
+      combine: (acc: R, nextElement: T) -> R
+  ): R {
+      var accumulator: R = initial
+      for (element: T in this) {
+	  accumulator = combine(accumulator, element)
+      }
+      return accumulator
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    在上述代码中，参数 combine 具有函数类型 (R, T) -> R
+
+    因此 fold 接受一个函数作为参数，该函数接受类型分别为 R 与 T 的两个参数并返回一个 R 类型的值
+
+    在 for-循环内部调用该函数，然后将其返回值赋值给 accumulator
+  #+END_EXAMPLE
+
+  为了调用 fold，需要传给它一个 _函数类型_ 的 *实例* 作为 _参数_ 
+
+  #+BEGIN_SRC kotlin 
+  fun main() {
+      //sampleStart
+      val items = listOf(1, 2, 3, 4, 5)
+
+      // Lambdas 表达式是花括号括起来的代码块。
+      items.fold(0, { 
+	  // 如果一个 lambda 表达式有参数，前面是参数，后跟“->”
+	  acc: Int, i: Int -> 
+	  print("acc = $acc, i = $i, ") 
+	  val result = acc + i
+	  println("result = $result")
+	  // lambda 表达式中的最后一个表达式是返回值：
+	  result
+      })
+
+      // lambda 表达式的参数类型是可选的，如果能够推断出来的话：
+      val joinedToString = items.fold("Elements:", { acc, i -> acc + " " + i })
+
+      // 函数引用也可以用于高阶函数调用：
+      val product = items.fold(1, Int::times)
+      //sampleEnd
+      println("joinedToString = $joinedToString")
+      println("product = $product")
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    而在高阶函数调用处，lambda 表达 式广泛用于此目的
+  #+END_EXAMPLE
+* 函数类型
+
+  Kotlin 使用类似 _(Int) -> String_ 的一系列函数类型来处理函数的声明
+
+  #+BEGIN_EXAMPLE
+  val onClick: () -> Unit = …… 
+  #+END_EXAMPLE
+
+  这些类型具有与函数签名相对应的特殊表示法，即它们的 _参数_ 和 _返回值_ ：
+  + 所有函数类型都有一个 _圆括号_ 括起来的 *参数类型列表* 以及一个 *返回类型*
+  #+BEGIN_EXAMPLE
+    (A, B) -> C 表示接受类型分别为 A 与 B 两个参数并返回一个 C 类型值的函数类型
+  #+END_EXAMPLE
+  + 参数类型列表可以为空
+    #+BEGIN_EXAMPLE
+      如 () -> A
+    #+END_EXAMPLE
+  + Unit 返回类型不可省略 
+  + 函数类型可以有一个额外的 *接收者类型* ，它在表示法中的 _点之前_ 指定 
+    #+BEGIN_EXAMPLE
+      类型 A.(B) -> C 表示可以在 A 的接收者对象上以一个 B 类型参数来调用并返回一个 C 类型值的函数
+
+      带有接收者的函数字面值通常与这些类型一起使用
+    #+END_EXAMPLE
+  + *挂起* 函数属于特殊种类的函数类型，它的表示法中有一个 _suspend_ 修饰符
+    #+BEGIN_EXAMPLE
+      例如 suspend () -> Unit 或者 suspend A.(B) -> C
+    #+END_EXAMPLE
+
+  函数类型表示法可以选择性地包含函数的参数名： _(x: Int, y: Int) -> Point_ 这些名称可用于表明参数的含义
+
+  #+BEGIN_EXAMPLE
+    如需将函数类型指定为可空，请使用圆括号：((Int, Int) -> Int)?。
+
+    函数类型可以使用圆括号进行接合：(Int) -> ((Int) -> Unit)
+
+    箭头表示法是右结合的，(Int) -> (Int) -> Unit 与前述示例等价，但不等于 ((Int) -> (Int)) -> Unit
+  #+END_EXAMPLE
+
+
+  还可以通过使用类型别名给函数类型起一个别称：
+
+  #+BEGIN_SRC kotlin 
+  typealias ClickHandler = (Button, ClickEvent) -> Unit
+  #+END_SRC
+** 函数类型实例化
+   有几种方法可以获得函数类型的实例：
+   + 使用 *函数字面值的代码块* ，采用以下形式之一：
+     + _lambda 表达式_  
+       #+BEGIN_SRC kotlin 
+	 { a, b -> a + b }
+       #+END_SRC
+     + 匿名函数 
+       #+BEGIN_SRC kotlin 
+	 fun(s: String): Int { return s.toIntOrNull() ?: 0 }
+       #+END_SRC
+   + 带有 _接收者_ 的 *函数字面值* 可用作带有接收者的函数类型的值
+   + 使用 *已有声明* 的 _可调用引用_ ：
+     + 顶层、局部、成员、扩展函数
+       #+BEGIN_SRC kotlin 
+	 ::isOdd
+
+	 String::toInt 
+       #+END_SRC
+     + 顶层、成员、扩展属性
+       #+BEGIN_SRC kotlin 
+	 List<Int>::size
+       #+END_SRC
+     + 构造函数：
+       #+BEGIN_EXAMPLE
+	 ::Regex
+       #+END_EXAMPLE
+     + 这包括指向 *特定实例* _成员_ 的 *绑定* 的 _可调用引用_ 
+       #+BEGIN_SRC kotlin 
+	 foo::toString
+       #+END_SRC
+   + 使用实现函数类型接口的自定义类的实例：
+     #+BEGIN_SRC kotlin 
+       class IntTransformer: (Int) -> Int {
+	   override operator fun invoke(x: Int): Int = TODO()
+       }
+
+       val intFunction: (Int) -> Int = IntTransformer()
+     #+END_SRC
+
+   如果有足够信息，编译器可以推断变量的函数类型：
+   #+BEGIN_SRC kotlin 
+      val a = { i: Int -> i + 1 } // 推断出的类型是 (Int) -> Int
+   #+END_SRC
+
+   带与不带接收者的函数类型非字面值可以互换，其中接收者可以替代第一个参数，反之亦然
+
+   #+BEGIN_EXAMPLE
+     例如，(A, B) -> C 类型的值可以传给或赋值给期待 A.(B) -> C 的地方，反之亦然
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+      //sampleStart
+      val repeatFun: String.(Int) -> String = { times -> this.repeat(times) }
+      val twoParameters: (String, Int) -> String = repeatFun // OK
+
+      fun runTransformation(f: (String, Int) -> String): String {
+	  return f("hello", 3)
+      }
+      val result = runTransformation(repeatFun) // OK
+      //sampleEnd
+      println("result = $result")
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     请注意，默认情况下推断出的是没有接收者的函数类型，即使变量是通过扩展函数引用来初始化的
+
+     如需改变这点，请显式指定变量类型
+   #+END_EXAMPLE
+
+** 函数类型实例调用
+   函数类型的值可以通过其 _invoke(……)_ 操作符调用：f.invoke(x) 或者直接 _f(x)_ 
+   + 如果该值具有 _接收者类型_ ，那么应该将接收者对象作为 *第一个参数* 传递
+     + 调用带有接收者的函数类型值的另一个方式是在其 _前面_ 加上 *接收者对象* 
+       #+BEGIN_SRC kotlin 
+	 fun main() {
+	     //sampleStart
+	     val stringPlus: (String, String) -> String = String::plus
+	     val intPlus: Int.(Int) -> Int = Int::plus
+
+	     println(stringPlus.invoke("<-", "->"))
+	     println(stringPlus("Hello, ", "world!")) 
+
+	     println(intPlus.invoke(1, 1))
+	     println(intPlus(1, 2))
+	     println(2.intPlus(3)) // 类扩展调用
+	     //sampleEnd
+	 }
+       #+END_SRC
+
+       #+BEGIN_EXAMPLE
+	 就好比该值是一个扩展函数：1.foo(2)
+       #+END_EXAMPLE
+* 内联函数
+
+  有时使用内联函数可以为高阶函数提供灵活的控制流 
+
+* Lambda 表达式
+  lambda 表达式与匿名函数是 _函数字面值_ ，即未声明的函数， 但立即做为表达式传递。考虑下面的例子：
+
+  #+BEGIN_SRC kotlin 
+  max(strings, { a, b -> a.length < b.length })
+  #+END_SRC
+
+
+
+  函数 max 是一个高阶函数，它接受一个函数作为第二个参数：这是一个表达式，它本身是一个函数，即函数字面值，它等价于以下具名函数：
+
+  #+BEGIN_SRC kotlin 
+  fun compare(a: String, b: String): Boolean = a.length < b.length
+  #+END_SRC
+
+** Lambda 表达式语法
+   Lambda 表达式的完整语法形式如下：
+
+   #+BEGIN_SRC kotlin 
+  val sum: (Int, Int) -> Int = { x: Int, y: Int -> x + y }
+   #+END_SRC
+
+   lambda 表达式总是 *括在* _花括号_ 中，完整语法形式：
+   + _参数声明_ 放在花括号内，并有可选的类型标注
+   + _函数体_ 跟在一个 _->_ 符号之后
+   + 如果推断出的该 lambda 的返回类型不是 Unit，那么该 _lambda 主体_ 中的 *最后一个* （或可能是单个） _表达式_ 会视为 *返回值* 
+
+
+   如果把所有可选标注都留下，看起来如下：
+
+   #+BEGIN_SRC kotlin 
+  val sum = { x: Int, y: Int -> x + y }
+   #+END_SRC
+
+** 传递末尾的 lambda 表达式
+
+   在 Kotlin 中有一个约定：如果函数的 *最后一个* _参数_ 是 *函数* ，那么作为相应参数传入的 lambda 表达式可以放在 _圆括号_ 之外：
+
+   #+BEGIN_SRC kotlin 
+  val product = items.fold(1) { acc, e -> acc * e }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     这种语法也称为拖尾 lambda 表达式
+   #+END_EXAMPLE
+
+   如果该 lambda 表达式是调用时唯一的参数，那么圆括号可以完全省略：
+
+   #+BEGIN_SRC kotlin 
+  run { println("...") }
+   #+END_SRC
+
+** it：单个参数的隐式名称
+   #+BEGIN_EXAMPLE
+     一个 lambda 表达式只有一个参数是很常见的
+   #+END_EXAMPLE
+
+   如果编译器自己可以识别出签名，也可以不用声明唯一的参数并忽略 -> 该参数会 *隐式* _声明_ 为 _it_ ：
+
+   #+BEGIN_SRC kotlin 
+  ints.filter { it > 0 } // 这个字面值是“(it: Int) -> Boolean”类型的
+   #+END_SRC
+
+** 从 lambda 表达式中返回一个值
+
+   可以使用 _限定的返回_ 语法从 lambda *显式* _返回_ 一个值。 否则，将隐式返回最后一个表达式的值。因此，以下两个片段是等价的：
+
+   #+BEGIN_SRC kotlin 
+  ints.filter {
+      val shouldFilter = it > 0 
+      shouldFilter
+  }
+
+  ints.filter {
+      val shouldFilter = it > 0 
+      return@filter shouldFilter
+  }
+   #+END_SRC
+
+   这一约定连同在 _圆括号_ 外 *传递* lambda 表达式一起支持 _LINQ-风格_ 的代码：
+
+   #+BEGIN_SRC kotlin 
+  strings.filter { it.length == 5 }.sortedBy { it }.map { it.toUpperCase() }
+   #+END_SRC
+
+** 下划线用于未使用的变量
+   如果 lambda 表达式的参数未使用，那么可以用 _下划线_ 取代其名称：
+
+   #+BEGIN_SRC kotlin 
+  map.forEach { _, value -> println("$value!") }
+   #+END_SRC
+
+** 在 lambda 表达式中解构
+
+   在 lambda 表达式中解构是作为 _解构声明_ 的一部分描述的 
+
+* 匿名函数
+  #+BEGIN_EXAMPLE
+    上面提供的 lambda 表达式语法缺少的一个东西是指定函数的返回类型的能力
+
+    在大多数情况下，这是不必要的，因为返回类型可以自动推断出来
+  #+END_EXAMPLE
+  然而，如果确实需要显式指定，可以使用另一种语法： 匿名函数 
+
+  #+BEGIN_SRC kotlin 
+  fun(x: Int, y: Int): Int = x + y
+  #+END_SRC
+
+  匿名函数看起来非常像一个常规函数声明，除了其 _名称_ *省略* 了。其函数体可以是表达式或代码块：
+
+  #+BEGIN_SRC kotlin 
+  fun(x: Int, y: Int): Int {
+      return x + y
+  }
+  #+END_SRC
+
+  参数和返回类型的指定方式与常规函数相同，除了能够从上下文推断出的参数类型可以省略：
+  #+BEGIN_SRC kotlin 
+  ints.filter(fun(item) = item > 0)
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    匿名函数的返回类型推断机制与正常函数一样：对于具有表达式函数体的匿名函数将自动推断返回类型，而具有代码块函数体的返回类型必须显式指定（或者已假定为 Unit）
+  #+END_EXAMPLE
+
+  请注意：
+  + 匿名函数参数总是在括号内传递。允许将函数留在圆括号外的简写语法仅适用于 lambda 表达式
+  + Lambda表达式与匿名函数之间的另一个区别是 _非局部返回_ 的行为，一个不带标签的 return 语句总是在用 fun 关键字声明的函数中返回。这意味着：
+    + lambda 表达式中的 return 将从 *包含它的函数* 返回
+    + 而匿名函数中的 return 将从 *匿名函数自身* 返回 
+
+* 闭包
+  Lambda 表达式或者匿名函数（以及局部函数和对象表达式） 可以访问其 _闭包_ ，即在 *外部作用域* 中 *声明* 的 _变量_ 。 在 lambda 表达式中可以修改闭包中捕获的变量：
+
+  #+BEGIN_SRC kotlin 
+  var sum = 0
+  ints.filter { it > 0 }.forEach {
+      sum += it
+  }
+  print(sum)
+  #+END_SRC
+
+* 带有接收者的函数字面值
+  带有接收者的函数类型，可以用特殊形式的函数字面值实例化：带有接收者的函数字面值
+
+  #+BEGIN_EXAMPLE
+    例如 A.(B) -> C
+  #+END_EXAMPLE
+
+
+  在这样的函数字面值内部，传给调用的接收者对象成为 *隐式* 的 _this_ _，以便访问接收者对象的成员而无需任何额外的限定符，亦可使用 this 表达式 _访问接收者对象_ 
+
+  #+BEGIN_EXAMPLE
+    这种行为与扩展函数类似，扩展函数也允许在函数体内部访问接收者对象的成员
+  #+END_EXAMPLE
+
+  这里有一个带有接收者的函数字面值及其类型的示例，其中在接收者对象上调用了 plus ：
+
+  #+BEGIN_SRC kotlin 
+  val sum: Int.(Int) -> Int = { other -> plus(other) }
+  #+END_SRC
+
+  匿名函数语法允许直接指定函数字面值的接收者类型。 如果需要使用带接收者的函数类型声明一个变量，并在之后使用它，这将非常有用
+
+  #+BEGIN_SRC kotlin 
+  val sum = fun Int.(other: Int): Int = this + other
+  #+END_SRC
+
+  当接收者类型可以从上下文推断时， _lambda 表达式_ 可以用作带接收者的函数字面值：
+
+  #+BEGIN_SRC kotlin 
+  class HTML {
+      fun body() { /*……*/ }
+  }
+
+  fun html(init: HTML.() -> Unit): HTML {
+      val html = HTML()  // 创建接收者对象
+      html.init()        // 将该接收者对象传给该 lambda
+      return html
+  }
+
+  html {       // 带接收者的 lambda 由此开始
+      body()   // 调用该接收者对象的一个方法
+  }
+  #+END_SRC
+
+  | [[file:inline_function.org][Next：内联函数]] | [[file:function.org][Previous：函数]] | [[file:functional.org][Home：函数式]] |

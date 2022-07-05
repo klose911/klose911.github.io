@@ -1,0 +1,166 @@
+#+TITLE: 容器
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: image.html   
+#+HTML_LINK_HOME: docker.html
+#+OPTIONS: num:nil timestamp:nil
+
++ 容器：独立运行的一个或一组应用，以及它们的运行态环境 
++ 虚拟机：模拟运行的一整套操作系统（提供了运行态环境和其他系统环境）和跑在上面的应用
+* 启动
+使用 docker run 命令启动容器
+  #+BEGIN_SRC bash
+    $ sudo docker run ubuntu:latest /bin/echo 'Hello world'
+
+    Hello World
+  #+END_SRC
+这和本地使用/bin/echo 'Hello World'几乎没有任何区别
+
+启动容器并开启一个bash进程
++ -t 选项让Docker分配一个伪终端（pseudo-tty）并绑定到容器的标准输入上
++ -i 则让容器的标准输入保持打开
+#+BEGIN_SRC bash
+  $ sudo docker run -t -i ubuntu /bin/bash
+
+  $root@ca9ae7243716:/# 
+
+  $root@ca9ae7243716:/# pwd
+   /
+  
+  $root@ca9ae7243716:/# ls
+  bin  boot  dev  etc  home  lib  lib64  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+#+END_SRC
+** 运行细节
+Docker 在后台运行的标准操作包括：
++ 检查本地是否存在指定的镜像，不存在就从公有仓库下载
++ 利用镜像创建并启动一个容器
++ 分配一个文件系统，并在只读的镜像层外面挂载一层可读写层
++ 从宿主主机配置的网桥接口中桥接一个虚拟接口到容器中去
++ 从地址池配置一个 ip 地址给容器
++ 执行用户指定的应用程序
++ 执行完毕后容器被终止
+
+** 启动已终止容器
+docker start 命令，直接将一个已经终止的容器启动运行。
+
+   #+BEGIN_SRC bash
+     root@ca9ae7243716:/# exit
+     exit
+
+     $ sudo docker start ca9ae7243716
+     ca9ae7243716
+
+     $ sudo docker ps
+
+     CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+     ca9ae7243716        ubuntu:latest       "/bin/bash"         10 minutes ago      Up 7 seconds                            compassionate_rosalind
+
+     $ sudo docker attach ca9ae7243716
+     root@ca9ae7243716:/#
+   #+END_SRC
+
+容器的核心为所执行的应用程序，所需要的资源都是应用程序运行所必需的。除此之外，并没有其它的资源
+
+在伪终端中利用 ps 或 top 来查看进程信息
+#+BEGIN_SRC bash
+  root@ca9ae7243716:/# ps
+
+  PID TTY          TIME CMD
+      1 ?        00:00:00 bash
+     13 ?        00:00:00 ps
+#+END_SRC
+
+* 后台运行
+-d：让 Docker 容器在后台以守护态形式运行
+#+BEGIN_SRC bash
+  $ sudo docker run -d ubuntu /bin/sh -c "while true; do echo hello world; sleep 1; done"
+
+  de657bfb4b97f14936769591fd0e9ca62d3ff9b34bb7136dbdfa4fef710b7c13
+#+END_SRC
+容器启动后会返回一个唯一的 id，通过 docker ps 命令来查看容器信息 
+#+BEGIN_SRC bash
+   $ sudo docker ps
+
+  CONTAINER ID        IMAGE               COMMAND                CREATED             STATUS              PORTS               NAMES
+  de657bfb4b97        ubuntu:latest       "/bin/sh -c 'while t   9 minutes ago       Up 9 minutes                            thirsty_fermat
+#+END_SRC
+通过 docker logs 获取容器输出
+#+BEGIN_SRC bash
+  $ sudo docker logs thirsty_fermat
+
+  hello world
+  hello world
+  hello world
+  hello world
+  hello world
+  hello world
+  hello world
+  ...
+#+END_SRC
+
+* 终止
+使用 docker stop 来终止一个运行中的容器
+#+BEGIN_SRC sh
+  $ sudo docker stop de657bfb4b97
+#+END_SRC
+1. 当Docker容器中指定的应用终结时，容器也自动终止
+2. 处于终止状态的容器，可以通过 docker start 命令来重新启动
+3. docker restart 命令会将一个运行态的容器终止，然后再重新启动它
+
+* 进入
+在使用 -d 参数时，容器启动后会进入后台。
+
+使用 docker attach 命令进入容器进行操作
+#+BEGIN_SRC bash
+  $ sudo docker run -idt ubuntu
+  243c32535da7d142fb0e6df616a3c3ada0b8ab417937c853a9e1c251f499f550
+
+  $ sudo docker ps
+  CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+  243c32535da7        ubuntu:latest       "/bin/bash"         18 seconds ago      Up 17 seconds                           nostalgic_hypatia
+
+  $sudo docker attach nostalgic_hypatia
+  root@243c32535da7:/#
+#+END_SRC
+
+* 导出和导入
+使用 docker export 命令导出容器
+#+BEGIN_SRC bash
+  $ sudo docker ps -a
+  CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS                    PORTS               NAMES
+  7691a814370e        ubuntu:14.04        "/bin/bash"         36 hours ago        Exited (0) 21 hours ago                       test
+
+  $ sudo docker export 7691a814370e > ubuntu.tar
+#+END_SRC
+
+可以使用 docker import 从容器快照文件中再导入为镜像
+#+BEGIN_SRC bash
+  $ cat ubuntu.tar | sudo docker import - test/ubuntu:v1.0
+
+  $ sudo docker images
+  REPOSITORY          TAG                 IMAGE ID            CREATED              VIRTUAL SIZE
+  test/ubuntu         v1.0                9d37a6082e97        About a minute ago   171.3 MB
+#+END_SRC
+
+通过指定 URL 或者某个目录来导入
+#+BEGIN_SRC bash
+  $ sudo docker import http://example.com/exampleimage.tgz example/imagerepo
+#+END_SRC
+
+** docker import 和docker load的区别
++ import容器快照文件将丢弃所有的历史记录和元数据信息（即仅保存容器当时的快照状态），而load镜像存储文件将保存完整记录，体积也要大
++ import容器快照文件导入时可以重新指定标签等元数据信息
+
+* 删除
+使用 docker rm 来删除一个处于终止状态的容器
+#+BEGIN_SRC sh
+  $ sudo docker rm  trusting_newton
+
+  trusting_newton
+#+END_SRC
+-f: 强制删除一个运行的容器，docker会发送SIGKILL信号给容器
+
+[[file:repository.org][Next：仓库]]
+
+[[file:image.org][Previous：镜像]]
+
+[[file:docker.org][Home：目录]]

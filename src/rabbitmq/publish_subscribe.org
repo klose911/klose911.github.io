@@ -1,0 +1,92 @@
+#+TITLE: 发布模式
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: work_queue.html   
+#+HTML_LINK_HOME: rabbitmq.html
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+
+* Exchange
+  RabbitMQ中生产者只会把消息发送给exchange，再由exchange推送给队列
+  #+CAPTION: exchanges
+  [[./pic/exchanges.png]] 
+  
+  列出所有的Exchange
+  #+BEGIN_SRC sh
+  $ sudo rabbitmqctl list_exchanges
+  Listing exchanges ...
+  logs      fanout
+  amq.direct      direct
+  amq.topic       topic
+  amq.fanout      fanout
+  amq.headers     headers
+  ...done.
+  #+END_SRC
+  
+** 类型
++ default：匿名xchange，根据对应的routing_key发送给相关的队列 
++ fanout: 消息广播给所有的队列 
++ direct：[[file:route.org][消息路由]]
++ topic：[[file:topic.org][模式匹配]]
+  
+* Publish 
+前面描述的工作队列只会把信息发送给一个消费者，而发布模式则是把信息广播给多个消费者
+  #+CAPTION: publish & subscribe
+  [[./pic/publish_subscribe.png]] 
+  
++ 声明fanout exchange
+  #+BEGIN_SRC python
+    channel.exchange_declare(exchange='logs',
+                             type='fanout')
+  #+END_SRC
+  
++ 生产者：发布fanout exchange
+  #+BEGIN_SRC python
+    channel.basic_publish(exchange='logs',
+                          routing_key='',
+                          body=message)
+  #+END_SRC
+  
+  
++ 消费者：创建临时队列，队列拥有随机名字,并且被消费后就删除
+  #+BEGIN_SRC python
+      #not provide a queue name while declaring
+      result = channel.queue_declare(exclusive=True) #once disconnect consumer, delete the queue
+  #+END_SRC
+  
++ 消费者：绑定exchange和queue
+
+  #+CAPTION: bindings
+  [[./pic/bindings.png]] 
+
+#+BEGIN_SRC python
+      channel.queue_bind(exchange='logs',
+                         queue=result.method.queue)
+#+END_SRC
+
+显示所有的绑定
+#+BEGIN_SRC sh
+  $ rabbitmqctl list_bindings
+  Listing bindings ...
+  logs    exchange        amq.gen-JzTY20BRgKO-HjmUJj0wLg  queue           []
+  logs    exchange        amq.gen-vso0PVvyiRIL2WoV3i48Yg  queue           []
+  ...done.
+#+END_SRC
+
+** 测试
+启动一个消费者把日志记录到文件
+  #+BEGIN_SRC sh
+    $ python receive_logs.py > logs_from_rabbit.log
+  #+END_SRC
+再启动一个消费者把日志打印到控制台
+#+BEGIN_SRC sh
+  $ python receive_logs.py
+#+END_SRC
+发送一个日志给exchange，可以看到两个消费者都接收并处理了日志
+#+BEGIN_SRC sh
+  $ python emit_log.py
+#+END_SRC
+
+[[file:route.org][Next：消息路由]]
+
+[[file:work_queue.org][Previous：工作队列]]
+
+[[file:rabbitmq.org][Home：目录]]

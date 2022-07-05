@@ -1,0 +1,190 @@
+#+TITLE: 桥接模式
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+#+HTML_LINK_HOME: fdp.html
+
+桥接模式就是把事物和其具体实现分开，使他们可以各自独立的变化。用意是：将抽象化与实现化解耦，使得二者可以独立变化，像我们常用的JDBC桥DriverManager一样，JDBC进行连接数据库的时候，在各个数据库之间进行切换，基本不需要动太多的代码，甚至丝毫不用动，原因就是JDBC提供统一接口，每个数据库提供各自的实现，用一个叫做数据库驱动的程序来桥接就行了
+
+* UML
+  #+ATTR_HTML: image :width 40% 
+  [[file:pic/bridge.png]] 
+
+* Java
++ 定义接口Sourceable：
+
+  #+BEGIN_SRC java
+    public interface Sourceable {
+            void method();
+    }
+  #+END_SRC
+
++ 分别编写两个实现类
+
+  #+BEGIN_SRC java
+    public class SourceSub1 implements Sourceable {
+            public void method() {
+                    System.out.println("this is the first sub!");
+            }
+    }
+  #+END_SRC
+
+
+#+BEGIN_SRC java
+  public class SourceSub2 implements Sourceable {
+          public void method() {
+                  System.out.println("this is the second sub!");
+          }
+  }
+#+END_SRC
+
++ 定义一个抽象桥，持有Sourceable的一个实例：
+
+  #+BEGIN_SRC java
+    public abstract class AbstractBridge {
+            private Sourceable source;
+
+            public abstract void method();
+
+            public Sourceable getSource() {
+                    return source;
+            }
+
+            public void setSource(Sourceable source) {
+                    this.source = source;
+            }
+    }
+  #+END_SRC
+
++ 实现两个不同的桥接类：
+
+  #+BEGIN_SRC java
+    public class MyBridge1 extends AbstractBridge {
+            public void method() {
+                    System.out.println("my first bridge");
+                    getSource().method();
+            }
+    }
+  #+END_SRC
+
+#+BEGIN_SRC java
+  public class MyBridge2 extends AbstractBridge {
+          public void method() {
+                  System.out.println("my second bridge");
+                  getSource().method();
+          }
+  }
+#+END_SRC
+这样就实现了两个维度的代码的变化，不同的Bridge和不同的Source
+
++ 测试代码：
+
+  #+BEGIN_SRC java
+    public class MyBridgeTest {
+            public static void main(String[] args) {
+                    AbstractBridge bridge = new MyBridge1();
+
+                    /*调用第一个对象*/
+                    Sourceable source1 = new SourceSub1();
+                    bridge.setSource(source1);
+                    bridge.method();
+
+                    /*调用第二个对象*/
+                    Sourceable source2 = new SourceSub2();
+                    bridge.setSource(source2);
+                    bridge.method();
+
+                    System.out.println();
+            
+                    bridge = new MyBridge2();
+                    bridge.setSource(source1);
+                    bridge.method();
+                    bridge.setSource(source2);
+                    bridge.method();
+
+            }
+    }
+  #+END_SRC
+
++ 测试结果：
+
+  #+BEGIN_SRC sh
+    my first bridge
+    this is the first sub!
+    my first bridge
+    this is the second sub!
+
+    my second bridge
+    this is the first sub!
+    my second bridge
+    this is the second sub!
+  #+END_SRC
+
+* Scheme
+为brdige，source各自编写一个函数，把这两个函数作为use函数的参数：
+  #+BEGIN_SRC scheme
+    (define sub1
+      (lambda ()
+        (begin
+          (display "this is first sub")
+          (newline)
+          #t)))
+
+    (define sub2
+      (lambda ()
+        (begin
+          (display "this is second sub")
+          (newline)
+          #t)))
+
+    (define brg1
+      (lambda (sub)
+        (begin
+          (display "this is first bridge")
+          (newline) 
+          (sub)
+          #t)))
+
+    (define brg2
+      (lambda (sub)
+        (begin
+          (display "this is second bridge")
+          (newline) 
+          (sub)
+          #t)))
+
+    (define use
+      (lambda (bridge)
+        (lambda (source)
+          (bridge source))))
+  #+END_SRC
+
++ 测试：
+
+  #+BEGIN_SRC scheme
+    ((use brg1) sub1)
+    ((use brg1) sub2)
+    ((use brg2) sub1)
+    ((use brg2) sub2)
+
+    1 ]=> this is first bridge
+    this is first sub
+    ;Value: #t
+
+    1 ]=> this is first bridge
+    this is second sub
+    ;Value: #t
+
+    1 ]=> this is second bridge
+    this is first sub
+    ;Value: #t
+
+    1 ]=> this is second bridge
+    this is second sub
+    ;Value: #t
+  #+END_SRC
+
+[[file:flyweight.org][Next：享元模式]]
+
+[[file:facade.org][Previous：外观模式]]
+
+[[file:fdp.org][Home：目录]]

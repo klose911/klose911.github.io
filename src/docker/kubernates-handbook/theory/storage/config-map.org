@@ -1,0 +1,787 @@
+#+TITLE: ConfigMap
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: secret.html
+#+HTML_LINK_HOME: storage.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+begin_example
+  其实ConfigMap功能在Kubernetes1.2版本的时候就有了
+
+  许多应用程序会从配置文件、命令行参数或环境变量中读取配置信息
+
+  这些配置信息需要与docker image解耦，总不能每修改一个配置就重做一个image吧？
+#+end_example
+
+ConfigMap API提供了向 _容器_ 中 *注入* _配置信息_ 的机制，ConfigMap可以被用来保存 _单个属性_ ，也可以用来保存整个 _配置文件_ 或者 _JSON二进制大对象_  
+
+* 概述
+  _ConfigMap_ API资源用来保存 _key-value pair_ *配置数据* ，这个数据可以在 _pods_ 里使用，或者被用来为像 _controller_ 一样的系统组件存储配置数据
+
+  #+begin_example
+    虽然ConfigMap跟Secrets类似，但是ConfigMap更方便的处理不含敏感信息的字符串
+
+    注意：ConfigMaps不是属性配置文件的替代品，ConfigMaps只是作为多个properties文件的引用
+
+    可以把它理解为Linux系统中的/etc目录，专门用来存储配置文件的目录
+  #+end_example
+
+  比如使用ConfigMap配置来创建Kubernetes Volumes，ConfigMap中的每个 _data_ 项都会成为一个 *新文件* ：
+  #+begin_example
+    kind: ConfigMap
+    apiVersion: v1
+    metadata:
+      creationTimestamp: 2016-02-18T19:14:38Z
+      name: example-config
+      namespace: default
+    data:
+      example.property.1: hello
+      example.property.2: world
+      example.property.file: |-
+	property.1=value-1
+	property.2=value-2
+	property.3=value-3
+  #+end_example
+
+  data一栏包括了配置数据，ConfigMap可以被用来保存单个属性，也可以用来保存一个配置文件。 配置数据可以通过很多种方式在Pods里被使用。ConfigMaps可以被用来：
+  + 设置 _环境变量_ 的值
+  + 在容器里设置 _命令行参数_ 
+  + 在数据卷里面创建 _config文件_
+
+  #+begin_example
+    用户和系统组件两者都可以在ConfigMap里面存储配置数据
+  #+end_example
+
+  从kubectl create configmap -h的帮助信息中就可以对ConfigMap究竟如何创建略知一二了：
+
+  #+begin_src sh 
+    Examples:
+    # Create a new configmap named my-config based on folder bar
+    kubectl create configmap my-config --from-file=path/to/bar
+
+    # Create a new configmap named my-config with specified keys instead of file basenames on disk
+    kubectl create configmap my-config --from-file=key1=/path/to/bar/file1.txt --from-file=key2=/path/to/bar/file2.txt
+
+    # Create a new configmap named my-config with key1=config1 and key2=config2
+    kubectl create configmap my-config --from-literal=key1=config1 --from-literal=key2=config2
+  #+end_src
+
+* 创建
+  可以使用该命令，用给定值、文件或目录来创建ConfigMap：
+  #+begin_example
+    kubectl create configmap
+  #+end_example
+
+** 目录
+   比如已经有了一些配置文件，其中包含了想要设置的ConfigMap的值：
+
+   #+begin_src sh 
+     $ ls docs/user-guide/configmap/kubectl/
+     game.properties
+     ui.properties
+
+     $ cat docs/user-guide/configmap/kubectl/game.properties
+     enemies=aliens
+     lives=3
+     enemies.cheat=true
+     enemies.cheat.level=noGoodRotten
+     secret.code.passphrase=UUDDLRLRBABAS
+     secret.code.allowed=true
+     secret.code.lives=30
+
+     $ cat docs/user-guide/configmap/kubectl/ui.properties
+     color.good=purple
+     color.bad=yellow
+     allow.textmode=true
+     how.nice.to.look=fairlyNice
+   #+end_src
+
+   使用下面的命令可以创建一个包含目录中所有文件的ConfigMap：
+
+   #+begin_src sh 
+     $ kubectl create configmap game-config --from-file=docs/user-guide/configmap/kubectl
+   #+end_src
+
+   _--from-file_ 指定在目录下的所有文件都会被用在ConfigMap里面创建一个键值对，键的名字就是文件名，值就是文件的内容。来看一下这个命令创建的ConfigMap：
+
+   #+begin_src sh 
+     $ kubectl describe configmaps game-config
+     Name:           game-config
+     Namespace:      default
+     Labels:         <none>
+     Annotations:    <none>
+
+     Data
+     ====
+     game.properties:        158 bytes
+     ui.properties:          83 bytes
+   #+end_src
+
+   可以看到那两个key是从kubectl指定的目录中的文件名
+
+   #+begin_example
+     这些key的内容可能会很大，所以在kubectl describe的输出中，只能够看到键的名字和他们的大小
+   #+end_example
+
+   如果想要看到键的值的话，可以使用kubectl get：
+
+   #+begin_example
+     apiVersion: v1
+     data:
+       game.properties: |
+	 enemies=aliens
+	 lives=3
+	 enemies.cheat=true
+	 enemies.cheat.level=noGoodRotten
+	 secret.code.passphrase=UUDDLRLRBABAS
+	 secret.code.allowed=true
+	 secret.code.lives=30
+       ui.properties: |
+	 color.good=purple
+	 color.bad=yellow
+	 allow.textmode=true
+	 how.nice.to.look=fairlyNice
+     kind: ConfigMap
+     metadata:
+       creationTimestamp: 2016-02-18T18:34:05Z
+       name: game-config
+       namespace: default
+       resourceVersion: "407"
+       selfLink: /api/v1/namespaces/default/configmaps/game-config
+       uid: 30944725-d66e-11e5-8cd0-68f728db1985
+   #+end_example
+
+** 文件
+   #+begin_example
+     刚才使用目录创建的时候--from-file指定的是一个目录
+   #+end_example
+   只要指定为一个文件就可以从单个文件中创建ConfigMap：
+
+   #+begin_src sh 
+     $ kubectl create configmap game-config-2 --from-file=docs/user-guide/configmap/kubectl/game.properties 
+
+     $ kubectl get configmaps game-config-2 -o yaml
+   #+end_src
+
+   #+begin_example
+     apiVersion: v1
+     data:
+       game-special-key: |
+	 enemies=aliens
+	 lives=3
+	 enemies.cheat=true
+	 enemies.cheat.level=noGoodRotten
+	 secret.code.passphrase=UUDDLRLRBABAS
+	 secret.code.allowed=true
+	 secret.code.lives=30
+     kind: ConfigMap
+     metadata:
+       creationTimestamp: 2016-02-18T18:54:22Z
+       name: game-config-3
+       namespace: default
+       resourceVersion: "530"
+       selfLink: /api/v1/namespaces/default/configmaps/game-config-3
+       uid: 05f8da22-d671-11e5-8cd0-68f728db1985
+   #+end_example
+
+   _--from-file_ 这个参数可以使用多次
+
+   #+begin_example
+     可以使用两次分别指定上个实例中的那两个配置文件，效果就跟指定整个目录是一样的
+   #+end_example
+
+** 字面值 
+
+   使用文字值创建，利用 _--from-literal_ 参数传递配置信息，该参数可以使用多次，格式如下；
+
+   #+begin_src sh 
+     $ kubectl create configmap special-config --from-literal=special.how=very --from-literal=special.type=charm
+
+     $ kubectl get configmaps special-config -o yaml
+   #+end_src
+
+   #+begin_example
+     apiVersion: v1
+     data:
+       special.how: very
+       special.type: charm
+     kind: ConfigMap
+     metadata:
+       creationTimestamp: 2016-02-18T19:14:38Z
+       name: special-config
+       namespace: default
+       resourceVersion: "651"
+       selfLink: /api/v1/namespaces/default/configmaps/special-config
+       uid: dadce046-d673-11e5-8cd0-68f728db1985
+   #+end_example
+
+* 使用
+  
+** 替代环境变量
+   ConfigMap可以被用来填入环境变量：
+   #+begin_example
+     apiVersion: v1
+     kind: ConfigMap
+     metadata:
+       name: special-config
+       namespace: default
+     data:
+       special.how: very
+       special.type: charm
+   #+end_example
+
+   #+begin_example
+     apiVersion: v1
+     kind: ConfigMap
+     metadata:
+       name: env-config
+       namespace: default
+     data:
+       log_level: INFO
+   #+end_example
+
+   在Pod中这样使用ConfigMap：
+
+   #+begin_example
+
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: dapi-test-pod
+     spec:
+       containers:
+	 - name: test-container
+	   image: gcr.io/google_containers/busybox
+	   command: [ "/bin/sh", "-c", "env" ]
+	   env:
+	     - name: SPECIAL_LEVEL_KEY
+	       valueFrom:
+		 configMapKeyRef:
+		   name: special-config
+		   key: special.how
+	     - name: SPECIAL_TYPE_KEY
+	       valueFrom:
+		 configMapKeyRef:
+		   name: special-config
+		   key: special.type
+	   envFrom:
+	     - configMapRef:
+		 name: env-config
+       restartPolicy: Never
+   #+end_example
+
+   这个Pod运行后会输出如下几行：
+
+   #+begin_src sh 
+     SPECIAL_LEVEL_KEY=very
+     SPECIAL_TYPE_KEY=charm
+     log_level=INFO
+   #+end_src
+
+** 设置命令行参数
+   ConfigMap也可以被使用来设置容器中的命令或者参数值。它使用的是Kubernetes的 _$(VAR_NAME)_ 替换语法：
+
+   #+begin_example
+     apiVersion: v1
+     kind: ConfigMap
+     metadata:
+       name: special-config
+       namespace: default
+     data:
+       special.how: very
+       special.type: charm
+   #+end_example
+
+   为了将ConfigMap中的值注入到命令行的参数里面，还要像前面那个例子一样使用环境变量替换语法$(VAR_NAME)
+
+   #+begin_example
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: dapi-test-pod
+     spec:
+       containers:
+	 - name: test-container
+	   image: gcr.io/google_containers/busybox
+	   command: [ "/bin/sh", "-c", "echo $(SPECIAL_LEVEL_KEY) $(SPECIAL_TYPE_KEY)" ]
+	   env:
+	     - name: SPECIAL_LEVEL_KEY
+	       valueFrom:
+		 configMapKeyRef:
+		   name: special-config
+		   key: special.how
+	     - name: SPECIAL_TYPE_KEY
+	       valueFrom:
+		 configMapKeyRef:
+		   name: special-config
+		   key: special.type
+       restartPolicy: Never
+   #+end_example
+   运行这个Pod后会输出：
+
+   #+begin_src sh 
+     very charm
+   #+end_src
+   
+   #+begin_example
+     其实这个东西就是给Docker容器设置环境变量，通过：
+
+     1. docker run的时候指定-e参数修改镜像里的环境变量
+     2. docker的CMD命令再利用该$(VAR_NAME)通过sed来修改配置文件或者作为命令行启动参数
+   #+end_example
+
+** 数据卷插件使用ConfigMap
+   
+   在数据卷里面使用这个ConfigMap，有不同的选项。最基本的就是将 _文件_ *填入* _数据卷_ ，在这个文件中，键就是文件名，键值就是文件内容：
+
+   #+begin_example
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: dapi-test-pod
+     spec:
+       containers:
+	 - name: test-container
+	   image: gcr.io/google_containers/busybox
+	   command: [ "/bin/sh", "-c", "cat /etc/config/special.how" ]
+	   volumeMounts:
+	   - name: config-volume
+	     mountPath: /etc/config
+       volumes:
+	 - name: config-volume
+	   configMap:
+	     name: special-config
+       restartPolicy: Never
+   #+end_example
+
+   运行这个Pod的输出：
+
+   #+begin_src sh 
+     very
+   #+end_src
+
+   也可以在ConfigMap值被映射的数据卷里控制路径：
+
+   #+begin_example
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: dapi-test-pod
+     spec:
+       containers:
+	 - name: test-container
+	   image: gcr.io/google_containers/busybox
+	   command: [ "/bin/sh","-c","cat /etc/config/path/to/special-key" ]
+	   volumeMounts:
+	   - name: config-volume
+	     mountPath: /etc/config
+       volumes:
+	 - name: config-volume
+	   configMap:
+	     name: special-config
+	     items:
+	     - key: special.how
+	       path: path/to/special-key
+       restartPolicy: Never
+   #+end_example
+
+   输出结果仍然是：
+   #+begin_src 
+very
+   #+end_src
+
+* 热更新
+  #+begin_example
+    ConfigMap是用来存储配置文件的kubernetes资源对象，所有的配置内容都存储在etcd中
+  #+end_example
+
+  接下来主要探究 ConfigMap 的创建和更新流程，以及对 ConfigMap 更新后容器内挂载的内容是否同步更新的测试
+
+  
+** 测试示例
+   假设在 default namespace 下有一个名为 _nginx-config_ 的 ConfigMap，可以使用 kubectl命令来获取：
+
+   #+begin_src sh 
+     $ kubectl get configmap nginx-config
+     NAME           DATA      AGE
+     nginx-config   1         99d
+   #+end_src
+
+   获取该ConfigMap的内容：
+
+   #+begin_src sh 
+     $ kubectl get configmap nginx-config -o yaml
+   #+end_src
+
+   #+begin_example
+     apiVersion: v1
+     data:
+       nginx.conf: |-
+	 worker_processes 1;
+
+	 events { worker_connections 1024; }
+
+	 http {
+	     sendfile on;
+
+	     server {
+		 listen 80;
+
+		 # a test endpoint that returns http 200s
+		 location / {
+		     proxy_pass http://httpstat.us/200;
+		     proxy_set_header  X-Real-IP  $remote_addr;
+		 }
+	     }
+
+	     server {
+
+		 listen 80;
+		 server_name api.hello.world;
+
+		 location / {
+		     proxy_pass http://l5d.default.svc.cluster.local;
+		     proxy_set_header Host $host;
+		     proxy_set_header Connection "";
+		     proxy_http_version 1.1;
+
+		     more_clear_input_headers 'l5d-ctx-*' 'l5d-dtab' 'l5d-sample';
+		 }
+	     }
+
+	     server {
+
+		 listen 80;
+		 server_name www.hello.world;
+
+		 location / {
+
+
+		     # allow 'employees' to perform dtab overrides
+		     if ($cookie_special_employee_cookie != "letmein") {
+		       more_clear_input_headers 'l5d-ctx-*' 'l5d-dtab' 'l5d-sample';
+		     }
+
+		     # add a dtab override to get people to our beta, world-v2
+		     set $xheader "";
+
+		     if ($cookie_special_employee_cookie ~* "dogfood") {
+		       set $xheader "/host/world => /srv/world-v2;";
+		     }
+
+		     proxy_set_header 'l5d-dtab' $xheader;
+
+
+		     proxy_pass http://l5d.default.svc.cluster.local;
+		     proxy_set_header Host $host;
+		     proxy_set_header Connection "";
+		     proxy_http_version 1.1;
+		 }
+	     }
+	 }
+     kind: ConfigMap
+     metadata:
+       creationTimestamp: 2017-08-01T06:53:17Z
+       name: nginx-config
+       namespace: default
+       resourceVersion: "14925806"
+       selfLink: /api/v1/namespaces/default/configmaps/nginx-config
+       uid: 18d70527-7686-11e7-bfbd-8af1e3a7c5bd
+   #+end_example
+   
+   ConfigMap中的内容是存储到etcd中的，然后查询etcd：
+   
+   #+begin_src sh 
+     $ ETCDCTL_API=3 etcdctl get /registry/configmaps/default/nginx-config -w json|python -m json.tool
+   #+end_src
+
+   #+begin_example
+     注意：使用 v3 版本的 etcdctl API
+   #+end_example
+
+   下面是输出结果：
+
+   #+begin_src js 
+     {
+	 "count": 1,
+	 "header": {
+	     "cluster_id": 12091028579527406772,
+	     "member_id": 16557816780141026208,
+	     "raft_term": 36,
+	     "revision": 29258723
+	 },
+	 "kvs": [
+	     {
+		 "create_revision": 14925806,
+		 "key": "L3JlZ2lzdHJ5L2NvbmZpZ21hcHMvZGVmYXVsdC9uZ2lueC1jb25maWc=",
+		 "mod_revision": 14925806,
+		 "value": "azhzAAoPCgJ2MRIJQ29uZmlnTWFwEqQMClQKDG5naW54LWNvbmZpZxIAGgdkZWZhdWx0IgAqJDE4ZDcwNTI3LTc2ODYtMTFlNy1iZmJkLThhZjFlM2E3YzViZDIAOABCCwjdyoDMBRC5ss54egASywsKCm5naW54LmNvbmYSvAt3b3JrZXJfcHJvY2Vzc2VzIDE7CgpldmVudHMgeyB3b3JrZXJfY29ubmVjdGlvbnMgMTAyNDsgfQoKaHR0cCB7CiAgICBzZW5kZmlsZSBvbjsKCiAgICBzZXJ2ZXIgewogICAgICAgIGxpc3RlbiA4MDsKCiAgICAgICAgIyBhIHRlc3QgZW5kcG9pbnQgdGhhdCByZXR1cm5zIGh0dHAgMjAwcwogICAgICAgIGxvY2F0aW9uIC8gewogICAgICAgICAgICBwcm94eV9wYXNzIGh0dHA6Ly9odHRwc3RhdC51cy8yMDA7CiAgICAgICAgICAgIHByb3h5X3NldF9oZWFkZXIgIFgtUmVhbC1JUCAgJHJlbW90ZV9hZGRyOwogICAgICAgIH0KICAgIH0KCiAgICBzZXJ2ZXIgewoKICAgICAgICBsaXN0ZW4gODA7CiAgICAgICAgc2VydmVyX25hbWUgYXBpLmhlbGxvLndvcmxkOwoKICAgICAgICBsb2NhdGlvbiAvIHsKICAgICAgICAgICAgcHJveHlfcGFzcyBodHRwOi8vbDVkLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWw7CiAgICAgICAgICAgIHByb3h5X3NldF9oZWFkZXIgSG9zdCAkaG9zdDsKICAgICAgICAgICAgcHJveHlfc2V0X2hlYWRlciBDb25uZWN0aW9uICIiOwogICAgICAgICAgICBwcm94eV9odHRwX3ZlcnNpb24gMS4xOwoKICAgICAgICAgICAgbW9yZV9jbGVhcl9pbnB1dF9oZWFkZXJzICdsNWQtY3R4LSonICdsNWQtZHRhYicgJ2w1ZC1zYW1wbGUnOwogICAgICAgIH0KICAgIH0KCiAgICBzZXJ2ZXIgewoKICAgICAgICBsaXN0ZW4gODA7CiAgICAgICAgc2VydmVyX25hbWUgd3d3LmhlbGxvLndvcmxkOwoKICAgICAgICBsb2NhdGlvbiAvIHsKCgogICAgICAgICAgICAjIGFsbG93ICdlbXBsb3llZXMnIHRvIHBlcmZvcm0gZHRhYiBvdmVycmlkZXMKICAgICAgICAgICAgaWYgKCRjb29raWVfc3BlY2lhbF9lbXBsb3llZV9jb29raWUgIT0gImxldG1laW4iKSB7CiAgICAgICAgICAgICAgbW9yZV9jbGVhcl9pbnB1dF9oZWFkZXJzICdsNWQtY3R4LSonICdsNWQtZHRhYicgJ2w1ZC1zYW1wbGUnOwogICAgICAgICAgICB9CgogICAgICAgICAgICAjIGFkZCBhIGR0YWIgb3ZlcnJpZGUgdG8gZ2V0IHBlb3BsZSB0byBvdXIgYmV0YSwgd29ybGQtdjIKICAgICAgICAgICAgc2V0ICR4aGVhZGVyICIiOwoKICAgICAgICAgICAgaWYgKCRjb29raWVfc3BlY2lhbF9lbXBsb3llZV9jb29raWUgfiogImRvZ2Zvb2QiKSB7CiAgICAgICAgICAgICAgc2V0ICR4aGVhZGVyICIvaG9zdC93b3JsZCA9PiAvc3J2L3dvcmxkLXYyOyI7CiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIHByb3h5X3NldF9oZWFkZXIgJ2w1ZC1kdGFiJyAkeGhlYWRlcjsKCgogICAgICAgICAgICBwcm94eV9wYXNzIGh0dHA6Ly9sNWQuZGVmYXVsdC5zdmMuY2x1c3Rlci5sb2NhbDsKICAgICAgICAgICAgcHJveHlfc2V0X2hlYWRlciBIb3N0ICRob3N0OwogICAgICAgICAgICBwcm94eV9zZXRfaGVhZGVyIENvbm5lY3Rpb24gIiI7CiAgICAgICAgICAgIHByb3h5X2h0dHBfdmVyc2lvbiAxLjE7CiAgICAgICAgfQogICAgfQp9GgAiAA==",
+		 "version": 1
+	     }
+	 ]
+     }
+   #+end_src
+
+   其中的value就是 nginx.conf 配置文件的内容 
+
+   #+begin_example
+     可以使用base64解码查看具体值
+   #+end_example
+
+** 代码
+   
+   _ConfigMap 结构体_ 的定义：
+
+   #+begin_src go 
+     // ConfigMap holds configuration data for pods to consume.
+     type ConfigMap struct {
+	     metav1.TypeMeta `json:",inline"`
+	     // Standard object's metadata.
+	     // More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#metadata
+	     // +optional
+	     metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
+
+	     // Data contains the configuration data.
+	     // Each key must be a valid DNS_SUBDOMAIN with an optional leading dot.
+	     // +optional
+	     Data map[string]string `json:"data,omitempty" protobuf:"bytes,2,rep,name=data"`
+     }
+   #+end_src
+
+   在 _staging/src/k8s.io/client-go/kubernetes/typed/core/v1/configmap.go_ 中ConfigMap 的接口定义：
+
+   #+begin_src go 
+     // ConfigMapInterface has methods to work with ConfigMap resources.
+     type ConfigMapInterface interface {
+	     Create(*v1.ConfigMap) (*v1.ConfigMap, error)
+	     Update(*v1.ConfigMap) (*v1.ConfigMap, error)
+	     Delete(name string, options *meta_v1.DeleteOptions) error
+	     DeleteCollection(options *meta_v1.DeleteOptions, listOptions meta_v1.ListOptions) error
+	     Get(name string, options meta_v1.GetOptions) (*v1.ConfigMap, error)
+	     List(opts meta_v1.ListOptions) (*v1.ConfigMapList, error)
+	     Watch(opts meta_v1.ListOptions) (watch.Interface, error)
+	     Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1.ConfigMap, err error)
+	     ConfigMapExpansion
+     }
+   #+end_src
+
+   在 staging/src/k8s.io/client-go/kubernetes/typed/core/v1/configmap.go 中 *创建* ConfigMap 的方法如下:
+
+   #+begin_src go 
+     // Create takes the representation of a configMap and creates it.  Returns the server's representation of the configMap, and an error, if there is any.
+     func (c *configMaps) Create(configMap *v1.ConfigMap) (result *v1.ConfigMap, err error) {
+	     result = &v1.ConfigMap{}
+	     err = c.client.Post().
+		     Namespace(c.ns).
+		     Resource("configmaps").
+		     Body(configMap).
+		     Do().
+		     Into(result)
+	     return
+     }
+   #+end_src
+
+   通过 RESTful 请求在 etcd 中存储 ConfigMap 的配置，该方法中设置了资源对象的 _namespace_ 和 HTTP 请求中的 _body_ ，执行后将 _请求结果_ *保存* 到 _result_ 中返回给调用者
+   + Body 的结构：
+     #+begin_src go 
+       // Body makes the request use obj as the body. Optional.
+       // If obj is a string, try to read a file of that name.
+       // If obj is a []byte, send it directly.
+       // If obj is an io.Reader, use it directly.
+       // If obj is a runtime.Object, marshal it correctly, and set Content-Type header.
+       // If obj is a runtime.Object and nil, do nothing.
+       // Otherwise, set an error.
+     #+end_src
+     #+begin_example
+       创建 ConfigMap RESTful 请求中的的 Body 中包含 ObjectMeta 和 namespace
+     #+end_example
+   + HTTP 请求中的结构体：
+     #+begin_src go 
+       // Request allows for building up a request to a server in a chained fashion.
+       // Any errors are stored until the end of your call, so you only have to
+       // check once.
+       type Request struct {
+	       // required
+	       client HTTPClient
+	       verb   string
+
+	       baseURL     *url.URL
+	       content     ContentConfig
+	       serializers Serializers
+
+	       // generic components accessible via method setters
+	       pathPrefix string
+	       subpath    string
+	       params     url.Values
+	       headers    http.Header
+
+	       // structural elements of the request that are part of the Kubernetes API conventions
+	       namespace    string
+	       namespaceSet bool
+	       resource     string
+	       resourceName string
+	       subresource  string
+	       timeout      time.Duration
+
+	       // output
+	       err  error
+	       body io.Reader
+
+	       // This is only used for per-request timeouts, deadlines, and cancellations.
+	       ctx context.Context
+
+	       backoffMgr BackoffManager
+	       throttle   flowcontrol.RateLimiter
+       }
+     #+end_src
+
+** 测试
+   分别测试使用 ConfigMap 挂载 _Env_ 和 _Volume_ 的情况
+
+*** 更新使用ConfigMap挂载的Env
+    
+    使用下面的配置创建 nginx 容器测试更新 ConfigMap 后容器内的环境变量是否也跟着更新：
+
+    #+begin_example
+      apiVersion: extensions/v1beta1
+      kind: Deployment
+      metadata:
+	name: my-nginx
+      spec:
+	replicas: 1
+	template:
+	  metadata:
+	    labels:
+	      run: my-nginx
+	  spec:
+	    containers:
+	    - name: my-nginx
+	      image: harbor-001.jimmysong.io/library/nginx:1.9
+	      ports:
+	      - containerPort: 80
+	      envFrom:
+	      - configMapRef:
+		  name: env-config
+      ---
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+	name: env-config
+	namespace: default
+      data:
+	log_level: INFO
+    #+end_example
+
+    获取环境变量的值：
+
+    #+begin_src sh 
+      $ kubectl exec `kubectl get pods -l run=my-nginx  -o=name|cut -d "/" -f2` env|grep log_level
+
+      log_level=INFO
+    #+end_src
+
+    修改 ConfigMap：
+
+    #+begin_src sh 
+      $ kubectl edit configmap env-config
+
+      # 修改 log_level 的值为 DEBUG
+    #+end_src
+
+    再次查看环境变量的值：
+
+    #+begin_src sh 
+      $ kubectl exec `kubectl get pods -l run=my-nginx  -o=name|cut -d "/" -f2` env|grep log_level
+
+      log_level=INFO
+    #+end_src
+
+    实践证明修改 ConfigMap 无法更新容器中已注入的环境变量信息
+
+*** 更新使用ConfigMap挂载的Volume
+    使用下面的配置创建 nginx 容器测试更新 ConfigMap 后容器内挂载的文件是否也跟着更新：
+
+    #+begin_example
+      apiVersion: extensions/v1beta1
+      kind: Deployment
+      metadata:
+	name: my-nginx
+      spec:
+	replicas: 1
+	template:
+	  metadata:
+	    labels:
+	      run: my-nginx
+	  spec:
+	    containers:
+	    - name: my-nginx
+	      image: harbor-001.jimmysong.io/library/nginx:1.9
+	      ports:
+	      - containerPort: 80
+	      volumeMounts:
+	      - name: config-volume
+		mountPath: /etc/config
+	    volumes:
+	      - name: config-volume
+		configMap:
+		  name: special-config
+      ---
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+	name: special-config
+	namespace: default
+      data:
+	log_level: INFO
+    #+end_example
+
+    查看配置文件的值
+    #+begin_example
+      $ kubectl exec `kubectl get pods -l run=my-nginx  -o=name|cut -d "/" -f2` cat /etc/config/log_level
+
+      INFO
+    #+end_example
+
+    修改 ConfigMap
+
+    #+begin_src sh 
+      $ kubectl edit configmap special-config
+
+      # 修改 log_level 的值为 DEBUG
+    #+end_src
+
+    等待大概10秒钟时间，再次查看：
+
+    #+begin_src sh
+      $ kubectl exec `kubectl get pods -l run=my-nginx  -o=name|cut -d "/" -f2` cat /etc/config/log_level
+
+      DENUG
+    #+end_src
+
+    可以看到使用 ConfigMap 方式挂载的 Volume 的文件中的内容已经变成了 DEBUG 
+
+** ConfigMap 更新后滚动更新 Pod
+   更新 ConfigMap 目前并不会触发相关 Pod 的滚动更新，可以通过 *修改* _pod annotations_ 的方式 *强制触发* 滚动更新：
+
+   #+begin_src sh 
+     $ kubectl patch deployment my-nginx --patch '{"spec": {"template": {"metadata": {"annotations": {"version/config": "20180411" }}}}}'
+   #+end_src
+
+   #+begin_example
+     这个例子里在 .spec.template.metadata.annotations 中添加 version/config，每次通过修改 version/config 来触发滚动更新
+   #+end_example
+
+   
+** 总结
+   更新 ConfigMap 后：
+   + 使用该 ConfigMap 挂载的 Env 不会同步更新
+   + 使用该 ConfigMap 挂载的 Volume 中的数据需要一段时间（实测大概10秒）才能同步更新
+
+   ENV 是在容器启动的时候注入的，启动之后 kubernetes 就不会再改变环境变量的值，且同一个 namespace 中的 pod 的环境变量是不断累加的
+
+   #+begin_example
+     参考 Kubernetes中的服务发现与docker容器间的环境变量传递源码探究 https://jimmysong.io/blog/exploring-kubernetes-env-with-docker
+   #+end_example
+
+   为了更新容器中使用 ConfigMap 挂载的配置，需要通过滚动更新 pod 的方式来强制重新挂载 ConfigMap 
+
+   | [[file:volume.org][Next: Volume]] | [[file:secret.org][Previous: Secret]] | [[file:storage.org][Home：存储]] |

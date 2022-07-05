@@ -1,0 +1,1093 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>实现一个更好的Lisp解释器</title>
+<meta name="generator" content="Org mode" />
+<meta name="author" content="Wu, Shanliang" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { width: 90%; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2018 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script type="text/javascript"
+        src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
+</head>
+<body>
+<div id="content">
+<h1 class="title">实现一个更好的Lisp解释器</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org70b3760">数据类型：字符串，布尔值，复数，端口</a></li>
+<li><a href="#org08f4da0">新增语法: 字符串，注释，引用，#常量</a>
+<ul>
+<li><a href="#orgbf2db35">InputPort 类</a></li>
+<li><a href="#orgbc253fa">readchar  和 readport</a></li>
+<li><a href="#orgf035e11">token -&gt; 原始数据类型</a></li>
+<li><a href="#org3c03927">加强版 repl</a></li>
+<li><a href="#orge5581fd">测试</a></li>
+</ul>
+</li>
+<li><a href="#org2209d75">宏</a></li>
+<li><a href="#orgd9a86dc">尾递归</a></li>
+<li><a href="#orgb44e6f2">续延</a></li>
+<li><a href="#orgcf2078c">不定长函数参数</a></li>
+<li><a href="#org8ea2cb9">语法检查和宏扩展</a></li>
+<li><a href="#orgcd53fb6">更多原始过程</a></li>
+<li><a href="#orgf0d31a4">测试</a></li>
+</ul>
+</div>
+</div>
+<p>
+<a href="http://norvig.com/lispy.html">这篇博客</a> 展示了如何在100行Python代码实现一个简单的Lisp解释器：<a href="https://github.com/klose911/klose911.github.io/blob/master/src/python/src/lisp/lis.py">lis.py</a> 。<a href="https://github.com/klose911/klose911.github.io/blob/master/src/python/src/lisp/lispy.py">lispy.py</a> 这个版本做了一些新的扩展，虽然代码量是原来的三倍左右，但这是一个更完整的 Lisp 实现
+</p>
+<div id="outline-container-org70b3760" class="outline-2">
+<h2 id="org70b3760">数据类型：字符串，布尔值，复数，端口</h2>
+<div class="outline-text-2" id="text-org70b3760">
+<pre class="example">
+    增加一个新的数据类型可能有三个地方需要修改：
+
+    数据类型的内部表达方式
+    对这些数据类型的操作
+    读取新的数据类型的语法
+</pre>
+
+<p>
+下面是增加的四种数据类型：
+</p>
+<ol class="org-ol">
+<li>字符串：使用 <span class="underline">双引号</span> 扩起来的。在一个字符串中， <b>\n</b> 代表着一个 <span class="underline">新行</span> ， <b>\"</b> 表示一个 <span class="underline">双引号</span></li>
+<li>布尔值： 
+<ul class="org-ul">
+<li><span class="underline">True</span> 和 <span class="underline">False</span> 的语法是： <b>#t</b> 和 <b>#f</b></li>
+<li>类型判断过程： <b>boolean?</b></li>
+</ul></li>
+<li>复数：使用 <b>cmath</b> 模块 替换 <span class="underline">math</span> 模块来支付复数。这样可以用 <span class="underline">3+4i</span> 来表达复数常量</li>
+<li>端口：没有语法需要添加，但是需要新增 <span class="underline">port?</span> ,  <span class="underline">load</span> ,  <span class="underline">open-input-file</span> ,  <span class="underline">close-input-port</span> ,  <span class="underline">open-output-file</span> ,  <span class="underline">close-output-port</span> , <span class="underline">read</span> ,  <span class="underline">read-char</span> ,  <span class="underline">write</span>  and <span class="underline">display</span> 
+<ul class="org-ul">
+<li>输出端口：使用 Python <span class="underline">原生 file 对象</span> 来表达</li>
+<li>输入端口：包装在一个 <b>InputPort</b> 类，这个类包含 <span class="underline">被读的 file 对象</span> 和 <span class="underline">最后被读的那一行</span></li>
+</ul></li>
+</ol>
+<pre class="example">
+这四种新的数据结构，除了输入端口用了新实现的 InputPort 类，其他都使用了 Python 原生的数据结构
+
+InputPort 类更加方便，因为 Scheme 输入端口不仅需要处理读取表达式，而且需要读取字符
+与之相比原来的 tokenizer 只能处理一个完整行，而不是单独的字符
+</pre>
+
+<p>
+同时还有一种老的数据类型独立出来：
+</p>
+<ul class="org-ul">
+<li>符号：在上一个版本的解释器中，符号被实现为字符串。为了和新增加的字符串类型作为区别，符号被实现为一个新的类 <b>Symbol</b> ，直接继承于 <span class="underline">str</span> 类</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">Symbol</span>(<span style="color: #f08080;">str</span>): <span style="color: #00bfff; font-weight: bold;">pass</span>
+
+<span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">Sym</span>(s, symbol_table={}):
+    <span style="color: #ffebcd;">"Find or create unique Symbol entry for str s in symbol table."</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> s <span style="color: #00bfff; font-weight: bold;">not</span> <span style="color: #00bfff; font-weight: bold;">in</span> symbol_table: <span style="color: #4eee94;">symbol_table</span>[s] = Symbol(s)
+    <span style="color: #00bfff; font-weight: bold;">return</span> symbol_table[s]
+
+_quote, _if, _set, _define, _lambda, _begin, _definemacro, = <span style="color: #f08080;">map</span>(Sym, 
+<span style="color: #deb887;">"quote   if   set!  define   lambda   begin   define-macro"</span>.split())
+
+<span style="color: #4eee94;">_quasiquote</span>, <span style="color: #4eee94;">_unquote</span>, <span style="color: #4eee94;">_unquotesplicing</span> = <span style="color: #f08080;">map</span>(Sym,
+<span style="color: #deb887;">"quasiquote   unquote   unquote-splicing"</span>.split())
+</pre>
+</div>
+
+<pre class="example">
+    现在无法再使用 x[0] == 'if' ，因为 if 现在是一个字符串，而不是 Symbol 对象
+
+    相应地定义 _if 为 Sym('if') ，用 x[0] == _if 来做判断
+    其中 Sym 函数管理了一个 没有重复的符号表 ：symbol_table 
+</pre>
+</div>
+</div>
+<div id="outline-container-org08f4da0" class="outline-2">
+<h2 id="org08f4da0">新增语法: 字符串，注释，引用，#常量</h2>
+<div class="outline-text-2" id="text-org08f4da0">
+<ul class="org-ul">
+<li>增加字符串类型以后使得标记化过程变得复杂。现在无法再使用 <span class="underline">空白符</span> 来分割标记，因为 <b>空白符同样会出现在字符串中</b> 。相应地需要使用复杂的 <b>正则表达式</b> 来把输入解析成标记</li>
+<li>在 Scheme 中 <span class="underline">注释</span> 是以' <b>;</b> '开头直到行尾。，必须把从' <b>;</b> '开头直到行尾收集到一个标记中，并且忽略到这个标记</li>
+<li>还需要支持6中新的标记： 
+<ul class="org-ul">
+<li><b>#t</b> : <span class="underline">True</span> 常量</li>
+<li><b>#f</b> : <span class="underline">False</span> 常量</li>
+<li><b>'</b> : <b>引用</b> ( <span class="underline">quote</span> ) 后面的表达式，例如 <span class="underline">'exp</span> 等价于 <span class="underline">(quote exp)</span></li>
+<li><b>`</b> : <b>准引用</b> ( <span class="underline">quasiquote</span> ) 后面的表达式 
+<ul class="org-ul">
+<li><span class="underline">准引用</span> 是 <b>运行时获得值</b> ，而 <span class="underline">引用</span> 是 <b>编译时值已经确定</b> ，因此 <span class="underline">准引用</span> 可以 <b>包含变量</b> ，如果需要这个变量会在运行时被替换：
+<ul class="org-ul">
+<li><b>,</b> : <span class="underline">,exp</span> 表示 exp 是个 <span class="underline">变量</span> ，替换这个 exp <span class="underline">变量的值</span></li>
+<li><b>,@</b> : <span class="underline">,@exp</span> 表示 exp 是个 <span class="underline">列表</span> ，用这个 <span class="underline">列表中所有的元素</span> 来做替换</li>
+</ul></li>
+</ul></li>
+</ul></li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">define</span> <span style="color: #daa520; font-weight: bold;">a</span> 1<span style="color: #696969;">)</span>
+<span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">define</span> <span style="color: #daa520; font-weight: bold;">b</span> 2<span style="color: #696969;">)</span>
+
+'<span style="color: #696969;">(</span>a b<span style="color: #696969;">)</span>                          <span style="color: #5f9ea0; font-style: italic;">; </span><span style="color: #5f9ea0; font-style: italic;">=&gt; (a b) </span>
+`<span style="color: #696969;">(</span>a b<span style="color: #696969;">)</span>                          <span style="color: #5f9ea0; font-style: italic;">; </span><span style="color: #5f9ea0; font-style: italic;">=&gt; '(a b)</span>
+
+`<span style="color: #696969;">(</span>a ,b<span style="color: #696969;">)</span>                         <span style="color: #5f9ea0; font-style: italic;">; </span><span style="color: #5f9ea0; font-style: italic;">=&gt; '(a 2), a &#20381;&#26087;&#26159;&#37027;&#20010;&#21464;&#37327; a</span>
+<span style="color: #696969;">(</span>quasiquote <span style="color: #696969;">(</span>a <span style="color: #696969;">(</span>unquote b<span style="color: #696969;">)))</span>    <span style="color: #5f9ea0; font-style: italic;">; </span><span style="color: #5f9ea0; font-style: italic;">=&gt; '(a 2), &#21644; `(a ,b) &#31561;&#20215;</span>
+
+`<span style="color: #696969;">(</span>,a ,b<span style="color: #696969;">)</span>                        <span style="color: #5f9ea0; font-style: italic;">; </span><span style="color: #5f9ea0; font-style: italic;">=&gt; '(1 2)</span>
+
+<span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">define</span> <span style="color: #daa520; font-weight: bold;">c</span> '<span style="color: #696969;">(</span>3 4 5<span style="color: #696969;">))</span>
+`<span style="color: #696969;">(</span>,b ,@c<span style="color: #696969;">)</span>                       <span style="color: #5f9ea0; font-style: italic;">; </span><span style="color: #5f9ea0; font-style: italic;">=&gt; (2 3 4 5) </span>
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgbf2db35" class="outline-3">
+<h3 id="orgbf2db35">InputPort 类</h3>
+<div class="outline-text-3" id="text-orgbf2db35">
+<p>
+引入 InputPort 类之后使得 repl 循环变得更加强大：
+</p>
+<ul class="org-ul">
+<li>支持多行读取</li>
+<li>错误检查和打印</li>
+</ul>
+
+<p>
+下面是 InputPort 的实现：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">InPort</span>(<span style="color: #f08080;">object</span>):
+    <span style="color: #ffebcd;">"An input port. Retains a line of chars."</span>
+    <span style="color: #4eee94;">tokenizer</span> = r<span style="color: #deb887;">"""\s*(,@|[('`,)]|"(?:[\\].|[^\\"])*"|;.*|[^\s('"`,;)]*)(.*)"""</span>
+    <span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">__init__</span>(<span style="color: #00bfff; font-weight: bold;">self</span>, <span style="color: #f08080;">file</span>):
+        <span style="color: #00bfff; font-weight: bold;">self</span>.<span style="color: #f08080;">file</span> = <span style="color: #f08080;">file</span>; <span style="color: #00bfff; font-weight: bold;">self</span>.line = <span style="color: #deb887;">""</span>
+    <span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">next_token</span>(<span style="color: #00bfff; font-weight: bold;">self</span>):
+        <span style="color: #ffebcd;">"Return the next token, reading new text into line buffer if needed."</span>
+        <span style="color: #00bfff; font-weight: bold;">while</span> <span style="color: #ffd700;">True</span>:
+            <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #00bfff; font-weight: bold;">self</span>.line == <span style="color: #deb887;">""</span>: <span style="color: #00bfff; font-weight: bold;">self</span>.line = <span style="color: #00bfff; font-weight: bold;">self</span>.<span style="color: #f08080;">file</span>.readline()
+            <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #00bfff; font-weight: bold;">self</span>.line == <span style="color: #deb887;">""</span>: <span style="color: #00bfff; font-weight: bold;">return</span> eof_object
+            <span style="color: #4eee94;">token</span>, <span style="color: #00bfff; font-weight: bold;">self</span>.line = re.match(InPort.tokenizer, <span style="color: #00bfff; font-weight: bold;">self</span>.line).groups()
+            <span style="color: #00bfff; font-weight: bold;">if</span> token != <span style="color: #deb887;">''</span> <span style="color: #00bfff; font-weight: bold;">and</span> <span style="color: #00bfff; font-weight: bold;">not</span> token.startswith(<span style="color: #deb887;">';'</span>):
+                <span style="color: #00bfff; font-weight: bold;">return</span> token
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgbc253fa" class="outline-3">
+<h3 id="orgbc253fa">readchar  和 readport</h3>
+<div class="outline-text-3" id="text-orgbc253fa">
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #4eee94;">eof_object</span> = Symbol(<span style="color: #deb887;">'#&lt;eof-object&gt;'</span>) <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">Note: uninterned; can't be read</span>
+
+<span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">readchar</span>(inport):
+    <span style="color: #ffebcd;">"Read the next character from an input port."</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> inport.line != <span style="color: #deb887;">''</span>:
+        <span style="color: #4eee94;">ch</span>, <span style="color: #4eee94;">inport.line</span> = inport.line[0], inport.line[1:]
+        <span style="color: #00bfff; font-weight: bold;">return</span> ch
+    <span style="color: #00bfff; font-weight: bold;">else</span>:
+        <span style="color: #00bfff; font-weight: bold;">return</span> inport.<span style="color: #f08080;">file</span>.read(1) <span style="color: #00bfff; font-weight: bold;">or</span> eof_object
+
+<span style="color: #4eee94;">quotes</span> = {<span style="color: #deb887;">"'"</span>:_quote, <span style="color: #deb887;">"`"</span>:_quasiquote, <span style="color: #deb887;">","</span>:_unquote, <span style="color: #deb887;">",@"</span>:_unquotesplicing}
+
+<span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">read</span>(inport):
+    <span style="color: #ffebcd;">"Read a Scheme expression from an input port."</span>
+    <span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">read_ahead</span>(token):
+        <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #deb887;">'('</span> == token: 
+            <span style="color: #4eee94;">L</span> = []
+            <span style="color: #00bfff; font-weight: bold;">while</span> <span style="color: #ffd700;">True</span>:
+                <span style="color: #4eee94;">token</span> = inport.next_token()
+                <span style="color: #00bfff; font-weight: bold;">if</span> token == <span style="color: #deb887;">')'</span>: <span style="color: #00bfff; font-weight: bold;">return</span> L
+                <span style="color: #00bfff; font-weight: bold;">else</span>: L.append(read_ahead(token))
+        <span style="color: #00bfff; font-weight: bold;">elif</span> <span style="color: #deb887;">')'</span> == token: <span style="color: #00bfff; font-weight: bold;">raise</span> <span style="color: #98f5ff;">SyntaxError</span>(<span style="color: #deb887;">'unexpected )'</span>)
+        <span style="color: #00bfff; font-weight: bold;">elif</span> token <span style="color: #00bfff; font-weight: bold;">in</span> quotes: <span style="color: #00bfff; font-weight: bold;">return</span> [quotes[token], read(inport)]
+        <span style="color: #00bfff; font-weight: bold;">elif</span> token <span style="color: #00bfff; font-weight: bold;">is</span> eof_object: <span style="color: #00bfff; font-weight: bold;">raise</span> <span style="color: #98f5ff;">SyntaxError</span>(<span style="color: #deb887;">'unexpected EOF in list'</span>)
+        <span style="color: #00bfff; font-weight: bold;">else</span>: <span style="color: #00bfff; font-weight: bold;">return</span> atom(token)
+        <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">body of read:</span>
+    <span style="color: #4eee94;">token1</span> = inport.next_token()
+    <span style="color: #00bfff; font-weight: bold;">return</span> eof_object <span style="color: #00bfff; font-weight: bold;">if</span> token1 <span style="color: #00bfff; font-weight: bold;">is</span> eof_object <span style="color: #00bfff; font-weight: bold;">else</span> read_ahead(token1)
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgf035e11" class="outline-3">
+<h3 id="orgf035e11">token -&gt; 原始数据类型</h3>
+<div class="outline-text-3" id="text-orgf035e11">
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">atom</span>(token):
+    <span style="color: #ffebcd;">'Numbers become numbers; #t and #f are booleans; "..." string; otherwise Symbol.'</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> token == <span style="color: #deb887;">'#t'</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">True</span>
+    <span style="color: #00bfff; font-weight: bold;">elif</span> token == <span style="color: #deb887;">'#f'</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">False</span>
+    <span style="color: #00bfff; font-weight: bold;">elif</span> token[0] == <span style="color: #deb887;">'"'</span>: <span style="color: #00bfff; font-weight: bold;">return</span> token[1:-1].decode(<span style="color: #deb887;">'string_escape'</span>)
+    <span style="color: #00bfff; font-weight: bold;">try</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #f08080;">int</span>(token)
+    <span style="color: #00bfff; font-weight: bold;">except</span> <span style="color: #98f5ff;">ValueError</span>:
+        <span style="color: #00bfff; font-weight: bold;">try</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #f08080;">float</span>(token)
+        <span style="color: #00bfff; font-weight: bold;">except</span> <span style="color: #98f5ff;">ValueError</span>:
+            <span style="color: #00bfff; font-weight: bold;">try</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #f08080;">complex</span>(token.replace(<span style="color: #deb887;">'i'</span>, <span style="color: #deb887;">'j'</span>, 1))
+            <span style="color: #00bfff; font-weight: bold;">except</span> <span style="color: #98f5ff;">ValueError</span>:
+                <span style="color: #00bfff; font-weight: bold;">return</span> Sym(token)
+</pre>
+</div>
+
+<p>
+原始数据类型转换成字符串：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">to_string</span>(x):
+    <span style="color: #ffebcd;">"Convert a Python object back into a Lisp-readable string."</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> x <span style="color: #00bfff; font-weight: bold;">is</span> <span style="color: #ffd700;">True</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #deb887;">"#t"</span>
+    <span style="color: #00bfff; font-weight: bold;">elif</span> x <span style="color: #00bfff; font-weight: bold;">is</span> <span style="color: #ffd700;">False</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #deb887;">"#f"</span>
+    <span style="color: #00bfff; font-weight: bold;">elif</span> isa(x, Symbol): <span style="color: #00bfff; font-weight: bold;">return</span> x
+    <span style="color: #00bfff; font-weight: bold;">elif</span> isa(x, <span style="color: #f08080;">str</span>): <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #deb887;">'"%s"'</span> % x.encode(<span style="color: #deb887;">'string_escape'</span>).replace(<span style="color: #deb887;">'"'</span>,r<span style="color: #deb887;">'\"'</span>)
+    <span style="color: #00bfff; font-weight: bold;">elif</span> isa(x, <span style="color: #f08080;">list</span>): <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #deb887;">'('</span>+<span style="color: #deb887;">' '</span>.join(<span style="color: #f08080;">map</span>(to_string, x))+<span style="color: #deb887;">')'</span>
+    <span style="color: #00bfff; font-weight: bold;">elif</span> isa(x, <span style="color: #f08080;">complex</span>): <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #f08080;">str</span>(x).replace(<span style="color: #deb887;">'j'</span>, <span style="color: #deb887;">'i'</span>)
+    <span style="color: #00bfff; font-weight: bold;">else</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #f08080;">str</span>(x)
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org3c03927" class="outline-3">
+<h3 id="org3c03927">加强版 repl</h3>
+<div class="outline-text-3" id="text-org3c03927">
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">repl</span>(prompt=<span style="color: #deb887;">'lispy&gt; '</span>, inport=InPort(sys.stdin), out=sys.stdout):
+    <span style="color: #ffebcd;">"A prompt-read-eval-print loop."</span>
+    sys.stderr.write(<span style="color: #deb887;">"Lispy version 2.0\n"</span>)
+    <span style="color: #00bfff; font-weight: bold;">while</span> <span style="color: #ffd700;">True</span>:
+        <span style="color: #00bfff; font-weight: bold;">try</span>:
+            <span style="color: #00bfff; font-weight: bold;">if</span> prompt: sys.stderr.write(prompt)
+            <span style="color: #4eee94;">x</span> = parse(inport)
+            <span style="color: #00bfff; font-weight: bold;">if</span> x <span style="color: #00bfff; font-weight: bold;">is</span> eof_object: <span style="color: #00bfff; font-weight: bold;">return</span>
+            <span style="color: #4eee94;">val</span> = <span style="color: #f08080;">eval</span>(x)
+            <span style="color: #00bfff; font-weight: bold;">if</span> val <span style="color: #00bfff; font-weight: bold;">is</span> <span style="color: #00bfff; font-weight: bold;">not</span> <span style="color: #ffd700;">None</span> <span style="color: #00bfff; font-weight: bold;">and</span> out: <span style="color: #00bfff; font-weight: bold;">print</span> &gt;&gt; out, to_string(val)
+        <span style="color: #00bfff; font-weight: bold;">except</span> <span style="color: #98f5ff;">Exception</span> <span style="color: #00bfff; font-weight: bold;">as</span> e:
+            <span style="color: #00bfff; font-weight: bold;">print</span> <span style="color: #deb887;">'%s: %s'</span> % (<span style="color: #f08080;">type</span>(e).<span style="color: #f08080;">__name__</span>, e)
+</pre>
+</div>
+
+<p>
+现在可以支持从文件读取 sheme 代码
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">load</span>(filename):
+    <span style="color: #ffebcd;">"Eval every expression from a file."</span>
+    repl(<span style="color: #ffd700;">None</span>, InPort(<span style="color: #f08080;">open</span>(filename)), <span style="color: #ffd700;">None</span>)
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orge5581fd" class="outline-3">
+<h3 id="orge5581fd">测试</h3>
+<div class="outline-text-3" id="text-orge5581fd">
+<pre class="example">
+&gt;&gt;&gt; repl()
+Lispy version 2.0
+lispy&gt; (define (cube x)
+	  (* x (* x x))) ; input spans multiple lines
+
+lispy&gt; (cube 10)
+1000
+
+lispy&gt; (cube 1) (cube 2) (cube 3) ; multiple inputs per line
+1
+
+lispy&gt; 8
+
+lispy&gt; 27
+
+lispy&gt; (/ 3 0) ; error recovery
+ZeroDivisionError: integer division or modulo by zero
+
+lispy&gt; (if 1 2 3 4 5) ; syntax error recovery
+SyntaxError: (if 1 2 3 4 5): wrong length
+
+lispy&gt; (defun (f x)
+	  (set! 3 x)) ;; early syntax error detection
+SyntaxError: (set! 3 x): can set! only a symbol
+
+lispy&gt; 
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org2209d75" class="outline-2">
+<h2 id="org2209d75">宏</h2>
+<div class="outline-text-2" id="text-org2209d75">
+<p>
+用户可以使用 <span class="underline">define-macro</span> 特殊形式（和标准 Scheme 实现略有不同）来定义宏，这也可以被用来定义一些其他的类似 <span class="underline">and</span> 的特殊形式。宏只能被定义在一个 <span class="underline">文件的顶层级别</span> ， <span class="underline">交互式会话</span> ，或在 <span class="underline">顶层执行环境</span> 中以 <span class="underline">begin</span> 开头 
+</p>
+
+<p>
+下面定义了 <span class="underline">let</span> 和 <span class="underline">and</span> 宏，这两个例子也展示了 <b>'`'</b> ,  <b>','</b> ,  <b>',@'</b> 的使用方法： 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">let</span>(*args):
+    <span style="color: #4eee94;">args</span> = <span style="color: #f08080;">list</span>(args)
+    <span style="color: #4eee94;">x</span> = cons(_let, args)
+    require(x, <span style="color: #f08080;">len</span>(args)&gt;1)
+    <span style="color: #4eee94;">bindings</span>, <span style="color: #4eee94;">body</span> = args[0], args[1:]
+    require(x, <span style="color: #f08080;">all</span>(isa(b, <span style="color: #f08080;">list</span>) <span style="color: #00bfff; font-weight: bold;">and</span> <span style="color: #f08080;">len</span>(b)==2 <span style="color: #00bfff; font-weight: bold;">and</span> isa(b[0], Symbol)
+                   <span style="color: #00bfff; font-weight: bold;">for</span> b <span style="color: #00bfff; font-weight: bold;">in</span> bindings), <span style="color: #deb887;">"illegal binding list"</span>)
+    <span style="color: #f08080;">vars</span>, <span style="color: #4eee94;">vals</span> = <span style="color: #f08080;">zip</span>(*bindings)
+    <span style="color: #00bfff; font-weight: bold;">return</span> [[_lambda, <span style="color: #f08080;">list</span>(<span style="color: #f08080;">vars</span>)]+<span style="color: #f08080;">map</span>(expand, body)] + <span style="color: #f08080;">map</span>(expand, vals)
+
+<span style="color: #4eee94;">_append</span>, <span style="color: #4eee94;">_cons</span>, <span style="color: #4eee94;">_let</span> = <span style="color: #f08080;">map</span>(Sym(<span style="color: #deb887;">"append cons let"</span>.split))
+
+<span style="color: #4eee94;">macro_table</span> = {_let:let} <span style="color: #5f9ea0; font-style: italic;">## </span><span style="color: #5f9ea0; font-style: italic;">More macros can go here</span>
+
+<span style="color: #f08080;">eval</span>(parse(<span style="color: #deb887;">"""(begin</span>
+
+<span style="color: #deb887;">(define-macro and (lambda args </span>
+<span style="color: #deb887;">   (if (null? args) #t</span>
+<span style="color: #deb887;">       (if (= (length args) 1) (car args)</span>
+<span style="color: #deb887;">           `(if ,(car args) (and ,@(cdr args)) #f)))))</span>
+
+<span style="color: #deb887;">;; More macros can go here</span>
+
+<span style="color: #deb887;">)"""</span>))
+</pre>
+</div>
+
+<pre class="example">
+def let(*args):
+
+这里的 *args 表示任何多个无名参数，它是一个tuple
+类似的 **kwargs 表示关键字参数，它是一个dict
+</pre>
+
+<p>
+其中 <span class="underline">require</span> 和 <span class="underline">expand</span> 过程后面会讲
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd9a86dc" class="outline-2">
+<h2 id="orgd9a86dc">尾递归</h2>
+<div class="outline-text-2" id="text-orgd9a86dc">
+<p>
+在原有的 <span class="underline">eval</span> 逻辑，现在支持 <b>尾递归</b> 。实现尾递归的方式是：把 <b>原有的主体逻辑包装在一个 <span class="underline">while True</span> 循环内</b> ，大部分情景下，代码无需改动，只有下面三种情况需要  <b>更新变量 x</b>  （ <span class="underline">被求值的字符串表达式</span> ）： 
+</p>
+<ol class="org-ol">
+<li><span class="underline">if</span> 表达式</li>
+<li><span class="underline">begin</span> 表达式</li>
+<li>调用 <span class="underline">自定义的过程</span> ：不仅需要把 x 更新为 <span class="underline">自定义的过程体</span> ，还需要把 <span class="underline">环境</span> 更新为一个 <span class="underline">新的帧</span> （绑定了 <span class="underline">实参</span> 和 <span class="underline">形参</span> ）</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">eval</span>(x, env=global_env):
+    <span style="color: #ffebcd;">"Evaluate an expression in an environment."</span>
+    <span style="color: #00bfff; font-weight: bold;">while</span> <span style="color: #ffd700;">True</span>:
+        <span style="color: #00bfff; font-weight: bold;">if</span> isa(x, Symbol):       <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">variable reference</span>
+            <span style="color: #00bfff; font-weight: bold;">return</span> env.find(x)[x]
+        <span style="color: #00bfff; font-weight: bold;">elif</span> <span style="color: #00bfff; font-weight: bold;">not</span> isa(x, <span style="color: #f08080;">list</span>):   <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">constant literal</span>
+            <span style="color: #00bfff; font-weight: bold;">return</span> x                
+        <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _quote:     <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(quote exp)</span>
+            (_, exp) = x
+            <span style="color: #00bfff; font-weight: bold;">return</span> exp
+        <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _if:        <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(if test conseq alt)</span>
+            (_, test, conseq, alt) = x
+            <span style="color: #4eee94;">x</span> = (conseq <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #f08080;">eval</span>(test, env) <span style="color: #00bfff; font-weight: bold;">else</span> alt) <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">&#26356;&#26032; x </span>
+        <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _set:       <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(set! var exp)</span>
+            (_, var, exp) = x
+            env.find(var)[var] = <span style="color: #f08080;">eval</span>(exp, env)
+            <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">None</span> <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">&#36864;&#20986;&#24490;&#29615;</span>
+        <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _define:    <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(define var exp)</span>
+            (_, var, exp) = x
+            <span style="color: #4eee94;">env</span>[var] = <span style="color: #f08080;">eval</span>(exp, env)
+            <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">None</span> <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">&#36864;&#20986;&#24490;&#29615;</span>
+        <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _lambda:    <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(lambda (var*) exp)</span>
+            (_, <span style="color: #f08080;">vars</span>, exp) = x
+            <span style="color: #00bfff; font-weight: bold;">return</span> Procedure(<span style="color: #f08080;">vars</span>, exp, env)
+        <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _begin:     <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(begin exp+)</span>
+            <span style="color: #00bfff; font-weight: bold;">for</span> exp <span style="color: #00bfff; font-weight: bold;">in</span> x[1:-1]:
+                <span style="color: #f08080;">eval</span>(exp, env)
+                <span style="color: #4eee94;">x</span> = x[-1]
+        <span style="color: #00bfff; font-weight: bold;">else</span>:                    <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(proc exp*)</span>
+            <span style="color: #4eee94;">exps</span> = [<span style="color: #f08080;">eval</span>(exp, env) <span style="color: #00bfff; font-weight: bold;">for</span> exp <span style="color: #00bfff; font-weight: bold;">in</span> x]
+            <span style="color: #4eee94;">proc</span> = exps.pop(0)
+            <span style="color: #00bfff; font-weight: bold;">if</span> isa(proc, Procedure):
+                <span style="color: #4eee94;">x</span> = proc.exp <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">&#26356;&#26032;&#27714;&#20540;&#23383;&#31526;&#20018;&#20026;&#33258;&#23450;&#20041;&#36807;&#31243;&#20307;</span>
+                <span style="color: #4eee94;">env</span> = Env(proc.parms, exps, proc.env) <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">&#26356;&#26032;&#29615;&#22659;&#20307;</span>
+            <span style="color: #00bfff; font-weight: bold;">else</span>:
+                <span style="color: #00bfff; font-weight: bold;">return</span> proc(*exps)
+</pre>
+</div>
+
+<p>
+<span class="underline">Procedure</span>  类和原来版本一样：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">Procedure</span>(<span style="color: #f08080;">object</span>):
+    <span style="color: #ffebcd;">"A user-defined Scheme procedure."</span>
+    <span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">__init__</span>(<span style="color: #00bfff; font-weight: bold;">self</span>, parms, exp, env):
+        <span style="color: #00bfff; font-weight: bold;">self</span>.parms, <span style="color: #00bfff; font-weight: bold;">self</span>.exp, <span style="color: #00bfff; font-weight: bold;">self</span>.env = parms, exp, env
+    <span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">__call__</span>(<span style="color: #00bfff; font-weight: bold;">self</span>, *args): 
+        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #f08080;">eval</span>(<span style="color: #00bfff; font-weight: bold;">self</span>.exp, Env(<span style="color: #00bfff; font-weight: bold;">self</span>.parms, args, <span style="color: #00bfff; font-weight: bold;">self</span>.env))
+</pre>
+</div>
+
+<pre class="example">
+递归版本的累加：
+(define (sum-to n)
+  (if (= n 0)
+      0
+      (+ n (sum-to (- n 1)))))
+
+尾递归版本的累加：
+(define (sum2 n acc)
+  (if (= n 0)
+      acc
+      (sum2 (- n 1) (+ n acc))))
+
+尾递归版本的累加不会每次都开一个新的栈，但是更难编写
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgb44e6f2" class="outline-2">
+<h2 id="orgb44e6f2">续延</h2>
+<div class="outline-text-2" id="text-orgb44e6f2">
+<p>
+Scheme 可以用 <span class="underline">迭代</span> 来替代 <span class="underline">递归</span> ，因此不需要任何特殊类似 for 或者 while 的特殊语法。 但是像 python 中的 <span class="underline">try/except</span> 或者 C 语言中的 <span class="underline">setjmp/longjmp</span> 等非局部函数中的控制流程又怎么实现呢？ Scheme 提供了一种被称为 <span class="underline">call/cc</span> (call with the current continuation) 的原始过程，来处理这个问题，先看几个例子： 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">call/cc</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">lambda</span> <span style="color: #696969;">(</span>throw<span style="color: #696969;">)</span> 
+           <span style="color: #696969;">(</span>+ 5 <span style="color: #696969;">(</span>* 10 <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">call/cc</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">lambda</span> <span style="color: #696969;">(</span>escape<span style="color: #696969;">)</span> <span style="color: #696969;">(</span>* 100 <span style="color: #696969;">(</span>escape 3<span style="color: #696969;">))))))))</span>
+<span style="color: #5f9ea0; font-style: italic;">;; </span><span style="color: #5f9ea0; font-style: italic;">=&gt; (+ 5 (* 10 3)) = 35  </span>
+
+<span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">call/cc</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">lambda</span> <span style="color: #696969;">(</span>throw<span style="color: #696969;">)</span> 
+           <span style="color: #696969;">(</span>+ 5 <span style="color: #696969;">(</span>* 10 <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">call/cc</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">lambda</span> <span style="color: #696969;">(</span>escape<span style="color: #696969;">)</span> <span style="color: #696969;">(</span>* 100 <span style="color: #696969;">(</span>throw 3<span style="color: #696969;">))))))))</span>
+<span style="color: #5f9ea0; font-style: italic;">;; </span><span style="color: #5f9ea0; font-style: italic;">=&gt; 3 </span>
+</pre>
+</div>
+<p>
+In the first example, evaluating (escape 3) causes Scheme to abort the current calculation and return 3 as the value of the enclosing call to call/cc. The result is the same as (+ 5 (* 10 3)) or 35.
+</p>
+
+<ul class="org-ul">
+<li>第一个例子里，对于 (esacpe 3) 的求值导致 Scheme 放弃了当前的计算，并返回了 3 作为 <span class="underline">(call/cc (lambda (escape) (* 100 (escape 3))))</span> 的返回值。最终的结果等于  <span class="underline">(+ 5 (* 10 3))</span> 或者 35</li>
+<li>第二个例子中，(throw 3) 放弃了两层计算，直接返回到顶层的续延，因此直接返回了 3</li>
+</ul>
+
+<p>
+通常来讲， <span class="underline">call/cc</span> 有一个参数 <span class="underline">proc</span> ，proc 也是一个 <b>只接受一个参数 <span class="underline">throw</span> 的过程</b> ：
+</p>
+<ul class="org-ul">
+<li>throw 同样是一个 <b>只接受一个参数的过程</b> ，实际上这个参数就是所谓的 <b>续延</b></li>
+<li>proc 有自己定义的过程体</li>
+</ul>
+
+<p>
+当 call/cc 被调用时：
+</p>
+<ol class="org-ol">
+<li><b>当前计算环境的续延</b> 会被绑定到  <span class="underline">throw</span> 参数上</li>
+<li>求值 proc 的过程体 
+<ul class="org-ul">
+<li>如果在这个过程体中 throw 被调用，那么 call/cc 就会立刻返回这个 <span class="underline">调用 throw 的参数值</span></li>
+<li>如果在这个过程体中 throw 没被调用，那么 call/cc 就会返回 <span class="underline">过程体的求值结果</span></li>
+</ul></li>
+</ol>
+
+<pre class="example">
+ (call/cc (lambda (throw) 
+	     (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (throw 3))))))))
+
+(call/cc proc) 中的 proc 就是 (lambda (throw) (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (throw 3)))))))
+proc 只有一个参数  throw
+proc 有一段自己定义的逻辑 (+ 5 (* 10 (call/cc (lambda (escape) (* 100 (throw 3)))))) 作为过程体 
+
+最难以理解的是这个 throw 哪里来的？实际上 throw 的绑定是由最外层的 call/cc 做的，它会把最外层的续延绑定到 throw
+
+这个过程体会被求解：
+如果在这个过程体里 throw 被一个参数 v 调用，整个 call/cc 就会返回这个 v , 类似这里的 (throw 3) ，因此这个 call/cc 的返回值就是 3 
+如果在这个过程体里 throw 没有被调用，那 call/cc 就会返回这个过程体的求值结果
+</pre>
+
+<p>
+了解 续延的含义后，现在来看看他的实现：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">callcc</span>(proc):
+    <span style="color: #ffebcd;">"Call proc with current continuation; escape only"</span>
+    <span style="color: #4eee94;">ball</span> = <span style="color: #98f5ff;">RuntimeWarning</span>(<span style="color: #deb887;">"Sorry, can't continue this continuation any longer."</span>)
+    <span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">throw</span>(retval): <span style="color: #4eee94;">ball.retval</span> = retval; <span style="color: #00bfff; font-weight: bold;">raise</span> ball
+    <span style="color: #00bfff; font-weight: bold;">try</span>:
+        <span style="color: #00bfff; font-weight: bold;">return</span> proc(throw)
+    <span style="color: #00bfff; font-weight: bold;">except</span> <span style="color: #98f5ff;">RuntimeWarning</span> <span style="color: #00bfff; font-weight: bold;">as</span> w:
+        <span style="color: #00bfff; font-weight: bold;">if</span> w <span style="color: #00bfff; font-weight: bold;">is</span> ball: <span style="color: #00bfff; font-weight: bold;">return</span> ball.retval
+        <span style="color: #00bfff; font-weight: bold;">else</span>: <span style="color: #00bfff; font-weight: bold;">raise</span> w
+</pre>
+</div>
+
+<pre class="example">
+    现在这个实现仅仅允许能离开某个局部过程
+
+    但是，标准的 Scheme 不仅能通过 call/cc 返回一个值
+    还能把续延作为变量保存起来，而且可以被调用任意次，每次都会返回到同一个位置 
+</pre>
+</div>
+</div>
+<div id="outline-container-orgcf2078c" class="outline-2">
+<h2 id="orgcf2078c">不定长函数参数</h2>
+<div class="outline-text-2" id="text-orgcf2078c">
+<p>
+Scheme 原生的 list 函数可以接受任意个参数：(list 1 2) , (list 1 2 3) 等。可以使用类似 (lambda args body) 的形式来定义一个函数，其中 <span class="underline">args</span>  是 一个符号 可以支持任意数量的参数列表，而 <span class="underline">body</span> 是过程体
+</p>
+
+<p>
+实现不定长参数很简单： 只需要在 Env 类的构造器中增加校验 <span class="underline">形参名</span> 是否是一个 <span class="underline">符号</span> 
+</p>
+<ul class="org-ul">
+<li>如果是一个符号，则 <span class="underline">形参</span> 绑定到一个 <span class="underline">所有实参组成的列表</span> 上</li>
+<li>如果不是一个符号，则 <span class="underline">每个形参</span> 按照顺序绑定到 <span class="underline">对应的实参</span> 上</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">class</span> <span style="color: #98f5ff;">Env</span>(<span style="color: #f08080;">dict</span>):
+    <span style="color: #ffebcd;">"An environment: a dict of {'var':val} pairs, with an outer Env."</span>
+    <span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">__init__</span>(<span style="color: #00bfff; font-weight: bold;">self</span>, parms=(), args=(), outer=<span style="color: #ffd700;">None</span>):
+        <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">Bind parm list to corresponding args, or single parm to list of args</span>
+        <span style="color: #00bfff; font-weight: bold;">self</span>.outer = outer
+        <span style="color: #00bfff; font-weight: bold;">if</span> isa(parms, Symbol): 
+            <span style="color: #00bfff; font-weight: bold;">self</span>.update({parms:<span style="color: #f08080;">list</span>(args)})
+        <span style="color: #00bfff; font-weight: bold;">else</span>: 
+            <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #f08080;">len</span>(args) != <span style="color: #f08080;">len</span>(parms):
+                <span style="color: #00bfff; font-weight: bold;">raise</span> <span style="color: #98f5ff;">TypeError</span>(<span style="color: #deb887;">'expected %s, given %s, '</span> 
+                                % (to_string(parms), to_string(args)))
+            <span style="color: #00bfff; font-weight: bold;">self</span>.update(<span style="color: #f08080;">zip</span>(parms,args))
+    <span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">find</span>(<span style="color: #00bfff; font-weight: bold;">self</span>, var):
+        <span style="color: #ffebcd;">"Find the innermost Env where var appears."</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span> var <span style="color: #00bfff; font-weight: bold;">in</span> <span style="color: #00bfff; font-weight: bold;">self</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #00bfff; font-weight: bold;">self</span>
+        <span style="color: #00bfff; font-weight: bold;">elif</span> <span style="color: #00bfff; font-weight: bold;">self</span>.outer <span style="color: #00bfff; font-weight: bold;">is</span> <span style="color: #ffd700;">None</span>: <span style="color: #00bfff; font-weight: bold;">raise</span> <span style="color: #98f5ff;">LookupError</span>(var)
+        <span style="color: #00bfff; font-weight: bold;">else</span>: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #00bfff; font-weight: bold;">self</span>.outer.find(var)
+</pre>
+</div>
+
+<pre class="example">
+    真实的 Scheme 还支持 (lambda (arg1 arg2 . rest) ...) 这种形式
+    这表示：arg1 是一个定长的形参名，而 arg2 是一个不定长度的形参符号
+
+    这需要支持 pair 的列表，但因为这里使用了 python 内置的 list 数据类型，因此无法支持这种形式
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org8ea2cb9" class="outline-2">
+<h2 id="org8ea2cb9">语法检查和宏扩展</h2>
+<div class="outline-text-2" id="text-org8ea2cb9">
+<p>
+思考下面的定义错误的代码：
+</p>
+<div class="org-src-container">
+<pre class="src src-scheme"><span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">define</span> <span style="color: #daa520; font-weight: bold;">f</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">lambda</span> <span style="color: #696969;">(</span>x<span style="color: #696969;">)</span> <span style="color: #696969;">(</span>set! 3 x<span style="color: #696969;">)))</span>
+<span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">define</span> <span style="color: #daa520; font-weight: bold;">g</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">lambda</span> <span style="color: #696969;">(</span>3<span style="color: #696969;">)</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #696969;">(</span>x = 0<span style="color: #696969;">))))</span>
+<span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">define</span> <span style="color: #daa520; font-weight: bold;">h</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">lambda</span> <span style="color: #696969;">(</span>x<span style="color: #696969;">)</span> <span style="color: #696969;">(</span><span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #696969;">(</span>x = 0<span style="color: #696969;">)</span> 1 2 3<span style="color: #696969;">)))</span>
+</pre>
+</div>
+
+<p>
+上个版本中，这些定义被求值的时候不会有任何的报错提示。直到这些过程被调用，才会有错误产生。通常情况下，错误应该越早被报出越好，所以这个版本希望语法错误在定义的时候就被检查到，而不是直到他们被调用才抛出
+</p>
+
+<p>
+错误检查可以通过改进原有的 <span class="underline">parse</span> 函数来实现。上个版本中 parse 被实现为一个 <span class="underline">解析S表达式</span> 的过程，换句话说，任何符合 S 表达式的字符串都会被认为是合法的程序。现在版本会校验表达式的合法性：
+</p>
+<ul class="org-ul">
+<li>每个特殊语法形式的 <span class="underline">参数数量</span> 是否正确</li>
+<li><span class="underline">set!</span> 和 <span class="underline">define</span> 是否作用在一个 <span class="underline">符号</span></li>
+<li><span class="underline">宏</span> 和 <span class="underline">准引用</span> 会被扩展</li>
+</ul>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">被扩展的表达式</td>
+<td class="org-left">扩展后的表达式</td>
+</tr>
+
+<tr>
+<td class="org-left">(begin)</td>
+<td class="org-left">None</td>
+</tr>
+
+<tr>
+<td class="org-left">(if test conseq)</td>
+<td class="org-left">(if test conseq None)</td>
+</tr>
+
+<tr>
+<td class="org-left">(define (f arg&#x2026;) body&#x2026;)</td>
+<td class="org-left">(define f (lambda (arg&#x2026;) body&#x2026;)</td>
+</tr>
+
+<tr>
+<td class="org-left">(lambda (arg&#x2026;) e1 e2&#x2026;)</td>
+<td class="org-left">(lambda (arg&#x2026;) (begin e1 e2&#x2026;))</td>
+</tr>
+
+<tr>
+<td class="org-left">`exp 和 (quasiquote exp)</td>
+<td class="org-left">expand , and ,@ within exp</td>
+</tr>
+
+<tr>
+<td class="org-left">(macro-name arg&#x2026;)</td>
+<td class="org-left">expansion of (macro-name arg&#x2026;)</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+<span class="underline">parse</span> 函数的实现如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">parse</span>(inport):
+    <span style="color: #ffebcd;">"Parse a program: read and expand/error-check it."</span>
+    <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">Backwards compatibility: given a str, convert it to an InPort</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #f08080;">isinstance</span>(inport, <span style="color: #f08080;">str</span>): <span style="color: #4eee94;">inport</span> = InPort(StringIO.StringIO(inport))
+    <span style="color: #00bfff; font-weight: bold;">return</span> expand(read(inport), toplevel=<span style="color: #ffd700;">True</span>)
+</pre>
+</div>
+
+<p>
+<span class="underline">expand</span> 函数实现如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">expand</span>(x, toplevel=<span style="color: #ffd700;">False</span>):
+    <span style="color: #ffebcd;">"Walk tree of x, making optimizations/fixes, and signaling SyntaxError."</span>
+    require(x, x!=[])                    <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">() =&gt; Error</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #00bfff; font-weight: bold;">not</span> isa(x, <span style="color: #f08080;">list</span>):                 <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">constant =&gt; unchanged</span>
+        <span style="color: #00bfff; font-weight: bold;">return</span> x
+    <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _quote:                 <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(quote exp)</span>
+        require(x, <span style="color: #f08080;">len</span>(x)==2)
+        <span style="color: #00bfff; font-weight: bold;">return</span> x
+    <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _if:                    
+        <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #f08080;">len</span>(x)==3: <span style="color: #4eee94;">x</span> = x + [<span style="color: #ffd700;">None</span>]     <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(if t c) =&gt; (if t c None)</span>
+        require(x, <span style="color: #f08080;">len</span>(x)==4)
+        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #f08080;">map</span>(expand, x)
+    <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _set:                   
+        require(x, <span style="color: #f08080;">len</span>(x)==3); 
+        <span style="color: #4eee94;">var</span> = x[1]                       <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(set! non-var exp) =&gt; Error</span>
+        require(x, isa(var, Symbol), <span style="color: #deb887;">"can set! only a symbol"</span>)
+        <span style="color: #00bfff; font-weight: bold;">return</span> [_set, var, expand(x[2])]
+    <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _define <span style="color: #00bfff; font-weight: bold;">or</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _definemacro: 
+        require(x, <span style="color: #f08080;">len</span>(x)&gt;=3)            
+        <span style="color: #4eee94;">_def</span>, <span style="color: #4eee94;">v</span>, <span style="color: #4eee94;">body</span> = x[0], x[1], x[2:]
+        <span style="color: #00bfff; font-weight: bold;">if</span> isa(v, <span style="color: #f08080;">list</span>) <span style="color: #00bfff; font-weight: bold;">and</span> v:           <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(define (f args) body)</span>
+            <span style="color: #4eee94;">f</span>, <span style="color: #4eee94;">args</span> = v[0], v[1:]        <span style="color: #5f9ea0; font-style: italic;">#  </span><span style="color: #5f9ea0; font-style: italic;">=&gt; (define f (lambda (args) body))</span>
+            <span style="color: #00bfff; font-weight: bold;">return</span> expand([_def, f, [_lambda, args]+body])
+        <span style="color: #00bfff; font-weight: bold;">else</span>:
+            require(x, <span style="color: #f08080;">len</span>(x)==3)        <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(define non-var/list exp) =&gt; Error</span>
+            require(x, isa(v, Symbol), <span style="color: #deb887;">"can define only a symbol"</span>)
+            <span style="color: #4eee94;">exp</span> = expand(x[2])
+            <span style="color: #00bfff; font-weight: bold;">if</span> _def <span style="color: #00bfff; font-weight: bold;">is</span> _definemacro:     
+                require(x, toplevel, <span style="color: #deb887;">"define-macro only allowed at top level"</span>)
+                <span style="color: #4eee94;">proc</span> = <span style="color: #f08080;">eval</span>(exp)       
+                require(x, <span style="color: #f08080;">callable</span>(proc), <span style="color: #deb887;">"macro must be a procedure"</span>)
+                <span style="color: #4eee94;">macro_table</span>[v] = proc    <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(define-macro v proc)</span>
+                <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">None</span>              <span style="color: #5f9ea0; font-style: italic;">#  </span><span style="color: #5f9ea0; font-style: italic;">=&gt; None; add v:proc to macro_table</span>
+            <span style="color: #00bfff; font-weight: bold;">return</span> [_define, v, exp]
+    <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _begin:
+        <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #f08080;">len</span>(x)==1: <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">None</span>        <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(begin) =&gt; None</span>
+        <span style="color: #00bfff; font-weight: bold;">else</span>: <span style="color: #00bfff; font-weight: bold;">return</span> [expand(xi, toplevel) <span style="color: #00bfff; font-weight: bold;">for</span> xi <span style="color: #00bfff; font-weight: bold;">in</span> x]
+    <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _lambda:                <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(lambda (x) e1 e2) </span>
+        require(x, <span style="color: #f08080;">len</span>(x)&gt;=3)            <span style="color: #5f9ea0; font-style: italic;">#  </span><span style="color: #5f9ea0; font-style: italic;">=&gt; (lambda (x) (begin e1 e2))</span>
+        <span style="color: #f08080;">vars</span>, <span style="color: #4eee94;">body</span> = x[1], x[2:]
+        require(x, (isa(<span style="color: #f08080;">vars</span>, <span style="color: #f08080;">list</span>) <span style="color: #00bfff; font-weight: bold;">and</span> <span style="color: #f08080;">all</span>(isa(v, Symbol) <span style="color: #00bfff; font-weight: bold;">for</span> v <span style="color: #00bfff; font-weight: bold;">in</span> <span style="color: #f08080;">vars</span>))
+                <span style="color: #00bfff; font-weight: bold;">or</span> isa(<span style="color: #f08080;">vars</span>, Symbol), <span style="color: #deb887;">"illegal lambda argument list"</span>)
+        <span style="color: #4eee94;">exp</span> = body[0] <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #f08080;">len</span>(body) == 1 <span style="color: #00bfff; font-weight: bold;">else</span> [_begin] + body
+        <span style="color: #00bfff; font-weight: bold;">return</span> [_lambda, <span style="color: #f08080;">vars</span>, expand(exp)]   
+    <span style="color: #00bfff; font-weight: bold;">elif</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _quasiquote:            <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">`x =&gt; expand_quasiquote(x)</span>
+        require(x, <span style="color: #f08080;">len</span>(x)==2)
+        <span style="color: #00bfff; font-weight: bold;">return</span> expand_quasiquote(x[1])
+    <span style="color: #00bfff; font-weight: bold;">elif</span> isa(x[0], Symbol) <span style="color: #00bfff; font-weight: bold;">and</span> x[0] <span style="color: #00bfff; font-weight: bold;">in</span> macro_table:
+        <span style="color: #00bfff; font-weight: bold;">return</span> expand(macro_table[x[0]](*x[1:]), toplevel) <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(m arg...) </span>
+    <span style="color: #00bfff; font-weight: bold;">else</span>:                                <span style="color: #5f9ea0; font-style: italic;">#        </span><span style="color: #5f9ea0; font-style: italic;">=&gt; macroexpand if m isa macro</span>
+        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #f08080;">map</span>(expand, x)            <span style="color: #5f9ea0; font-style: italic;"># </span><span style="color: #5f9ea0; font-style: italic;">(f arg...) =&gt; expand each</span>
+</pre>
+</div>
+
+<p>
+<span class="underline">expand</span> 函数比起 <span class="underline">eval</span> 函数大概长了一倍，这并不令人惊讶：
+</p>
+<ol class="org-ol">
+<li>它不但要处理正确的表达式，还要校验错误的表达式，并给出出错信息</li>
+<li>它需要支持宏扩展</li>
+</ol>
+
+<p>
+<span class="underline">require</span> 函数：校验表达式是否正确，如果不正确则抛错
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">require</span>(x, predicate, msg=<span style="color: #deb887;">"wrong length"</span>):
+    <span style="color: #ffebcd;">"Signal a syntax error if predicate is false."</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #00bfff; font-weight: bold;">not</span> predicate: <span style="color: #00bfff; font-weight: bold;">raise</span> <span style="color: #98f5ff;">SyntaxError</span>(to_string(x)+<span style="color: #deb887;">': '</span>+msg)
+</pre>
+</div>
+
+<p>
+expand _ quasiquote 函数：替换准引用
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">expand_quasiquote</span>(x):
+    <span style="color: #ffebcd;">"""Expand `x =&gt; 'x; `,x =&gt; x; `(,@x y) =&gt; (append x y) """</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #00bfff; font-weight: bold;">not</span> is_pair(x):
+        <span style="color: #00bfff; font-weight: bold;">return</span> [_quote, x]
+    require(x, x[0] <span style="color: #00bfff; font-weight: bold;">is</span> <span style="color: #00bfff; font-weight: bold;">not</span> _unquotesplicing, <span style="color: #deb887;">"can't splice here"</span>)
+    <span style="color: #00bfff; font-weight: bold;">if</span> x[0] <span style="color: #00bfff; font-weight: bold;">is</span> _unquote:
+        require(x, <span style="color: #f08080;">len</span>(x)==2)
+        <span style="color: #00bfff; font-weight: bold;">return</span> x[1]
+    <span style="color: #00bfff; font-weight: bold;">elif</span> is_pair(x[0]) <span style="color: #00bfff; font-weight: bold;">and</span> x[0][0] <span style="color: #00bfff; font-weight: bold;">is</span> _unquotesplicing:
+        require(x[0], <span style="color: #f08080;">len</span>(x[0])==2)
+        <span style="color: #00bfff; font-weight: bold;">return</span> [_append, x[0][1], expand_quasiquote(x[1:])]
+    <span style="color: #00bfff; font-weight: bold;">else</span>:
+        <span style="color: #00bfff; font-weight: bold;">return</span> [_cons, expand_quasiquote(x[0]), expand_quasiquote(x[1:])]
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgcd53fb6" class="outline-2">
+<h2 id="orgcd53fb6">更多原始过程</h2>
+<div class="outline-text-2" id="text-orgcd53fb6">
+<p>
+在add _ globals中添加更多的原始过程（函数）：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00bfff; font-weight: bold;">def</span> <span style="color: #daa520; font-weight: bold;">add_globals</span>(<span style="color: #00bfff; font-weight: bold;">self</span>):
+    <span style="color: #ffebcd;">"Add some Scheme standard procedures."</span>
+    <span style="color: #00bfff; font-weight: bold;">import</span> math, cmath, operator <span style="color: #00bfff; font-weight: bold;">as</span> op
+    <span style="color: #00bfff; font-weight: bold;">self</span>.update(<span style="color: #f08080;">vars</span>(math))
+    <span style="color: #00bfff; font-weight: bold;">self</span>.update(<span style="color: #f08080;">vars</span>(cmath))
+    <span style="color: #00bfff; font-weight: bold;">self</span>.update({
+     <span style="color: #deb887;">'+'</span>:op.add, <span style="color: #deb887;">'-'</span>:op.sub, <span style="color: #deb887;">'*'</span>:op.mul, <span style="color: #deb887;">'/'</span>:op.div, <span style="color: #deb887;">'not'</span>:op.not_, 
+     <span style="color: #deb887;">'&gt;'</span>:op.gt, <span style="color: #deb887;">'&lt;'</span>:op.lt, <span style="color: #deb887;">'&gt;='</span>:op.ge, <span style="color: #deb887;">'&lt;='</span>:op.le, <span style="color: #deb887;">'='</span>:op.eq, 
+     <span style="color: #deb887;">'equal?'</span>:op.eq, <span style="color: #deb887;">'eq?'</span>:op.is_, <span style="color: #deb887;">'length'</span>:<span style="color: #f08080;">len</span>, <span style="color: #deb887;">'cons'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x,y:[x]+<span style="color: #f08080;">list</span>(y), 
+     <span style="color: #deb887;">'car'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x:x[0], <span style="color: #deb887;">'cdr'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x:x[1:], <span style="color: #deb887;">'append'</span>:op.add,  
+     <span style="color: #deb887;">'list'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> *x:<span style="color: #f08080;">list</span>(x), <span style="color: #deb887;">'list?'</span>: <span style="color: #00bfff; font-weight: bold;">lambda</span> x:isa(x,<span style="color: #f08080;">list</span>),
+     <span style="color: #deb887;">'null?'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x:x==[], <span style="color: #deb887;">'symbol?'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x: isa(x, Symbol),
+     <span style="color: #deb887;">'boolean?'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x: isa(x, <span style="color: #f08080;">bool</span>), <span style="color: #deb887;">'pair?'</span>:is_pair, 
+     <span style="color: #deb887;">'port?'</span>: <span style="color: #00bfff; font-weight: bold;">lambda</span> x:isa(x,<span style="color: #f08080;">file</span>), <span style="color: #deb887;">'apply'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> proc,l: proc(*l), 
+     <span style="color: #deb887;">'eval'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x: <span style="color: #f08080;">eval</span>(expand(x)), <span style="color: #deb887;">'load'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> fn: load(fn), <span style="color: #deb887;">'call/cc'</span>:callcc,
+     <span style="color: #deb887;">'open-input-file'</span>:<span style="color: #f08080;">open</span>,<span style="color: #deb887;">'close-input-port'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> p: p.<span style="color: #f08080;">file</span>.close(), 
+     <span style="color: #deb887;">'open-output-file'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> f:<span style="color: #f08080;">open</span>(f,<span style="color: #deb887;">'w'</span>), <span style="color: #deb887;">'close-output-port'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> p: p.close(),
+     <span style="color: #deb887;">'eof-object?'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x:x <span style="color: #00bfff; font-weight: bold;">is</span> eof_object, <span style="color: #deb887;">'read-char'</span>:readchar,
+     <span style="color: #deb887;">'read'</span>:read, <span style="color: #deb887;">'write'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x,port=sys.stdout:port.write(to_string(x)),
+     <span style="color: #deb887;">'display'</span>:<span style="color: #00bfff; font-weight: bold;">lambda</span> x,port=sys.stdout:port.write(x <span style="color: #00bfff; font-weight: bold;">if</span> isa(x,<span style="color: #f08080;">str</span>) <span style="color: #00bfff; font-weight: bold;">else</span> to_string(x))})
+    <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #00bfff; font-weight: bold;">self</span>
+
+<span style="color: #4eee94;">global_env</span> = add_globals(Env())
+</pre>
+</div>
+
+<pre class="example">
+  这里总共有75个左右的原始过程被定义，离 Scheme 标准大概还差80个左右没有被定义，如果想定义可以被添加在这里
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgf0d31a4" class="outline-2">
+<h2 id="orgf0d31a4">测试</h2>
+<div class="outline-text-2" id="text-orgf0d31a4">
+<p>
+<a href="https://github.com/klose911/klose911.github.io/blob/master/src/python/src/lisp/lispytest.py">lispytest.py</a> 被用来测试当前版本的 lispy 实现
+</p>
+
+<pre class="example">
+    这个版本的lispy只能在 python2.7 运行， 不能在 python3 下运行
+</pre>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

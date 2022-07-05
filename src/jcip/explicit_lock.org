@@ -1,0 +1,162 @@
+#+TITLE: 显式锁
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil
+#+HTML_LINK_UP: thread_pool.html 
+#+HTML_LINK_HOME: jcip.html
+* Lock和ReentrantLock
+显式锁: Lock及其子类(如ReentrantLock, ReadWriteLock等) 
+#+BEGIN_SRC java
+  public interface Lock {
+          void lock();
+          void lockInterruptibly() throws InterruptedException;
+          boolean tryLock();
+          boolean tryLock(long timeout, TimeUnit unit)
+                  throws InterruptedException;
+          void unlock();
+          Condition newCondition();
+  }
+#+END_SRC
+ReentrantLock实现了和内置锁相同的互斥和可见特性
+
+#+BEGIN_SRC java
+  Lock lock = new ReentrantLock();
+  ...
+  lock.lock();
+  try {
+  // update object state
+  // catch exceptions and restore invariants if necessary
+  } finally {
+          lock.unlock();
+  }
+#+END_SRC
+** 尝试型申请 
+Lock.tryLock和Lock.tryLock(long time, TimeUnit unit)方法用于尝试获取锁. 如果尝试没有成功, 则返回false, 否则返回true. 
+
+内置锁则不提供这种特性, 一旦开始申请内置锁, 在申请成功之前, 线程无法中断, 申请也无法取消
+
+Lock的尝试型申请通常用于实现时间限定的task
+
+#+BEGIN_SRC java
+  public boolean transferMoney(Account fromAcct, Account toAcct,
+                               DollarAmount amount, long timeout, TimeUnit unit)
+          throws InsufficientFundsException, InterruptedException {
+          long stopTime = System.nanoTime() + unit.toNanos(timeout);
+          while (true) {
+                  if (fromAcct.lock.tryLock()) {
+                          try {
+                                  if (toAcct.lock.tryLock()) {
+                                          try {
+                                                  if (fromAcct.getBalance().compareTo(amount)
+                                                      < 0)
+                                                          throw new InsufficientFundsException();
+                                                  else {
+                                                          fromAcct.debit(amount);
+                                                          toAcct.credit(amount);
+                                                          return true;
+                                                  }
+                                          } finally {
+                                                  toAcct.lock.unlock();
+                                          }
+                                  }
+                          } finally {
+                                  fromAcct.lock.unlock();
+                          }
+                  }
+                  if (System.nanoTime() > stopTime)
+                          return false;
+                  Thread.sleep(1000L);
+          }
+  }
+#+END_SRC
+** 可中断申请 
+申请一个内置锁时如果锁被其他线程持有, 那么当前线程将被挂起, 等待锁重新可用, 并且在等待期间无法响应中断。而显式锁提供了可中断申请　
+
+#+BEGIN_SRC java
+  try {  
+          // 可中断申请, 在申请锁的过程中如果当前线程被中断, 将抛出InterruptedException异常  
+          lock.lockInterruptibly();  
+  } catch (InterruptedException e) {  
+          System.out.println("interruption happened");  
+          return;  
+  }  
+    
+  // 如果运行到这里, 说明已经申请到锁, 且没有发生异常  
+  try {  
+          System.out.println("run is holding the lock");  
+  } finally {  
+          lock.unlock();  
+  }  
+#+END_SRC
+需要额外处理中断异常
+** 锁的释放
+使用内置锁更容易一些, 而显式锁则繁琐：显示锁必须在finally代码块中进行锁的释放！另外只有申请到锁之后才需要释放锁, 释放未持有的锁可能会抛出未检查异常
+
+显式锁释放方式更灵活: 锁的申请和释放不必在同一个代码块中　
+** 公平锁　
+内置锁采用不公平策略, 而显式锁则可以指定是否使用不公平策略
++ 多个线程申请公平锁时, 申请时间早的线程优先获得锁
++ 不公平锁则允许插队, 当某个线程申请锁时如果锁恰好可用, 则该线程直接获得锁而不用排队
+在锁竞争激烈时, 不公平策略可以提高程序吞吐量
+** 唤醒和等待 
+线程可以wait在内置锁上, 也可以通过调用内置锁的notify或notifyAll方法唤醒在其上等待的线程, 但是如果有多个线程在内置锁上wait, 无法精确唤醒其中某个特定的线程 
+
+显式锁也可以用于唤醒和等待。调用Lock.newCondition方法可以获得Condition对象, 调用Condition.await方法将使得线程等待, 调用Condition.singal或Condition.singalAll方法可以唤醒在该Condition对象上等待的线程。由于同一个显式锁可以派生出多个Condition对象, 因此我们可以实现精确唤醒
+** 何时使用显式锁
+Java6.0以后显式锁相对内置锁并没有明显的性能优势，只有在发挥显式锁灵活特性的地方才应该使用！
+* 读写锁
+ReentrantLock互斥锁不但限制了多个线程对同一个资源的读/写和写/写竞争，还禁止了读/读竞争。事实上大部分的应用中绝大部分的操作都是读操作，只有少数操作是写操作
+
+读写锁：多个进程可以拥有读锁，只有一个进程可以拥有写锁，读锁和写锁不能同时被拥有
+#+BEGIN_SRC java
+  public interface ReadWriteLock {
+          Lock readLock();
+          Lock writeLock();
+  }
+#+END_SRC
+** 读写锁实现策略
+1. 拥有优先级：当一个锁被释放，是排队中的读锁，还是写锁先占据，还是随机选择
+2. 读锁闯入：当有写锁在排队，是否允许新的线程拥有读锁
+3. 可否重入
+4. 降级：写锁是否能降级为读锁
+5. 升级：读锁是否能升级为写锁，两个读锁同时升级为写锁会造成死锁　
+
+** ReentrantReadWriteLock实现
+1. 公平/非公平
+2. 当有写锁在排队，不允许其他线程拥有读锁
+3. 可重入
+4. 可降级
+5. 不可升级
+#+BEGIN_SRC java
+  public class ReadWriteMap<K,V> {
+          private final Map<K,V> map;
+          private final ReadWriteLock lock = new ReentrantReadWriteLock();
+          private final Lock r = lock.readLock();
+          private final Lock w = lock.writeLock();
+          public ReadWriteMap(Map<K,V> map) {
+                  this.map = map;
+          }
+          public V put(K key, V value) {
+                  w.lock();
+                  try {
+                          return map.put(key, value);
+                  } finally {
+                          w.unlock();
+                  }
+          }
+  // Do the same for remove(), putAll(), clear()
+          public V get(Object key) {
+                  r.lock();
+                  try {
+                          return map.get(key);
+                  } finally {
+                          r.unlock();
+                  }
+          }
+  // Do the same for other read-only Map methods
+  }
+#+END_SRC
+[[file:customer_synchronizer.org][Next:同步类]]
+
+[[file:thread_pool.org][Previous:线程池]]
+
+[[file:jcip.org][Up:目录]]

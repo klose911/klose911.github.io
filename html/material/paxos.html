@@ -1,0 +1,716 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Paxos算法</title>
+<meta name="generator" content="Org mode" />
+<meta name="author" content="Wu, Shanliang" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { width: 90%; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2019 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="content">
+<h1 class="title">Paxos算法</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org3e8e8b4">问题</a></li>
+<li><a href="#org53a7043">算法</a>
+<ul>
+<li><a href="#org4c0ae1b">问题描述</a></li>
+<li><a href="#org306a4c8">过程</a></li>
+<li><a href="#org6b3ff3b">内容</a>
+<ul>
+<li><a href="#org373e957">决议的提出与批准</a></li>
+</ul>
+</li>
+<li><a href="#org1016e03">实例</a>
+<ul>
+<li><a href="#orge12fc24">情况一</a></li>
+<li><a href="#org06c2e2f">情况二</a></li>
+<li><a href="#orge58fffa">情况三</a></li>
+</ul>
+</li>
+<li><a href="#org5c54b96">决议的发布</a></li>
+</ul>
+</li>
+<li><a href="#org754483c">Progress的保证</a></li>
+</ul>
+</div>
+</div>
+
+
+<div id="outline-container-org3e8e8b4" class="outline-2">
+<h2 id="org3e8e8b4">问题</h2>
+<div class="outline-text-2" id="text-org3e8e8b4">
+<p>
+分布式系统中的节点通信存在两种模型： 
+</p>
+<ul class="org-ul">
+<li><b>共享内存</b></li>
+<li><b>消息传递</b></li>
+</ul>
+
+<p>
+基于消息传递通信模型的分布式系统，不可避免的会发生以下错误：进程可能会慢、被杀死或者重启，消息可能会延迟、丢失、重复，在基础 Paxos 场景中，先不考虑可能出现消息篡改即拜占庭错误的情况。Paxos 算法解决的问题是在 <b>一个可能发生上述异常的分布式系统中如何就某个值达成一致，保证不论发生以上任何异常，都不会破坏决议的一致性</b> 
+</p>
+
+<p>
+一个典型的场景是，在一个分布式数据库系统中，如果各节点的初始状态一致，每个节点都执行相同的操作序列，那么他们最后能得到一个一致的状态。为保证每个节点执行相同的命令序列，需要在每一条指令上执行一个 <span class="underline">一致性算法</span> 以保证每个节点看到的指令一致。一个通用的一致性算法可以应用在许多场景中，是分布式计算中的重要问题
+</p>
+
+<p>
+为描述 Paxos 算法，Lamport 虚拟了一个叫做 Paxos 的希腊城邦，这个岛按照议会民主制的政治模式制订法律，但是没有人愿意将自己的全部时间和精力放在这种事情上。所以无论是议员，议长或者传递纸条的服务员都不能承诺别人需要时一定会出现，也无法承诺批准决议或者传递消息的时间。但是这里假设：
+</p>
+<ol class="org-ol">
+<li>没有 <span class="underline">拜占庭将军问题</span> ：即虽然有可能一个消息被传递了两次，但是绝对不会出现错误的消息</li>
+<li>只要等待足够的时间，消息就会被传到</li>
+<li>Paxos 岛上的议员是 <span class="underline">不会反对其他议员提出的决议</span></li>
+</ol>
+
+<p>
+对应于分布式系统：
+</p>
+<ul class="org-ul">
+<li>议员对应于 <span class="underline">各个节点</span></li>
+<li>制定的法律对应于 <span class="underline">系统的状态</span></li>
+<li>一致性要求对应于 <span class="underline">法律条文只能有一个版本</span></li>
+<li>议员和服务员的不确定性对应于 <span class="underline">节点和消息传递通道的不可靠性</span></li>
+</ul>
+
+<p>
+各个节点需要进入一个一致的状态，例如在独立 Cache 的对称多处理器系统中，各个处理器读内存的某个字节时，必须读到同样的一个值，否则系统就违背了一致性的要求
+</p>
+</div>
+</div>
+
+<div id="outline-container-org53a7043" class="outline-2">
+<h2 id="org53a7043">算法</h2>
+<div class="outline-text-2" id="text-org53a7043">
+</div>
+<div id="outline-container-org4c0ae1b" class="outline-3">
+<h3 id="org4c0ae1b">问题描述</h3>
+<div class="outline-text-3" id="text-org4c0ae1b">
+<p>
+首先将议员的角色分为 <span class="underline">proposers</span> ， <span class="underline">acceptors</span> ，和 <span class="underline">learners</span> ，允许身兼数职：
+</p>
+<ul class="org-ul">
+<li>proposers: <b>提出提案</b> ，提案信息包括提案编号和提议的 value</li>
+<li>acceptor: 收到提案后可以 <b>接受（ <span class="underline">accept</span> ）提案</b> ，若提案获得多数 acceptors 的接受，则称该提案被 <span class="underline">批准</span> （ <span class="underline">chosen</span> ）</li>
+<li>learners: 只能 <span class="underline">学习</span> 被批准的提案</li>
+</ul>
+
+<p>
+划分角色后，就可以更精确的定义问题：
+</p>
+<ol class="org-ol">
+<li>决议（ <span class="underline">value</span> ） <b>只有在被 proposers 提出后才能被批准</b> （未经批准的决议称为 <span class="underline">提案</span> （ <span class="underline">proposal</span> ））</li>
+<li><b>在一次 Paxos 算法的执行实例中，只批准（chosen）一个 value</b></li>
+<li><b>learners 只能获得被批准（chosen）的 value</b></li>
+</ol>
+
+<p>
+实际上还需要 <b>保证 progress</b> 
+</p>
+
+<p>
+不断加强上述3个约束（主要是第二个）获得了 Paxos 算法
+</p>
+</div>
+</div>
+
+<div id="outline-container-org306a4c8" class="outline-3">
+<h3 id="org306a4c8">过程</h3>
+<div class="outline-text-3" id="text-org306a4c8">
+<p>
+批准 value 的过程中：
+</p>
+<ol class="org-ol">
+<li>proposers 将 value 发送给 acceptors</li>
+<li>acceptors 对 value 进行接受（accept）</li>
+</ol>
+
+<p>
+为了满足只批准一个 value 的约束，要求经 <span class="underline">多数派（majority）</span> 接受的 value 成为正式的决议（称为 <span class="underline">批准</span> 决议）。假设无论是按照人数还是按照权重划分，两组 <span class="underline">多数派</span> 至少有一个公共的 acceptor，如果每个 acceptor 只能接受一个 value，约束2就能保证
+</p>
+
+<p>
+于是产生了一个显而易见的新约束：
+</p>
+<pre class="example">
+P1：一个 acceptor 必须接受（accept）第一次收到的提案
+</pre>
+
+<p>
+注意：P1 是不完备的， <b>如果恰好一半 acceptor 接受的提案具有 value A，另一半接受的提案具有 value B，那么就无法形成多数派，无法批准任何一个 value</b> 
+</p>
+
+<p>
+<b>约束2并不要求只批准一个提案</b> ，暗示可能存在多个提案。 <span class="underline">只要提案的 value 是一样的，批准多个提案不违背约束2</span> 。于是可以产生约束 P2：
+</p>
+
+<pre class="example">
+P2：一旦一个具有 value v 的提案被批准（chosen），那么之后批准（chosen）的提案必须具有 value v
+</pre>
+
+<p>
+通过某种方法可以 <b>为每个提案分配一个编号，在提案之间建立一个全序关系</b> ，所谓 <span class="underline">之后</span> 都是指所有编号更大的提案。
+</p>
+
+<p>
+<b>如果 P1 和 P2 都能够保证，那么约束2就能够保证</b> 
+</p>
+
+<p>
+<span class="underline">批准一个 value 意味着多个 acceptor 接受（accept）了该 value</span> 。因此，可以对 P2 进行加强：
+</p>
+<pre class="example">
+P2a：一旦一个具有 value v 的提案被批准（chosen），那么之后任何 acceptor 再次接受（accept）的提案必须具有 value v
+</pre>
+
+<p>
+由于 <b>通信是异步的，P2a 和 P1 会发生冲突</b> 。 <span class="underline">如果一个 value 被批准后，一个 proposer 和一个 acceptor 从休眠中苏醒，前者提出一个具有新的 value 的提案</span> 根据 P1，后者应当接受，根据 P2a，则不应当接受，这中场景下 P2a 和 P1 有矛盾。于是需要换个思路，转而对 proposer 的行为进行约束：
+</p>
+
+<pre class="example">
+P2b：一旦一个具有 value v 的提案被批准（chosen），那么以后任何 proposer 提出的提案必须具有 value v
+</pre>
+
+<p>
+由于 <span class="underline">acceptor 能接受的提案都必须由 proposer 提出</span> ，所以 <b>P2b 蕴涵了 P2a</b> ，是一个更强的约束。
+</p>
+
+<p>
+但是根据 <b>P2b 难以提出实现手段</b> 。因此需要进一步加强 P2b。
+</p>
+
+<p>
+假设一个编号为 m 的 value v 已经获得批准（chosen），来看看在什么情况下对任何编号为 n（n&gt;m）的提案都含有 value v。因为 m 已经获得批准（chosen），显然存在一个 acceptors 的多数派 C，他们都接受（accept）了v。考虑到 <b>任何多数派都和 C 具有至少一个公共成员</b> ，可以找到一个蕴涵 P2b 的约束 P2c：
+</p>
+
+<pre class="example">
+P2c：如果一个编号为 n 的提案具有 value v，那么存在一个多数派，
+         要么他们中所有人都没有接受（accept）编号小于 n 的任何提案
+         要么他们已经接受（accept）的所有编号小于 n 的提案中编号最大的那个提案具有 value v
+</pre>
+
+<p>
+可以用 <span class="underline">数学归纳法</span> 证明 P2c 蕴涵 P2b：
+</p>
+
+<p>
+假设具有value v的提案m获得批准，当n=m+1时，采用反证法，假如提案n不具有value v，而是具有value w，根据P2c，则存在一个多数派S1，要么他们中没有人接受过编号小于n的任何提案，要么他们已经接受的所有编号小于n的提案中编号最大的那个提案是value w。由于S1和通过提案m时的多数派C之间至少有一个公共的acceptor，所以以上两个条件都不成立，导出矛盾从而推翻假设，证明了提案n必须具有value v；
+</p>
+
+<p>
+若（m+1）..（N-1）所有提案都具有value v，采用反证法，假如新提案N不具有value v，而是具有value w',根据P2c，则存在一个多数派S2，要么他们没有接受过m..（N-1）中的任何提案，要么他们已经接受的所有编号小于N的提案中编号最大的那个提案是value w'。由于S2和通过m的多数派C之间至少有一个公共的acceptor，所以至少有一个acceptor曾经接受了m，从而也可以推出S2中已接受的所有编号小于n的提案中编号最大的那个提案的编号范围在m..（N-1）之间，而根据初始假设，m..（N-1）之间的所有提案都具有value v，所以S2中已接受的所有编号小于n的提案中编号最大的那个提案肯定具有value v，导出矛盾从而推翻新提案n不具有value v的假设。根据数学归纳法，我们证明了若满足P2c，则P2b一定满足。
+</p>
+
+<p>
+<b>P2c是可以通过消息传递模型实现的</b> 。另外，引入了P2c后，也 <b>解决了前文提到的P1不完备的问题</b>
+</p>
+</div>
+</div>
+
+<div id="outline-container-org6b3ff3b" class="outline-3">
+<h3 id="org6b3ff3b">内容</h3>
+<div class="outline-text-3" id="text-org6b3ff3b">
+<p>
+要满足P2c的约束，proposer提出一个提案前：
+</p>
+<ol class="org-ol">
+<li>prepare过程：要和足以形成多数派的acceptors进行通信，获得他们进行的最近一次 <span class="underline">接受</span> （accept）的提案</li>
+<li>根据回收的信息决定这次提案的value，形成 <span class="underline">提案开始投票</span></li>
+<li>当获得 <span class="underline">多数acceptors接受</span> （accept）后，提案获得 <span class="underline">批准</span> （chosen）</li>
+<li>由proposer将这个消息告知learner</li>
+</ol>
+
+<p>
+这个简略的过程经过进一步细化后就形成了Paxos算法。在一个paxos实例中，每个提案需要有不同的编号，且编号间要存在全序关系。可以用多种方法实现这一点，例如将序数和proposer的名字拼接起来。如何做到这一点不在Paxos算法讨论的范围之内
+</p>
+
+<p>
+<b>如果一个没有chosen过任何proposer提案的acceptor在prepare过程中回答了一个proposer针对提案n的问题，但是在开始对n进行投票前，又接受（accept）了编号小于n的另一个提案（例如n-1），如果n-1和n具有不同的value，这个投票就会违背P2c</b> 。因此在prepare过程中，acceptor进行的回答同时也应包含承诺：不会再接受（accept）编号小于n的提案。这是对P1的加强：
+</p>
+
+<pre class="example">
+P1a：当且仅当acceptor没有回应过编号大于n的prepare请求时，acceptor接受（accept）编号为n的提案
+</pre>
+</div>
+
+<div id="outline-container-org373e957" class="outline-4">
+<h4 id="org373e957">决议的提出与批准</h4>
+<div class="outline-text-4" id="text-org373e957">
+<p>
+通过一个决议分为两个阶段：
+</p>
+
+<ol class="org-ol">
+<li>prepare阶段：
+<ol class="org-ol">
+<li>proposer选择一个提案编号n并将prepare请求发送给acceptors中的一个多数派</li>
+<li>acceptor收到prepare消息后，如果 <span class="underline">提案的编号大于它已经回复的所有prepare消息</span> (回复消息表示接受accept)，则acceptor  <b>将自己上次接受的提案回复给proposer</b> ，并 <b>承诺不再回复小于n的提案</b></li>
+</ol></li>
+
+<li>批准阶段：
+<ol class="org-ol">
+<li>当一个proposer收到了多数acceptors对prepare的回复后，就进入批准阶段。它要 <b>向回复prepare请求的acceptors发送accept请求，包括编号n和根据P2c决定的value</b> （ <span class="underline">如果根据P2c没有已经接受的value，那么它可以自由决定value</span> ）</li>
+<li><b>在不违背自己向其他proposer的承诺的前提下</b> ， acceptor收到accept请求后即批准这个请求</li>
+</ol></li>
+</ol>
+
+<p>
+这个过程在任何时候中断都可以保证正确性。例如如果一个proposer发现已经有其他proposers提出了编号更高的提案，则有必要中断这个过程。因此为了优化，在上述prepare过程中， <b>如果一个acceptor发现存在一个更高编号的提案，则需要通知proposer，提醒其中断这次提案</b>
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org1016e03" class="outline-3">
+<h3 id="org1016e03">实例</h3>
+<div class="outline-text-3" id="text-org1016e03">
+<p>
+有A1, A2, A3, A4, A5 5位议员，就税率问题进行决议。议员A1决定将税率定为10%,因此它向所有人发出一个草案。这个草案的内容是：
+</p>
+
+<pre class="example">
+  现有的税率是什么?如果没有决定，则建议将其定为10%.时间：本届议会第3年3月15日;提案者：A1
+</pre>
+
+<p>
+在最简单的情况下，没有人与其竞争，信息能及时顺利地传达到其它议员处。于是, A2-A5回应：
+</p>
+<pre class="example">
+  我已收到你的提案，等待最终批准
+</pre>
+
+<p>
+而A1在收到2份回复后就发布最终决议：
+</p>
+<pre class="example">
+  税率已定为10%,新的提案不得再讨论本问题
+</pre>
+
+<p>
+这实际上退化为2PC协议
+</p>
+
+<p>
+现在假设在A1提出提案的同时, A5决定将税率定为20%:
+</p>
+<pre class="example">
+  现有的税率是什么?如果没有决定，则建议将其定为20%.时间：本届议会第3年3月15日;提案者：A5
+</pre>
+
+<p>
+草案要通过侍从送到其它议员的案头. A1的草案将由4位侍从送到A2-A5那里。现在，负责A2和A3的侍从将草案顺利送达，负责A4和A5的侍从则不上班. A5的草案则顺利的送至A4和A3手中
+</p>
+
+<p>
+现在, A1, A2, A3收到了A1的提案; A4, A3, A5收到了A5的提案。按照协议, A1, A2, A4, A5将接受他们收到的提案，侍从将拿着
+</p>
+<pre class="example">
+  我已收到你的提案，等待最终批准
+</pre>
+<p>
+的回复回到提案者那里
+</p>
+
+<p>
+而 <b>A3的行为将决定批准哪一个</b>
+</p>
+</div>
+
+<div id="outline-container-orge12fc24" class="outline-4">
+<h4 id="orge12fc24">情况一</h4>
+<div class="outline-text-4" id="text-orge12fc24">
+<p>
+假设A1的提案先送到A3处，而A5的侍从决定放假一段时间。于是A3接受并派出了侍从. A1等到了两位侍从，加上它自己已经构成一个多数派，于是税率10%将成为决议. A1派出侍从将决议送到所有议员处：
+</p>
+
+<pre class="example">
+  税率已定为10%,新的提案不得再讨论本问题
+</pre>
+
+<p>
+A3在很久以后收到了来自A5的提案。由于税率问题已经讨论完毕，他决定不再理会。但是他要抱怨一句：
+</p>
+<pre class="example">
+  税率已在之前的投票中定为10%,你不要再来烦我!
+</pre>
+
+<p>
+这个回复对A5可能有帮助，因为A5可能因为某种原因很久无法与与外界联系了。当然更可能对A5没有任何作用，因为A5可能已经从A1处获得了刚才的决议
+</p>
+</div>
+</div>
+
+<div id="outline-container-org06c2e2f" class="outline-4">
+<h4 id="org06c2e2f">情况二</h4>
+<div class="outline-text-4" id="text-org06c2e2f">
+<p>
+依然假设A1的提案先送到A3处，但是这次A5的侍从不是放假了，只是中途耽搁了一会。这次, A3依然会将 <span class="underline">接受</span> 回复给A1.但是在决议成型之前它又收到了A5的提案。这时协议有两种处理方式：
+</p>
+
+<ul class="org-ul">
+<li>如果A5的提案更早，按照传统应该由较早的提案者主持投票。现在看来两份提案的时间一样（本届议会第3年3月15日）。但是A5是个惹不起的大人物。于是A3回复：</li>
+</ul>
+<pre class="example">
+  我已收到您的提案，等待最终批准，但是您之前有人提出将税率定为10%,请明察
+</pre>
+
+<p>
+于是, A1和A5都收到了足够的回复。这时关于税率问题就有两个提案在同时进行。但是A5知道之前有人提出税率为10%.于是A1和A5都会向全体议员广播：
+</p>
+<pre class="example">
+ 税率已定为10%,新的提案不得再讨论本问题
+</pre>
+<p>
+一致性得到了保证
+</p>
+
+<ul class="org-ul">
+<li>A5是个无足轻重的小人物。这时A3不再理会他, A1不久后就会广播税率定为10%</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orge58fffa" class="outline-4">
+<h4 id="orge58fffa">情况三</h4>
+<div class="outline-text-4" id="text-orge58fffa">
+<p>
+在这个情况中，我们将看见，根据提案的时间及提案者的权势决定是否应答是有意义的。在这里， <b>时间和提案者的权势就构成了给提案编号的依据</b> 。这样的编号符合 <span class="underline">任何两个提案之间构成偏序</span> 的要求
+</p>
+
+<p>
+A1和A5同样提出上述提案，这时A1可以正常联系A2和A3; A5也可以正常联系这两个人。这次A2先收到A1的提案; A3则先收到A5的提案. A5更有权势
+</p>
+
+<p>
+在这种情况下，已经回答A1的A2发现有比A1更有权势的A5提出了税率20%的新提案，于是回复A5说：
+</p>
+<pre class="example">
+我已收到您的提案，等待最终批准
+</pre>
+
+<p>
+而回复了A5的A3发现新的提案者A1是个小人物，不予理会。
+</p>
+
+<p>
+A1没有达到多数，A5达到了，于是 <b>A5将主持投票，决议的内容是A5提出的税率20%</b> 
+</p>
+
+<p>
+如果A3决定平等地对待每一位议员，对A1做出 <span class="underline">你之前有人提出将税率定为20%</span> 的回复，则将造成混乱。这种情况下A1和A5都将试图主持投票，但是这次两份提案的内容不同
+</p>
+
+<p>
+这种情况下, A3若对A1进行回复，只能说：
+</p>
+<pre class="example">
+  有更大的人物关注此事，请等待他做出决定
+</pre>
+
+<p>
+另外，在这种情况下, A4与外界失去了联系。等到他恢复联系，并需要得知税率情况时，他（在最简单的协议中）将提出一个提案：
+</p>
+<pre class="example">
+  现有的税率是什么?如果没有决定，则建议将其定为15%.时间：本届议会第3年4月1日;提案者：A4
+</pre>
+
+<p>
+这时，（在最简单的协议中）其他议员将会回复：
+</p>
+<pre class="example">
+  税率已在之前的投票中定为20%,你不要再来烦我!
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org5c54b96" class="outline-3">
+<h3 id="org5c54b96">决议的发布</h3>
+<div class="outline-text-3" id="text-org5c54b96">
+<p>
+一个显而易见的方法是当acceptors批准一个value时，将这个消息发送给所有learner。但是这个方法会导致 <b>消息量过大</b> 
+</p>
+
+<p>
+由于假设没有拜占庭问题，learners可以通过别的learners获取已经通过的决议。因此acceptors只需将批准的消息发送给指定的某一个learner，其他learners向它询问已经通过的决议。这个方法降低了消息量，但是 <b>指定learner失效将引起系统失效</b> 
+</p>
+
+<p>
+因此 <span class="underline">acceptors需要将accept消息发送给learners的一个子集，然后由这些learners去通知所有learners</span>
+</p>
+
+<p>
+但是由于消息传递的不确定性， <b>可能会没有任何learner获得了决议批准的消息</b> 。当learners需要了解决议通过情况时， <span class="underline">可以让一个proposer重新进行一次提案</span> 
+</p>
+
+<pre class="example">
+  一个learner可能兼任proposer
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org754483c" class="outline-2">
+<h2 id="org754483c">Progress的保证</h2>
+<div class="outline-text-2" id="text-org754483c">
+<p>
+根据上述过程当一个proposer发现存在编号更大的提案时将终止提案。这意味着提出一个编号更大的提案会终止之前的提案过程。如果两个proposer在这种情况下都转而提出一个编号更大的提案，就可能陷入活锁，违背了Progress的要求。这种情况下的解决方案是 <b>选举出一个leader，仅允许leader提出提案</b> 。但是由于消息传递的不确定性， <span class="underline">可能有多个proposer自认为自己已经成为leader</span> 
+</p>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

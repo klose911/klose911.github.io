@@ -1,0 +1,291 @@
+#+TITLE: 函数和命令
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: elisp.html   
+#+HTML_LINK_HOME: elisp.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+在 elisp 里类似函数的对象很多，比如：
++ 函数：这里的函数特指用 lisp 写的函数
++ 原子函数（primitive）：用 C 写的函数，比如 car、append
++ lambda 表达式
++ 特殊表达式
++ 宏(macro)：它可以把一种 lisp 表达式转换成等价的另一个表达式
++ 命令：命令能用 command-execute 调用。函数也可以是命令
+
+* 函数
+  #+BEGIN_EXAMPLE
+    已经学过如何定义一个函数。但是这些函数的参数个数都是确定
+
+    但是可以看到 emacs 里有很多函数是接受可选参数，比如 random 函数，还有一些函数可以接受不确定的参数，比如加减乘除
+
+    这样的函数在 elisp 中是如何定义的呢？
+  #+END_EXAMPLE
+** 参数列表
+   这是 _参数列表_ 的方法形式：
+
+   #+BEGIN_SRC lisp 
+  (REQUIRED-VARS...
+   [&optional OPTIONAL-VARS...]
+   [&rest REST-VAR])
+   #+END_SRC
+
+   把 _必须提供_ 的参数写在前面， _可选的参数_ 写在后面，最后用一个符号表示 _剩余的所有参数_ ：
+
+   #+BEGIN_SRC lisp 
+  (defun foo (var1 var2 &optional opt1 opt2 &rest rest)
+    (list var1 var2 opt1 opt2 rest))
+
+  (foo 1 2)                               ; => (1 2 nil nil nil)
+  (foo 1 2 3)                             ; => (1 2 3 nil nil)
+  (foo 1 2 3 4 5 6)                       ; => (1 2 3 4 (5 6))
+   #+END_SRC
+
+   从这个例子可以看出：
+   + 当 _可选参数_ 没有提供时，在函数体里，对应的参数值都是 nil
+   + 同样调用函数时没有提供 _剩余参数_ 时，其值也为 nil
+     + 但是一旦提供了剩余参数，则所有参数是以 _列表_ 的形式放在对应变量里
+
+** 文档字符串
+   最好为你的函数都提供一个 _文档字符串_ 。关于文档字符串有一些规范，最好遵守这些约定：
+   + 字符串的第一行最好是独立的。因为 apropos 命令只能显示第一行的文档。所以最好用一行（一两个完整的句子）总结这个函数的目的
+   + 文档的缩进最好要根据最后的显示的效果来调用。因为引号之类字符会多占用一个字符，所以在源文件里缩进最好看，不一定显示的最好
+   + 如果你想要让你的函数参数显示的与函数定义的不同（比如提示用户如何调用这个函数），可以在文档最后一行，加上一行：
+   #+BEGIN_SRC lisp 
+  \(fn ARGLIST)
+   #+END_SRC
+
+   注意：这一行前面要有一个空行，这一行后不能再有空行。比如
+
+   #+BEGIN_SRC lisp 
+  (defun foo (var1 var2 &optional opt1 opt2 &rest rest)
+    "You should call the function like:
+
+  \(fn v1 v2)"
+    (list var1 var2 opt1 opt2 rest))
+   #+END_SRC
+
+   还有一些有特殊标记功能的符号，比如 `' 引起的符号名可以生成一个链接，这样可以在 *Help* 中更方便的查看相关变量或函数的文档，例如：
+
+   #+BEGIN_SRC lisp 
+  (defun foo ()
+    "A simple document string to show how to use `' and \\=\\{}.
+  You can press this button `help' to see the document of
+  function \"help\".
+
+  This is keybind of text-mode(substitute from \\=\\{text-mode-map}):
+  \\{text-mode-map}
+
+  See also `substitute-command-keys' and `documentation'"
+    )
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+   \\{major-mode-map} 可以显示扩展成这个模式按键的说明
+   #+END_EXAMPLE
+
+** 调用函数
+   #+BEGIN_EXAMPLE
+   通常函数的调用都是用 eval 进行的，但是有时需要在“运行时”才决定使用什么函数
+   #+END_EXAMPLE
+   这时就需要用 _funcall_ 和 _apply_ 两个函数了，这两个函数都是把其余的参数作为函数的参数进行调用。唯一的区别就：
+   + funcall 是 *直接* 把 _参数_ 传递给函数
+   + apply 的 *最后一个参数* 是一个 _列表_ ，传入函数的参数把列表进行一次平铺后再传给函数
+
+   #+BEGIN_SRC lisp 
+  (funcall 'list 'x '(y) '(z a))               ; => (x (y) (z a))
+  (apply 'list 'x '(y ) '(z a))                ; => (x (y) z a)
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     例子中的 funcall 和 apply 的区别就在于“怎么处理最好一个参数 '(z a)”
+
+     funcall 是直接使用了 '(z a)
+     apply 是用了 'z 'a, 去掉了列表 
+   #+END_EXAMPLE
+
+* 宏
+  宏的调用和函数是很类似的，它的求值和函数差不多，但是有一个重要的区别是， *宏的参数是出现在最后扩展后的表达式中* ，而函数参数是求值后才传递给这个函数：
+  #+BEGIN_SRC lisp 
+  (defmacro foo (arg)
+    (list 'message "%d %d" arg arg))
+
+  (defun bar (arg)
+    (message "%d %d" arg arg))
+
+  (let ((i 1))
+    (bar (incf i)))                       ; => "2 2"
+
+  (let ((i 1))
+    (foo (incf i)))                       ; => "2 3"
+  #+END_SRC
+
+  宏可以这样看，如果把宏定义作一个表达式来运行，最后把参数用调用时的参数替换，这样就得到了宏调用最后用于求值的表达式。这个过程称为 _扩展_ 。可以用 _macroexpand_ 函数进行模拟：
+
+  #+BEGIN_SRC lisp 
+  (macroexpand '(foo (incf i))) ; => (message "%d %d" (incf i) (incf i))
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+  上面用 macroexpand 得到的结果就是用于求值的表达式
+  #+END_EXAMPLE
+
+  使用 macroexpand 可以使宏的编写变得容易一些。但是如果不能进行 debug 是很不方便的。在宏定义里可以引入 declare 表达式，它可以增加一些信息。目前只支持两类声明：debug 和 indent
+  #+BEGIN_EXAMPLE
+  debug 可选择的类型很多，具体参考 info elisp - Edebug 一章，一般情况下用 t 就足够了
+  #+END_EXAMPLE
+  indent 的类型比较简单，它可以使用这样几种类型：
+  + nil: 也就是一般的方式缩进
+  + defun: 类似 def 的结构，把第二行作为主体，对主体里的表达式使用同样的缩进
+  + 整数: 表示从第 n 个表达式后作为主体。比如 if 设置为 2，而 when 设置为 1
+  + 符号: 这个是最坏情况，要写一个函数自己处理缩进
+
+  看 when 的定义就能知道 declare 如何使用了：
+  #+BEGIN_SRC lisp 
+  (defmacro when (cond &rest body)
+    (declare (indent 1) (debug t))
+    (list 'if cond (cons 'progn body)))
+  #+END_SRC
+
+  实际上，declare 声明只是设置这个符号的属性列表
+  #+BEGIN_SRC lisp 
+  (symbol-plist 'when)    ; => (lisp-indent-function 1 edebug-form-spec t)
+  #+END_SRC
+
+  从前面宏 when 的定义可以看出直接使用 list，cons，append 构造宏是很麻烦的。为了使记号简洁，lisp 中有一个特殊的宏  _`_ ，称为 backquote：
+  + 在这个宏里，所有的表达式都是引起（quote）的
+  + 如果要让一个表达式不引起（也就是列表中使用的是表达式的值），需要在前面加 _,_
+  + 如果要让一个列表作为整个列表的一部分（slice），可以用 _,@_ 
+
+  #+BEGIN_SRC lisp 
+  `(a list of ,(+ 2 3) elements)          ; => (a list of 5 elements)
+  (setq some-list '(2 3))                 ; => (2 3)
+  `(1 ,some-list 4 ,@some-list)           ; => (1 (2 3) 4 2 3)
+  #+END_SRC
+
+  有了这些标记，前面 when 这个宏可以写成：
+
+  #+BEGIN_SRC lisp 
+  (defmacro my-when (cond &rest body)
+    `(if ,cond
+	 (progn ,@body)))
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+  注意：这个 backquote 本身就是一个宏
+  #+END_EXAMPLE
+  从这里可以看出宏除了 _减少重复代码_ 这个作用之外的另一个用途： *定义新的控制结构* ，甚至增加新的语法特性
+
+* 命令
+  emacs 运行时就是处于一个 _命令循环_ 中，不断从用户那得到 _按键序列_ ，然后调用对应 _命令_ 来执行。lisp 编写的命令都含有一个 _interactive_ 表达式。这个表达式指明了这个命令的 _参数_ ：
+
+  #+BEGIN_SRC lisp 
+  (defun hello-world (name)
+    (interactive "sWhat you name? ")
+    (message "Hello, %s" name))
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+  现在可以用 M-x 来调用这个命令
+  #+END_EXAMPLE
+
+  interactive 的参数中的第一个字符（也称为代码字符）代表 *参数的类型* ，比如这里 _s_ 代表参数的类型是一个 *字符串* ，而其后的字符串是用来 _提示的字符串_ 。如果这个命令有多个参数，可以在这个提示字符串后使用换行符分开，比如：
+
+  #+BEGIN_SRC lisp 
+  (defun hello-world (name time)
+    (interactive "sWhat you name? \nnWhat the time? ")
+    (message "Good %s, %s"
+	     (cond ((< time 13) "morning")
+		   ((< time 19) "afternoon")
+		   (t "evening"))
+	     name))
+  #+END_SRC
+
+  interactive 可以使用的代码字符很多，虽然有一定的规则，比如字符串用 _s_ ，数字用 _n_ ，文件用 _f_ ，区域用 _r_  
+
+  #+BEGIN_EXAMPLE
+    但是还是很容易忘记，用的时候看 interactive 函数的文档还是很有必要的
+
+    但是不是所有时候都参数类型都能使用代码字符
+
+    而且一个好的命令，应该尽可能的让提供默认参数以让用户少花时间在输入参数上，这时，就有可能要自己定制参数
+  #+END_EXAMPLE
+
+  代码字符等价的几个函数。s 对应的函数是 _read-string_ ：
+
+  #+BEGIN_SRC lisp 
+  (read-string "What your name? " user-full-name)
+  #+END_SRC
+
+  n 对应的函数是 _read-number_ ，文件对应 _read-file-name_ 。大部分代码字符都是有这样对应的函数或替换的方法：
+
+  #+CAPTION: 代码字符对应的函数
+  #+ATTR_HTML: :border 1 :rules all :frame boader
+  | 字符代码 | 代替的表达式                                                                           |
+  | a        | (completing-read prompt obarray 'fboundp t)                                            |
+  | b        | (read-buffer prompt nil t)                                                             |
+  | B        | (read-buffer prompt)                                                                   |
+  | c        | (read-char prompt)                                                                     |
+  | C        | (read-command prompt)                                                                  |
+  | d        | (point)                                                                                |
+  | D        | (read-directory-name prompt)                                                           |
+  | e        | (read-event)                                                                           |
+  | f        | (read-file-name prompt nil nil t)                                                      |
+  | F        | (read-file-name prompt)                                                                |
+  | G        | 暂时不知道和 f 的差别                                                                  |
+  | k        | (read-key-sequence prompt)                                                             |
+  | K        | (read-key-sequence prompt nil t)                                                       |
+  | m        | (mark)                                                                                 |
+  | n        | (read-number prompt)                                                                   |
+  | N        | (if current-prefix-arg (prefix-numeric-value current-prefix-arg) (read-number prompt)) |
+  | p        | (prefix-numeric-value current-prefix-arg)                                              |
+  | P        | current-prefix-arg                                                                     |
+  | r        | (region-beginning) (region-end)                                                        |
+  | s        | (read-string prompt)                                                                   |
+  | S        | (completing-read prompt obarray nil t)                                                 |
+  | v        | (read-variable prompt)                                                                 |
+  | x        | (read-from-minibuffer prompt nil nil t)                                                |
+  | X        | (eval (read-from-minibuffer prompt nil nil t))                                         |
+  | z        | (read-coding-system prompt)                                                            |
+  | Z        | (and current-prefix-arg (read-coding-system prompt))                                   |
+
+  #+BEGIN_EXAMPLE
+  知道这些表达式如何用于 interactive 表达式里呢？
+  #+END_EXAMPLE
+
+  简而言之，如果 interactive 的参数是一个表达式，则这个表达式 _求值后的列表元素_ 对应于这个 _命令的参数_ ：
+
+  #+BEGIN_SRC lisp 
+  (defun read-hiden-file (file arg)
+    (interactive
+     (list (read-file-name "Choose a hiden file: " "~/" nil nil nil
+			   (lambda (name)
+			     (string-match "^\\." (file-name-nondirectory name))))
+	   current-prefix-arg))
+    (message "%s, %S" file arg))
+  #+END_SRC
+
+  + 第一个参数是读入一个以 _._ 开头的文件名
+  + 第二个参数为 _当前的前缀参数_ （prefix argument），它可以用 _C-u_ 或 C-u 加数字提供
+  + list 把这两个参数构成一个列表。这就是命令一般的自定义设定参数的方法 
+
+  需要注意的是 _current-prefix-arg_ 这个变量。这个变量当一个命令被调用，它就被赋与一个值，可以用 C-u 就能改变它的值。在命令运行过程中，它的值始终都存在。即使你的命令不用参数，也可以访问它
+
+  #+BEGIN_SRC lisp 
+  (defun foo ()
+    (interactive)
+    (message "%S" current-prefix-arg))
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    用 C-u foo 调用它，可以发现它的值是 (4)
+
+    那为什么大多数命令还单独为它设置一个参数呢？这是因为命令不仅是用户可以调用，很可能其它函数也可以调用，单独设置一个参数可以方便的用参数传递的方法调用这个命令
+
+    事实上所有的命令都可以不带参数，而使用前面介绍的方法在命令定义的部分读入需要的参数，但是为了提高命令的可重用性和代码的可读性，还是把参数分离到 interactive 表达式里好
+  #+END_EXAMPLE
+
+  [[file:operation-objects.org][Next：操作对象]]
+
+  [[file:variable.org][Previous：变量]]
+
+  [[file:elisp.org][Home：目录]]

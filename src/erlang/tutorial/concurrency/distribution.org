@@ -1,0 +1,262 @@
+#+TITLE: 分布式编程
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: register.html   
+#+HTML_LINK_HOME: concurrency.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+begin_example
+  下面进一步对 ping pong 示例程序进行改进
+
+  这一次，要让 “ping”、“pong” 进程分别位于不同的计算机上
+#+end_example
+
+* 搭建环境
+  #+begin_example
+  要想让这个程序工作，首先的搭建一下分布式的系统环境
+  #+end_example
+  分布式 Erlang 系统的实现提供了基本的安全机制，它阻止未授权的外部设备访问本机的 Erlang 系统
+  #+begin_example
+  同一个系统中的 Erlang 要想相互通信需要设置相同的 magic cookie
+  #+end_example
+
+  设置 magic cookie 最便捷地实现方式就是在打算运行分布式 Erlang 系统的所有计算机的 _home 目录_ 下创建一个 _.erlang.cookie_ 文件：
+  + 在 windows 系统中，home 目录为环境变量 $HOME 指定的目录（这个变量的值可能需要手动设置）
+  + 在 Linux 或者 UNIX 系统中简单很多，你只需要在执行 cd 命令后所进入的目录下创建一个 .erlang.cookie 文件
+
+  .erlang.cookie 文件只有一行内容，这一行包含一个原子值。例如，在 Linux 或 UNIX 系统的 shell 执行如下命令：
+
+  #+begin_src sh 
+  $ cd
+  $ cat > .erlang.cookie
+  this_is_very_secret
+  $ chmod 400 .erlang.cookie
+  #+end_src
+
+  #+begin_example
+    使用 chmod 命令让 .erlang.cookie 文件只有文件拥者可以访问，这个是必须设置的！
+  #+end_example
+
+  启动 erlang 系统与其它 erlang 系统通信时，需要给 erlang 系统一个名称，例如：
+
+  #+begin_src sh 
+  $erl -sname my_name
+  #+end_src
+  #+begin_example
+    如果想尝试一下分布式 Erlang 系统，而又只有一台计算机，可以在同一台计算机上分别启动两个 Erlang 系统，并分别赋予不同的名称即可
+  #+end_example
+  运行在每个计算机上的 Erlang 被称为一个 _Erang 结点_ 
+
+  #+begin_example
+    erl -sname 要求所有的 结点在同一个 IP 域内（局域网内）
+
+    如果 Erlang 结点位于不同的 IP 域中，不仅需要使用 -name，而且需要指定 IP 地址
+  #+end_example
+
+* 不同节点之间的进程通信
+  下面是可以运行在两个结点的pingpong程序：
+  #+begin_src erlang 
+    -module(node).
+
+    -export([start_ping/1, start_pong/0,  ping/2, pong/0]).
+
+    ping(0, Pong_Node) ->
+	{pong, Pong_Node} ! finished,
+	io:format("ping finished~n", []);
+
+    ping(N, Pong_Node) ->
+	{pong, Pong_Node} ! {ping, self()},
+	receive
+	    pong ->
+		io:format("Ping received pong~n", [])
+	end,
+	ping(N - 1, Pong_Node).
+
+    pong() ->
+	receive
+	    finished ->
+		io:format("Pong finished~n", []);
+	    {ping, Ping_PID} ->
+		io:format("Pong received ping~n", []),
+		Ping_PID ! pong,
+		pong()
+	end.
+
+    start_pong() ->
+	register(pong, spawn(node, pong, [])).
+
+    start_ping(Pong_Node) ->
+	spawn(node, ping, [3, Pong_Node]).
+  #+end_src
+
+  可以看到 pong 函数根本就没有发生任何改变，无论 “ping” 进程运行在哪个结点下，下面这一行代码都可以正确的工作：
+
+  #+begin_src erlang 
+  {ping, Ping_PID} ->
+      io:format("Pong received ping~n", []),
+      Ping_PID ! pong,
+  #+end_src
+
+  这是因为 Erlang 的 _进程标识符_ 中包含了程序运行在哪个 *结点上的位置信息* 
+  #+begin_example
+    所以如果知道了进程的进程标识符，无论进程是运行在本地结点上还是其它结点上面，"!" 操作符都可以将消息发送到该进程
+  #+end_example
+
+  要想通过 _进程注册的名称_ 向其它结点上的进程 *发送消息* ，这时候就有一些不同之处了：
+
+  #+begin_src erlang 
+  {pong, Pong_Node} ! {ping, self()},
+  #+end_src
+
+  这个时候，就不能再只用 registered_name 作为参数了，而需要使用元组 _{registered_name,node_name}_ 作为 *注册进程的名称参数* 
+
+** 测试 
+   #+begin_example
+     假设两台计算分别称之为 gollum 与 kosken：
+   #+end_example
+   在 kosken 系统上启动结点 ping ：
+
+   #+begin_src sh 
+  kosken> erl -sname ping
+  Erlang (BEAM) emulator version 5.2.3.7 [hipe] [threads:0]
+
+  Eshell V5.2.3.7  (abort with ^G)
+  (ping@kosken)1>
+   #+end_src
+
+   在 gollum 上启动节点 pong ： 
+
+   #+begin_src sh 
+  gollum> erl -sname pong
+  Erlang (BEAM) emulator version 5.2.3.7 [hipe] [threads:0]
+
+  Eshell V5.2.3.7  (abort with ^G)
+  (pong@gollum)1>
+   #+end_src
+
+   然后在 gollum 上启动 "pong" 进程：
+   #+begin_src sh 
+  (pong@gollum)1> node:start_pong().
+  true
+   #+end_src
+
+   最后在 kosken 上启动 “ping” 进程：
+   #+begin_src sh 
+  (ping@kosken)1> node:start_ping(pong@gollum).
+  <0.37.0>
+  Ping received pong
+  Ping received pong 
+  Ping received pong
+  ping finished
+   #+end_src
+
+   #+begin_example
+     从上面的代码中可以看出，start_ping 的函数的其中一个参数为 “pong” 进程所在结点的名称
+   #+end_example
+
+   在gollum 结点的 “pong” 的这一端：
+
+   #+begin_src sh 
+  (pong@gollum)2>
+  Pong received ping                 
+  Pong received ping                 
+  Pong received ping                 
+  Pong finished                      
+   #+end_src
+
+* 远程启动进程 
+  #+begin_example
+  在之前的代码中了，“ping”、“pong” 进程是在两个独立的 Erlang 结点上通过 shell 启动的
+  #+end_example
+  spawn 也可以在其它结点（非本地结点）启动新的进程：
+
+  #+begin_src erlang 
+  -module(network).
+
+  -export([start/1, ping/2, pong/0]).
+
+  ping(0, Pong_Node) ->
+      {pong, Pong_Node} ! finished,
+      io:format("ping finished~n", []);
+
+  ping(N, Pong_Node) ->
+      {pong, Pong_Node} ! {ping, self()},
+      receive
+	  pong ->
+	      io:format("Ping received pong~n", [])
+      end,
+      ping(N - 1, Pong_Node).
+
+  pong() ->
+      receive
+	  finished ->
+	      io:format("Pong finished~n", []);
+	  {ping, Ping_PID} ->
+	      io:format("Pong received ping~n", []),
+	      Ping_PID ! pong,
+	      pong()
+      end.
+
+  start(Ping_Node) ->
+      register(pong, spawn(network, pong, [])),
+      spawn(Ping_Node, network, ping, [3, node()]). 
+  #+end_src
+
+  这个程序和前面的主要变化：
+
+  #+begin_src erlang 
+  spawn(Ping_Node, network, ping, [3, node()]). 
+  #+end_src
+
+  #+begin_example
+    在节点 Ping_Node 结点上启动了进程 ping
+  #+end_example
+
+  其中 _node_ () 是获取了本地的结点信息，并传递给运行在 Ping_Node 节点的 ping 进程
+
+** 测试
+   在 kosken 系统上启动结点 ping ：
+
+   #+begin_src sh 
+  kosken> erl -sname ping
+  Erlang (BEAM) emulator version 5.2.3.7 [hipe] [threads:0]
+
+  Eshell V5.2.3.7  (abort with ^G)
+  (ping@kosken)1>
+   #+end_src
+
+   在 gollum 上启动节点 pong ： 
+
+   #+begin_src sh 
+  gollum> erl -sname pong
+  Erlang (BEAM) emulator version 5.2.3.7 [hipe] [threads:0]
+
+  Eshell V5.2.3.7  (abort with ^G)
+  (pong@gollum)1>
+   #+end_src
+   在 gollum 直接调用 start(ping@kosken) ： 
+
+   #+begin_src sh 
+  (pong@gollum)1> network:start(ping@kosken) . 
+  Pong received ping
+  <8806.92.0>
+  (pong@gollum)2> 
+  Ping received pong
+  Pong received ping
+  Ping received pong
+  Pong received ping
+  Ping received pong
+  ping finished   
+  Pong finished   
+   #+end_src
+
+   #+begin_example
+     注意：所有的内容都输出到了 gollum 结点上
+
+     这是因为 I/O 系统发现进程是由其它结点启动的时候，会自将输出内容输出到启动进程所在的结点
+   #+end_example
+
+   [[file:example.org][Next：完整示例]]
+
+   [[file:register.org][Previous：注册进程]]
+
+   [[file:concurrency.org][Home：并发编程]]

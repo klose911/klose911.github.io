@@ -1,0 +1,449 @@
+#+TITLE: 杂项
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: ../fault-tolerance/fault-tolerance.html   
+#+HTML_LINK_HOME: ../tutorial.html
+#+OPTIONS: num:nil timestamp:nil ^:nil 
+
+大型程序通常会把代码拆分成一组文件，各个文件之间通过良好定义的接口来连接 
+
+* 拆分源码
+  现在将前面几节中 messager 程序分布到多个文件中 
+** 服务器配置头文件 
+
+   #+begin_src erlang 
+     %%%----FILE mess_config.hrl----
+
+     %%% Configure the location of the server node,
+     -define(server_node, messenger@gentoo).
+
+     %%%----END FILE----
+   #+end_src
+** 客户端与 messager 之间的接口定义
+   #+begin_src erlang 
+     %%%----FILE mess_interface.hrl----
+
+     %%%Message interface between client and server and client shell for
+     %%% messenger program 
+
+     %%%Messages from Client to server received in server/1 function.
+     -record(logon,{client_pid, username}).
+     -record(message,{client_pid, to_name, message}).
+     %%% {'EXIT', ClientPid, Reason}  (client terminated or unreachable.
+
+     %%% Messages from Server to Client, received in await_result/0 function 
+     -record(abort_client,{message}).
+     %%% Messages are: user_exists_at_other_node, 
+     %%%               you_are_not_logged_on
+     -record(server_reply,{message}).
+     %%% Messages are: logged_on
+     %%%               receiver_not_found
+     %%%               sent  (Message has been sent (no guarantee)
+     %%% Messages from Server to Client received in client/1 function
+     -record(message_from,{from_name, message}).
+
+     %%% Messages from shell to Client received in client/1 function
+     %%% spawn(mess_client, client, [server_node(), Name])
+     -record(message_to,{to_name, message}).
+     %%% logoff
+
+     %%%----END FILE----
+   #+end_src
+** 用户接口函数
+
+   #+begin_src erlang 
+  %%%----FILE user_interface.erl----
+
+  %%% User interface to the messenger program
+  %%% login(Name)
+  %%%     One user at a time can log in from each Erlang node in the
+  %%%     system messenger: and choose a suitable Name. If the Name
+  %%%     is already logged in at another node or if someone else is
+  %%%     already logged in at the same node, login will be rejected
+  %%%     with a suitable error message.
+
+  %%% logoff()
+  %%%     Logs off anybody at that node
+
+  %%% message(ToName, Message)
+  %%%     sends Message to ToName. Error messages if the user of this 
+  %%%     function is not logged on or if ToName is not logged on at
+  %%%     any node.
+
+  -module(user_interface).
+  -export([logon/1, logoff/0, message/2]).
+  -include("mess_interface.hrl").
+  -include("mess_config.hrl").
+
+  logon(Name) ->
+      case whereis(mess_client) of 
+	  undefined ->
+	      register(mess_client, 
+		       spawn(mess_client, client, [?server_node, Name]));
+	  _ -> already_logged_on
+      end.
+
+  logoff() ->
+      mess_client ! logoff.
+
+  message(ToName, Message) ->
+      case whereis(mess_client) of % Test if the client is running
+	  undefined ->
+	      not_logged_on;
+	  _ -> mess_client ! #message_to{to_name=ToName, message=Message},
+	       ok
+      end.
+  %%%----END FILE----
+   #+end_src
+** messager 系统客户端的函数
+
+   #+begin_src erlang 
+     %%%----FILE mess_client.erl----
+
+     %%% The client process which runs on each user node
+
+     -module(mess_client).
+     -export([client/2]).
+     -include("mess_interface.hrl").
+
+     client(Server_Node, Name) ->
+	 {messenger, Server_Node} ! #logon{client_pid=self(), username=Name},
+	 await_result(),
+	 client(Server_Node).
+
+     client(Server_Node) ->
+	 receive
+	     logoff ->
+		 exit(normal);
+	     #message_to{to_name=ToName, message=Message} ->
+		 {messenger, Server_Node} ! 
+		     #message{client_pid=self(), to_name=ToName, message=Message},
+		 await_result();
+	     {message_from, FromName, Message} ->
+		 io:format("Message from ~p: ~p~n", [FromName, Message])
+	 end,
+	 client(Server_Node).
+
+     %%% wait for a response from the server
+     await_result() ->
+	 receive
+	     #abort_client{message=Why} ->
+		 io:format("~p~n", [Why]),
+		 exit(normal);
+	     #server_reply{message=What} ->
+		 io:format("~p~n", [What])
+	 after 5000 ->
+		 io:format("No response from server~n", []),
+		 exit(timeout)
+	 end.
+
+     %%%----END FILE---
+   #+end_src
+** messager 服务端的函数
+   #+begin_src erlang 
+     %%%----FILE mess_server.erl----
+
+     %%% This is the server process of the messenger service
+
+     -module(mess_server).
+     -export([start_server/0, server/0]).
+     -include("mess_interface.hrl").
+
+     server() ->
+	 process_flag(trap_exit, true),
+	 server([]).
+
+     %%% the user list has the format [{ClientPid1, Name1},{ClientPid22, Name2},...]
+     server(User_List) ->
+	 io:format("User list = ~p~n", [User_List]),
+	 receive
+	     #logon{client_pid=From, username=Name} ->
+		 New_User_List = server_logon(From, Name, User_List),
+		 server(New_User_List);
+	     {'EXIT', From, _} ->
+		 New_User_List = server_logoff(From, User_List),
+		 server(New_User_List);
+	     #message{client_pid=From, to_name=To, message=Message} ->
+		 server_transfer(From, To, Message, User_List),
+		 server(User_List)
+	 end.
+
+     %%% Start the server
+     start_server() ->
+	 register(messenger, spawn(?MODULE, server, [])).
+
+     %%% Server adds a new user to the user list
+     server_logon(From, Name, User_List) ->
+	 %% check if logged on anywhere else
+	 case lists:keymember(Name, 2, User_List) of
+	     true ->
+		 From ! #abort_client{message=user_exists_at_other_node},
+		 User_List;
+	     false ->
+		 From ! #server_reply{message=logged_on},
+		 link(From),
+		 [{From, Name} | User_List]        %add user to the list
+	 end.
+
+     %%% Server deletes a user from the user list
+     server_logoff(From, User_List) ->
+	 lists:keydelete(From, 1, User_List).
+
+     %%% Server transfers a message between user
+     server_transfer(From, To, Message, User_List) ->
+	 %% check that the user is logged on and who he is
+	 case lists:keysearch(From, 1, User_List) of
+	     false ->
+		 From ! #abort_client{message=you_are_not_logged_on};
+	     {value, {_, Name}} ->
+		 server_transfer(From, Name, To, Message, User_List)
+	 end.
+     %%% If the user exists, send the message
+     server_transfer(From, Name, To, Message, User_List) ->
+	 %% Find the receiver and send the message
+	 case lists:keysearch(To, 2, User_List) of
+	     false ->
+		 From ! #server_reply{message=receiver_not_found};
+	     {value, {ToPid, To}} ->
+		 ToPid ! #message_from{from_name=Name, message=Message}, 
+		 From !  #server_reply{message=sent} 
+	 end.
+
+     %%%----END FILE---
+   #+end_src
+
+** 测试
+
+   在服务器节点messenger@gentoo编译并启动服务器：
+
+   #+begin_src sh 
+  $ erl -sname messenger
+
+  Erlang/OTP 23 [erts-11.1.5] [source] [64-bit] [smp:4:4] [ds:4:4:10] [async-threads:1] [hipe]
+
+  Eshell V11.1.5  (abort with ^G)
+  (messenger@gentoo)1> c (mess_server) .
+  {ok,mess_server}
+  (messenger@gentoo)2>
+  (messenger@gentoo)2> mess_server:start_server() .
+  User list = []
+  true
+   #+end_src 
+
+   编译客户端后，peter在c1@raspberrypi登录：
+
+   #+begin_src sh 
+  $ erl -sname c1
+
+  Erlang/OTP 21 [erts-10.2.4] [source] [smp:4:4] [ds:4:4:10] [async-threads:1]
+
+  Eshell V10.2.4  (abort with ^G)
+  (c1@raspberrypi)1> c (user_interface) .
+  {ok,user_interface}
+  (c1@raspberrypi)2>
+  (c1@raspberrypi)2> user_interface:logon(peter) .
+  true
+  (c1@raspberrypi)3>
+  (c1@raspberrypi)3> =ERROR REPORT==== 18-Feb-2021::12:44:02.314766 ===
+  Error in process <0.92.0> on node c1@raspberrypi with exit value:
+  {undef,[{mess_client,client,[messenger@gentoo,peter],[]}]}
+
+
+  (c1@raspberrypi)3> c (mess_client) .
+  {ok,mess_client}
+  (c1@raspberrypi)4>
+  (c1@raspberrypi)4> user_interface:logon(peter) .
+  true
+  (c1@raspberrypi)5>
+  logged_on
+   #+end_src
+
+   #+begin_example
+     注意：这里不仅要编译 user_interface.erl，还需要编译 mess_client.erl
+
+     否则就会报错：
+
+     =ERROR REPORT==== 18-Feb-2021::12:44:02.314766 ===
+       Error in process <0.92.0> on node c1@raspberrypi with exit value:
+       {undef,[{mess_client,client,[messenger@gentoo,peter],[]}]}
+   #+end_example
+
+   peter登录后，服务器端也会打印出新的用户列表：
+
+   #+begin_src sh 
+(messenger@gentoo)3>
+User list = [{<12948.100.0>,peter}] 
+   #+end_src
+
+   fred在节点 c2@gentoo 登录：
+
+   #+begin_src sh 
+  erl -sname c2
+  Erlang/OTP 23 [erts-11.1.5] [source] [64-bit] [smp:4:4] [ds:4:4:10] [async-threads:1] [hipe]
+
+  Eshell V11.1.5  (abort with ^G)
+  (c2@gentoo)1> c (user_interface) .
+  {ok,user_interface}
+  (c2@gentoo)2>
+  (c2@gentoo)2> c (mess_client) .
+  {ok,mess_client}
+  (c2@gentoo)3>
+  (c2@gentoo)3> user_interface:logon(fred) .
+  true
+  (c2@gentoo)4>
+  logged_on
+   #+end_src
+
+   peter登录后，服务器端也会再次打印出用户列表： 
+   #+begin_src sh  
+  User list = [{<12950.102.0>,fred},{<12948.100.0>,peter}]
+   #+end_src
+
+   peter 尝试向 fred 发送消息： 
+
+   #+begin_src sh 
+  (c1@raspberrypi)5> user_interface:message(fred, 'hello') .
+  ok
+  (c1@raspberrypi)6>
+  sent
+   #+end_src 
+
+   fred 收到消息后，shell 会打印出：
+
+   #+begin_src sh 
+  Message from peter: hello
+   #+end_src
+
+   同样的服务器在转发消息的时候会再次打印用户列表：
+
+   #+begin_src sh 
+  User list = [{<12950.102.0>,fred},{<12948.100.0>,peter}]
+   #+end_src 
+
+   基本测试到此已经成功
+   #+begin_example
+     除了完成上述工作外：
+     1. 编写了头文件
+     2. 使用记录重新定义了 shell 、客户端以及服务端的消息格式
+     3. 引入了宏
+
+     下面会具体解释这些新知识
+   #+end_example
+
+* 头文件
+  如上所示，某些文件的扩展名为 _.hrl_ 。这些是在 .erl 文件中会用到的 *头文件* ，使用方法如下： 
+
+  #+begin_example
+    -include("File_Name").
+  #+end_example
+
+  #+begin_src erlang 
+  -include("mess_interface.hrl").
+  #+end_src
+
+  #+begin_example
+    在本例中，上面所有的文件与 messager 系统的其它文件在同一个目录下
+  #+end_example
+
+  头文件中可以包含任何合法的 Erlang 代码，但是通常里面只包含一些 _记录_ 和 _宏_ 的定义 
+
+* 记录
+  记录的定义如下：
+  #+begin_example
+    -record(name_of_record,{field_name1, field_name2, field_name3, ......}).
+  #+end_example
+  例如：
+
+  #+begin_src erlang 
+  -record(message_to,{to_name, message}).
+  #+end_src
+
+  这等价于：
+
+  #+begin_src erlang 
+  {message_to, To_Name, Message}
+  #+end_src
+
+  用一个例子来说明怎样创建一个记录：
+
+  #+begin_src sh 
+  3> rd(message_to,{to_name, message}).    
+  message_to
+  4>  #message_to{message="hello", to_name=fred} . 
+  #message_to{to_name = fred,message = "hello"}
+  #+end_src 
+
+  上面的代码创建了如下的记录：
+  #+begin_src erlang 
+  {message_to, fred, "hello"}
+  #+end_src
+
+  #+begin_example
+    使用这种方式创建记录时，不需要考虑给每个部分赋值时的顺序问题
+  #+end_example 
+
+  把记录定义在头文件中的一个好处在于 *修改接口会变得非常容易* ：
+
+  #+begin_example
+    例如，如果想在记录中添加一个新的域，只需要在使用该新域的地方进行修改就可以了，而不需要在每个使用记录的地方都进行修改
+
+    如果你在创建记录时漏掉了其中的某些域，则这些域会得到一个默认的原子值 undefined 
+  #+end_example
+  使用记录进行 _模式匹配_ 与 _创建记录_ 是一样。例如，在 receive 的 case 中：
+
+  #+begin_src erlang 
+  #message_to{to_name=ToName, message=Message} ->
+  #+end_src
+
+  这与下面的代码是一样的：
+
+  #+begin_src erlang 
+  {message_to, ToName, Message}
+  #+end_src
+
+* 宏
+  #+begin_example
+    在 messager 系统添加的另外一种东西是宏
+  #+end_example
+  在mess_config.hrl文件中包含如下的定义：
+
+  #+begin_src erlang 
+  %%% Configure the location of the server node,
+  -define(server_node, messenger@super).
+  #+end_src
+
+  这个头文件被包括到了mess_server.erl文件中：
+
+  #+begin_src erlang 
+  -include("mess_config.hrl").
+  #+end_src
+
+  #+begin_example
+    这样在 mess_server.erl 中出现的每个 server_node 都被替换为 messenger@super
+  #+end_example
+
+  宏还被用于生成服务端进程：
+
+  #+begin_src erlang 
+  spawn(?MODULE, server, [])
+  #+end_src
+
+  #+begin_example
+    这是一个标准宏，也就是说，这是一个系统定义的宏而不是用户自定义的宏
+
+    ?MODULE 宏总是被替换为当前模块名（也就是在文件开始的部分的 -module 定义的名称）
+
+    宏有许多的高级用法，作为参数只是其中之一
+  #+end_example
+
+* 编译和链接
+  Messager 系统中的三个 Erlang _.erl_ 文件被分别编译成三个独立的目标代码文件 _.beam_ 中。当执行过程中引用到这些代码时，Erlang 系统会将它们 *加载* 并 *链接* 到系统里
+
+  #+begin_example
+    在本例中，把它们全部放到当前工作目录下，实际上也可以将这些文件放到其它目录下
+
+    在这个 messager 例子中，没有对发送消息的内容做出任何假设和限制，这些消息可以是任何合法的 Erlang 项 
+  #+end_example
+
+  [[file:../fault-tolerance/fault-tolerance.org][Previous：容错编程]]
+
+  [[file:../tutorial.org][Home：目录]]

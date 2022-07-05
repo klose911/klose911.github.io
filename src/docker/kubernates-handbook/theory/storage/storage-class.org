@@ -1,0 +1,105 @@
+#+TITLE: StorageClass
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: persistent-volume.html
+#+HTML_LINK_HOME: storage.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+BEGIN_EXAMPLE
+  接下来介绍了 Kubernetes 中 StorageClass 的概念
+
+  建议先熟悉 Volume 和 Persistent Volume
+#+END_EXAMPLE
+* 介绍
+  _StorageClass_ 为管理员提供了描述 _存储类型_ 的方法：不同的 class 可能会映射到不同的服务质量等级或备份策略，或由群集管理员确定的任意策略
+
+  #+BEGIN_EXAMPLE
+    Kubernetes 本身不清楚各种 class 代表的什么，这个概念在其他存储系统中有时被称为“配置文件”
+  #+END_EXAMPLE
+* 资源
+  StorageClass 中包含：
+  + _provisioner_ 、 _parameters_ 和 _reclaimPolicy_ 字段：当 class 需要动态分配 PersistentVolume 时会使用到
+  + StorageClass 对象的 *名称* 很重要，用户使用该类来请求一个特定的方法
+
+  #+BEGIN_EXAMPLE
+    当创建 StorageClass 对象时，管理员设置名称和其他参数，一旦创建了对象就不能再对其更新
+  #+END_EXAMPLE
+
+  #+BEGIN_SRC yaml 
+  kind: StorageClass
+  apiVersion: storage.k8s.io/v1
+  metadata:
+    name: standard
+  provisioner: kubernetes.io/aws-ebs
+  parameters:
+    type: gp2
+  reclaimPolicy: Retain
+  mountOptions:
+    - debug
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    管理员可以为没有申请绑定到特定 class 的 PVC 指定一个默认的 StorageClass
+  #+END_EXAMPLE
+** 存储分配器
+   Storage class 有一个分配器，用来决定使用哪个卷插件分配 PV。该字段必须指定：
+
+   #+CAPTION: provisioner of storage class 
+   #+ATTR_HTML: :border 1 :rules all :frame boader
+   | Volume Plugin                                | 		Internal Provisioner                       | 			Config Example |
+   | AWSElasticBlockStore                         | 		✓ 					 | 			AWS            |
+   | AzureFile 			           | 		✓ 					 | 			Azure File     |
+   | AzureDisk 			           | 		✓ 					 | 			Azure Disk     |
+   | CephFS  				     | 	- 						 | 		-                      |
+   | Cinder  				     | 	✓ 						 | 		OpenStack Cinder       |
+   | FC  					 | 	- 						 | 		-                      |
+   | FlexVolume  			         | 	- 						 | 		-                      |
+   | Flocker 				     | 	✓ 						 | 		-                      |
+   | GCEPersistentDisk 	                   | 		✓ 					 | 			GCE            |
+   | Glusterfs 			           | 		✓ 					 | 			Glusterfs      |
+   | iSCSI 				       | 		- 					 | 			-              |
+   | PhotonPersistentDisk                         | 		✓ 					 | 			-              |
+   | Quobyte 				     | 	✓ 						 | 		Quobyte                |
+   | NFS 					 | 	- 						 | 		-                      |
+   | RBD 					 | 	✓ 						 | 		Ceph RBD               |
+   | VsphereVolume 		               | 		✓ 					 | 			vSphere        |
+   | PortworxVolume  		             | 	✓ 						 | 		Portworx Volume        |
+   | ScaleIO 				     | 	✓ 						 | 		ScaleIO                |
+   | StorageOS 			           | 		✓ 					 | 			StorageOS      |
+
+   除了此处列出的"内置"分配器（其名称前缀为 kubernetes.io 并打包在 Kubernetes 中）。还可以运行和指定外部分配器，只要这些独立的程序遵循由 Kubernetes 定义的 规范
+
+   #+BEGIN_EXAMPLE
+     外部供应商的作者完全可以自由决定他们的代码保存于何处、打包方式、运行方式、使用的插件（包括Flex）等
+
+     代码仓库 kubernetes-incubator/external-storage 包含一个用于为外部分配器编写功能实现的类库，以及各种社区维护的外部分配器
+
+     例如，NFS 没有内部分配器，但可以使用外部分配器
+
+     一些外部分配器在代码仓库 kubernetes-incubator/external-storage 中。 也有第三方存储供应商提供自己的外部分配器
+   #+END_EXAMPLE
+** 回收策略
+   由 storage class 动态创建的 Persistent Volume 会在的 reclaimPolicy 字段中指定回收策略，可以是 _Delete_ 或者 _Retain_ 
+
+   #+BEGIN_EXAMPLE
+     如果 StorageClass 对象被创建时没有指定 reclaimPolicy ，它将默认为 Delete
+   #+END_EXAMPLE
+
+   通过 storage class 手动创建并管理的 Persistent Volume 会使用它们被创建时指定的回收政策
+** 挂载选项
+   由 storage class 动态创建的 Persistent Volume 将使用 _class_ 中 _mountOptions_ 字段指定的挂载选项
+
+   #+BEGIN_EXAMPLE
+     如果卷插件不支持挂载选项，却指定了该选项，则分配操作失败
+
+     安装选项在 class 和 PV 上都不会做验证，所以如果挂载选项无效，那么这个 PV 就会失败
+   #+END_EXAMPLE
+* 参数
+  Storage class 具有描述属于 storage class 卷的参数。取决于分配器，可以接受不同的参数
+
+  #+BEGIN_EXAMPLE
+    例如，参数 type 的值 io1 和参数 iopsPerGB 特定于 EBS PV
+
+    当参数被省略时，会使用默认值
+  #+END_EXAMPLE
+
+  | [[file:local-storage.org][Next：本地持久化存储]] | [[file:persistent-volume.org][Previous：Persistent Volume]] | [[file:storage.org][Home：存储]] |

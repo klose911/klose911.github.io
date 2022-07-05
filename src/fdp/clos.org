@@ -1,0 +1,79 @@
+#+TITLE: Common Lisp 对象系统
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+#+HTML_LINK_HOME: fdp.html
+
+Common Lisp对象系统，或称CLOS，是一组用来实现面向对象编程的操作集。由于它们有着同样的历史，通常将这些操作视为一个群组。λ技术上来说，它们与其他部分的Common Lisp没什么大不同：defmethod和defun一样，都是整合在语言中的一个部分 
+
+* 面向对象编程
+面向对象编程意味着程序组织方式的改变。这个改变跟已经发生过的处理器运算处理能力分配的变化雷同。在1970年代，一个多用户的计算机系统代表着，一个或两个大型机连接到大量的哑终端。现在更可能的是大量相互通过网络连接的工作站 。系统的运算处理能力现在分布至个体用户上，而不是集中在一台大型的计算机上
+
+面向对象编程所带来的变革与上例非常类似，前者打破了传统程序的组织方式。不再让单一的程序去操作那些数据，而是告诉数据自己该做什么，程序隐含在这些新的数据“对象”的交互过程之中
+
+举例来说，假设我们要算出一个二维图形的面积。一个办法是写一个单独的函数，让它检查其参数的类型，然后视类型做处理：
+
+#+BEGIN_SRC lisp
+  (defstruct rectangle
+    height width)
+
+  (defstruct circle
+    radius)
+
+  (defun area (x)
+    (cond ((rectangle-p x)
+           (* (rectangle-height x) (rectangle-width x)))
+          ((circle-p x)
+           (* pi (expt (circle-radius x) 2)))))
+
+  (let ((r (make-rectangle)))
+    (setf (rectangle-height r) 2
+          (rectangle-width r) 3)
+    (area r)) ;; => 6 
+#+END_SRC
+
+使用CLOS我们可以写出一个等效的程序。在面向对象模型里，程序被拆成数个独一无二的方法，每个方法为某些特定类型的参数而生。下面定义的两个方法，隐性地定义了
+一个相似作用的area函数，当我们调用area时，Lisp检查参数的类型，并调用相对应的方法
+
+#+BEGIN_SRC lisp
+  (defclass rectangle ()
+    (height width))
+
+  (defclass circle ()
+    (radius))
+
+  (defmethod area ((x rectangle))
+    (* (slot-value x 'height) (slot-value x 'width)))
+
+  (defmethod area ((x circle))
+    (* pi (expt (slot-value x 'radius) 2)))
+
+  (let ((r (make-instance 'rectangle)))
+    (setf (slot-value r 'height) 2
+          (slot-value r 'width) 3)
+    (area r)) ;; => 6
+
+  (let ((c (make-instance 'circle)))
+    (setf (slot-value c 'radius) 1)
+    (area c)) ;; => 3.1415926535897932385L0
+#+END_SRC
+
+通过这种方式，我们将函数拆成独一无二的方法，面向对象暗指继承：槽与方法皆有继承。作为第二个参数传给defclass的空列表列出了所有基类。假设我们要定义一个新类，上色的圆形，则上色的圆形有两个基类colored与circle：
+
+#+BEGIN_SRC lisp
+  (defclass colored ()
+    (color))
+
+  (defclass colored-circle (circle colored)
+    ())
+#+END_SRC
+
+当我们创造colored-circle类的实例时，我们会看到两个继承：
+
+colored-circle的实例会有两个槽：从circle类继承而来的radius以及从colored类继承而来的color。由于没有特别为colored-circle定义的area方法存在，若我们对colored-circle实例调用area，我们会获得替circle类所定义的area方法
+
+从实践层面来看，面向对象编程代表着以方法、类、实例以及继承来组织程序。为什么你会想这么组织程序？面向对象方法的主张之一说这样使得程序更容易改动。如果我们想要改变ob类对象所
+显示的方式，我们只需要改动ob类的display方法。如果我们希望创建一个新的类，大致上与ob相同，只有某些方面不同，我们可以创建一个ob类的子类。在这个子类里，我们仅改动我们想要的属性，其他所有的属性会从ob类默认继承得到。要是我们只是想让某个ob对象和其他的ob对象不一样，我们可以新建一个ob对象，直接修改这个对象的属性即可。若是当时的程序写的很讲究，我们甚至不需要看程序中其他的代码一眼，就可以完成种种的改动
+
+* 类与实例
+
+先我们使用defclass来定义一个类：

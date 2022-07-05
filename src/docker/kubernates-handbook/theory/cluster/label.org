@@ -1,0 +1,128 @@
+#+TITLE: Label
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: namespace.html   
+#+HTML_LINK_HOME: cluster.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+Label是附着到 _object_ 上（例如Pod）的 _键值对_ ，可以在创建object的时候指定，也可以在object创建后随时指定
+
+#+begin_example
+  Labels的值对系统本身并没有什么含义，只是对用户才有意义
+#+end_example
+
+#+begin_src js
+  "labels": {
+      "key1" : "value1",
+      "key2" : "value2"
+  }
+#+end_src
+
+Kubernetes最终将对labels做 _索引_ 和 _反向索引_ 用来优化查询和watch，在UI和命令行中会对它们排序
+
+#+begin_example
+  不要在label中使用大型、非标识的结构化数据，记录这样的数据应该用annotation
+#+end_example
+
+* 动机
+  Label能够将 _组织架构_ *映射* 到 _系统架构_ 上，这样能够更便于微服务的管理，可以给object打上如下类型的label：
+
+  #+begin_example
+    "release" : "stable", "release" : "canary"
+
+    "environment" : "dev", "environment" : "qa", "environment" : "production"
+
+    "tier" : "frontend", "tier" : "backend", "tier" : "cache"
+
+    "partition" : "customerA", "partition" : "customerB"
+
+    "track" : "daily", "track" : "weekly"
+
+    "team" : "teamA","team:" : "teamB"
+  #+end_example
+
+* 语法和字符集
+  Label key的组成：
+  + 不得超过63个字符
+  + 可以使用前缀，使用/分隔，前缀必须是DNS子域，不得超过253个字符，系统中的自动化组件创建的label必须指定前缀
+    #+begin_example
+      kubernetes.io/由kubernetes保留
+    #+end_example
+  + 起始必须是字母（大小写都可以）或数字，中间可以有连字符、下划线和点
+
+  Label value的组成：
+  + 不得超过63个字符
+  + 起始必须是字母（大小写都可以）或数字，中间可以有连字符、下划线和点
+
+* selector
+  #+begin_example
+    Label不是唯一的，很多object可能有相同的label
+  #+end_example
+  通过label selector，客户端／用户可以 *指定* 一个 _object集合_ ，通过label selector对object的集合进行操作。Label selector有两种类型：
+  + equality-based ：可以使用 _=_ 、 _==_ 、 _!=_ 操作符，可以使用 _逗号_ 分隔多个表达式
+  + set-based ：可以使用 _in_ 、 _notin_ 、 _!_ 操作符
+    + 还可以没有操作符，直接写出某个label的key，表示过滤有某个key的object而不管该key的value是何值，!表示没有该label的object
+
+* 示例
+
+  #+begin_src sh 
+    $ kubectl get pods -l environment=production,tier=frontend
+
+    $ kubectl get pods -l 'environment in (production),tier in (frontend)'
+
+    $ kubectl get pods -l 'environment in (production, qa)'
+
+    $ kubectl get pods -l 'environment,environment notin (frontend)'
+  #+end_src
+
+** 在API object中设置label selector
+
+   在 _service_ 、 _replicationcontroller_ 等object中有对pod的label selector，使用方法只能使用 _等于_ 操作，例如：
+
+   #+begin_example
+     selector:
+	 component: redis
+   #+end_example
+   在 _Job_ 、 _Deployment_ 、 _ReplicaSet_ 和 _DaemonSet_ 这些object中，支持 _set-based_ 的过滤，例如：
+
+   #+begin_example
+     selector:
+       matchLabels:
+	 component: redis
+       matchExpressions:
+	 - {key: tier, operator: In, values: [cache]}
+	 - {key: environment, operator: NotIn, values: [dev]}
+   #+end_example
+   
+   例如Service通过label selector将同一类型的pod作为一个服务expose出来：
+
+   #+ATTR_HTML: image :width 80% 
+   [[file:../../pic/labels.png]] 
+
+   另外在 _node affinity_ 和 _pod affinity_ 中的label selector的语法又有些许不同，示例如下：
+
+   #+begin_example
+       affinity:
+	 nodeAffinity:
+	   requiredDuringSchedulingIgnoredDuringExecution:
+	     nodeSelectorTerms:
+	     - matchExpressions:
+	       - key: kubernetes.io/e2e-az-name
+		 operator: In
+		 values:
+		 - e2e-az1
+		 - e2e-az2
+	   preferredDuringSchedulingIgnoredDuringExecution:
+	   - weight: 1
+	     preference:
+	       matchExpressions:
+	       - key: another-node-label-key
+		 operator: In
+		 values:
+		 - another-node-label-value
+   #+end_example
+   
+   [[file:annotation.org][Next：Annotation]]
+
+   [[file:namespace.org][Previous：Namespace]]
+
+   [[file:cluster.org][Home：Cluster]]

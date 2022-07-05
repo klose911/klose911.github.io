@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/modules/restaurant/target/debug/librestaurant.rlib: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/modules/restaurant/src/lib.rs

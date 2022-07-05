@@ -1,0 +1,118 @@
+#+TITLE: 接口
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: ./field.html
+#+HTML_LINK_HOME: ./oo.html
+#+OPTIONS: num:nil timestamp:nil 
+
+Kotlin 的接口可以既包含抽象方法的声明也包含实现。与抽象类不同的是，接口 *无法保存状态* 。它可以有属性但必须声明为抽象或提供访问器实现。使用关键字 _interface_ 来定义接口：
+
+#+BEGIN_SRC kotlin 
+  interface MyInterface {
+      fun bar()
+      fun foo() {
+	// 可选的方法体
+      }
+  }
+#+END_SRC
+
+* 实现接口
+  一个类或者对象可以实现一个或多个接口：
+
+  #+BEGIN_SRC kotlin 
+  class Child : MyInterface {
+      override fun bar() {
+	  // 方法体
+      }
+  }
+  #+END_SRC
+
+* 接口中的属性
+  可以在接口中定义属性。在接口中声明的属性要么是 _抽象的_ ，要么提供 _访问器的实现_ 
+
+  #+BEGIN_SRC kotlin 
+  interface MyInterface {
+      val prop: Int // 抽象的
+
+      val propertyWithImplementation: String
+	  get() = "foo"
+
+      fun foo() {
+	  print(prop)
+      }
+  }
+
+  class Child : MyInterface {
+      override val prop: Int = 29
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    在接口中声明的属性不能有幕后字段（backing field），因此接口中声明的访问器不能引用它们
+  #+END_EXAMPLE
+
+* 接口继承
+
+  一个接口可以从其他接口派生，从而既提供基类型成员的实现也声明新的函数与属性：
+
+  #+BEGIN_SRC kotlin 
+
+  interface Named {
+      val name: String
+  }
+
+  interface Person : Named {
+      val firstName: String
+      val lastName: String
+
+      override val name: String get() = "$firstName $lastName"
+  }
+
+  data class Employee(
+      // 不必实现“name”
+      override val firstName: String,
+      override val lastName: String,
+      val position: Position
+  ) : Person
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    很自然地，实现这样接口的类只需定义所缺少的实现
+  #+END_EXAMPLE
+
+** 解决覆盖冲突
+   实现多个接口时，可能会遇到同一方法继承多个实现的问题。例如：
+
+   #+BEGIN_SRC kotlin 
+  interface A {
+      fun foo() { print("A") }
+      fun bar()
+  }
+
+  interface B {
+      fun foo() { print("B") }
+      fun bar() { print("bar") }
+  }
+
+  class C : A {
+      override fun bar() { print("bar") }
+  }
+
+  class D : A, B {
+      override fun foo() {
+	  super<A>.foo()
+	  super<B>.foo()
+      }
+
+      override fun bar() {
+	  super<B>.bar()
+      }
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     上例中，接口 A 和 B 都定义了方法 foo() 和 bar()。 两者都实现了 foo(), 但是只有 B 实现了 bar()，在 A 中是抽象方法。因为 C 是一个实现了 A 的具体类，所以必须要重写 bar() 并实现这个抽象方法
+
+     然而，如果从 A 和 B 派生 D，需要实现从多个接口继承的所有方法，并指明 D 应该如何实现它们，这一规则既适用于继承单个实现 bar() 的方法也适用于继承多个实现 foo() 的方法
+   #+END_EXAMPLE
+
+   | [[file:visibilty.org][Next：可见性]] | [[file:field.org][Previous：属性和字段]] | [[file:oo.org][Home：面向对象]] |

@@ -1,0 +1,891 @@
+#+TITLE: 优雅的python
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil 
+
+* 循环
+** 遍历一个范围内的数字 
+   #+BEGIN_SRC python :results output :exports result
+    for i in [0, 1, 2, 3, 4, 5]:
+        print(i ** 2)
+   #+END_SRC
+   
+   #+RESULTS:
+   : 0
+   : 1
+   : 4
+   : 9
+   : 16
+   : 25
+   
+   
+   更好的代码：
+   #+BEGIN_SRC python :results output :exports result
+    for i in range(6):
+        print(i ** 2)
+   #+END_SRC
+   
+   #+RESULTS:
+   : 0
+   : 1
+   : 4
+   : 9
+   : 16
+   : 25
+   
++ range 会返回一个迭代器，用来一次一个值地遍历一个范围
+  
+** 遍历一个集合
+   
+   #+BEGIN_SRC python :results output :exports result
+    colors = [ 'red',  'green',  'blue',  'yellow' ]
+
+    for i in range(len(colors)):
+        print(colors[i])
+   #+END_SRC
+   
+   #+RESULTS:
+  : red
+  : green
+  : blue
+  : yellow
+   
+   
+   更好的写法：
+   
+   #+BEGIN_SRC python :results output :exports result
+  for color in colors:
+      print(color)
+   #+END_SRC
+   
+   #+RESULTS:
+: red
+: green
+: blue
+: yellow
+   
+** 反向遍历一个集合
+   
+   #+BEGIN_SRC python :results output :exports result
+    colors = [ 'red',  'green',  'blue',  'yellow' ]
+
+    for i in range(len(colors) - 1,  -1,  -1):
+            print (colors[i]) 
+   #+END_SRC
+   
+   #+RESULTS:
+   : yellow
+   : blue
+   : green
+   : red
+   
+   
+   更好的写法：
+   
+   #+BEGIN_SRC python :results output :exports result
+    for  color in reversed(colors):
+        print (color) 
+   #+END_SRC
+   
+   #+RESULTS:
+   : yellow
+   : blue
+   : green
+   : red
+   
+   
+   这种写法效率高，优雅，而且省去亲自创建和自增下标。当你发现在操作集合的下标时，你很有可能在做错事
+   
+** 遍历两个集合
+   
+   #+BEGIN_SRC python :results output :exports result
+    names = ['raymond', 'rachel', 'matthew']
+    colors = ['red', 'green', 'blue', 'yellow']
+
+    n = min(len(names), len(colors))
+
+    for i in range(n):
+        print (names[i], '->', colors[i])
+   #+END_SRC
+   
+   #+RESULTS:
+   : raymond -> red
+   : rachel -> green
+   : matthew -> blue
+   
+   
+   更好的写法：
+   
+   #+BEGIN_SRC python :results output :exports result
+     for name, color in zip(names, colors):
+         print (name, '->', color)
+   #+END_SRC
+   
+   #+RESULTS:
+   : raymond -> red
+   : rachel -> green
+   : matthew -> blue
+   
+   注意：在 Python 3 中，izip 改名为 zip，并替换了原来的 zip 成为内置函数
+   
+** 有序地遍历
++ 顺序遍历：
+  
+  #+BEGIN_SRC python :results output :exports result
+    colors = [ 'red',  'green',  'blue',  'yellow' ]
+
+    for color in sorted(colors):
+        print (color)
+  #+END_SRC
+  
+  #+RESULTS:
+  : blue
+  : green
+  : red
+  : yellow
+  
+  
++ 倒序遍历：
+  
+  #+BEGIN_SRC python :results output :exports result
+    colors = [ 'red',  'green',  'blue',  'yellow' ]
+
+    for color in sorted(colors, reverse=True):
+        print (color)
+  #+END_SRC
+  
+  #+RESULTS:
+  : yellow
+  : red
+  : green
+  : blue
+  
+  
+*** 自定义排序顺序 
+    
+    #+BEGIN_SRC python :results output :exports result
+      colors = [ 'red',  'green',  'blue',  'yellow' ]
+
+      def compare_length(c1, c2):
+          if len(c1) < len(c2):
+              return -1
+          if len(c1) > len(c2):
+              return 1
+          return 0
+
+      for color in sorted(colors, cmp=compare_length):
+          print (color)
+    #+END_SRC
+    
+    #+RESULTS:
+    : ['red', 'blue', 'green', 'yellow']
+    
+    
+    更好的写法：
+    #+BEGIN_SRC python :results output :exports result
+      print (sorted(colors, key=len)) 
+    #+END_SRC
+    
+    #+RESULTS:
+    : ['red', 'blue', 'green', 'yellow']
+    
+    
+** 调用一个函数直到遇到标记值
+   
+   #+BEGIN_SRC python
+    blocks = []
+
+    while True:
+        block = f.read(32)
+        if block == '':
+            break
+        blocks.append(block)
+   #+END_SRC
+   
+   更好的写法：
+   #+BEGIN_SRC python
+    blocks = []
+
+    for block in iter(partial(f.read, 32),  ''):
+        blocks.append(block)
+   #+END_SRC
+   
+   iter 接受两个参数：第一个是你反复调用的函数，第二个是标记值。第二种写法的优势在于 iter 的返回值是个迭代器，迭代器能用在各种地方，set，sorted，min，max，heapq，sum等
+   
+** 在循环内识别多个退出点
+   
+   #+BEGIN_SRC python :results output :exports result
+    seq = [0, 1, 2, 3, 4, 5, 6]
+
+    def find(seq, target):
+        found = False
+
+        for i, value in enumerate(seq):
+            if value == target:
+                found = True
+                break
+            
+        if not found:
+            return -1
+
+        return i
+
+    print (find(seq, 3)) # 3 
+    print (find(seq, 8)) # -1 
+   #+END_SRC
+   
+   #+RESULTS:
+   : 3
+   : -1
+   
+   
+   更好的写法，for 执行完所有的循环后就会执行 else：
+   #+BEGIN_SRC python
+  def find(seq, target):
+      for i, value in enumerate(seq):
+          if value == target:
+              break
+          
+      else:
+          return -1
+      
+      return i
+   #+END_SRC
+   
+   有两种方法去理解 for-else：
++ 把 for 看作 if，当 for 后面的条件为 False 时执行 else。其实条件为 False 时，就是 for 循环没被 break 出去，把所有循环都跑完的时候
++ 把 else 记成 nobreak，当 for 没有被 break，那么循环结束时会进入到 else
+  
+* 字典
+  
+** 遍历字典的 key 
+   
+   #+BEGIN_SRC python  :results output :exports result
+     d = {'matthew': 'blue', 'rachel': 'green', 'raymond': 'red'}
+
+     for k in d:
+         print (k)
+   #+END_SRC
+   
+   #+RESULTS:
+   : raymond
+   : rachel
+   : matthew
+   
+   
+   在迭代中修改容器是非常危险的： 
+   #+BEGIN_SRC python :results output :exports result
+     for k in list(d.keys()):
+         if k.startswith('r'):
+             del (d[k])
+
+   #+END_SRC
+   
+   #+RESULTS:
+   : {'matthew': 'blue'}
+   
+   
+   list(d.keys()): 把字典里所有的 key 都复制到一个列表里。然后就可以修改字典
+   
+** 遍历一个字典的 key 和 value
+   
+   #+BEGIN_SRC python :results output :exports result
+     d = {'matthew': 'blue', 'rachel': 'green', 'raymond': 'red'}
+
+     # 并不快，每次必须要重新哈希并做一次查找 
+     for k in d:
+         print (k, '->', d[k]) 
+   #+END_SRC
+   
+   #+RESULTS:
+   : matthew -> blue
+   : rachel -> green
+   : raymond -> red
+   
+   更好的写法：
+   
+   #+BEGIN_SRC python :results output :exports result
+     # for k, v in d.iteritems():
+     #     print (k, '->', v) 
+
+     for k, v in d.items():
+         print (k, '->', v)
+   #+END_SRC
+   
+   #+RESULTS:
+   : matthew -> blue
+   : rachel -> green
+   : raymond -> red
+   
+   
+   注意：Python 3 已经没有 iteritems() 了，items() 的行为和 iteritems() 很接近，返回一个迭代器
+   
+** 用 key-value 对构建字典
+   #+BEGIN_SRC python :results output :exports result
+     names = ['raymond', 'rachel', 'matthew']
+     colors = ['red', 'green', 'blue']
+     # d = dict(izip(names, colors))
+
+     d = dict(zip(names, colors)) 
+     print (d)
+   #+END_SRC
+   
+   #+RESULTS:
+   : {'matthew': 'blue', 'raymond': 'red', 'rachel': 'green'}
+   
+   
+** 用字典计数
+   简单，基本的计数方法。适合初学者起步时学习：
+   #+BEGIN_SRC python  :results output :exports result
+     colors = ['red', 'green', 'red', 'blue', 'green', 'red']
+
+     d = {}
+     for color in colors:
+         if color not in d:
+             d[color] = 0
+         d[color] += 1
+
+     print(d)
+   #+END_SRC
+   
+   #+RESULTS:
+   : {'blue': 1, 'green': 2, 'red': 3}
+   
+   
+   更好的写法，使用初始值：
+   
+   #+BEGIN_SRC python :results output :exports result
+     d = {}
+
+     for color in colors:
+         d[color] = d.get(color, 0) + 1
+
+   #+END_SRC
+   
+   #+RESULTS:
+   : {'red':  3, 'green': 2, 'blue': 1}
+   
+   
+   更新潮的方法：
+   
+   #+BEGIN_SRC python :results output :exports result
+     from collections import defaultdict
+
+     d = defaultdict(int)
+
+     for color in colors:
+         d[color] += 1
+
+     print(d) 
+   #+END_SRC
+   
+   #+RESULTS:
+   : defaultdict(<class 'int'>, {'green': 2, 'blue': 1, 'red': 3})
+   
+   
+** 用字典分组 
+   按 name 的长度分组：
+   #+BEGIN_SRC python :results output :exports result
+     names = ['raymond', 'rachel', 'matthew', 'roger',
+              'betty', 'melissa', 'judith', 'charlie']
+
+     d = {}
+
+     for name in names:
+         key = len(name)
+         if key not in d:
+             d[key] = []
+         d[key].append(name)
+
+     print(d) 
+   #+END_SRC
+   
+   #+RESULTS:
+   : {5:      ['roger', 'betty'], 6: ['rachel', 'judith'], 7: ['raymond', 'matthew', 'melissa', 'charlie']}
+   
+   
+   更好的写法：
+   #+BEGIN_SRC python :results output :exports result
+     d = {}
+
+     for name in names:
+         key = len(name)
+         d.setdefault(key, []).append(name)
+
+     print(d) 
+   #+END_SRC
+   
+   #+RESULTS:
+   : {5:      ['roger', 'betty'], 6: ['rachel', 'judith'], 7: ['raymond', 'matthew', 'melissa', 'charlie']}
+   
+   
+   更新潮的写法：
+   #+BEGIN_SRC python :results output :exports result
+     from collections import defaultdict
+
+     d = defaultdict(list)
+
+     for name in names:
+         key = len(name)
+         d[key].append(name)
+
+     print(d) 
+   #+END_SRC
+   
+   #+RESULTS:
+   : defaultdict(<class 'list'>, {5: ['roger', 'betty'], 6: ['rachel', 'judith'], 7: ['raymond', 'matthew', 'melissa', 'charlie']})
+   
+   
+** 原子操作popitem
+   popitem 是原子的，所以多线程的时候没必要用锁包着它：
+   #+BEGIN_SRC python :results output :exports result
+     d = {'matthew': 'blue', 'rachel': 'green', 'raymond': 'red'}
+
+     while d:
+         key, value = d.popitem()
+         print(key, '->', value)
+
+     print(d)
+   #+END_SRC
+   
+   #+RESULTS:
+   : rachel -> green
+   : matthew -> blue
+   : raymond -> red
+   : 
+   : {}
+   
+   
+** 连接字典
+   处理配置参数： 默认使用第一个字典（从配置文件读取），接着用环境变量覆盖它，最后用命令行参数覆盖它，不幸的是，这种方法拷贝数据太疯狂！
+   #+BEGIN_SRC python :results output :exports result
+     defaults = {'color': 'red',
+                 'USER': 'guest'}
+
+     d = defaults.copy()
+     for k, v in d.items():
+         print(k, '->', v)
+
+     import os 
+     d.update(os.environ)
+     for k, v in d.items():
+         print(k, '->', v)
+
+     import argparse
+     parser = argparse.ArgumentParser()
+     parser.add_argument('-u', '-user')
+     parser.add_argument('-c', '-color')
+
+     namespace = parser.parse_args([])
+     command_line_args = {k: v for k, v in vars(namespace).items() if v}
+
+     d.update(command_line_args)
+     for k, v in d.items():
+         print(k, '->', v)
+   #+END_SRC
+   
+   #+RESULTS:
+   #+begin_example
+   USER -> guest
+   color -> red
+   
+   GSETTINGS_BACKEND -> dconf
+   HUSHLOGIN -> FALSE
+   ......
+   USER -> klose
+   ......
+   color -> red
+   XIM -> fcitx
+   
+   ......
+   #+end_example
+   
+   
+   更高效优雅的写法：
+   #+BEGIN_SRC python :results output :exports result
+     from collections import ChainMap
+     import os
+
+     d = ChainMap(command_line_args, os.environ, defaults)
+     for k, v in d.items():
+         print(k, '->', v) 
+   #+END_SRC
+   
+   #+RESULTS:
+   #+begin_example
+   ......
+   USER -> klose
+   ......
+   color -> red
+   ......
+   #+end_example
+   
+   
+* 可读性
+  位置参数和下标很漂亮，但关键字和名称更好：
++ 第一种方法对计算机来说很便利
++ 第二种方法和人类思考方式一致
+  
+** 用关键字参数提高函数调用的可读性
+   #+BEGIN_SRC python
+     twitter_search('@obama', False, 20, True) 
+   #+END_SRC
+   
+   更好地做法：
+   
+   #+BEGIN_SRC python
+  twitter_search('@obama', retweets=False, numtweets=20, popular=True)
+   #+END_SRC
+   第二种方法稍微慢一点，但为了代码的可读性和开发时间，值得。
+   
+** 用 namedtuple 提高多个返回值的可读性
+   测试结果是好是坏？你看不出来，因为返回值不清晰：
+   #+BEGIN_SRC python
+     doctest.testmod()
+     # (0, 4) 
+   #+END_SRC
+   
+   更好的写法，使用一个 namedtuple 作为返回值：
+   #+BEGIN_SRC python
+  doctest.testmod()
+  # TestResults(failed=0, attempted=4)
+   #+END_SRC
+   
+   namedtuple 是 tuple 的子类，所以仍适用正常的元组操作，但它更友好 
+   
+*** 创建namedtuple
+    
+    #+BEGIN_SRC python :results output :exports result 
+      from collections import namedtuple
+
+      TestResults = namedtuple('TestResults', ['failed', 'attempted'])
+      testResult = TestResults(failed=0, attempted=4)
+
+      print(testResult) 
+
+    #+END_SRC
+    
+    #+RESULTS:
+    : TestResults(failed=0, attempted=4)
+    
+** unpack 序列 
+   
+   #+BEGIN_SRC python :results output :exports result 
+     p =  'Raymond', 'Hettinger',  0x30, 'python@example.com'
+
+     # 其它语言的常用方法/习惯 
+     fname = p[0]
+     lname = p[1]
+     age = p[2]
+     email = p[3]
+   #+END_SRC
+   #+RESULTS:
+    : ('Raymond', 'Hettinger', 48, 'python@example.com') 
+   
+   用unpack元组，更快，可读性更好：
+   #+BEGIN_SRC python :results output :exports result
+  fname, lname, age, email = p
+
+  print(fname)
+  print(lname)
+  print(age)
+  print(email) 
+   #+END_SRC
+   
+   #+RESULTS:
+: 'Raymond'
+: 'Hettinger'
+: 48
+: 'python@example.com'
+   
+** 更新多个变量
+   
+   #+BEGIN_SRC python :results output :exports result
+     def fibonacci(n):
+         x = 0
+         y = 1
+         for i in range(n):
+             print(x) 
+             t = y
+             y = x + y
+             x = t
+
+     print(fibonacci(10))
+   #+END_SRC
+   
+   #+RESULTS:
+   #+begin_example
+   0
+   1
+   1
+   2
+   3
+   5
+   8
+   13
+   21
+   34
+   #+end_example
+   这种写法的问题在于：
++ 状态应该在一次操作中更新
++ 操作有顺序要求
++ 太底层，太细节
+  
+更好的写法：
+
+#+BEGIN_SRC python :results output :exports result
+  def fibonacci(n):
+      x, y = 0, 1
+      for i in range(n):
+          print(x)
+          x, y = y, x + y
+
+  print(fibonacci(10)) 
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+0
+1
+1
+2
+3
+5
+8
+13
+21
+34
+#+end_example
+
+* 效率
+  优化的基本原则：
++ 除非必要，别无故移动数据
++ 稍微注意一下用线性的操作取代O(n**2)的操作
+  
+** 连接字符串
+   
+   #+BEGIN_SRC python :results output :exports result
+     names = ['raymond', 'rachel', 'matthew', 'roger',
+              'betty', 'melissa', 'judith', 'charlie']
+
+     s = names[0]
+     for name in names[1:]:
+         s += ', ' + name
+
+     print (s)
+   #+END_SRC
+   
+   #+RESULTS:
+   : raymond, rachel, matthew, roger, betty, melissa, judith, charlie
+   
+   更好的写法：
+   #+BEGIN_SRC python :results output :exports result
+     print (', '.join(names))
+   #+END_SRC
+   
+   #+RESULTS:
+   : raymond, rachel, matthew, roger, betty, melissa, judith, charlie
+** 更新序列
+   
+   #+BEGIN_SRC python :results output :exports result
+     names = ['raymond', 'rachel', 'matthew', 'roger',
+              'betty', 'melissa', 'judith', 'charlie']
+
+     del names[0]
+     # 下面的代码标志着你用错了数据结构
+     names.pop(0)
+     names.insert(0, 'mark')
+   #+END_SRC
+   
+   #+RESULTS:
+   #+begin_example
+   ['raymond', 'rachel', 'matthew', 'roger', 'betty', 'melissa', 'judith', 'charlie'] 
+   ['rachel', 'matthew', 'roger', 'betty', 'melissa', 'judith', 'charlie']
+   ['matthew', 'roger', 'betty', 'melissa', 'judith', 'charlie'] 
+   ['mark', 'matthew', 'roger', 'betty', 'melissa', 'judith', 'charlie']
+   #+end_example
+   使用deque（双向链表）往往更有效率：
+   
+   #+BEGIN_SRC python :results output :exports result
+   from collections  import deque
+  names = deque(['raymond', 'rachel', 'matthew', 'roger',
+                 'betty', 'melissa', 'judith', 'charlie'])
+  # 用deque更有效率
+  del names[0]
+  names.popleft()
+  names.appendleft('mark') 
+   #+END_SRC
+   
+   #+RESULTS:
+   #+begin_example
+   deque(['raymond', 'rachel', 'matthew', 'roger', 'betty', 'melissa', 'judith', 'charlie'])
+   deque(['rachel', 'matthew', 'roger', 'betty', 'melissa', 'judith', 'charlie'])
+   deque(['matthew', 'roger', 'betty', 'melissa', 'judith', 'charlie'])
+   deque(['mark', 'matthew', 'roger', 'betty', 'melissa', 'judith', 'charlie'])
+   #+end_example
+   
+* 装饰器和上下文管理
++ 把业务和管理的逻辑分开
++ 提高代码重用性
++ 起个好名字很关键
++ 能力越大，责任越大
+  
+** 装饰器
+   混着业务和管理逻辑，无法重用：
+   #+BEGIN_SRC python
+     def web_lookup(url, saved={}):
+         if url in saved:
+             return saved[url]
+         page = urllib.urlopen(url).read()
+         saved[url] = page
+         return page
+   #+END_SRC
+   
+   使用装饰器分离缓存逻辑：
+   #+BEGIN_SRC python
+  @cache
+  def web_lookup(url):
+      return urllib.urlopen(url).read()
+   #+END_SRC
+   
+** 上下文管理器
+*** 临时上下文
+    保存旧的上下文，创建新的：
+    #+BEGIN_SRC python
+     old_context = getcontext().copy()
+     getcontext().prec = 50
+     print(Decimal(355) / Decimal(113)) 
+     setcontext(old_context)
+    #+END_SRC
+    更好的写法：
+    #+BEGIN_SRC python
+     with localcontext(Context(prec=50)):
+         print (Decimal(355) / Decimal(113)) 
+    #+END_SRC
+    
+*** 文件
+    
+    #+BEGIN_SRC python
+     f = open('data.txt')
+     try:
+         data = f.read()
+     finally:
+         f.close()
+    #+END_SRC
+    
+    更好的写法：
+    
+    #+BEGIN_SRC python
+  with open('data.txt') as f:
+      data = f.read()
+    #+END_SRC
+    
+*** 锁
+    
+    #+BEGIN_SRC python
+     # 创建锁
+     lock = threading.Lock()
+
+     # 使用锁的老方法
+     lock.acquire()
+     try:
+         print 'Critical section 1'
+         print 'Critical section 2'
+     finally:
+         lock.release()
+    #+END_SRC
+    
+    更好的写法：
+    
+    #+BEGIN_SRC python
+  # 使用锁的新方法
+  with lock:
+      print 'Critical section 1'
+      print 'Critical section 2'
+    #+END_SRC
+    
+*** 忽略异常
+    #+BEGIN_SRC python
+     try:
+         os.remove('somefile.tmp')
+     except OSError:
+         pass
+    #+END_SRC
+    
+    更好的写法：
+    
+    #+BEGIN_SRC python
+  with ignored(OSError):
+      os.remove('somefile.tmp')
+    #+END_SRC
+    注意：ignored是Python 3.4加入的，也可以自己创建ignore上下文管理器
+    
+    #+BEGIN_SRC python
+  @contextmanager
+  def ignored(*exceptions):
+      try:
+          yield
+      except exceptions:
+          pass
+    #+END_SRC
+    
+*** 标准输出重定向
+    #+BEGIN_SRC python
+     # 临时把标准输出重定向到一个文件，然后再恢复正常
+     with open('help.txt', 'w') as f:
+         oldstdout = sys.stdout
+         sys.stdout = f
+         try:
+             help(pow)
+         finally:
+             sys.stdout = oldstdout
+    #+END_SRC
+    
+    更好的写法：
+    #+BEGIN_SRC python
+  with open('help.txt', 'w') as f:
+      with redirect_stdout(f):
+          help(pow)
+    #+END_SRC
+    
+    注意：edirect_stdout在Python 3.4加入，也可以实现自己的redirect_stdout上下文管理器
+    
+    #+BEGIN_SRC python
+  @contextmanager
+  def redirect_stdout(fileobj):
+      oldstdout = sys.stdout
+      sys.stdout = fileobj
+      try:
+          yield fieldobj
+      finally:
+          sys.stdout = oldstdout
+    #+END_SRC
+    
+* 简洁
+  两个冲突的原则：
+1. 一行不要有太多逻辑
+2. 不要把单一的想法拆分成多个部分
+   
+Raymod的原则：一行代码的逻辑等价于一句自然语言
+
+** 列表解析和迭代器
+   表达你在做什么：
+   #+BEGIN_SRC python :results output :exports result
+     result = []
+
+     for i in range(10):
+         s = i ** 2
+         result.append(s)
+
+     print (sum(result))
+   #+END_SRC
+   
+   #+RESULTS:
+   : 285
+   
+   更好的做法，表达你想要什么：
+   #+BEGIN_SRC python :results output :exports result
+  print (sum(i**2 for i in range(10))) 
+   #+END_SRC
+   
+   #+RESULTS:
+: 285

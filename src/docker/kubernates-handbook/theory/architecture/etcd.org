@@ -1,0 +1,102 @@
+#+TITLE: Etcd
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: design.html   
+#+HTML_LINK_HOME: architecture.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+Etcd是Kubernetes集群中的一个十分重要的组件，用于 *保存* 集群所有的网络配置和对象的状态信息。整个kubernetes系统中一共有两个服务需要用到etcd用来协同和存储配置，分别是：
++ 网络插件flannel、对于其它网络插件也需要用到etcd存储 _网络_ 的配置信息 
++ kubernetes本身，包括各种 _对象的状态_ 和 _元信息_ 配置
+
+#+BEGIN_EXAMPLE
+  flannel操作etcd使用的是v2的API，而kubernetes操作etcd使用的v3的API
+
+  所以在下面执行etcdctl的时候需要设置ETCDCTL_API环境变量，该变量默认值为2
+#+END_EXAMPLE
+* 原理
+  Etcd使用的是 _raft_ 一致性算法来实现的，是一款分布式的一致性KV存储，主要用于 _共享配置_ 和 _服务发现_ 
+* 存储Flannel网络信息
+  在安装Flannel的时候配置了 _FLANNEL_ETCD_PREFIX="/kube-centos/network"_ 参数，这是Flannel查询etcd的目录地址。查看Etcd中存储的flannel网络信息：
+
+  #+BEGIN_SRC sh 
+  $ etcdctl --ca-file=/etc/kubernetes/ssl/ca.pem --cert-file=/etc/kubernetes/ssl/kubernetes.pem \
+    --key-file=/etc/kubernetes/ssl/kubernetes-key.pem ls /kube-centos/network -r
+
+  2018-01-19 18:38:22.768145 I | warning: ignoring ServerName for user-provided CA for backwards compatibility is deprecated
+  /kube-centos/network/config
+  /kube-centos/network/subnets
+  /kube-centos/network/subnets/172.30.31.0-24
+  /kube-centos/network/subnets/172.30.20.0-24
+  /kube-centos/network/subnets/172.30.23.0-24
+  #+END_SRC
+
+  查看flannel的配置：
+  #+BEGIN_SRC sh 
+  $ etcdctl --ca-file=/etc/kubernetes/ssl/ca.pem --cert-file=/etc/kubernetes/ssl/kubernetes.pem \
+    --key-file=/etc/kubernetes/ssl/kubernetes-key.pem get /kube-centos/network/config
+
+  2018-01-19 18:38:22.768145 I | warning: ignoring ServerName for user-provided CA for backwards compatibility is deprecated
+  { "Network": "172.30.0.0/16", "SubnetLen": 24, "Backend": { "Type": "host-gw" } }
+  #+END_SRC
+* 存储Kubernetes对象信息
+  Kubernetes使用etcd v3的API操作etcd中的数据。所有的资源对象都保存在 _/registry_ 路径下，如下：
+
+  #+BEGIN_EXAMPLE
+    ThirdPartyResourceData
+    apiextensions.k8s.io
+    apiregistration.k8s.io
+    certificatesigningrequests
+    clusterrolebindings
+    clusterroles
+    configmaps
+    controllerrevisions
+    controllers
+    daemonsets
+    deployments
+    events
+    horizontalpodautoscalers
+    ingress
+    limitranges
+    minions
+    monitoring.coreos.com
+    namespaces
+    persistentvolumeclaims
+    persistentvolumes
+    poddisruptionbudgets
+    pods
+    ranges
+    replicasets
+    resourcequotas
+    rolebindings
+    roles
+    secrets
+    serviceaccounts
+    services
+    statefulsets
+    storageclasses
+    thirdpartyresources
+  #+END_EXAMPLE
+
+  如果你还创建了CRD（自定义资源定义），则在此会出现CRD的API 
+** 查看集群中所有的Pod信息
+   例如直接从etcd中查看kubernetes集群中所有的pod的信息，可以使用下面的命令：
+
+   #+BEGIN_SRC sh 
+  $ ETCDCTL_API=3 etcdctl get /registry/pods --prefix -w json|python -m json.tool
+   #+END_SRC
+
+   此时将看到json格式输出的结果，其中的key使用了base64编码
+* Etcd V2与V3版本API的区别
+  Etcd V2和V3之间的数据结构完全不同，互不兼容，也就是说使用V2版本的API创建的数据只能使用V2的API访问，V3的版本的API创建的数据只能使用V3的API访问
+
+  #+BEGIN_EXAMPLE
+    这就造成访问etcd中保存的flannel的数据需要使用etcdctl的V2版本的客户端，而访问kubernetes的数据需要设置ETCDCTL_API=3环境变量来指定V3版本的API
+  #+END_EXAMPLE
+* Etcd数据备份
+  安装的时候指定的Etcd数据的存储路径是 _/var/lib/etcd_ ，一定要对该目录做好备份 
+
+[[file:interface.org][Next：接口]]
+
+[[file:design.org][Previous：设计]]
+
+[[file:architecture.org][Home：架构]]

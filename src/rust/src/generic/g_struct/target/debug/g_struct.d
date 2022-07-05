@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/generic/g_struct/target/debug/g_struct: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/generic/g_struct/src/main.rs

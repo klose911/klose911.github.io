@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/error_handle/panic/target/debug/panic: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/error_handle/panic/src/main.rs

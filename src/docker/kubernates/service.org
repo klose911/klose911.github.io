@@ -1,0 +1,99 @@
+#+TITLE: 服务
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil
+* 服务
+  #+BEGIN_EXAMPLE
+    Deployment使得一组冗余的pod能够很方便地动态扩容，更新和替换。然而通过网络来访问这组pod变得相当困难
+
+    Service提供了一个抽象层来处理这个问题：Service会动态地代理流量到这组的pod上去
+  #+END_EXAMPLE
+
+  服务定义文件：暴露8080端口，转发到pod的80端口上
+
+  #+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: my-service
+  spec:
+    type: ClusterIP
+    selector:
+      app: nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 80
+  #+END_SRC
+
+  查询所有的服务：
+
+  #+BEGIN_SRC sh 
+kubectl get svc 
+  #+END_SRC
+
+  查询某个服务暴露的端口：
+
+  #+BEGIN_SRC sh 
+  kubectl get endpoints my-service
+  #+END_SRC
+* 网络策略
+  #+BEGIN_EXAMPLE
+    网络策略可以帮助用户限制对于pod端口的网络访问
+  #+END_EXAMPLE
+
+  安装支持网络策略的网络插件：
+
+  #+BEGIN_SRC sh 
+  wget -O canal.yaml https://docs.projectcalico.org/v3.5/getting-started/kubernetes/installation/hosted/canal/canal.yaml
+
+  kubectl apply -f canal.yaml
+  #+END_SRC
+
+  编写网络策略的定义文件：
+
+  #+BEGIN_SRC yaml 
+  apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: my-network-policy
+  spec:
+    podSelector:
+      matchLabels:
+          app: secure-app
+    policyTypes:
+    - Ingress
+    - Egress
+    ingress:
+    - from:
+      - podSelector:
+            matchLabels:
+               allow-access: "true"
+      ports:
+      - protocol: TCP
+            port: 80
+    egress:
+    - to:
+      - podSelector:
+            matchLabels:
+                allow-access: "true"
+      ports:
+      - protocol: TCP
+            port: 80
+  #+END_SRC
+
+  + Ingress：进pod的流量
+  + Egress: 出pod的流量
+
+  查询网络策略：
+
+  #+BEGIN_SRC sh 
+kubectl get networkpolices 
+  #+END_SRC
+
+  查询某个特定网络的详细信息：
+
+  #+BEGIN_SRC sh 
+  kubectl describe networkpolicy my-network-policy
+  #+END_SRC
+
+

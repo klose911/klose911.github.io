@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/macros/macro_rule/target/debug/macro_rule: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/macros/macro_rule/src/main.rs

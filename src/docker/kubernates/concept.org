@@ -1,0 +1,280 @@
+#+TITLE: 核心概念
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil 
+
+* 安装
+  配置apt源：
+
+  #+BEGIN_SRC sh 
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+
+  sudo add-apt-repository    "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+     $(lsb_release -cs) \
+     stable"
+
+  curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+
+  cat << EOF | sudo tee /etc/apt/sources.list.d/kubernetes.list
+  deb https://apt.kubernetes.io/ kubernetes-xenial main
+  EOF
+  #+END_SRC
+
+  安装docker和kubernate包：
+
+  #+BEGIN_SRC sh 
+  sudo apt-get update
+
+  sudo apt-get install -y docker-ce=18.06.1~ce~3-0~ubuntu kubelet=1.13.5-00 kubeadm=1.13.5-00 kubectl=1.13.5-00
+
+  #sudo apt-mark hold docker-ce kubelet kubeadm kubectl
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    请确保kubelet, kubeadm, kubectl这三个组件的版本一致！
+  #+END_EXAMPLE
+
+  允许iptables bridge call：
+
+  #+BEGIN_SRC sh 
+  echo "net.bridge.bridge-nf-call-iptables=1" | sudo tee -a /etc/sysctl.conf
+
+  sudo sysctl -p
+  #+END_SRC
+
+** master节点
+
+   初始化kubernates集群：
+
+   #+BEGIN_SRC sh
+  sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+   #+END_SRC
+
+   初始化本地配置：
+
+   #+BEGIN_SRC sh 
+  mkdir -p $HOME/.kube
+
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+   #+END_SRC
+
+   安装 _Flannel_ 网络插件：
+
+   #+BEGIN_SRC sh 
+  kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/bc79dd1505b0c8681ece4de4c0d86c5cd2643275/Documentation/kube-flannel.yml
+   #+END_SRC
+
+** node节点
+   把本机加入集群：
+
+   #+BEGIN_SRC sh 
+  sudo kubeadm join $controller_private_ip:6443 --token $token --discovery-token-ca-cert-hash $hash
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+   controller_private_ip, token, hash 是值在初始化时候获得
+   #+END_EXAMPLE
+** 测试
+
+   验证所有节点已经加入集群，在master节点执行：
+
+   #+BEGIN_SRC sh 
+  kubectl get nodes
+
+  NAME                      STATUS   ROLES    AGE   VERSION
+  wboyd1c.mylabserver.com   Ready    master   54m   v1.13.4
+  wboyd2c.mylabserver.com   Ready    <none>   49m   v1.13.4
+  wboyd3c.mylabserver.com   Ready    <none>   49m   v1.13.4
+   #+END_SRC
+
+* kubernate apis  
+  获取K8s所有的组件名称：
+  #+BEGIN_SRC sh 
+  kubectl api-resources -o name
+  #+END_SRC
+
+  获取 _kube-system_ 这个 *namespace* 下的所有pod：
+  #+BEGIN_SRC sh 
+  kubectl get pods -n kube-system
+  #+END_SRC
+
+  查询特定 _node_name_ 的节点信息
+  #+BEGIN_SRC sh 
+  kubectl get nodes $node_name
+  #+END_SRC
+
+  把节点信息导出成yaml格式： 
+
+  #+BEGIN_SRC sh 
+  kubectl get nodes $node_name -o yaml
+  #+END_SRC
+
+  展示某个节点的详细信息：
+
+  #+BEGIN_SRC sh 
+  kubectl describe node $node_name
+  #+END_SRC
+
+* Pod 
+  表示一组容器
+
+** 创建
+   my-pod.yml: 
+   #+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-pod
+    labels:
+      app: myapp
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', 'echo Hello Kubernetes! && sleep 3600']
+   #+END_SRC
+
+   从定义文件创建
+   #+BEGIN_SRC sh 
+  kubectl create -f my-pod.yml
+   #+END_SRC
+
+** 修改
+   编辑完定义文件，后执行：
+
+   #+BEGIN_SRC sh 
+  kubectl apply -f my-pod.yml
+   #+END_SRC
+
+   也可以执行：
+
+   #+BEGIN_SRC sh 
+  kubectl edit pod my-pod
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+   注意：不是所有的配置修改都可以通过edit命令完成
+   #+END_EXAMPLE
+
+** 删除
+#+BEGIN_SRC sh 
+  kubectl delete pod my-pod
+#+END_SRC
+
+
+* namespace 
+#+BEGIN_EXAMPLE
+通过namespace可以隔离不同的pod
+#+END_EXAMPLE
+
+查询所有的namespace: 
+
+#+BEGIN_SRC sh 
+  kubectl get namespaces
+#+END_SRC
+
+增加一个namespace: 
+
+#+BEGIN_SRC sh 
+  kubectl create ns my-ns
+#+END_SRC
+
+为pod指定namesapce，在定义文件中设置 _metadata.namespace_ 属性：
+
+#+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-ns-pod
+    namespace: my-ns
+    labels:
+      app: myapp
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['sh', '-c', 'echo Hello Kubernetes! && sleep 3600']
+#+END_SRC
+
+查询某个namesapce下的pod：
+
+#+BEGIN_SRC sh 
+  kubectl get pod -n my-ns
+#+END_SRC
+
+查询某个pod的详细信息也必须指定namespace: 
+
+#+BEGIN_SRC sh 
+  kubectl describe pod my-ns-pod -n my-ns
+#+END_SRC
+
+* 基本容器配置
+添加启动执行命令 _command_ ：
+
+#+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-command-pod
+    labels:
+      app: myapp
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['echo']
+    restartPolicy: Never
+#+END_SRC
+
+添加命令的参数 _args_ ：
+#+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-args-pod
+    labels:
+      app: myapp
+  spec:
+    containers:
+    - name: myapp-container
+      image: busybox
+      command: ['echo']
+      args: ['This is my custom argument']
+    restartPolicy: Never
+#+END_SRC
+
+容器暴露的端口 _containerPort_ ：
+
+#+BEGIN_SRC yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-containerport-pod
+    labels:
+      app: myapp
+  spec:
+    containers:
+    - name: myapp-container
+      image: nginx
+      ports:
+      - containerPort: 80
+#+END_SRC
+
+* 多容器的Pod
+一个pod可以创建多个容器：
+#+BEGIN_SRC yaml 
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: multi-container-pod
+  spec:
+    containers:
+    - name: nginx
+      image: nginx:1.15.8
+      ports:
+      - containerPort: 80
+    - name: busybox-sidecar
+      image: busybox
+      command: ['sh', '-c', 'while true; do sleep 30; done;']
+#+END_SRC

@@ -1,0 +1,64 @@
+#+TITLE: Taint 和 Toleration 
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: annotation.html   
+#+HTML_LINK_HOME: cluster.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+Taint（污点）和 Toleration（容忍）可以作用于 node 和 pod 上，其目的是 *优化* _pod 在集群间_ 的 *调度* ，这跟 _节点亲和性_ 类似，只不过它们作用的方式相反：
++ 具有 taint 的 node 和 pod 是互斥关系，而具有节点亲和性关系的 node 和 pod 是相吸的
++ 可以给 node 节点设置 label，通过给 pod 设置 nodeSelector 将 pod 调度到具有匹配标签的节点上
+
+Taint 和 toleration 相互配合，可以用来避免 pod 被分配到不合适的节点上：
++ 每个 _节点_ 上都可以应用一个或多个 _taint_  ，这表示对于那些不能容忍这些 taint 的 pod，是 *不会被该节点接受* 的
++ 如果将  _toleration_ 应用于 _pod_ 上，则表示这些 pod  *可以（但不要求）被调度* 到具有 _相应 taint 的节点_ 上
+* 示例
+** 为 node 设置 taint
+   为 node1 设置 taint：
+
+   #+begin_src sh 
+  kubectl taint nodes node1 key1=value1:NoSchedule
+  kubectl taint nodes node1 key1=value1:NoExecute
+  kubectl taint nodes node1 key2=value2:NoSchedule
+   #+end_src
+
+   删除上面的 taint：
+
+   #+begin_src sh 
+  kubectl taint nodes node1 key1:NoSchedule-
+  kubectl taint nodes node1 key1:NoExecute-
+  kubectl taint nodes node1 key2:NoSchedule-
+   #+end_src
+
+   查看 node1 上的 taint：
+
+   #+begin_src sh 
+  kubectl describe nodes node1
+   #+end_src
+** 为 pod 设置 toleration
+   只要在 pod 的 spec 中设置 tolerations 字段即可，可以有多个 key，如下所示：
+
+   #+begin_example
+     tolerations:
+     - key: "key1"
+       operator: "Equal"
+       value: "value1"
+       effect: "NoSchedule"
+     - key: "key1"
+       operator: "Equal"
+       value: "value1"
+       effect: "NoExecute"
+     - key: "node.alpha.kubernetes.io/unreachable"
+       operator: "Exists"
+       effect: "NoExecute"
+       tolerationSeconds: 6000
+   #+end_example
+
+   + value 的值可以为 _NoSchedule_ 、 _PreferNoSchedule_ 或 _NoExecute_
+   + tolerationSeconds 是当 pod 需要被驱逐时，可以继续在 node 上运行的时间
+
+   [[file:garbage_collection.org][Next：垃圾回收]]
+
+   [[file:annotation.org][Previous：Annotation]]
+
+   [[file:cluster.org][Home：Cluster]]
+

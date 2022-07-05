@@ -1,0 +1,109 @@
+#+TITLE: 超时处理
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: fault-tolerance.html   
+#+HTML_LINK_HOME: fault-tolerance.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+begin_example
+  回忆一下，当 “ping” 结束的时候，它向 “pong” 发送一个原子值 finished 的消息以通知 “pong” 结束程序
+#+end_example
+
+另一种让 “pong” 结束的办法是当 “pong” 有一定时间没有收到来自 “ping” 的消息时则退出程序。在 pong 中添加一个 time-out 来实现它：
+
+#+begin_src erlang 
+  -module(timeout).
+
+  -export([start_ping/1, start_pong/0,  ping/2, pong/0]).
+
+  ping(0, Pong_Node) ->
+      io:format("ping finished~n", []);
+
+  ping(N, Pong_Node) ->
+      {pong, Pong_Node} ! {ping, self()},
+      receive
+	  pong ->
+	      io:format("Ping received pong~n", [])
+      end,
+      ping(N - 1, Pong_Node).
+
+  pong() ->
+      receive
+	  {ping, Ping_PID} ->
+	      io:format("Pong received ping~n", []),
+	      Ping_PID ! pong,
+	      pong()
+      after 5000 ->
+	      io:format("Pong timed out~n", [])
+      end.
+
+  start_pong() ->
+      register(pong, spawn(timeout, pong, [])).
+
+  start_ping(Pong_Node) ->
+      spawn(timeout, ping, [3, Pong_Node]).
+#+end_src
+
+time-out 被设置在：
+
+#+begin_src erlang 
+  pong() ->
+      receive
+	  {ping, Ping_PID} ->
+	      io:format("Pong received ping~n", []),
+	      Ping_PID ! pong,
+	      pong()
+      after 5000 ->
+	      io:format("Pong timed out~n", [])
+      end.
+#+end_src
+
+执行 recieve 时， _超时定时器_ (5000 ms) 启动：
++ 一旦收到 {ping,Ping_PID} 消息，则取消该超时定时器
++ 如果没有收到 {ping,Ping_PID} 消息，那么 5000 毫秒后 time-out 后面的程序就会被执行
+
+#+begin_example
+after 必须是 recieve 中的最后一个，也就是说，recieve 中其它所有消息的接收处理都优先于超时消息
+#+end_example
+
+如果有一个 _返回值为整数值_ 的函数，可以在 after 后调用该函数以将其返回值设为超时时间值： 
+
+#+begin_src erlang 
+  after pong_timeout() ->
+#+end_src
+
+* 测试
+  编译上面的代码并将生成的 beam 文件拷贝到两个结点上，下面是在结点 pong@gentoo 上的输出：
+
+  #+begin_src sh 
+  (pong@gentoo)2> timeout:start_pong() . 
+  true
+  (pong@gentoo)3> 
+  Pong received ping
+  Pong received ping
+  Pong received ping
+  Pong timed out  
+  #+end_src
+
+  在结点 ping@raspberrypi 上的输出结果为：
+
+  #+begin_example
+    (ping@raspberrypi)4> timeout:start_ping(pong@gentoo) .
+    <0.99.0>
+    (ping@raspberrypi)5>
+    Ping received pong
+    Ping received pong
+    Ping received pong
+    ping finished
+  #+end_example
+
+  除了使用超时来监测分布式 Erlang 系统的各分部外，还有许多更好的办法来实现监测功能，超时适用于 _监测_ 来自于 *系统外部* 的事件
+
+  #+begin_example
+    比如说，当希望在指定时间内收到来自外部系统的消息的时候
+
+    比如说可以用超时来发现用户离开了messager 系统，当用户 10 分钟没有访问系统时，则认为其已离开了系统
+  #+end_example
+
+  [[file:error-handle.org][Next：错误处理]]
+
+  [[file:fault-tolerance.org][Home：容错编程]]

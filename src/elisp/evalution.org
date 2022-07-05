@@ -1,0 +1,89 @@
+#+TITLE: 求值规则
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: elisp.html   
+#+HTML_LINK_HOME: elisp.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+BEGIN_EXAMPLE
+  至此，elisp 中最常见的数据类型已经介绍完了。可以真正开始学习怎样写一个 elisp 程序
+
+  如果想深入了解一下 lisp 是如何工作的，不妨先花些时间看看 lisp 的求值过程
+
+  当然忽略这一部分也是可以的，因为我觉得这个求值规则是那么自然，以至于你会认为它就是应该这样的
+
+  求值是 lisp 解释器的核心，理解了求值过程也就学会了 lisp 编程的一半
+#+END_EXAMPLE
+
+一个要求值的 lisp 对象被称为 _表达式_ （form）。所有的表达式可以分为三种
+1. *自求值* ：最简单的表达式，前面说过 _数字_ 、 _字符串_ 、 _向量_ 都是自求值表达式。还有两个特殊的符号 _t_ 和 _nil_ 也可以看成是自求值表达式
+2. *符号* ：求值结果就是 _符号的值_ 。如果它没有值，就会出现 _void-variable_ 的错误
+3. *列表* 又可以根据 _第一个元素_ 分为 _函数_ 调用、 _宏_ 调用和 _特殊_ 表达式（special form）三种
+   1. 列表的第一个表达式如果是一个符号，解释器会查找这个表达式的函数值
+   2. 如果函数值是另一个符号，则会继续查找这个符号的函数值。这称为 _symbol function indirection_
+   3. 最后直到某个符号的函数值是一个 lisp 函数（lambda 表达式）、byte-code 函数、原子函数（primitive function）、宏、特殊表达式或 autoload 对象
+   4. 如果不是这些类型，比如某个符号的函数值是前面出现的某个符号导致无限循环，或者某个符号函数值为空，都会导致一个错误 _invalid-function_ 
+
+下面实例显示 indirection function：
+
+#+BEGIN_SRC lisp 
+  (symbol-function 'car)                  ; => #<subr car>
+  (fset 'first 'car)                      ; => car
+  (fset 'erste 'first)                    ; => first
+  (erste '(1 2 3))                        ; => 1
+#+END_SRC
+
+** 函数调用
+   对于第一个元素是 _lisp 函数对象_ 、 _byte-code 对象_ 和 _原子函数_ 时，这个列表也称为 *函数调用* （funtion call）。对这样的列表求值时：
+   1. 列表中 _其它元素先求值_ ，求值的结果作为函数调用的真正参数
+   2. 使用 _apply_ 函数用这些参数调用函数
+
+   #+BEGIN_EXAMPLE
+     如果函数是用 lisp 写的，可以理解为把参数和变量绑定到函数后，对函数体顺序求值，返回最后一个 form 的值
+   #+END_EXAMPLE
+
+** 宏调用
+   如果第一个元素是一个 _宏对象_ ：
+   1. 列表里的 *其它元素不会立即求值* ，而是根据 *宏定义进行扩展* 
+   2. 如果扩展后还是一个宏调用，则会继续扩展下去，直到扩展的结果不再是一个宏调用为止 
+
+   #+BEGIN_SRC lisp 
+  (defmacro my-cadr (x)
+    (list 'car (list 'cdr x)))
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+   这样 (my-cadr (assq 'handler list)) 扩展后成为 (car (cdr (assq 'handler list))) 
+   #+END_EXAMPLE
+
+** 特殊表达式
+   如果是一个特殊表达式时，它的 *参数可能并不会全求值* 。这些特殊表达式通常是用于 _控制结构_ 或者 _变量绑定_ 。每个特殊表达式都有对应的求值规则
+
+   #+BEGIN_EXAMPLE
+     define，cond 等被认为是特殊表达式
+
+     注意：if, while, dotimes等却经常是用cond实现的宏
+   #+END_EXAMPLE
+
+** evaluator 
+   最后用这个伪代码来说明一下 elisp 中的求值规则：
+
+   #+BEGIN_EXAMPLE
+     (defun (eval exp)
+       (cond
+	((numberp exp) exp)
+	((stringp exp) exp)
+	((arrayp exp) exp)
+	((symbolp exp) (symbol-value exp))
+	((special-form-p (car exp))
+	 (eval-special-form exp))
+	((fboundp (car exp))
+	 (apply (car exp) (cdr exp)))
+	(t
+	 (error "Unknown expression type -- EVAL %S" exp))))
+   #+END_EXAMPLE
+
+   [[file:variable.org][Next：变量]]
+
+   [[file:symbol.org][Previous：符号]]
+
+   [[file:elisp.org][Home：目录]]

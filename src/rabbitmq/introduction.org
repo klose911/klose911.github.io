@@ -1,0 +1,104 @@
+#+TITLE: 基础概念
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: rabbitmq.html   
+#+HTML_LINK_HOME: rabbitmq.html
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+
+* RabbitMQ
+接收，存储，转发消息
+** message 
+数据
+** producer
+发送消息者
+#+CAPTION: producer
+[[./pic/producer.png]]
+** queue
+类似于邮箱
+#+CAPTION: queue
+[[./pic/queue.png]]
+** consumer
+等待接受消息者
+#+CAPTION: consumer
+[[./pic/consumer.png]]
+** AMQP
+通用的消息协议
+
+* Hello World
+#+CAPTION: send/receive message
+[[./pic/hello_world.png]]
+
+** 发送消息
+#+CAPTION: send/receive message
+[[./pic/sending.png]]
++ 和RabbitMQ服务器建立连接
+   #+BEGIN_SRC python
+     #!/usr/bin/env python
+     import pika
+
+     connection = pika.BlockingConnection(pika.ConnectionParameters(
+         'localhost'))
+     channel = connection.channel()
+   #+END_SRC
++ 声明要发送消息的队列
+  #+BEGIN_SRC python
+    channel.queue_declare(queue='hello')
+  #+END_SRC
++ 发送消息给exchange
+  #+BEGIN_SRC python
+    channel.basic_publish(exchange='',
+                          routing_key='hello',
+                          body='Hello World!')
+    print(" [x] Sent 'Hello World!'")
+  #+END_SRC
++ 关闭连接
+  #+BEGIN_SRC python
+    connection.close()
+  #+END_SRC
+
+** 接收消息
+#+CAPTION: send/receive message
+[[./pic/receiving.png]]
++ 创建连接，声明队列
+  #+BEGIN_SRC python
+    #!/usr/bin/env python
+    import pika
+
+    connection = pika.BlockingConnection(pika.ConnectionParameters(
+        host='localhost'))
+    channel = connection.channel()
+
+    channel.queue_declare(queue='hello')
+  #+END_SRC
++ 编写接受消息的回调函数
+  #+BEGIN_SRC python
+    def callback(ch, method, properties, body):
+        print(" [x] Received %r" % body)
+  #+END_SRC
++ 给队列注册回调函数
+  #+BEGIN_SRC python
+    channel.basic_consume(callback,
+                          queue='hello',
+                          no_ack=True)
+  #+END_SRC
++ 开始准备接受消息
+  #+BEGIN_SRC python
+    print(' [*] Waiting for messages. To exit press CTRL+C')
+    channel.start_consuming()
+  #+END_SRC
+
+** 测试
++ 创建队列，准备接受消息
+  #+BEGIN_SRC sh
+    $ python receive.py
+    [*] Waiting for messages. To exit press CTRL+C
+    [x] Received 'Hello World!'
+  #+END_SRC
++ 发送消息
+  #+BEGIN_SRC sh
+    $ python send.py
+    [x] Sent 'Hello World!'
+  #+END_SRC
+
+[[file:work_queue.org][Next：工作队列]]
+
+[[file:rabbitmq.org][Home：目录]]

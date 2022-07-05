@@ -1,0 +1,493 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>TCP：保活定时器</title>
+<meta  http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta  name="generator" content="Org-mode" />
+<meta  name="author" content="Wu, Shanliang" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { color: green; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  pre.src-sh:before    { content: 'sh'; }
+  pre.src-bash:before  { content: 'sh'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-R:before     { content: 'R'; }
+  pre.src-perl:before  { content: 'Perl'; }
+  pre.src-java:before  { content: 'Java'; }
+  pre.src-sql:before   { content: 'SQL'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.right  { text-align: center;  }
+  th.left   { text-align: center;   }
+  th.center { text-align: center; }
+  td.right  { text-align: right;  }
+  td.left   { text-align: left;   }
+  td.center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara:nth-child(2) { display: inline; }
+  .footpara { display: block; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2013 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="tcp-persist-alarm.html"> UP </a>
+ |
+ <a accesskey="H" href="tii.html"> HOME </a>
+</div><div id="content">
+<h1 class="title">TCP：保活定时器</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#sec-1">描述</a>
+<ul>
+<li><a href="#sec-1-1">实例</a>
+<ul>
+<li><a href="#sec-1-1-1">客户端崩溃</a></li>
+<li><a href="#sec-1-1-2">客户端崩溃并重新启动</a></li>
+<li><a href="#sec-1-1-3">客户端不可达</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<p>
+许多TCP/IP的初学者会很惊奇地发现可以没有任何数据流通过一个空闲的TCP连接。也就是说，如果TCP连接的双方都没有向对方发送数据，则在两个TCP模块之间不交换任何信息。例如，没有可以在其他网络协议中发现的轮询。这意味着可以启动一个客户与服务器建立一个连接，然后离去数小时、数天、数个星期或者数月，而连接依然保持。中间路由器可以崩溃和重启，电话线可以被挂断再连通，但是只要两端的主机没有被重启，则连接依然保持建立
+</p>
+
+<p>
+这意味着两个应用进程（客户进程或服务器进程）都没有使用应用级的定时器来检测非活动状态，而这种非活动状态可以导致应用进程中的任何一个终止其活动。回想曾提到过的BGP每隔30秒就向对端发送一个应用的探查，就是独立于TCP的保活定时器之外的 <b>应用定时器</b> 
+</p>
+
+<p>
+然而，许多时候一个服务器希望知道客户主机是否崩溃并关机或者崩溃又重新启动。许多 <b>实现提供的保活定时器</b> 可以提供这种能力
+</p>
+
+<pre class="example">
+保活并不是TCP规范中的一部分。RFC提供了3个不使用保活定时器的理由：
+1. 在出现短暂差错的情况下，这可能会使一个非常好的连接释放掉
+2. 它们耗费不必要的带宽
+3. 在按分组计费的情况下会在互联网上花掉更多的钱
+
+然而，许多实现提供了保活定时器
+</pre>
+
+<p>
+保活定时器是一个有争论的功能。许多人认为如果需要，这个功能不应该在TCP中提供，而应该由应用程序来完成
+</p>
+
+<p>
+在连接两个端系统的网络出现临时故障的时候，保活选项会引起一个 <b>实际上很好的连接终止</b> 。例如，如果在一个中间路由器崩溃并重新启动时发送保活探查，那么TCP会认为客户的主机已经崩溃，而实际上所发生的并非如此。
+</p>
+
+<p>
+保活功能主要是为服务器应用程序提供的。服务器应用程序希望知道客户主机是否崩溃，从而可以代表客户使用资源。许多版本的rlogin和telnet服务器默认使用这个选项
+</p>
+
+<pre class="example">
+  需要使用保活功能的常见例子：当个人计算机用户使用TCP/IP向一个使用telnet的主机注册时，如果在一天结束时，他们仅仅关闭了电源而没有注销，那么便会留下一个半开放的连接
+
+  已经看到通过一个半开放连接发送数据会导致返回一个复位，但那是在来自正在发送数据的客户端
+
+  如果客户已经消失了，使得在服务器上留下一个半开放连接，而服务器又在等待来自客户的数据，则服务器将永远等待下去
+
+  保活功能就是试图在服务器端检测到这种半开放的连接
+</pre>
+
+<div id="outline-container-sec-1" class="outline-2">
+<h2 id="sec-1">描述</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+在这个描述中，称 <b>使用保活选项</b> 的一端为服务器，而另一端则为客户
+</p>
+<pre class="example">
+  并没有什么使客户不能使用这个选项，但通常都是服务器设置这个功能
+  
+  如果双方都特别需要了解对方是否已经消失，则双方都可以使用这个选项
+</pre>
+
+<p>
+如果一个给定的连接在两个小时之内没有任何动作，则服务器就向客户发送一个探查报文段。客户主机必须处于以下4个状态之一：
+</p>
+<ol class="org-ol">
+<li>客户主机依然正常运行，并从服务器可达。客户的TCP响应正常，而服务器也知道对方是正常工作的。服务器在 <b>两小时</b> 以后将保活定时器复位。如果在两个小时定时器到时间之前有应用程序的通信量通过此连接，则定时器在 <b>交换数据后的未来2小时</b> 再复位
+</li>
+<li>主机已经崩溃，并且关闭或者正在重新启动。在任何一种情况下，客户的TCP都没有响应。服务器将不能够收到对探查的响应，并在 <i>75</i> 秒后超时。服务器总共发送 <i>10</i> 个这样的探查，每个间隔 <i>75</i> 秒。如果服务器没有收到一个响应，它就认为客户主机已经关闭并终止连接
+</li>
+<li>客户主机崩溃并已经重新启动。这时服务器将收到一个对其保活探查的响应，但是这个响应是一个 <b>复位</b> 使得服务器终止这个连接
+</li>
+<li>客户主机正常运行，但是从服务器不可达。这与 <b>状态2</b> 相同，因为TCP不能够区分状态4与状态2之间的区别，它所能发现的就是没有收到探查的响应
+</li>
+</ol>
+
+<p>
+服务器不用关注客户主机被关闭和重新启动的情况。当系统被操作员关闭时，所有的应用进程也被终止，这会使客户的TCP在连接上发出一个FIN。接收到FIN将使服务器的TCP向服务器进程报告文件结束，使服务器可以检测到这个情况
+</p>
+
+<p>
+在第1种情况下，服务器的应用程序没有感觉到保活探查的发生。TCP层负责一切。这个过程对应用程序都是透明的，直至第2、3或4种情况发生。在这三种情况下，服务器应用程序将收到来自它的TCP的差错报告：
+</p>
+<ul class="org-ul">
+<li>在第2种情况：差错是诸如 <b>连接超时</b> 之类的信息
+</li>
+<li>在第3种情况： <b>连接被对方复位</b>
+</li>
+<li>第4种情况：看起来像是 <i>连接超时</i> 也可根据是否收到与连接有关的ICMP差错来返回其他的差错
+</li>
+</ul>
+
+
+<pre class="example">
+一个被不断讨论的关于保活选项的问题就是两个小时的空闲时间是否可以改变
+
+通常他们希望该数值可以小得多，处在分钟的数量级。这个值通常可以改变，但是保活间隔时间是系统级的变量，因此改变它会影响到所有使用该功能的用户
+
+RFC提到一个实现可提供保活的功能，但是除非应用程序指明要这样，否则就不能使用该功能。而且，保活间隔必须是可配置的，但是其默认值必须不小于两个小时
+</pre>
+</div>
+
+<div id="outline-container-sec-1-1" class="outline-3">
+<h3 id="sec-1-1">实例</h3>
+<div class="outline-text-3" id="text-1-1">
+</div><div id="outline-container-sec-1-1-1" class="outline-4">
+<h4 id="sec-1-1-1">客户端崩溃</h4>
+<div class="outline-text-4" id="text-1-1-1">
+<p>
+首先观察另一端崩溃且没有重新启动的情况下所发生的现象。为模拟这种情况，采用如下步骤：
+</p>
+<ol class="org-ol">
+<li>在客户（主机bsdi上运行的sock程序）和主机svr4上的标准回显服务器之间建立一个连接。客户使用 <b>-K</b> 选项使能保活功能
+</li>
+<li>验证数据可以通过该连接
+</li>
+<li>观察客户TCP每隔2小时发送保活分组，并观察被服务器的TCP确认
+</li>
+<li>将以太网电缆从服务器上拔掉直到这个例子完成，这会使客户认为服务器主机已经崩溃
+</li>
+<li>预期服务器在 <b>断定连接已中断前发送10个间隔为75秒的保活探查</b> 
+</li>
+</ol>
+
+<p>
+这里是客户端的交互输出结果：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-sh">bsdi % sock -K svr4 echo <span style="color: #ff4500;">#</span><span style="color: #ff4500;">-K&#26159;&#20445;&#27963;&#36873;&#39033;</span>
+
+hello, world <span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#24320;&#22987;&#26102;&#38190;&#20837;&#26412;&#34892;&#20197;&#39564;&#35777;&#36830;&#25509;&#26377;&#25928;</span>
+hello, world <span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#30475;&#21040;&#22238;&#26174;</span>
+
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">4&#23567;&#26102;&#21518;&#26029;&#24320;&#20197;&#22826;&#32593;&#30005;&#32518;</span>
+<span style="color: #b0c4de;">read</span> error: Connection timed out <span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#36825;&#21457;&#29983;&#22312;&#21551;&#21160;&#21518;&#32422;6&#23567;&#26102;10&#20998;&#38047;</span>
+</pre>
+</div>
+
+<p>
+下图显示的是tcpdump的输出结果：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-keep-alive-client-crash-dump.png" alt="tcp-keep-alive-client-crash-dump.png" width="70%" />
+</p>
+</div>
+
+<ul class="org-ul">
+<li>第1、2和3行：客户在向服务器发送“Hello,world”并得到回显
+</li>
+<li>第4~7行：是第一个保活探查，发生在两个小时以后（7200秒）
+<ul class="org-ul">
+<li>第4行：ARP请求
+</li>
+<li>第5行：一个ARP应答
+</li>
+<li>第6行：保活探查
+<ul class="org-ul">
+<li>序号字段比下一个将要发送的序号字段小1（当下一个为14时，它就是13）
+</li>
+</ul>
+</li>
+<li>第7行：客户端对保活探查的响应
+<ul class="org-ul">
+<li>因为探查报文段中没有数据，tcpdump不能打印出序号字段（它仅能够打印出设置了SYN、FIN或RST标志的空数据的序号）。接收到这个不正确的序号，才导致服务器的TCP对保活探查进行响应。这个响应告诉客户，服务器下一个期望的序号是14
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>第8~11行：两个小时以后，发生了同样的分组交换过程
+</li>
+</ul>
+
+<p>
+接着拔掉电缆，并期望两个小时的再一次探查失败：
+</p>
+<ul class="org-ul">
+<li>当这下一个探查发生时，注意到从来没有看到电缆上出现TCP报文段，这是因为主机 <b>没有响应ARP请求</b> 
+</li>
+<li>在放弃之前，可以观察到客户每隔 <b>75秒</b> 发送一个探查，一共发送了 <b>10次</b> 
+</li>
+<li>从交互式脚本可以看到返回给客户进程的差错码被TCP转换为 <b>连接超时</b>
+</li>
+</ul>
+</div>
+</div>
+
+
+<div id="outline-container-sec-1-1-2" class="outline-4">
+<h4 id="sec-1-1-2">客户端崩溃并重新启动</h4>
+<div class="outline-text-4" id="text-1-1-2">
+<p>
+在这个例子中，可以观察到当客户崩溃并重新启动时发生的情况。最初的环境与前一个例子相似，但是在验证连接有效之后，将服务器从以太网上断开， <b>重新启动</b> 然后再连接到网络上。希望看到下一个保活探查产生一个来自服务器的 <b>复位</b> 这是交互会话的过程：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-sh">bsdi % sock -K svr4 echo <span style="color: #ff4500;">#</span><span style="color: #ff4500;">-K&#26159;&#20445;&#27963;&#36873;&#39033;</span>
+
+hi, there <span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#24320;&#22987;&#26102;&#38190;&#20837;&#26412;&#34892;&#20197;&#39564;&#35777;&#36830;&#25509;&#26377;&#25928;</span>
+hi, there <span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#30475;&#21040;&#22238;&#26174;</span>
+
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#20174;&#20197;&#22826;&#32593;&#26029;&#36830;&#21518;&#65292;&#26381;&#21153;&#22120;&#36825;&#26102;&#37325;&#26032;&#21551;&#21160;</span>
+<span style="color: #b0c4de;">read</span> error: Connection reset by peer
+</pre>
+</div>
+
+<p>
+图23-2显示的是tcpdump的输出结果：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-keep-alive-client-restart-dump.png" alt="tcp-keep-alive-client-restart-dump.png" width="70%" />
+</p>
+</div>
+
+<ul class="org-ul">
+<li>第1~3行：客户发送9个字节的数据到服务器
+</li>
+<li>两个小时之后，客户发送第1个保活探查
+</li>
+<li>其响应是一个来自服务器的复位
+</li>
+<li>客户应用进程打印出 <b>连接被对端复位</b> 的差错
+</li>
+</ul>
+</div>
+</div>
+
+
+<div id="outline-container-sec-1-1-3" class="outline-4">
+<h4 id="sec-1-1-3">客户端不可达</h4>
+<div class="outline-text-4" id="text-1-1-3">
+<p>
+在这个例子中，客户没有崩溃，但是在保活探查发送后的10分钟内无法到达，可能是一个中间路由器已经崩溃，或一条电话线临时出现故障，或发生了其他一些类似的情况
+</p>
+
+<p>
+为了仿真这个例子，我们从主机slip经过一个拨号SLIP链路与主机vangogh.cs.berkeley.edu建立一个连接，然后断掉链路。这里是交互输出的结果：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-sh">bsdi % sock -K vangogh.cs.berkeley.edu echo <span style="color: #ff4500;">#</span><span style="color: #ff4500;">-K&#26159;&#20445;&#27963;&#36873;&#39033;</span>
+
+testing  <span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#24320;&#22987;&#26102;&#38190;&#20837;&#26412;&#34892;&#20197;&#39564;&#35777;&#36830;&#25509;&#26377;&#25928;</span>
+testing  <span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#30475;&#21040;&#22238;&#26174;</span>
+
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">&#22312;&#26576;&#20010;&#26102;&#21051;&#36825;&#26465;SLIP&#38142;&#36335;&#34987;&#26029;&#24320;</span>
+<span style="color: #b0c4de;">read</span> error: No route to host
+</pre>
+</div>
+
+<p>
+图23-3显示了在路由器bsdi上收集到的tcpdump输出结果：
+</p>
+
+<div class="figure">
+<p><img src="pic/tcp-keep-alive-client-unreachable-dump.png" alt="tcp-keep-alive-client-unreachable-dump.png" width="70%" />
+</p>
+</div>
+
+
+<ul class="org-ul">
+<li>第1~3行：证实连接是有效的
+</li>
+<li>第4~5行：两个小时之后的第1个保活探查是正常的
+</li>
+</ul>
+
+<p>
+但是在两个小时后发生下一个探查之前，断开在路由器sun和netb之间的slip连接
+</p>
+
+<ul class="org-ul">
+<li>第6行：保活探查引发一个来自路由器sun的 <b>ICMP网络不可达</b> 的差错
+<ul class="org-ul">
+<li>对于主机slip上接收的TCP而言，这只是一个软差错。它报告收到了一个ICMP差错，但是差错的接收者并没有终止这个连接
+</li>
+<li>在发送主机最终放弃之前，一共发送了 <b>9个</b> 保活探查，间隔为 <b>75秒</b> 
+</li>
+<li>最后返回给应用进程的差错产生了一个不同的报文： <b>没有到达主机的路由</b> 
+</li>
+</ul>
+</li>
+</ul>
+
+<p>
+<a href="tcp-future.html">Next：TCP 未来和性能</a>
+</p>
+
+<p>
+<a href="tcp-persist-alarm.html">Previous：TCP 坚持定时器</a>
+</p>
+
+<p>
+<a href="tii.html">Home：目录</a>
+</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

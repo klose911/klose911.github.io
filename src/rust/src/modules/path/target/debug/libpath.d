@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/modules/path/target/debug/libpath.rlib: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/modules/path/src/lib.rs

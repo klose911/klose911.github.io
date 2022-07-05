@@ -1,0 +1,1 @@
+/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/unit_test/debug_message/target/debug/debug_message-c189bf67031a225b: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/unit_test/debug_message/src/lib.rs

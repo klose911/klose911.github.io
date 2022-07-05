@@ -1,0 +1,73 @@
+#+TITLE: 消息路由
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: publish_subscribe.html   
+#+HTML_LINK_HOME: rabbitmq.html
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+
+* 消息路由
+很多时候某个消费者只应该接受某些消息，对于这种情况广播就不适用，最简单的消息路由是direct exchange
+** Binding Key
+可以额外传递参数routing_key给binding，为了与队列的routing_key区分，这个参数被称为binding key
+#+BEGIN_SRC python
+  channel.queue_bind(exchange=exchange_name,
+                     queue=queue_name,
+                     routing_key='black')
+#+END_SRC
+
+** Direct Exchange 
+对于fanout exchange来说，binding key毫无意义，但对于direct exchange来说，只有当队列的routing_key与exchange的binding key相同的时候，exchange才会把消息推送给这个队列
+#+CAPTION: direct exchanges
+[[./pic/direct-exchange.png]]
+
+** 多重Binding　
+可以把一个direct exchange绑定到多个具有相同routing key的队列上
+#+CAPTION: multiple binding
+[[./pic/direct-exchange-multiple.png]]
+
+* 根据日志级别做路由
+#+CAPTION: route by log serverity
+[[./pic/route.png]]
+
++ 生产者创建direct exchange
+  #+BEGIN_SRC python
+    channel.exchange_declare(exchange='direct_logs',
+                             type='direct')
+  #+END_SRC
++ 生产者根据日志级别发送给不同的队列，队列的routing key就是日志级别
+  #+BEGIN_SRC python
+    channel.basic_publish(exchange='direct_logs',
+                          routing_key=severity,
+                          body=message)
+  #+END_SRC
++ 消费者为每个日志级别分别建立一个binding
+  #+BEGIN_SRC python
+    result = channel.queue_declare(exclusive=True)
+    queue_name = result.method.queue
+
+    for severity in severities:
+        channel.queue_bind(exchange='direct_logs',
+                           queue=queue_name,
+                           routing_key=severity)
+  #+END_SRC
+
+** 测试
+启动一个消费者只接受warning和error级别日志到文件
+#+BEGIN_SRC sh
+  $ python receive_logs_direct.py warning error > logs_from_rabbit.log
+#+END_SRC
+启动另外一个消费者接受所有级别日志，并打印到终端
+#+BEGIN_SRC sh
+  $ python receive_logs_direct.py info warning error
+   [*] Waiting for logs. To exit press CTRL+C
+#+END_SRC
+生产一条error级别的日志
+#+BEGIN_SRC sh
+  $ python emit_log_direct.py error "Run. Run. Or it will explode."
+  [x] Sent 'error':'Run. Run. Or it will explode.'
+#+END_SRC
+
+[[file:topic.org][Next：订阅话题]]
+
+[[file:publish_subscribe.org][Previous：发布模式]]
+
+[[file:rabbitmq.org][Home：目录]] 

@@ -1,0 +1,535 @@
+#+TITLE: 分布式编程
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: error_handle.html   
+#+HTML_LINK_HOME: concurrency.html
+#+OPTIONS: num:nil timestamp:nil ^:nil 
+
+#+BEGIN_EXAMPLE
+  用Erlang编写分布式程序和编写并发程序只有一步之遥
+#+END_EXAMPLE
+
+在分布式Erlang里,可以在远程节点和机器上创建进程。创建出远程进程之后,会看到其他所有的基本函数( send 、 receive和 link 等)都能透明运作在网络中,就像在单个节点上一样
+
+#+BEGIN_EXAMPLE
+  在本章将介绍用于编写分布式Erlang程序的库与Erlang基本函数
+#+END_EXAMPLE
+
+_分布式_ 程序是那些被设计运行在 _计算机网络_ 上的程序,并且可以仅靠 _传递消息_ 来协调彼此的活动。下面是一些想要编写分布式应用程序的原因：
++ _性能_ ：可以通过安排程序的不同部分在不同的机器上并行运行来让程序跑得更快
++ _可靠性_ ：可以通过让系统运行在数台机器上来实现容错式系统。如果一台机器出了故障,可以在另一台机器上继续
++ _可扩展性_ ：随着把应用程序越做越大,即使机器的处理能力再强大也迟早会耗尽。到那时,就必须添加更多的机器来提升处理能力。添加一台新机器应当是一次简单的操作,不需要对应用程序的架构做出大的修改
++ _天生分布式_ ：许多应用程序天生就是分布式的。如果编写一个多用户游戏或聊天系统,就会有来自世界各地的分散用户。如果在某个地理位置上拥有大量的用户,就会希望把计算资源放置在接近这些用户的地方
++ fun：我想要编写的fun程序大部分都是分布式的。其中许多涉及与全世界各地的人与机器进行交互
+* 分布式模型
+  这里将讨论两种主要的分布式模型：
+  1. 分布式Erlang：在分布式Erlang里,编写的程序会在Erlang的 *节点* ( _node_ )上运行
+     + 节点：一个独立的Erlang系统,包含一个 _自带地址空间_ 和 _进程组_ 的 *完整虚拟机* 
+       + 可以在任何节点上创建进程,所有消息传递和错误处理基本函数也都能像在单节点上那样工作
+     + 分布式Erlang应用程序运行在一个 *可信环境* 中。因为任何节点都可以在其他Erlang节点上执行任意操作,所以这涉及高度的信任
+       + 虽然分布式Erlang应用程序可以运行在开放式网络上,但它们通常是运行在属于同一个 _局域网的集群_ 上,并受 _防火墙_ 保护 
+  2. 基于套接字：可以用TCP/IP套接字来编写运行在不可信环境中的分布式应用程序
+     + 这个编程模型不如分布式Erlang那样强大,但是更安全 
+
+  #+BEGIN_EXAMPLE
+    如果回想一下前面的内容,就一定还记得构建程序的基本单位是进程。编写分布式Erlang程序是很容易的,要做的就是在正确的机器上创建出进程,然后一切就能像之前那样运作了
+
+    人们都习惯了编写顺序程序,而编写分布式程序通常会困难得多。下面将介绍编写简单分布式程序的若干技巧。这些程序很简单,但是非常有用
+  #+END_EXAMPLE
+
+  接下来将从一些小范例起步。只需先学习两件事,就可以开始创建第一个分布式程序了：
+  + 如何启动一个Erlang节点
+  + 如何在远程Erlang节点上执行远程过程调用
+* 编写分布式程序
+  当开发一个分布式应用程序时,总是会按照特定的顺序来编写它：
+  1. 在一个 _常规的非分布式_ 会话里编写和测试我的程序：这是我们到目前为止一直在做的,所以不会有什么新问题
+  2. 在运行于 _同一台计算机_ 上的 _两个不同的Erlang节点_ 里测试程序
+  3. 在运行于 _两台物理隔离计算机_ 上的 _两个不同的Erlang节点_ 里测试程序,这两台计算机或者属于同一个局域网,或者来自互联网的任何地方
+  4. 如果所运行的机器属于 _相同的管理域_ ,就很少会出问题
+     + 但当相关节点属于 _不同域上_ 的机器时,就可能会遇到 *连接性* 问题,而且必须确保系统 _防火墙_ 和 _安全设置_ 都已得到正确配置 
+
+  #+BEGIN_EXAMPLE
+    为了演示这些步骤,将制作一个简单的名称服务器(name server)
+  #+END_EXAMPLE
+  具体而言,将执行下列步骤：
+  + 第1阶段：在一个常规的非分布式Erlang系统上编写和测试名称服务器
+  + 第2阶段：在同一台机器的两个节点上测试名称服务器
+  + 第3阶段：在同一局域网内分属两台不同机器的节点上测试名称服务器
+  + 第4阶段：在分属两个不同国家和域的两台机器上测试名称服务器 
+** 创建名称服务器
+   _名称服务器_ 这种程序会返回一个给定名称的关联值。也可以修改某个名称所关联的值 
+   #+begin_example
+     我们的第一个名称服务器极其简单。它不是容错式的，所以如果它崩溃了，保存的数据就会全部丢失
+
+     这个练习的目的不是创建一个容错式名称服务器，而是开始运用分布式编程的技巧
+   #+end_example
+*** 简单的名称服务器
+    我们的名称服务器 kvs 是一个简单的 Key --> Value 服务器，它的接口如下：
+    + 启动服务器，它将创建一个注册名为 kvs 的服务器：
+    #+begin_src erlang 
+  -spec kvs:start() -> true 
+    #+end_src
+    + 关联 Key 和 Value 
+    #+begin_src erlang 
+  -spec kvs:store(Key, Value) -> true 
+    #+end_src
+    + 查询 Key 的值：如果 Key 带有关联值就返回 {ok, Value} ，否则返回 undefined 
+    #+begin_src erlang 
+  -spec kvs:lookup(Key) -> {ok, Value} | undefined 
+    #+end_src
+
+    这个键-值服务器是用进程字典里的基本函数 get 和 put 实现的，它的代码如下：
+
+    #+begin_src erlang 
+  -module(kvs).
+  -export([start/0, store/2, lookup/1]).
+
+  start() -> register(kvs, spawn(fun() -> loop() end)).
+
+  store(Key, Value) -> rpc({store, Key, Value}). 
+
+  lookup(Key) -> rpc({lookup, Key}). 
+
+  rpc(Q) ->
+      kvs ! {self(), Q},
+      receive
+	  {kvs, Reply} ->
+	      Reply
+      end.
+
+  loop() ->  
+      receive
+	  {From, {store, Key, Value}} ->  
+	      put(Key, {ok, Value}),
+	      From ! {kvs, true},
+	      loop();
+	  {From, {lookup, Key}} -> 
+	      From ! {kvs, get(Key)},
+	      loop()
+      end.
+    #+end_src
+
+    + 保存键值的消息在第6行发送，并在第19行接收
+    + 主服务器在第17行的 loop 函数中启动：
+      + 它调用了 receive 并等待一个保存或查询消息
+      + 保存数据或从本地进程字典里取出被请求的数据
+      + 向客户端发送回复
+
+    先在本地测试这个服务器，看看它是否能正常工作：
+
+    #+begin_src sh 
+  2> kvs:start() . 
+  true
+  3> 
+  3> kvs:store({location, joe}, "Stockholm") . 
+  true
+  4> 
+  4> kvs:store(weather, raining) . 
+  true
+  5> 
+  5> kvs:lookup(weather) . 
+  {ok,raining}
+  6> 
+  6> kvs:lookup({location, joe}) .  
+  {ok,"Stockholm"}
+  7>  
+  7> kvs:lookup({location, jane}) .  
+  undefined
+    #+end_src
+
+*** 客户端在一个节点,服务器在相同主机的另一个节点
+    #+begin_example
+      现在在同一台计算机上启动两个Erlang节点，为此，需要打开两个终端窗口，然后启动两套Erlang系统
+    #+end_example
+
+    首先，将开启一个终端shell，并在这个shell里启动一个名为 gandalf 的分布式Erlang节点。然后启动服务器：
+
+    #+begin_src sh 
+  $ erl -sname gandalf 
+  Erlang/OTP 23 [erts-11.1.7] [source] [64-bit] [smp:4:4] [ds:4:4:10] [async-threads:1] [hipe]
+
+  Eshell V11.1.7  (abort with ^G)
+  (gandalf@gentoo)1> kvs:start() . 
+  true
+    #+end_src
+
+    参数 _-sname gandalf_ 的意思是“在本地主机上启动一个名为 gandalf 的Erlang节点”
+
+    #+begin_example
+      注意以下Erlang shell是如何把Erlang节点名打印在命令提示符前面的
+
+      节点名的形式是 Name@Host ，Name 和 Host 都是原子，所以如果它们包含任何非原子的字符，就必须加上引号
+    #+end_example
+
+    接下来将开启第二个终端会话，然后启动一个名为 bilbo 的Erlang节点。这样就可以用库模块 rpc 来调用 kvs 里的函数了
+
+    #+begin_src sh 
+  $ erl -sname bilbo 
+  Erlang/OTP 23 [erts-11.1.7] [source] [64-bit] [smp:4:4] [ds:4:4:10] [async-threads:1] [hipe]
+
+  Eshell V11.1.7  (abort with ^G)
+  (bilbo@gentoo)1> rpc:call(gandalf@gentoo, kvs, store, [weather, fine]) . 
+  true
+  (bilbo@gentoo)2> 
+  (bilbo@gentoo)2> rpc:call(gandalf@gentoo, kvs, lookup, [weather]) .      
+  {ok,fine}
+    #+end_src
+
+    #+begin_example
+      虽然看起来不太起眼，但实际上已经执行了我们的第一次分布式计算：服务器运行在我们启动的第一个节点上，客户端则运行在第二个节点上 
+    #+end_example
+
+    _rpc:call(Node, Mod, Func, [Arg1, Arg2, ..., ArgN])_ 会在 _Node_ 上执行一次 *远程过程调用* ，调用的函数是 _Mod:Func(Arg1, Arg2, ..., ArgN)_ 
+
+    #+begin_example
+      请注意， rpc 是一个标准的Erlang库模块，和之前编写的 rpc 函数不是一回事
+    #+end_example
+
+    设置 weather 值的调用是由 bilbo 节点发出的 ，可以切换回 gandalf 来检查一下天气 (weather) 的值：
+
+    #+begin_src sh 
+  (gandalf@gentoo)2> kvs:lookup(weather) . 
+  {ok,fine}
+    #+end_src
+
+    #+begin_example
+      如你所见，这个程序的工作方式和非分布式Erlang一致
+
+      唯一的区别在于客户端运行在一个节点上，而服务器运行在另一个不同的节点上
+    #+end_example
+
+*** 同一局域网内不同机器上的客户端和服务器
+    下一步是在不同的机器上运行客户端和服务器：
+
+    #+begin_example
+      第一个名为 gandalf 的节点在 gentoo.klose.com 上，第二个名为 bilbo 的节点在 raspberrypi.klose.com 上
+
+      开始工作之前，我们先用ssh或vnc等工具在两台不同的机器上各启动一个终端
+
+      我们把这两个窗口称为doris和george。做完这些之后，就可以在两台机器上轻松输入命令了
+    #+end_example
+
+    首先是在 gentoo 上启动一个Erlang节点：
+    #+begin_src sh 
+  gentoo$ erl -name gandalf@gentoo.klose.com --setcookie abc 
+  Erlang/OTP 23 [erts-11.1.7] [source] [64-bit] [smp:4:4] [ds:4:4:10] [async-threads:1] [hipe]
+
+  Eshell V11.1.7  (abort with ^G)
+  (gandalf@gentoo.klose.com)1> kvs:start() . 
+  true
+    #+end_src
+
+    接着在 raspberrypi 上启动一个Erlang节点并向 gandalf 发送一些命令：
+
+    #+begin_src sh 
+  raspberrypi$ erl -name bilbo@raspberrypi.klose.com --setcookie abc 
+  Erlang/OTP 21 [erts-10.2.4] [source] [smp:4:4] [ds:4:4:10] [async-threads:1]
+
+  Eshell V10.2.4  (abort with ^G)
+  (bilbo@raspberrypi.klose.com)1> rpc:call('gandalf@gentoo.klose.com', kvs, store, [weather, cold]) . 
+  true
+  (bilbo@raspberrypi.klose.com)2> 
+  (bilbo@raspberrypi.klose.com)2> rpc:call('gandalf@gentoo.klose.com', kvs, lookup, [weather]) .       
+  {ok,cold}
+    #+end_src
+
+    #+begin_example
+      它们的行为和同一机器上两个不同节点的情况完全一致
+    #+end_example
+
+    要实现这一切，我们的操作会比在同一台机器上运行两个节点时略微复杂一些。必须分4步走：
+    1. 用 _-name_ 参数启动Erlang：
+       + 在同一台机器上运行两个节点时使用了“短”名称（通过 -sname 标识体现），当两台机器位于同一个子网时也可以使用 -sname
+       + 但如果它们属于不同的网络，就要使用 -name，如果没有DNS服务， -sname 就是唯一可行的方式
+    2. 确保两个节点拥有 *相同的 cookie* ：这正是启动两个节点时都使用命令行参数 -setcookie abc 的原因
+    3. 确保相关节点的 _完全限定主机名_ （fully qualified hostname）可以 *被DNS解析* 
+       + 对于我来说，域名 klose.com 完全属于我的家庭网络，通过在 /etc/hosts 里添加一个条目来实现本地解析
+    4. 确保两个系统拥有 *相同版本的代码* 和 *相同版本的Erlang* 
+
+    #+begin_example
+      如果不这么做，就可能会得到严重而离奇的错误
+
+      避免问题的最简单的方法是在所有地方都运行相同版本的Erlang
+
+      不同版本的Erlang可以一起运行，但是无法保证能正常工作，所以最好事先检查一下 
+    #+end_example
+
+*** 跨互联网不同主机上的客户端和服务器
+    #+begin_example
+      原则上，这和第3阶段是一样的，但现在我们必须更加关注安全性。运行同一局域网内的两个节点时，多半不会过于担心安全性
+
+      在大多数机构里，局域网都是通过防火墙与互联网隔离的，可以在防火墙后面自由分配临时IP地址，对机器的设置也很随意
+    #+end_example
+
+    当跨互联网连接Erlang集群里的几台机器时，可以预料到会出现防火墙不允许传入连接的问题，必须正确 *配置防火墙* ，让它接受传入连接
+    #+begin_example
+      这一点没有通用的做法，因为每一种防火墙都是不同的
+    #+end_example
+
+    要让系统准备好运行分布式Erlang，需执行以下步骤：
+    + 确保 _4369_ 端口对 _TCP_ 和 _UDP_ 流量都开放。这个端口会被一个名为 _epmd_ 的程序使用（它是Erlang Port Mapper Daemon的缩写，即Erlang端口映射守护进程）
+    + 选择一个或一段连续端口给分布式Erlang使用，并确保这些端口是开放的。如果这些端口位于 Min 和 Max 之间（只想用一个端口就让 Min=Max ），就用以下命令启动 Erlang: 
+
+    #+begin_src sh 
+  $ erl -name ... --setcookie ... -kernerl inet_dist_listen_min MIN \
+					   inet_dist_listen_max MAX
+    #+end_src
+
+    #+begin_example
+      现在，已经了解了如何在一组Erlang节点上运行程序，以及如何通过局域网和互联网运行它们
+
+      下面来看看操作节点的基本函数
+    #+end_example
+
+* 分布式编程的库和内置函数
+  #+begin_example
+    编写分布式程序时很少从头开始。标准库里有许多模块可以用于编写分布式程序
+
+    虽然这些模块是用内置分布式函数编写的，但是它们能对程序员隐藏大量繁琐的细节
+  #+end_example
+  标准分发套装里的两个模块能够满足大多数需求。
+  + _rpc_ : 提供了许多 *远程过程调用* 服务
+  + _global_ : 里的函数可以用来在分布式系统里 _注册名称_ 和 _加锁_ ，以及维护一个全连接网络  
+
+** rpc 模块
+   rpc 模块里最重要的函数就是下面这个。
+
+   #+begin_src erlang 
+  -spec call(Node, Mod, Func, Args) -> Result | {badrpc, Reason}
+   #+end_src
+   它会在 Node 上执行 apply(Mod, Func, Args) ，然后：
+   + 如果调用成功返回结果 Result
+   + 如果调用失败则返回 {badrpc, Reason}  
+
+
+   以下是编写分布式程序的基本函数：
+*** 远程创建进程 
+    #+begin_src erlang 
+  -spec spawn(Node, Func) -> Pid 
+    #+end_src
+
+    它的工作方式和 spawn(Func) 完全一致，只是新进程是在 Node 上创建的
+
+    #+begin_src erlang 
+  -spec spawn(Node, Mod, Func, Args) -> Pid
+    #+end_src
+
+    它的工作方式和 spawn(Mod, Func, Args) 完全一致，只是新进程是在 Node 上创建的 
+
+    #+begin_example
+      这种形式的 spawn 比 spawn(Node, Func) 更加健壮
+
+      如果运行在多个分布式节点上的特定模块不是完全相同的版本， spawn(Node, Func) 就可能会出错
+    #+end_example
+*** 远程连接
+
+    #+begin_src erlang 
+      -spec spawn_link(Node, Fun) -> true 
+    #+end_src
+
+    它的工作方式和 spawn_link(Fun) 完全一致，只是新进程是在 Node 上创建的 
+
+    #+begin_src erlang 
+  -spec spawn_link(Node, Mod, Fun, Args) -> true
+    #+end_src
+    它的工作方式类似 spawn(Node, Mod, Fun, Args) ，但是新进程会与当前进程相连 
+
+*** 断开连接
+    #+begin_src erlang 
+  -spec disconnect_node(Node) -> bool() | ignored 
+    #+end_src
+
+    它会强制断开与某个节点的连接 
+
+*** 远程监视
+    #+begin_src erlang 
+  -spec monitor_node(Node, Flag) -> true
+    #+end_src
+
+    + 如果 Flag 是 _true_ 就会 *开启监视* 
+      + 如果开启了监视，那么当Node 加入或离开Erlang互连节点组时，执行这个内置函数的进程就会收到 _{nodeup, Node}_ 或 _{nodedown, Node}_ 的消息 
+    + 如果 Flag 是 _false_ 就会 *关闭监视* 
+
+*** 节点管理
+    #+begin_src erlang 
+      -spec node() -> Node 
+    #+end_src
+    它会返回本地节点的名称：
+    + 如果节点不是分布式的则会返回 _nonode@nohost_ 
+
+    #+begin_src erlang 
+  -spec node(Arg) -> Node 
+    #+end_src
+
+    它会返回 Arg 所在的节点：
+    + Arg 可以是 _PID_ 、 _引用_ 或者 _端口_
+    + 如果本地节点不是分布式的，则会返回 nonode@nohost  
+
+    #+begin_src erlang 
+  -spec nodes() -> [Nodes] 
+    #+end_src
+
+    它会返回一个列表，内含网络里其他所有与我们相连的节点 
+
+    #+begin_src erlang 
+  -spec is_alive() -> bool() 
+    #+end_src
+
+    如果本地节点是活动的，并且可以成为分布式系统的一部分，就返回 true ，否则返回 false 
+
+*** 远程消息
+    send 可以用来向一组分布式Erlang节点里的某个本地注册进程发送消息：
+
+    #+begin_src erlang 
+  {Regname, Node} ! Msg 
+    #+end_src
+    把消息 Msg 发送给节点 Node 上的注册进程 RegName  
+
+** 实例
+   #+begin_example
+     作为一个简单的示例，将展示如何在某个远程节点上创建进程
+   #+end_example
+   从下面这个程序开始：
+
+   #+begin_src erlang 
+  -module(dist_demo).
+
+  -export([rpc/4, start/1]).
+
+  start(Node) ->
+      spawn(Node, fun() -> loop() end).
+
+  rpc(Pid, M, F, A) ->
+      Pid ! {rpc, self(), M, F, A},
+      receive
+	  {Pid, Response} ->
+	      Response
+      end.
+
+  loop() ->
+      receive
+	  {rpc, Pid, M, F, A} ->
+	      Pid ! {self(), (catch apply(M, F, A))},
+	      loop()
+      end.
+   #+end_src
+   然后启动两个节点，它们都必须能够载入这段代码
+
+   #+begin_example
+     如果这两个节点在同一台主机上，这就不成问题。只需从同一个目录里启动两个Erlang节点就可以了
+
+     如果节点分别属于两台物理隔离且文件系统不同的主机，这个程序就必须被复制到所有节点上，编译之后才能启动节点（或者也可以把 .beam 文件复制到所有节点上）
+
+     在这个例子里，我假定这一切都已完成
+   #+end_example
+
+   在主机 gentoo 上，启动一个名为 gandalf 的节点：
+
+   #+begin_src sh 
+  $ erl -name gandalf@gentoo.klose.com -setcookie abc 
+  Erlang/OTP 23 [erts-11.1.7] [source] [64-bit] [smp:4:4] [ds:4:4:10] [async-threads:1] [hipe]
+
+  Eshell V11.1.7  (abort with ^G)
+  (gandalf@gentoo.klose.com)1> 
+   #+end_src
+
+   在主机 raspberrypi 上，启动一个名为 bilbo 的节点，要记得使用同一个cookie：
+
+   #+begin_src sh 
+  $ erl -name bilbo@raspberrypi.klose.com -setcookie abc 
+  Erlang/OTP 21 [erts-10.2.4] [source] [smp:4:4] [ds:4:4:10] [async-threads:1]
+
+  Eshell V10.2.4  (abort with ^G)
+   #+end_src
+
+   现在（在 bilbo 上），让远程节点（ gandalf ）创建一个进程：
+
+   #+begin_src sh 
+  (bilbo@raspberrypi.klose.com)1> Pid = dist_demo:start('gandalf@gentoo.klose.com') . 
+  <8209.92.0>
+   #+end_src
+
+   Pid 是这个 _远程节点_ 进程的标识符，接着再调用 dist_demo:rpc/4 ，在远程节点(gandalf)上执行一次 _远程过程_ 调用：
+
+   #+begin_src sh 
+  (bilbo@raspberrypi.klose.com)2> dist_demo:rpc(Pid, erlang, node, []) . 
+  'gandalf@gentoo.klose.com'
+   #+end_src
+
+   它在远程节点上执行 erlang:node() 并返回一个值 
+
+*** 文件操作
+    下面这些操作是上一个示例的延续：
+
+    #+begin_src sh 
+  (bilbo@raspberrypi.klose.com)4> dist_demo:rpc(Pid, file, get_cwd, []) .  
+  {ok,"/home/klose/tmp"}
+
+  (bilbo@raspberrypi.klose.com)6> dist_demo:rpc(Pid, file, list_dir, ["."]) .    
+  {ok,["dist_demo.erl","dist_demo.beam","hello.txt"]}
+
+  (bilbo@raspberrypi.klose.com)9> dist_demo:rpc(Pid, file, read_file, ["dist_demo.erl"]) .     
+  {ok,<<"%% ---\n%%  Excerpted from \"Programming Erlang, Second Edition\",\n%%  published by The Pragmatic Bookshelf.\n%%"...>>}
+    #+end_src
+
+    在 bilbo 上发起的一些请求形成了对 gandalf 上标准库的远程过程调用。使用 file 模块里的三个函数来访问 gandalf 的文件系统 ：
+    + get_cwd(): 返回文件服务器的当前工作目录
+    + list_dir(Dir): 返回 Dir 里所有文件的列表
+    + read_file(File): 读取文件 File  
+
+    #+begin_example
+      仔细回味一下，你会意识到刚才所做的相当神奇
+
+      没有编写任何代码就创建了一个文件服务器，只是重用了 file 模块里的库代码，并使它可以通过一个简单的远程过程调用接口访问
+    #+end_example
+
+* cookie 保护系统
+  _cookie_ 系统让访问单个或一组节点变得更安全。每个节点都有一个cookie，如果它想与其他任何节点通信，它的cookie就必须和对方节点的cookie相同
+
+  #+begin_example
+    为了确保cookie相同，分布式Erlang系统里的所有节点都必须以相同的“神奇”（magic）cookie启动，或者通过执行 erlang:set_cookie 把它们的cookie修改成相同的值 
+
+    Erlang集群的定义就是一组带有相同cookie的互连节点
+  #+end_example
+
+** 设置 Cookie 
+   可以用以下三种方法设置cookie
+
+*** 文件系统
+    在文件 _$HOME/.erlang.cookie_ 里存放相同的cookie。这个文件包含一个随机字符串，是Erlang第一次在你的机器上运行时自动创建的：
+    + 这个文件可以被复制到所有想要参与分布式Erlang会话的机器上
+    + 也可以显式设置它的值
+
+    #+begin_example
+      注意：.erlang.cookie 文件只能被它的所有者访问，它的权限必须设置为 400 
+    #+end_example
+
+*** 启动参数
+    当Erlang启动时，可以用命令行参数 _-setcookie C_ 
+
+*** 内置函数 
+    _erlang:set_cookie(node(), C)_ 能把本地节点的cookie设成原子 C 
+
+    #+begin_example
+      如果你的环境不够安全，那么方法1和3要优于方法2
+
+      因为Unix系统里的任何用户都可以用 ps 命令来查看你的cookie，启动参数只适用于测试
+    #+end_example
+
+** 安全性
+   #+begin_example
+     cookie保护系统被设计用来创建运行在局域网（LAN）上的分布式系统，LAN本身应该受防火墙保护，与互联网隔开
+
+     跨互联网运行的分布式Erlang应用程序应该先在主机之间建立安全连接，然后再使用cookie保护系统
+   #+end_example
+
+   cookie从不会在网络中明文传输，它只用来对某次会话进行初始认证
+
+   #+begin_example
+     此外，分布式Erlang会话不是加密的，但可以被设置成在加密通道中运行
+   #+end_example
+
+   [[file:otp.org][Next：OTP库]]
+
+   [[file:error_handle.org][Previous：错误处理]]
+
+   [[file:concurrency.org][Home：目录]]

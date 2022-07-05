@@ -1,0 +1,472 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>TCP：坚持定时器</title>
+<meta  http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta  name="generator" content="Org-mode" />
+<meta  name="author" content="Wu, Shanliang" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { color: green; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  pre.src-sh:before    { content: 'sh'; }
+  pre.src-bash:before  { content: 'sh'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-R:before     { content: 'R'; }
+  pre.src-perl:before  { content: 'Perl'; }
+  pre.src-java:before  { content: 'Java'; }
+  pre.src-sql:before   { content: 'SQL'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.right  { text-align: center;  }
+  th.left   { text-align: center;   }
+  th.center { text-align: center; }
+  td.right  { text-align: right;  }
+  td.left   { text-align: left;   }
+  td.center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara:nth-child(2) { display: inline; }
+  .footpara { display: block; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2013 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="tcp-retransmission.html"> UP </a>
+ |
+ <a accesskey="H" href="tii.html"> HOME </a>
+</div><div id="content">
+<h1 class="title">TCP：坚持定时器</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#sec-1">实例</a>
+<ul>
+<li><a href="#sec-1-1">糊涂窗口综合症</a>
+<ul>
+<li><a href="#sec-1-1-1">实例</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<p>
+已经看到TCP通过让接收方指明希望从发送方接收的数据字节数（即窗口大小）来进行流量控制。如果窗口大小为0会发生什么情况呢？这将有效地阻止发送方传送数据，直到窗口变为非0为止
+</p>
+
+<p>
+可以在图20-3中看到这种情况。当发送方接收到报文段9时，它打开被报文段8关闭的窗口并立即开始发送数据。TCP必须能够处理打开此窗口的 <b>ACK（报文段9）丢失</b> 的情况。ACK的传输并不可靠，也就是说， <b>TCP不对ACK报文段进行确认，TCP只确认那些包含有数据的ACK报文段</b>
+</p>
+
+<p>
+如果一个确认丢失了，则双方就有可能因为等待对方而使连接终止：接收方等待接收数据（因为它已经向发送方通告了一个非0的窗口），而发送方在等待允许它继续发送数据的窗口更新。为防止这种死锁情况的发生，发送方使用一个坚持定时器来周期性地向接收方查询，以便发现窗口是否已增大。这些从发送方发出的报文段称为 <b>窗口探查</b> 。在本章中将讨论窗口探查和坚持定时器，还将讨论与坚持定时器有关的 <b>糊涂窗口综合症</b> 
+</p>
+
+<div id="outline-container-sec-1" class="outline-2">
+<h2 id="sec-1">实例</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+为了观察到实际中的坚持定时器，先启动一个接收进程。它监听来自客户的连接请求，接受该连接请求，然后在从网络读取数据前休眠很长一段时间
+</p>
+
+<p>
+sock程序可以通过指定一个暂停选项 <b>-P</b> 使服务器在接受连接和进行第一次读动作之间进入休眠。以这种方式调用服务器：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-sh">svr4 % sock -i -s -P100000 5555
+</pre>
+</div>
+
+<p>
+该命令在从网络上读数据之前休眠100000秒（27.8小时）。客户运行在主机bsdi上，并向服务器的5555端口执行1024字节的写操作。图22-1给出了tcpdump的输出结果：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-sock-sleep-dump.png" alt="tcp-sock-sleep-dump.png" width="70%" />
+</p>
+</div>
+
+<ul class="org-ul">
+<li>报文段1~13：从客户到服务器的正常的数据传输过程，有9216个字节的数据填充了窗口。服务器通告窗口大小为4096字节，且默认的插口缓存大小为4096字节，但实际上它一共接收了9216字节的数据，这是在SVR4中TCP代码和流子系统(stream subsystem)之间某种形式交互的结果
+</li>
+<li>报文段13：服务器确认了前面4个数据报文段，然后通告窗口为0，从而使客户停止发送任何其他的数据。这就引起客户设置其坚持定时器。如果在该定时器时间到时客户还没有接收到一个窗口更新，它就探查这个空的窗口以决定窗口更新是否丢失。由于服务器进程处于休眠状态，所以TCP缓存9216字节的数据并等待应用进程读取
+</li>
+<li>客户机bsdi使用一个坚持定时器来周期性地向服务器svr4查询，以便发现窗口是否已增大
+<ul class="org-ul">
+<li>窗口探查包含一个字节的数据（序号为9217）。TCP总是允许在关闭连接前发送一个字节的数据 
+</li>
+</ul>
+<pre class="example">
+  注意：所返回的窗口为0的ACK 9217并不是确认该字节，它们确认了包括9216在内的所有数据，因此这个字节被持续重传
+</pre>
+</li>
+</ul>
+
+
+<p>
+在收到一个大小为0的窗口通告后的第1个（报文段14）间隔为4.949秒，下一个（报文段16）间隔是4.996秒，随后的间隔分别约为6,12,24,48和60秒
+</p>
+
+<p>
+为什么这些间隔总是比5、6、12、24、48和60小一个零点几秒呢？因为这些探查被TCP的 <b>500ms定时器超时例程所触发</b> 当定时器时间到时，就发送窗口探查，并大约在4ms之后收到一个应答。接收到应答使得定时器被重新启动，但到下一个时钟滴答之间的时间则约为 <b>500减4ms</b> 
+</p>
+
+<p>
+计算坚持定时器时使用了普通的 <b>TCP指数退避</b> 。对一个典型的局域网连接，首次超时时间算出来是1.5秒，第2次的超时值增加一倍为3秒，再下次乘以4为6秒，之后再乘以8为12秒等。但是坚持定时器总是在5~60秒之间
+</p>
+
+<pre class="example">
+  坚持状态与重传超时之间一个不同的特点： TCP从不放弃发送窗口探查
+
+  这些探查每隔60秒发送一次，这个过程将持续到或者窗口被打开，或者应用进程使用的连接被终止
+</pre>
+</div>
+
+<div id="outline-container-sec-1-1" class="outline-3">
+<h3 id="sec-1-1">糊涂窗口综合症</h3>
+<div class="outline-text-3" id="text-1-1">
+<p>
+基于窗口的流量控制方案，如TCP所使用的，会导致一种被称为 <b>糊涂窗口综合症</b> 的状况。如果发生这种情况，则少量的数据将通过连接进行交换，而不是满长度的报文段
+</p>
+
+<p>
+该现象可发生在两端中的任何一端：
+</p>
+<ul class="org-ul">
+<li>接收方可以通告一个小的窗口，而不是一直等到有大的窗口时才通告
+</li>
+<li>发送方也可以发送少量的数据，而不是等待其他的数据以便发送一个大的报文段
+</li>
+</ul>
+
+<p>
+可以在任何一端采取措施避免出现糊涂窗口综合症的现象：
+</p>
+<ol class="org-ol">
+<li>接收方不通告小窗口：通常的算法是接收方不通告一个比当前窗口大的窗口（可以为0），除非
+<ul class="org-ul">
+<li>窗口可以增加一个报文段大小，也就是将要接收的MSS
+</li>
+<li>可以增加接收方缓存空间的一半，不论实际有多少
+</li>
+</ul>
+</li>
+<li>发送方避免出现糊涂窗口综合症的措施是只有以下条件之一满足时才发送数据：
+<ul class="org-ul">
+<li>a: 可以发送一个满长度的报文段
+</li>
+<li>b: 可以发送至少是接收方通告窗口大小一半的报文段，主要对付那些总是通告小窗口（也许比1个报文段还小）的主机
+<ul class="org-ul">
+<li>要求发送方始终监视另一方通告的最大窗口大小，这是一种发送方猜测对方接收缓存大小的企图。虽然在连接建立时接收缓存的大小可能会减小，但在实际中这种情况很少见
+</li>
+</ul>
+</li>
+<li>c: 可以发送任何数据并且不希望接收ACK（没有还未被确认的数据）或者该连接上不能使用Nagle算法。如果应用进程在进行小数据的写操作（例如比该报文段还小），可以避免出现糊涂窗口综合症
+</li>
+</ul>
+</li>
+</ol>
+</div>
+
+<div id="outline-container-sec-1-1-1" class="outline-4">
+<h4 id="sec-1-1-1">实例</h4>
+<div class="outline-text-4" id="text-1-1-1">
+<p>
+在发送主机sun上运行sock程序，并向网络写6个1024字节的数据：
+</p>
+<div class="org-src-container">
+
+<pre class="src src-sh">sun % sock -i -n6 bsdi 7777
+</pre>
+</div>
+
+<p>
+但是在主机bsdi的接收过程中加入一些暂停。在第1次读数据前暂停4秒，之后每次读之前暂停2秒。而且，接收方进行的是256字节的读操作：
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-sh">bsdi % sock -i -s -P4 -p2 -r256 7777
+</pre>
+</div>
+
+<p>
+最初的暂停是为了让接收缓存被填满，迫使发送方停止发送。随后由于接收方从网络上进行了一些小数目的读取，预期能看到接收方采取的避免糊涂窗口综合症的措施
+</p>
+
+<p>
+图22-2是传输6144字节数据的时间系列：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-sws-sequences.png" alt="tcp-sws-sequences.png" width="70%" />
+</p>
+</div>
+
+<p>
+还需要跟踪在每个时间点上读取数据时应用程序的运行情况、当前正在接收缓存中的数据的序号以及接收缓存中可用空间的大小。图22-3显示了所发生的每件事情：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/tcp-sws-timestamp.png" alt="tcp-sws-timestamp.png" width="70%" />
+</p>
+</div>
+
+<p>
+图22-3中的第1列是每个行为的相对时间点。那些带有3位小数点的时间是从tcpdump的输出结果中得到的，而小数点部分为99的则是在接收服务器上产生行为的估计时间
+</p>
+<pre class="example">
+    使这些在接收方的估计时间包含一秒的99%仅与报文段20和22有关
+    
+    它们是我们能够从tcpdump的输出结果中看到的由接收主机超时引起的仅有的两个事件
+    
+    而在主机bsdi上观察到的其他分组，则是由接收到来自发送方的一个报文段所引起的
+    
+    这同样是有意义的，因为这就可以将最初的4秒暂停刚好放置在发送方发送第1个数据报文段的时间0前面
+    
+    这是接收方在连接建立过程中收到它的SYN的ACK之后将要获得控制权的大致时间
+</pre>
+
+<p>
+当接收到来自发送方的数据时，接收方缓存中的数据增加，而当应用进程从缓存中读取数据时，数据就减少。接下来关注的是接收方发给发送方的窗口通告以及这些窗口通告是什么。这样就可以看到接收方是如何避免糊涂窗口综合症的。
+</p>
+
+<ul class="org-ul">
+<li>报文段1~5：前4个数据报文段及其ACK。发送方正在填充接收方的缓存
+<ul class="org-ul">
+<li>在那个时刻发送方停止了发送，但仍然有更多的数据需要发送。它将自己的 <b>坚持定时器置为最小值5分钟</b> 
+</li>
+</ul>
+</li>
+<li>报文段6：当坚持定时器时间到时，就发送出1个字节的数据
+</li>
+<li>报文段7：接收的应用进程已经从接收缓存中读取了256字节的数据（在时刻3.99），因此这个字节被接受并被确认
+<ul class="org-ul">
+<li>但是通告窗口仍为0，这是由于接收方仍然没有足够的空间来接收一个满长度的报文，或者不能腾出缓存空间的一半。这就是 <b>接收方的糊涂窗口避免措施</b> 
+</li>
+</ul>
+</li>
+<li>报文段8：发送方的坚持定时器被复位，并在5秒后再次到时（在时刻10.151）。然后又发送一个字节并被确认
+</li>
+<li>报文段9：接收方的缓存空间还不够用（1022字节），使得通告窗口为0
+</li>
+<li>报文段10：发送方的坚持定时器在时刻15.151再次时间到，又发送了另一个字节并被确认
+</li>
+<li>报文段11：这次由于接收方有1533字节的有效缓存空间，因此通告了一个非0窗口
+</li>
+<li>报文段12：发送方立即利用这个窗口发送了1024字节的数据
+</li>
+<li>报文段13：对这1024字节数据的确认，通告其窗口为509字节
+<ul class="org-ul">
+<li>这看起来与小窗口通告相抵触：是因为报文段11段通告了一个大小为1533字节的窗口，而发送方只使用了其中的1024字节。如果在报文段13中的ACK通告其窗口为0，就会 <b>违反窗口的右边沿不能向左边沿移动而导致窗口收缩</b> 的TCP原则 
+</li>
+</ul>
+</li>
+<li>报文段14：发送方等待另一个坚持定时器在时刻20.151到时间，并在该时刻发送509字节的数据
+<ul class="org-ul">
+<li>尽管它最终还是发送了一个长度为509字节的小数据段，但在发送前它等待了5秒钟，看是否会有一个ACK到达，以便可以将窗口开得更大，这就是 <b>发送方采取的糊涂窗口避免策略</b> 
+</li>
+</ul>
+</li>
+<li>报文段15：这509字节的数据使得接收缓存仅剩下768字节的有效空间，因此接收方通告窗口为0
+</li>
+<li>坚持定时器在时刻25.151再次到时间，发送方发送1个字节
+</li>
+<li>报文段17：接收缓存中有1279字节的可用空间，这就是所通告的窗口大小
+</li>
+<li>报文段18：发送方只有另外的511个字节的数据需要发送，因此在收到1279的窗口通告后立刻发送了这些数据
+<ul class="org-ul">
+<li>这个报文段也带有FIN标志
+</li>
+</ul>
+</li>
+<li>报文段19:接收方确认数据和FIN，并通告窗口大小为767
+</li>
+</ul>
+
+<pre class="example">
+  由于发送应用进程在执行完6个1024字节的写操作后发出关闭命令，发送方的连接从ESTABLISHED状态转变到FIN_WAIT_1状态，再到FIN_WA IT_2状态
+
+  客户端一直处于这个状态，直到收到对方的FIN。在这个状态上没有设置定时器，因为它在报文段18中发送的FIN被报文段19确认
+
+  这就是为什么看到发送方直到接收到FIN（报文段21）为止没有发送其他任何数据的原因
+</pre>
+
+<ul class="org-ul">
+<li>报文段20：接收应用进程继续每隔2秒从接收缓存区中读取256个字节的数据。为什么在时刻39.99发送ACK呢？
+</li>
+</ul>
+<pre class="example">
+  这是因为应用进程在时刻39.99读取数据时，接收缓存中的可用空间已经从原来通告的767变为2816
+
+  这相当于接收缓存中增加了额外的2049字节的空间，现在接收缓存已经增加了其空间的一半，因此接收方现在发送窗口更新
+
+  这意味着每次当应用进程从TCP的接收缓存中读取数据时，接收的TCP将检查是否需要更新发送窗口
+</pre>
+
+<ul class="org-ul">
+<li>报文段21：应用进程在时间51.99发出最后一个读操作，然后收到一个文件结束标志，因为缓存已经变空。服务器发送完成连接终止的报文
+</li>
+<li>报文段22：客户端确认收到服务器的连接终止报文
+</li>
+</ul>
+
+<p>
+<a href="tcp-keep-alive-alarm">Next：TCP 保活定时器</a>
+</p>
+
+<p>
+<a href="tcp-retransmission.html">Previous：TCP 超时和重传</a>
+</p>
+
+<p>
+<a href="tii.html">Home：目录</a>
+</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

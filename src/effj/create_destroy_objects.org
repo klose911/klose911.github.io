@@ -1,0 +1,402 @@
+#+TITLE: 创建和销毁对象
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: effj.html   
+#+HTML_LINK_HOME: effj.html
+#+OPTIONS: num:nil timestamp:nil
+* 考虑使用静态工厂方法代替构造器
+** 优点
+1. 可以有名字
+2. 可以缓存创建后的对象
+3. 可以返回任何子类型对象
+   #+BEGIN_SRC java
+     // Service provider framework sketch
+     // Service interface
+     public interface Service {
+             // Service-specific methods go here
+     }
+     // Service provider interface
+     public interface Provider {
+             Service newService();
+     }
+
+     // Noninstantiable class for service registration and access
+     public class Services {
+             private Services() { } // Prevents instantiation (Item 4)
+             
+             // Maps service names to services
+             private static final Map<String, Provider> providers =
+                     new ConcurrentHashMap<String, Provider>();
+
+             public static final String DEFAULT_PROVIDER_NAME = "<def>";
+             // Provider registration API
+
+             public static void registerDefaultProvider(Provider p) {
+                     registerProvider(DEFAULT_PROVIDER_NAME, p);
+             }
+
+             public static void registerProvider(String name, Provider p){
+                     providers.put(name, p);
+             }
+
+             // Service access API,可以返回子类型
+             public static Service newInstance() {
+                     return newInstance(DEFAULT_PROVIDER_NAME);
+             }
+             public static Service newInstance(String name) {
+                     Provider p = providers.get(name);
+                     if (p == null)
+                             throw new IllegalArgumentException(
+                                     "No provider registered with name: " + name);
+                     return p.newService();
+             }
+     }
+   #+END_SRC
+
+4. 创建参数化型实例时候代码更简洁
+
+** 缺点
+1. 如果没有public或者protected的构造器，就无法子类化。某种意义上这也是一个优点
+2. 静态工厂方法本质上与其他静态方法没有区别，使用valueOf, newInstance, getInstance等命名用于静态工厂方法
+
+* 多个构造器参数的时候考虑builder模式
+
+** 多个构造器
+多个构造器对应不同参数
+   #+BEGIN_SRC java
+     // Telescoping constructor pattern - does not scale well!
+     public class NutritionFacts {
+             private final int servingSize;// (mL) required
+             private final int servings;// (per container) required
+             private final int calories;//        optional
+             private final int fat;// (g)        optional
+             private final int sodium;// (mg)       optional
+             private final int carbohydrate; // (g)        optional
+             public NutritionFacts(int servingSize, int servings) {
+                     this(servingSize, servings, 0);
+             }
+             public NutritionFacts(int servingSize, int servings,
+                                   int calories) {
+                     this(servingSize, servings, calories, 0);
+             }
+             public NutritionFacts(int servingSize, int servings,
+                                   int calories, int fat) {
+                     this(servingSize, servings, calories, fat, 0);
+             }
+             public NutritionFacts(int servingSize, int servings,
+                                   int calories, int fat, int sodium) {
+                     this(servingSize, servings, calories, fat, sodium, 0);
+             }
+
+             public NutritionFacts(int servingSize, int servings,
+                                   int calories, int fat, int sodium, int carbohydrate) {
+                     this.servingSize = servingSize;
+                     this.servings = servings;
+                     this.calories = calories;
+                     this.fat = fat;
+                     this.sodium = sodium;
+                     this.carbohydrate = carbohydrate;
+             }
+     }
+   #+END_SRC
+客户端代码很难抉择到底使用哪个构造器，并且也不好阅读所有构造器代码
+   #+BEGIN_SRC java
+     NutritionFacts cocaCola =
+             new NutritionFacts(240, 8, 100, 0, 35, 27);
+   #+END_SRC
+
+** Java Bean
+默认空构造器，使用set方法设置相关参数
+#+BEGIN_SRC java
+  // JavaBeans Pattern - allows inconsistency, mandates mutability
+  public class NutritionFactsBean {
+  // Parameters initialized to default values (if any)
+          private int servingSize = -1; // Required; no default value
+          private int servings = -1;  //"　"　"　"
+          private int calories = 0;
+          private int fat = 0;
+          private int sodium = 0;
+          private int carbohydrate = 0;
+
+          public NutritionFactsBean() {
+          }
+
+          public void setServingSize(int servingSize) {
+                  this.servingSize = servingSize;
+          }
+
+          public void setServings(int servings) {
+                  this.servings = servings;
+          }
+
+          public void setCalories(int calories) {
+                  this.calories = calories;
+          }
+
+          public void setFat(int fat) {
+                  this.fat = fat;
+          }
+
+          public void setSodium(int sodium) {
+                  this.sodium = sodium;
+          }
+
+          public void setCarbohydrate(int carbohydrate) {
+                  this.carbohydrate = carbohydrate;
+          }
+  }
+#+END_SRC
+
+客户端代码变得容易，而且易于阅读
+#+BEGIN_SRC java
+  NutritionFacts cocaCola = new NutritionFacts();
+  cocaCola.setServingSize(240);
+  cocaCola.setServings(8);
+  cocaCola.setCalories(100);
+  cocaCola.setSodium(35);
+  cocaCola.setCarbohydrate(27);
+#+END_SRC
++ 构造对象处于几个调用，需要额外维护构造过程的线程安全
++ 无法构造不可变对象，使得维护线程安全更困难
+
+** Builder模式
+   #+BEGIN_SRC java
+     //Builder Pattern
+     public class NutritionFacts {
+             private final int servingSize;
+             private final int servings;
+             private final int calories;
+             private final int fat;
+             private final int sodium;
+             private final int carbohydrate;
+
+             public static class Builder {
+                     // Required parameters
+                     private final int servingSize;
+                     private final int servings; // Optional
+                     // Optional parameters - initialized to default values
+                     private int calories = 0;
+                     private int fat = 0;
+                     private int sodium = 0;
+                     private int carbohydrate = 0;
+
+                     public Builder(int servingSize, int servings) {
+                             this.servingSize = servingSize;
+                             this.servings = servings;
+                     }
+
+                     public Builder calories(int val) {
+                             calories = val;
+                             return this;
+                     }
+
+                     public Builder fat(int val) {
+                             fat = val;
+                             return this;
+                     }
+
+                     public Builder carbohydrate(int val) {
+                             carbohydrate = val;
+                             return this;
+                     }
+
+                     public Builder sodium(int val) {
+                             sodium = val;
+                             return this;
+                     }
+
+                     public NutritionFacts build() {
+                             return new NutritionFacts(this);
+                     }
+             }
+
+             private NutritionFacts(Builder builder) {
+                     servingSize = builder.servingSize;
+                     servings = builder.servings;
+                     calories = builder.calories;
+                     fat = builder.fat;
+                     sodium = builder.sodium;
+                     carbohydrate = builder.carbohydrate;
+             }
+     }
+   #+END_SRC
+cocaCola对象不可变，同样具有很好的可读性
+#+BEGIN_SRC java
+  public static void main(String[] args) {
+          NutritionFacts cocaCola = new NutritionFacts.Builder(240, 8).
+                  calories(100).sodium(35).carbohydrate(27).build();
+          System.out.print("built " + cocaCola);
+  }
+#+END_SRC
+构造器模式的缺点：代码非常冗长，阅读很困难，构造开销大。所以只有很多参数时候才考虑使用
+
+* 用private构造器或者enum类型强化singleton
+** 使用public final成员
+   #+BEGIN_SRC java
+     // Singleton with public final field
+     public class Elvis {
+             public static final Elvis INSTANCE = new Elvis();
+             private Elvis() { ... }
+             public void leaveTheBuilding() { ... }
+     }
+   #+END_SRC
+
+** 使用static工厂方法
+   #+BEGIN_SRC java
+     // Singleton with static factory
+     public class Elvis {
+             private static final Elvis INSTANCE = new Elvis();
+             private Elvis() { ... }
+             public static Elvis getInstance() { return INSTANCE; }
+             public void leaveTheBuilding() { ... }
+     }
+   #+END_SRC
++ 未考虑多线程
++ 序列化需要注意：必须覆写readResolve来保证singleton
+  #+BEGIN_SRC java
+    // readResolve method to preserve singleton property
+    private Object readResolve() {
+    // Return the one true Elvis and let the garbage collector
+    // take care of the Elvis impersonator.
+            return INSTANCE;
+    }
+  #+END_SRC
+** 最佳方式：使用enum
+   #+BEGIN_SRC java
+     // Enum singleton - the preferred approach
+     public enum Elvis {
+             INSTANCE;
+             public void leaveTheBuilding() { ... }
+     }
+   #+END_SRC
+* 使用private构造器来禁止用户显式创建对象
+私有构造器可以禁止用户创建对像，副作用也禁止用户继承这个类
+* 避免创建不必要的对象
+** 重用不可变对象
+  #+BEGIN_SRC java
+    // DON'T DO THIS!
+    String s = new String("stringette");
+  #+END_SRC
+
+  #+BEGIN_SRC java
+    //improved version
+    String s = "stringette";
+  #+END_SRC
+** 缓存常量
+  #+BEGIN_SRC java
+    public class Person {
+            private final Date birthDate;
+            // DON'T DO THIS!
+            public boolean isBabyBoomer() {
+    // Unnecessary allocation of expensive object
+                    Calendar gmtCal =
+                            Calendar.getInstance(TimeZone.getTimeZone("GMT"));
+                    gmtCal.set(1946, Calendar.JANUARY, 1, 0, 0, 0);
+                    Date boomStart = gmtCal.getTime();
+                    gmtCal.set(1965, Calendar.JANUARY, 1, 0, 0, 0);
+                    Date boomEnd = gmtCal.getTime();
+                    return birthDate.compareTo(boomStart) >= 0 &&
+                            birthDate.compareTo(boomEnd) < 0;
+            }
+    }
+  #+END_SRC
+
+
+#+BEGIN_SRC java
+  public class Person {
+          private final Date birthDate;
+  /**
+   ,* The starting and ending dates of the baby boom.
+   ,*/
+          private static final Date BOOM_START;
+          private static final Date BOOM_END;
+          static {
+                  Calendar gmtCal =
+                          Calendar.getInstance(TimeZone.getTimeZone("GMT"));
+                  gmtCal.set(1946, Calendar.JANUARY, 1, 0, 0, 0);
+                  BOOM_START = gmtCal.getTime();
+                  gmtCal.set(1965, Calendar.JANUARY, 1, 0, 0, 0);
+                  BOOM_END = gmtCal.getTime();
+          }
+          public boolean isBabyBoomer() {
+                  return birthDate.compareTo(BOOM_START) >= 0 &&
+                          birthDate.compareTo(BOOM_END) < 0;
+          }
+  }
+#+END_SRC
+** 优先使用基本类型，而不是装箱基本类型
+  #+BEGIN_SRC java
+    // Hideously slow program! Can you spot the object creation?
+    public static void main(String[] args) {
+            Long sum = 0L;
+            for (long i = 0; i < Integer.MAX_VALUE; i++) {
+                    sum += i;
+            }
+            System.out.println(sum);
+    }
+  #+END_SRC
+
+* 消除过时的对象引用
+** 手动管理内存中请当心内存泄漏
+pop完之后元素的引用并没有被设置为null, 这会导致无法被垃圾回收产生内存泄漏
+  #+BEGIN_SRC java
+    // Can you spot the "memory leak"?
+    public class Stack {
+            private Object[] elements;
+            private int size = 0;
+            private static final int DEFAULT_INITIAL_CAPACITY = 16;
+
+            public Stack() {
+                    elements = new Object[DEFAULT_INITIAL_CAPACITY];
+            }
+
+            public void push(Object e) {
+                    ensureCapacity();
+                    elements[size++] = e;
+            }
+
+            public Object pop() {
+                    if (size == 0)
+                            throw new EmptyStackException();
+                    return elements[--size];
+            }
+    /**
+     ,* Ensure space for at least one more element, roughly
+     ,* doubling the capacity each time the array needs to grow.
+     ,*/
+            private void ensureCapacity() {
+                    if (elements.length == size)
+                            elements = Arrays.copyOf(elements, 2 * size + 1);
+            }
+    }
+  #+END_SRC
+修复
+#+BEGIN_SRC java
+  public Object pop() {
+          if (size == 0)
+                  throw new EmptyStackException();
+          Object result = elements[--size];
+          elements[size] = null; // Eliminate obsolete reference
+          return result;
+  }
+#+END_SRC
+** 缓存　
+对象被放置到缓存中会被遗忘
+1. 使用WeakHashMap
+2. 使用过期时间
+
+** 监听器和其他回调
+使用weak reference
+
+* 避免调用finialize方法
+** 缺陷
+1. finalize方法的调用时间不确定，不要把关键的逻辑放在finalize中
+2. finalize方法的效率很差
+
+** 用途
+1. 额外的保护网
+2. 回收native资源　
+即使手动编写了finialize方法，请确保调用super.finialize，并记录相关log
+
+[[file:common_method.org][Next:通用方法]]　
+
+[[file:effj.org][Home：目录]]

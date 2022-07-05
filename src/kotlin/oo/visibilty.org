@@ -1,0 +1,123 @@
+#+TITLE: 可见性修饰符
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: ./interface.html
+#+HTML_LINK_HOME: ./oo.html
+#+OPTIONS: num:nil timestamp:nil
+
+_类_ 、 _对象_ 、 _接口_ 、 _构造函数_ 、 _方法_ 、 _属性_ 和它们的 _setter_ 都可以有 *可见性* 修饰符
+
+#+BEGIN_EXAMPLE
+  getter 总是与属性有着相同的可见性
+#+END_EXAMPLE
+
+在 Kotlin 中有这四个可见性修饰符： _private_ 、 _protected_ 、 _internal_ 和 _public_ 。 如果没有显式指定修饰符的话，默认可见性是 _public_ 
+
+#+BEGIN_EXAMPLE
+  接下来会讲述这些修饰符如何应用到不同类型的声明作用域
+#+END_EXAMPLE
+* 包
+
+  函数、属性和类、对象和接口可以在 _顶层_ 声明，即直接在 *包* 内：
+
+  #+BEGIN_SRC kotlin
+  // 文件名：example.kt
+  package foo
+
+  fun baz() { …… }
+  class Bar { …… }
+  #+END_SRC
+
+  + 如果不指定任何可见性修饰符，默认为 _public_ ，这意味着声明将 *随处* 可见
+  + 如果声明为 _private_ ，它只会在声明它的 *文件* 内可见
+  + 如果声明为 _internal_ ，它会在相同 *模块* 内随处可见
+  + _protected_  *不适用* 于 _顶层_ 声明 
+
+    注意：要使用另一包中可见的顶层声明，仍需将其导入进来：
+
+  #+BEGIN_SRC kotlin 
+  // 文件名：example.kt
+  package foo
+
+  private fun foo() { …… } // 在 example.kt 内可见
+
+  public var bar: Int = 5 // 该属性随处可见
+      private set         // setter 只在 example.kt 内可见
+
+  internal val baz = 6    // 相同模块内可见
+  #+END_SRC
+
+* 类和接口
+  对于类内部声明的成员：
+  + private: 只在这个 *类内部* （包含其所有成员）可见
+  + protected: 和 private一样在 *子类* 中可见
+  + internal: 能见到 _类声明_ 的 *本模块内* 的 _任何客户端_ 都可见其 internal 成员
+  + public: 能见到 _类声明_ 的 _任何客户端_ 都可见其 public 成员 
+
+  #+BEGIN_EXAMPLE
+    请注意在 Kotlin 中，外部类不能访问内部类的 private 成员
+  #+END_EXAMPLE
+
+  如果覆盖一个 _protected_ 成员并且没有显式指定其可见性，该成员还会是 protected 可见性：
+
+  #+BEGIN_SRC kotlin 
+  open class Outer {
+      private val a = 1
+      protected open val b = 2
+      internal val c = 3
+      val d = 4  // 默认 public
+
+      protected class Nested {
+	  public val e: Int = 5
+      }
+  }
+
+  class Subclass : Outer() {
+      // a 不可见
+      // b、c、d 可见
+      // Nested 和 e 可见
+
+      override val b = 5   // “b”为 protected
+  }
+
+  class Unrelated(o: Outer) {
+      // o.a、o.b 不可见
+      // o.c 和 o.d 可见（相同模块）
+      // Outer.Nested 不可见，Nested::e 也不可见
+  }
+  #+END_SRC
+
+
+* 构造函数
+
+  要指定一个类的的主构造函数的可见性，使用以下语法
+
+  #+BEGIN_SRC kotlin 
+  class C private constructor(a: Int) { …… }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    注意：需要添加一个显式 constructor 关键字
+  #+END_EXAMPLE
+
+  这里的构造函数是私有的。默认情况下，所有构造函数都是 _public_ ，这实际上等于类可见的地方它就可见
+
+  #+BEGIN_EXAMPLE
+    一个 internal 类的构造函数只能在相同模块内可见 
+  #+END_EXAMPLE
+
+* 局部声明
+
+  局部变量、函数和类不能有可见性修饰符
+
+* 模块
+
+  可见性修饰符 _internal_ 意味着该成员只在 *相同模块* 内可见。更具体地说， 一个模块是 *编译* 在一起的 _一组 Kotlin 文件_ ：
+  + 一个 IntelliJ IDEA 模块
+  + 一个 Maven 项目
+  + 一个 Gradle 源集
+    #+BEGIN_EXAMPLE
+      例外是 test 源集可以访问 main 的 internal 声明
+    #+END_EXAMPLE
+  + 一次 <kotlinc> Ant 任务执行所编译的一套文件
+
+| [[file:extension.org][Next：扩展]] | [[file:interface.org][Previous：接口]] | [[file:oo.org][Home：面向对象]] |

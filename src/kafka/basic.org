@@ -1,0 +1,87 @@
+#+TITLE: 基础
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: introduction.html   
+#+HTML_LINK_HOME: kafka.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+BEGIN_EXAMPLE
+  在深入了解Kafka之前，必须了解主题，经纪人，生产者和消费者等主要术语
+#+END_EXAMPLE
+
+* 术语
+** 主题
+   _Topics_ : 属于 *特定类别的消息流* 
+   + 数据 *存储* 在 _主题_ 中
+   + 主题被 *拆分* 成 _分区_ ：
+     + 每个这样的分区包含 *不可变* *有序序列* 的消息
+     + 分区被实现为具有 *相等大小* 的一组 *分段文件* 
+** 分区
+   _Partition_ : 主题可能有许多分区，因此它可以处理任意数量的数据
+** 分区偏移
+   _Partition offset_ : 每个分区中的消息具有称为 _offset_ 的 *唯一序列标识* 
+** 分区备份
+   _Replicas of partition_ : 副本只是一个 *分区的备份* 
+
+   #+BEGIN_EXAMPLE
+     副本从不读取或写入数据，它们用于防止数据丢失
+   #+END_EXAMPLE
+** 代理人
+   _Broker_ : 负责 *维护* _发布数据_ 的 _简单系统_ 
+   + _每个代理_ 中的 _每个主题_ 可以具有 *零个或多个* _分区_ 
+   #+BEGIN_EXAMPLE
+     假设在一个主题和N个代理中有N个分区，每个代理将有一个分区
+
+     假设在一个主题中有N个分区并且多于N个代理(n + m)，则第一个N代理将具有一个分区，并且下一个M代理将不具有用于该特定主题的任何分区
+
+     假设在一个主题中有N个分区并且小于N个代理(n-m)，每个代理将在它们之间具有一个或多个分区共享。 由于代理之间的负载分布不相等，不推荐使用此方案
+   #+END_EXAMPLE
+** Kafka集群
+   _Kafka Cluster_ : Kafka有 *多个代理* 被称为 _Kafka集群_ 
+   + 可以扩展Kafka集群，无需停机
+   + 这些集群用于管理 *消息数据的持久性和复制* 
+** 生产者
+   _Producer_ :  给 _一个或多个_ Kafka _主题_ *发送* _消息_ 的发布者
+   + 生产者向 _代理人_ 发送数据
+   + 每当生产者将消息发布给代理时， _代理_ 只需将 _消息_ *附加到最后一个段文件* 
+     + 实际上，该消息将被 *附加到分区* 
+   + 生产者还可以向他们 _选择的分区_ 发送消息
+** 消费者
+   _Consumer_ : 从 _代理_ 处 *读取* 数据
+   + 消费者 *订阅* 一个或多个 _主题_
+   + 通过从代理中提取数据来使用已发布的消息 
+** 领导者
+   _Leader_ : 负责 _给定分区_ 的所有 *读取和写入* 的 _节点_ 
+   #+BEGIN_EXAMPLE
+     每个分区都有一个服务器充当Leader
+   #+END_EXAMPLE
+** 跟随者
+   _Follower_ : 跟随 _领导者指令_ 的 _节点_ 
+   + 跟随者作为 _正常消费者_ ， *拉取消息* 并 *更新* 其自己的 _数据存储_
+   #+BEGIN_EXAMPLE
+     如果领导者不可用，一个追随者将自动成为新的领导者
+   #+END_EXAMPLE
+* 实例
+  #+ATTR_HTML: image :width 70% 
+  [[file:pic/fundamentals.jpg]] 
+
+  在上图中， _主题_ 配置为 _三个分区_ ：
+  + _分区1_ 具有 *两个偏移因子*  0 和 1 
+  + _分区2_ 具有 *四个偏移因子* 0, 1, 2 和 3
+  + _分区3_ 具有 *一个偏移因子* 0
+
+  #+BEGIN_EXAMPLE
+    副本的id 与 承载它的服务器的id 相同
+  #+END_EXAMPLE
+
+  假设，如果 _主题的复制因子_ 设置为 3，那么Kafka将 *创建* _每个分区_ 的 _3个相同的副本_ ，并将它们 *放在集群* 中以使其可用于其所有操作
+  #+BEGIN_EXAMPLE
+    为了平衡集群中的负载，每个代理都存储一个或多个这些分区
+
+    多个生产者和消费者可以同时发布和检索消息
+  #+END_EXAMPLE
+
+  [[file:cluster.org][Next: 集群]]
+
+  [[file:introduction.org][Previous: 概述]]
+
+  [[file:kafka.org][Home: 目录]]

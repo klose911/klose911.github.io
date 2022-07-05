@@ -1,0 +1,283 @@
+#+TITLE: 组合挂起函数
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: ./cancel.html
+#+HTML_LINK_HOME: ./coroutine.html
+#+OPTIONS: num:nil timestamp:nil
+
+假设在不同的地方定义了两个进行某种调用远程服务或者进行计算的挂起函数：
+
+#+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.delay
+
+  suspend fun doSomethingUsefulOne(): Int {
+      delay(1000L) // 假设我们在这里做了一些有用的事
+      return 13
+  }
+
+  suspend fun doSomethingUsefulTwo(): Int {
+      delay(1000L) // 假设我们在这里也做了一些有用的事
+      return 29
+  }
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  这里假设它们都是有用的，但是实际上它们在这个示例中只是为了该目的而延迟了一秒钟
+#+END_EXAMPLE
+
+如果需要按 *顺序* 调用它们，接下来会做什么：
+1. 调用 doSomethingUsefulOne
+2. 调用 doSomethingUsefulTwo
+3. 计算它们结果的和吗
+
+实际上，如果要根据第一个函数的结果来决定是否需要调用第二个函数或者决定如何调用它时，就会这样做：
+
+#+BEGIN_SRC kotlin 
+  fun main() = runBlocking {
+      val time = measureTimeMillis {
+	  val one = doSomethingUsefulOne()
+	  val two = doSomethingUsefulTwo()
+	  println("The answer is ${one + two}")
+      }
+      println("Completed in $time ms")
+  } 
+#+END_SRC
+
+打印输出如下：
+#+BEGIN_SRC sh 
+  The answer is 42
+  Completed in 2032 ms
+#+END_SRC
+* 使用 async 并发
+  #+BEGIN_EXAMPLE
+    如果 doSomethingUsefulOne 与 doSomethingUsefulTwo 之间没有依赖，并且想更快的得到结果，不可以让它们进行 并发 吗？
+
+    这就是 async 可以帮助的地方
+  #+END_EXAMPLE
+
+  在概念上， _async_ 就类似于 launch。它启动了一个 *单独* 的 _协程_ ，这是一个轻量级的线程并与其它所有的协程一起并发的工作。不同之处：
+  + launch 返回一个 _Job_ 并且不附带任何结果值
+  + async 返回一个 _Deferred_ ： 一个轻量级的 *非阻塞* future
+    #+BEGIN_EXAMPLE
+      Deferred 代表了一个将会在稍后提供结果的 promise
+    #+END_EXAMPLE
+    + 可以使用 _await()_ 在一个延期的值上得到它的最终结果
+    + Deferred 也是一个 Job，所以如果需要的话，可以 _取消_ 它 
+
+  #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.async
+  import kotlinx.coroutines.runBlocking
+  import kotlin.system.measureTimeMillis
+
+  fun main() = runBlocking {
+      //sampleStart
+      val time = measureTimeMillis {
+	  val one = async {
+	      doSomethingUsefulOne()
+	  }
+	  val two = async {
+	      doSomethingUsefulTwo()
+	  }
+	  println("The answer is ${one.await() + two.await()}")
+      }
+      println("Completed in $time ms")
+  } 
+  #+END_SRC
+
+  它的打印输出如下：
+
+  #+BEGIN_SRC sh 
+  The answer is 42
+  Completed in 1017 ms
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    这里快了两倍，因为两个协程并发执行
+
+    请注意，使用协程进行并发总是显式的
+  #+END_EXAMPLE
+* 惰性启动的 async
+  async 可以通过将 _start_ 参数设置为 _CoroutineStart.LAZY_ 而变为惰性的。 在这个模式下：
+  + 只有结果通过 _await_ 获取的时候协程才会启动
+  + 或者在 Job 的 _start_ 函数调用的时候
+
+  运行下面的示例：
+
+  #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.CoroutineStart
+  import kotlinx.coroutines.async
+  import kotlinx.coroutines.runBlocking
+  import kotlin.system.measureTimeMillis
+
+  fun main() = runBlocking {
+      val time = measureTimeMillis {
+	  val one = async(start = CoroutineStart.LAZY) {
+	      doSomethingUsefulOne()
+	  }
+	  val two = async(start = CoroutineStart.LAZY) {
+	      doSomethingUsefulTwo()
+	  }
+	  // 执行一些计算
+	  one.start()    // 启动第一个
+	  two.start() // 启动第二个
+	  println("The answer is ${one.await() + two.await()}")
+      }
+      println("Completed in $time ms")
+  } 
+  #+END_SRC
+
+  它的打印输出如下：
+  #+BEGIN_SRC kotlin 
+  The answer is 42
+  Completed in 1017 ms
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    这里定义的两个协程没有执行，但是控制权在于开始执行时调用 start
+
+    首先 调用 one，然后调用 two，接下来等待这个协程执行完毕
+
+  #+END_EXAMPLE
+  注意，如果只是在 println 中调用 await，而没有在单独的协程中调用 start，这将会导致 *顺序* 行为，直到 _await_ *启动* 该协程 执行并等待至它结束，这并不是惰性的预期用例
+  #+BEGIN_EXAMPLE
+    在计算一个值涉及挂起函数时，async(start = CoroutineStart.LAZY) 的用例用于替代标准库中的 lazy 函数
+  #+END_EXAMPLE
+* async 风格的函数
+  可以定义异步风格的函数来 *异步* 的调用 doSomethingUsefulOne 和 doSomethingUsefulTwo 并使用 _async_ 协程建造器并带有一个 *显式* 的 _GlobalScope_ 引用
+
+  #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.GlobalScope
+  import kotlinx.coroutines.async
+
+  // somethingUsefulOneAsync 函数的返回值类型是 Deferred
+  fun somethingUsefulOneAsync() = GlobalScope.async {
+      doSomethingUsefulOne()
+  }
+
+  // somethingUsefulTwoAsync 函数的返回值类型是 Deferred
+  fun somethingUsefulTwoAsync() = GlobalScope.async {
+      doSomethingUsefulTwo()
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    给这样的函数的名称中加上“……Async”后缀来突出表明：事实上，它们只做异步计算并且需要使用延期的值来获得结果
+  #+END_EXAMPLE
+
+  注意，这些 xxxAsync 函数 *不是* _挂起_ 函数。它们可以在任何地方使用
+
+  #+BEGIN_EXAMPLE
+    然而，它们总是在调用它们的代码中意味着异步（这里的意思是 并发 ）执行
+  #+END_EXAMPLE
+
+  下面的例子展示了它们在协程的外面是如何使用的：
+
+  #+BEGIN_SRC kotlin
+  // 注意，在这个示例中我们在 `main` 函数的右边没有加上 `runBlocking`
+  fun main() {
+      val time = measureTimeMillis {
+	  // 我们可以在协程外面启动异步执行
+	  val one = somethingUsefulOneAsync()
+	  val two = somethingUsefulTwoAsync()
+	  // 但是等待结果必须调用其它的挂起或者阻塞
+	  // 当我们等待结果的时候，这里我们使用 `runBlocking { …… }` 来阻塞主线程
+	  runBlocking {
+	      println("The answer is ${one.await() + two.await()}")
+	  }
+      }
+      println("Completed in $time ms")
+  } 
+  #+END_SRC
+  这种带有异步函数的编程风格仅供参考，因为这在其它编程语言中是一种受欢迎的风格。在 Kotlin 的协程中使用这种风格是 *强烈不推荐* 的 
+
+  #+BEGIN_EXAMPLE
+    考虑一下如果 val one = somethingUsefulOneAsync() 这一行和 one.await() 表达式这里在代码中有逻辑错误， 并且程序抛出了异常以及程序在操作的过程中中止，将会发生什么？
+
+    通常情况下，一个全局的异常处理者会捕获这个异常，将异常打印成日记并报告给开发者，反之该程序将会继续执行其它操作
+
+    但是这里我们的 somethingUsefulOneAsync 仍然在后台执行。尽管如此，启动它的那次操作也会被终止
+
+    最后这个程序将不会进行结构化并发
+  #+END_EXAMPLE
+* 使用 async 的结构化并发
+
+
+
+  #+BEGIN_EXAMPLE
+    接下来提取出一个函数并发的调用 doSomethingUsefulOne 与 doSomethingUsefulTwo 并且返回它们两个的结果之和
+  #+END_EXAMPLE
+
+  由于 async 被定义为了 CoroutineScope 上的扩展，需要将它写在作用域内，并且这是 coroutineScope 函数所提供的：
+
+  #+BEGIN_SRC kotlin 
+  suspend fun concurrentSum(): Int = coroutineScope {
+      val one = async {
+	  doSomethingUsefulOne()
+      }
+      val two = async {
+	  doSomethingUsefulTwo()
+      }
+      one.await() + two.await()
+  }
+  #+END_SRC
+
+  这种情况下，如果在 concurrentSum 函数内部发生了错误，并且它抛出了一个异常， *所有* 在 _作用域_ 中 *启动* 的 _协程_ 都会被取消 
+
+  #+BEGIN_SRC kotlin 
+  fun main() = runBlocking {
+      val time = measureTimeMillis {
+	  println("The answer is ${concurrentSum()}")
+      }
+      println("Completed in $time ms")
+  } 
+  #+END_SRC
+
+  从上面的 main 函数的输出可以看出，仍然可以同时执行这两个操作：
+
+  #+BEGIN_SRC kotlin 
+  The answer is 42
+  Completed in 1017 ms
+  #+END_SRC
+
+  取消始终通过 _协程的层次结构_ 来进行传递：
+
+  #+BEGIN_SRC kotlin 
+  import kotlinx.coroutines.async
+  import kotlinx.coroutines.coroutineScope
+  import kotlinx.coroutines.delay
+  import kotlinx.coroutines.runBlocking
+
+  fun main() = runBlocking {
+      try {
+	  failedConcurrentSum()
+      } catch (e: ArithmeticException) {
+	  println("Computation failed with ArithmeticException")
+      }
+  }
+
+  suspend fun failedConcurrentSum() :Unit = coroutineScope {
+      val one = async {
+	  try {
+	      delay(Long.MAX_VALUE) // 模拟一个长时间的运算
+	      42
+	  } finally {
+	      println("First child was cancelled")
+	  }
+      }
+
+      val two = async {
+	  println("Second child throws an exception")
+	  throw ArithmeticException()
+      }
+      println(one.await())
+      two.await()
+  }
+  #+END_SRC
+  请注意，如果其中一个子协程（即 two）失败，第一个 async 以及等待中的父协程都会被取消：
+
+  #+BEGIN_SRC sh 
+  Second child throws an exception
+  First child was cancelled
+  Computation failed with ArithmeticException
+  #+END_SRC
+
+  | [[file:scheduler.org][Next：调度器]] | [[file:cancel.org][Previous：取消和超时]] | [[file:coroutine.org][Home：协程]] |

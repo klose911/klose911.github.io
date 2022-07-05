@@ -1,0 +1,102 @@
+#+TITLE: 包管理器
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: fp.html   
+#+HTML_LINK_HOME: rust.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+目前为止只使用过 Cargo 构建、运行和测试代码这些最基本的功能，不过它还可以做到更多。本章会讨论 Cargo 其他一些更为高级的功能：
++ 使用发布配置来自定义构建
++ 将库发布到 crates.io
++ 使用工作空间来组织更大的项目
++ 从 crates.io 安装二进制文件
++ 使用自定义的命令来扩展 Cargo
+  
+* 采用发布配置自定义构建
+  在 Rust 中 _发布配置_ 是预定义的、可定制的带有不同选项的配置，他们允许程序员更灵活地控制代码编译的多种选项。每一个配置都彼此相互独立。
+  
+  Cargo 有两个主要的配置：
+  + 运行 cargo build 时采用的 dev 配置：开发时的好的默认配置，
+  + 运行 cargo build --release 的 release 配置：有着良好的发布构建的默认配置
+
+  这些配置名称可能很眼熟，因为它们出现在构建的输出中：
+
+  #+BEGIN_SRC sh 
+  $ cargo build
+      Finished dev [unoptimized + debuginfo] target(s) in 0.0 secs
+  $ cargo build --release
+      Finished release [optimized] target(s) in 0.0 secs
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+  构建输出中的 dev 和 release 表明编译器在使用不同的配置
+  #+END_EXAMPLE
+
+  当项目的 Cargo.toml 文件中没有任何 [profile.*] 部分的时候，Cargo 会对每一个配置都采用默认设置。通过 *增加* 任何希望定制的配置对应的 _[profile.*]_ 部分，可以选择覆盖任意默认设置的子集。例如，如下是 dev 和 release 配置的 opt-level 设置的默认值：
+
+  #+BEGIN_SRC toml 
+  [profile.dev]
+  opt-level = 0
+
+  [profile.release]
+  opt-level = 3
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    opt-level 设置控制 Rust 会对代码进行何种程度的优化。这个配置的值从 0 到 3。越高的优化级别需要更多的时间编译
+
+    如果在进行开发并经常编译，可能会希望在牺牲一些代码性能的情况下编译得快一些，这就是为什么 dev 的 opt-level 默认为 0
+
+    当准备发布时，花费更多时间在编译上则更好。只需要在发布模式编译一次，而编译出来的程序则会运行很多次，所以发布模式用更长的编译时间换取运行更快的代码。这正是为什么 release 配置的 opt-level 默认为 3
+  #+END_EXAMPLE
+
+  可以选择通过在 Cargo.toml 增加不同的值来覆盖任何默认设置。比如，如果想要在开发配置中使用级别 1 的优化，则可以在 Cargo.toml 中增加这两行：
+
+  #+BEGIN_SRC toml 
+  [profile.dev]
+  opt-level = 1
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    这会覆盖默认的设置 0，现在运行 cargo build 时，Cargo 将会使用 dev 的默认配置加上定制的 opt-level。因为 opt-level 设置为 1，Cargo 会比默认进行更多的优化，但是没有发布构建那么多
+
+    对于每个配置的设置和其默认值的完整列表，请查看 Cargo 的文档
+  #+END_EXAMPLE
+
+* 将 crate 发布到 Crates.io
+  前面在项目中使用 crates.io 上的包作为依赖，不过也可以通过发布自己的包来向它人分享代码。crates.io 用来分发包的源代码，所以它主要托管开源代码
+  #+BEGIN_EXAMPLE
+    Rust 和 Cargo 有一些帮助它人更方便找到和使用你发布的包的功能。这里将介绍一些这样的功能，接着讲到如何发布一个包
+  #+END_EXAMPLE
+
+** 编写有用的文档注释
+   #+BEGIN_EXAMPLE
+   准确的包文档有助于其他用户理解如何以及何时使用他们，所以花一些时间编写文档是值得的
+   #+END_EXAMPLE
+
+   已经讨论了如何使用两斜杠 // 注释 Rust 代码。Rust 也有特定的用于文档的注释类型，通常被称为 _文档注释_ ，他们会生成 HTML 文档。这些 HTML 展示公有 API 文档注释的内容，他们意在让对库感兴趣的程序员理解如何 *使用* 这个 crate，而不是它是如何被 _实现_ 的
+
+   文档注释使用 *三斜杠* _///_ 而不是两斜杆以支持 Markdown 注解来格式化文本。文档注释就位于需要文档的项的之前。下面展示了一个 my_crate crate 中 add_one 函数的文档注释：
+
+   #+BEGIN_SRC rust 
+  /// 将给定的数字加一
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// let arg = 5;
+  /// let answer = my_crate::add_one(arg);
+  ///
+  /// assert_eq!(6, answer);
+  /// ```
+  pub fn add_one(x: i32) -> i32 {
+      x + 1
+  }
+   #+END_SRC
+
+   这里，提供了一个 add_one 函数工作的描述，接着开始了一个标题为 Examples 的部分，和展示如何使用 add_one 函数的代码。可以运行 cargo doc 来生成这个文档注释的 HTML 文档，这个命令运行由 Rust 分发的工具 rustdoc 并将生成的 HTML 文档放入 target/doc 目录
+
+
+   [[file:pointer.org][Next：智能指针]]
+
+   [[file:fp.org][Previous：闭包和迭代器]]
+
+   [[file:rust.org][Home: 目录]]

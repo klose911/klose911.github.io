@@ -1,0 +1,154 @@
+#+TITLE: 输入/输出
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: high_order_function.html   
+#+HTML_LINK_HOME: slt.html
+#+OPTIONS: num:nil timestamp:nil
+
+通过前面章节的学习，已经可以在 Scheme 的交互式前端中编写并执行程序了。在本章中，将介绍如何 *输入* 和 *输出* 
+
+#+BEGIN_EXAMPLE
+  使用输入输出，可以从文件中读取数据或向文件中写入数据
+#+END_EXAMPLE
+* 从文件输入
+** open-input-file，read-char 和 eof-object?
+   + _(open-input-file filename)_ ： *打开* 一个 _文件_ 
+     + 返回一个 *用于输入* 的 _端口_ 
+   + _(read-char port)_ ：从 _端口_ 中 *读取* 一个 _字符_ 
+     + 当读取到 *文件结尾* （ _EOF_ ）时，此函数返回 _eof-object_ 
+   + _eof-object?_ ：检查是否已经到文件结尾
+   + _(close-input-port  port)_ ： *关闭* 输入 _端口_ 
+
+   下面展示了以字符串形式返回了文件内容：
+
+   #+BEGIN_SRC scheme
+  (define (read-file file-name)
+    (let ((p (open-input-file file-name)))
+      (let loop((ls1 '()) (c (read-char p)))
+	(if (eof-object? c)
+	    (begin
+	      (close-input-port p)
+	      (list->string (reverse ls1)))
+	    (loop (cons c ls1) (read-char p))))))
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+   hello.txt文件的内容如下：
+
+     Hello world!
+     Scheme is an elegant programming language.
+   #+END_EXAMPLE
+
+   测试读取 "hello.txt"文件： 
+   #+BEGIN_SRC scheme
+  (read-file "hello.txt")
+  ;; "Hello world!\r\nScheme is an elegant programming language.\r\n"
+   #+END_SRC
+
+   发现 _'\r\n'_  这样的字符也被打印出来。也可使用 _display_ 函数做 *格式化输出* ：
+   #+BEGIN_SRC scheme
+  (display (read-file "hello.txt")) 
+  ;;  Hello world!
+  ;; Scheme is an elegant programming language.
+   #+END_SRC
+** call-with-input-file 和 with-input-from-file
+   #+BEGIN_EXAMPLE
+   上面的代码并没有处理输入错误！！！
+
+   下面的函数或语法打开文件的同时并处理错误
+   #+END_EXAMPLE
+   _(call-with-input-file filename procedure)_ ：
+   + 将名为 _filename_ 的文件 *打开* 以供读取输入
+   + 函数 _procedure_ 接受一个 *输入端口* 作为参数
+     + 文件有可能再次使用，因此当 procedure 结束时 *文件不会自动关闭*
+     + 文件应该 *显式地关闭* 
+
+   #+BEGIN_SRC scheme
+  (define (read-file file-name)
+    (call-with-input-file file-name
+      (lambda (p)
+	(let loop((ls1 '()) (c (read-char p)))
+	  (if (eof-object? c)
+	      (begin
+		(close-input-port p)
+		(list->string (reverse ls1)))
+	      (loop (cons c ls1) (read-char p)))))))
+
+  (display (read-file "hello.txt")) 
+  ;;  Hello world!
+  ;; Scheme is an elegant programming language.
+   #+END_SRC
+
+   _(with-input-from-file filename procedure)_  : 
+   + 将名为 _filename_ 的文件 *打开* 以供读取输入
+   + 函数 _procedure_ 没有任何参数
+     + 当 procedure 结束时 *文件自动关闭*
+
+   #+BEGIN_SRC scheme
+  (define (read-file file-name)
+    (with-input-from-file file-name
+      (lambda ()
+	(let loop((ls1 '()) (c (read-char)))
+	  (if (eof-object? c)
+	      (list->string (reverse ls1))
+	      (loop (cons c ls1) (read-char)))))))
+
+  (display (read-file "hello.txt")) 
+  ;;  Hello world!
+  ;; Scheme is an elegant programming language.
+   #+END_SRC
+** read 
+   _(read port)_ ： 从端口 _port_ 中 *读入* 一个 _S-表达式_ 
+
+   #+BEGIN_EXAMPLE
+     用它来读诸如“paren.txt”中带括号的内容就很方便
+
+     '(Hello world!
+     Scheme is an elegant programming language.)
+
+     '(Lisp is a programming language ready to evolve.)
+   #+END_EXAMPLE
+
+   #+BEGIN_SRC scheme
+  (define (s-read file-name)
+    (with-input-from-file file-name
+      (lambda ()
+	(let loop ((ls1 '()) (s (read)))
+	  (if (eof-object? s)
+	      (reverse ls1)
+	      (loop (cons s ls1) (read)))))))
+
+  (s-read "paren.txt")
+  ; =>  ('(Hello world! Scheme is an elegant programming language.)
+  ;;  '(Lisp is a programming language ready to evolve.))
+   #+END_SRC
+* 输出到文件
+** 打开一个用于输出的port
+   输出有和输入类似的函数，比如：
+   + _(open-output-file filename)_ :  *打开* 一个 _文件_ 用作输出，返回该 _输出端口_
+   + _(close-output-port port)_ :  *关闭* 用于输出的 _端口_
+   + _(call-with-output-file filename procedure)_ : 
+     + 打开文件 _filename_ 用于输出
+     + *调用* 过程 _procedure_ 
+       + 该函数以 _输出端口_ 为参数
+       + *不会自动关闭* 输出文件
+   + _(with-output-to-file filename procedure)_ ：
+     + 打开文件 _filename_ 作为 _标准输出_
+     + 并调用过程 _procedure_ 
+       + 该过程 _没有参数_
+       + 过程 procedure 中返回时，文件被 *自动关闭* 
+** 输出的函数 
+   下面的函数可用于输出。如果参数 _port_ 被 *省略* 的话，则输出至 _标准输出_ ：
+   + _(write obj port)_ : 将 _obj_ 输出至 _port_ 
+     + _字符串_ 被 _双引号_ 括起
+     + _字符_ 具有前缀 _#\_ 
+   + _(display obj port)_ : 将 _obj_ 输出至 _port_ 
+     + _字符串_ *不* 被 _双引号_ 括起
+     + _字符_ *不* 具有前缀 _#\_
+   + _(newline port)_  :  开始 _新行_
+   + _(write-char char port)_ ：向 _port_ *写入* 一个 _字符_ 
+
+   [[file:assign.org][Next：赋值]]
+
+   [[file:high_order_function.org][Previous：高阶函数]]
+
+   [[file:slt.org][Home：目录]]

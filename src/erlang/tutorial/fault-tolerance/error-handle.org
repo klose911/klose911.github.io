@@ -1,0 +1,173 @@
+#+TITLE: 错误处理
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: timeout.html   
+#+HTML_LINK_HOME: fault-tolerance.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+* 进程终止
+  #+begin_example
+    在讨论监督与错误处理细节之前，先一起来看一下 Erlang 进程的终止过程，或者说 Erlang 的术语 exit
+  #+end_example
+
+  + 进程 *执行 0exit(normal)* 结束或者 *运行完所有的代码* 而结束都被认为是进程的 _正常终止_ 
+  + 进程因为 *触发运行时错误* （例如，除零、错误匹配、调用不存在了函数等）而终止被称之为 _异常终止_ 
+    + 进程 *执行 exit(Reason)* （此处的 Reason 是除 normal 以外的值）终止也被称之为异常终止
+
+* 进程连接
+  一个 Erlang 进程可以与其它 Erlang 进程建立连接。如果一个进程调用 _link(Other_Pid)_ ，那么它就在其自己与 Othre_Pid 进程之间创建了一个 *双向连接* ：
+  + 当一个进程结束时，它会 *发送信号* 至 _所有与之有连接的进程_ ，这个信号携带着：
+    + 进程的进程标识符
+    + 进程结束的原因信息 
+  + 进程收到 _正常退出的信号_ 时 _默认_ 情况下是 *直接忽略它*
+  + 如果进程收到的是 _异常终止_ 的信号，则 _默认_ 动作为：
+    1. *忽略* _消息队列中的所有消息_ 
+    2. *杀死* _自己_ 
+    3. 将 _相同的错误消息_ *传递* 给 _连接到它的所有进程_ 
+
+  #+begin_example
+    所以可以使用连接的方式把同一事务的所有进程连接起来
+
+    如果其中一个进程异常终止，事务中所有进程都会被杀死
+  #+end_example
+  因为在实际生产过程中，常常有创建进程同时与之建立连接的需求，所以存在这样一个内置函数 _spawn_link_ ，与 spawn 不同之处在于，它 _创建_ 一个新进程同时在 _新进程_ 与 _创建者_ 之间建立连接。下面给出了 ping pong 示例子另外一种实现方法，它通过连接终止 "pong" 进程：
+
+  #+begin_src erlang 
+  -module(link).
+
+  -export([start/1,  ping/2, pong/0]).
+
+  ping(N, Pong_Pid) ->
+      link(Pong_Pid),
+      ping1(N, Pong_Pid).
+
+  ping1(0, _) ->
+      exit(ping);
+
+  ping1(N, Pong_Pid) ->
+      Pong_Pid ! {ping, self()},
+      receive
+	  pong ->
+	      io:format("Ping received pong~n", [])
+      end,
+      ping1(N - 1, Pong_Pid).
+
+  pong() ->
+      receive
+	  {ping, Ping_PID} ->
+	      io:format("Pong received ping~n", []),
+	      Ping_PID ! pong,
+	      pong()
+      end.
+
+  start(Ping_Node) ->
+      PongPID = spawn(link, pong, []),
+      spawn(Ping_Node, link, ping, [3, PongPID]).
+  #+end_src
+
+
+  与前面的代码一样，ping pong 程序的两个进程仍然都是在 start/1 函数中创建的，“ping”进程在单独的结点上建立的。但是这里做了一些小的改动，用到了内置函数 link
+  #+begin_src erlang 
+  ping(N, Pong_Pid) ->
+      link(Pong_Pid),
+  #+end_src
+  “Ping” 结束时调用 exit(ping) ，使得一个终止信号传递给 “pong” 进程，从而导致 “pong” 进程终止：
+
+  #+begin_src erlang 
+  ping1(0, _) ->
+      exit(ping);
+  #+end_src
+
+  测试如下：
+
+  #+begin_src sh 
+  (c1@gentoo)1> link:start(c2@raspberrypi) .  
+  <8806.88.0>
+  (c1@gentoo)2> 
+  Pong received ping
+  Ping received pong
+  Pong received ping
+  Ping received pong
+  Pong received ping
+  Ping received pong
+  (c1@gentoo)2> 
+  #+end_src
+
+  也可以修改进程收到异常终止信号时的默认行为，避免进程被杀死
+
+  #+begin_example
+    把所有的信号都转变为一般的消息添加到信号接收进程的消息队列中，消息的格式为 {'EXIT',FromPID, Reason}
+  #+end_example
+
+  通过如下的代码来设置：
+
+  #+begin_src erlang 
+  process_flag(trap_exit, true)
+  #+end_src
+
+  下面修改了 ping pong 程序来打印输出进程退出时的信息：
+
+  #+begin_src erlang 
+  -module(link).
+
+  -export([start/1,  ping/2, pong/0]).
+
+  ping(N, Pong_Pid) ->
+      link(Pong_Pid),
+      ping1(N, Pong_Pid).
+
+  ping1(0, _) ->
+      exit(ping);
+
+  ping1(N, Pong_Pid) ->
+      Pong_Pid ! {ping, self()},
+      receive
+	  pong ->
+	      io:format("Ping received pong~n", [])
+      end,
+      ping1(N - 1, Pong_Pid).
+
+  pong() ->
+      process_flag(trap_exit, true), 
+      pong1().
+
+  pong1() ->
+      receive
+	  {ping, Ping_PID} ->
+	      io:format("Pong received ping~n", []),
+	      Ping_PID ! pong,
+	      pong1();
+	  {'EXIT', From, Reason} ->
+	      io:format("pong exiting, got ~p~n", [{'EXIT', From, Reason}])
+      end.
+
+  start(Ping_Node) ->
+      PongPID = spawn(link, pong, []),
+      spawn(Ping_Node, link, ping, [3, PongPID]).
+  #+end_src
+
+  测试可以看到 pong 进程并没有被异常信号而异常终止，而是再打出了 ping 进程终止的原因后正常终止
+  #+begin_src sh 
+  (c1@gentoo)4> link:start(c2@raspberrypi) .  
+  <8806.89.0>
+  (c1@gentoo)5> 
+  Pong received ping
+  Ping received pong
+  Pong received ping
+  Ping received pong
+  Pong received ping
+  Ping received pong
+  pong exiting, got {'EXIT',<8806.89.0>,ping}
+  #+end_src
+
+  #+begin_example
+    还有其它可以用的进程标志，可参阅相关文档。
+
+    标准用户程序一般不需要改变进程对于信号的默认处理行为，但是对于 OTP 中的管理程序这个接口还是很有必要的
+  #+end_example
+
+  [[file:example.org][Next：完整实例]]
+
+  [[file:timeout.org][Previous：超时处理]]
+
+  [[file:fault-tolerance.org][Home：容错编程]]
+

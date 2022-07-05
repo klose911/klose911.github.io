@@ -1,0 +1,109 @@
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+TITLE: 对象组合
+#+OPTIONS: num:nil timestamp:nil
+#+HTML_LINK_UP: sharing_objects.html   
+#+HTML_LINK_HOME: jcip.html
+* 设计线程安全的类　
+  1. 确定组成 *对象状态* 的 _变量_ 
+  2. 确定 *约束对象状态* 的 _不变式_ 
+  3. 建立 *并发访问对象状态* 的 _规则_ 
+** 后置条件
+   某些变量的取值是有限制范围的, 改变状态变量之后需要 *检查改变后的状态* 是否合法, 需要额外同步
+** 前置条件
+   *满足一定的条件* 操作才能继续进行： 
+   + _wait/notfiy_ 
+   + _blocking queue_ 
+   + _semaphore_ 
+
+* 对象限制
+  1. 对象限制在 _类_ 范围内：作为 *类的私有成员* 
+  2. 对象限制在 _方法_ 内部：作为 *方法的局部变量* 
+  3. 对象限制在 _线程_ 范围内：只能在 *特定线程中访问该对象* 
+
+** monitor模式
+   #+BEGIN_SRC java
+	public class PrivateLock {
+		private final Object myLock = new Object();
+		@GuardedBy("myLock") Widget widget;
+		void someMethod() {
+			synchronized(myLock) {
+				// Access or modify the state of widget
+			}
+		}
+	}
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     使用一个 额外对象加锁 比使用java内置锁更灵活
+   #+END_EXAMPLE
+
+* 委托线程安全
+  + 如果类只包含 _一个状态变量_ ：
+    + 那么类是否是线程安全的, 取决于 *该状态变量是否是线程安全*
+  + 如果类包含 _多个状态变量_ ：
+    + 如果类中的多个状态变量之间是 _相互独立_ 的, 那么线程安全的责任仍可以 *委托给状态变量* 
+    + 如果类中的多个状态变量 _参与不变式_ ，那需要 *额外的同步* 
+
+* 对现有类添加线程安全
+
+** 继承现有类
+
+   #+BEGIN_SRC java
+public class BetterVector<E> extends Vector<E> {
+	public synchronized boolean putIfAbsent(E x) {
+		boolean absent = !contains(x);
+		if (absent)
+			add(x);
+		return absent;
+	}
+}
+   #+END_SRC
+
+   如果 *父类修改* 了，就可能 *破坏子类的同步性* 
+
+   #+BEGIN_EXAMPLE
+   比如contains的含义变化了　
+   #+END_EXAMPLE
+
+** 客户端加锁　
+
+   #+BEGIN_SRC java
+public class ListHelper<E> {
+	public List<E> list =
+		Collections.synchronizedList(new ArrayList<E>());
+	...
+		public boolean putIfAbsent(E x) {
+			synchronized (list) {
+				boolean absent = !list.contains(x);
+				if (absent)
+					list.add(x);
+				return absent;
+			}
+		}
+}
+   #+END_SRC 
+   客户端加锁更糟糕，因为 _客户端加锁的策略_ 很可能和 _被加锁的类自身的锁管理策略_ 相 *违背* 
+
+** 对象组合
+   #+BEGIN_SRC java
+@ThreadSafe
+public class ImprovedList<T> implements List<T> {
+	private final List<T> list;
+	public ImprovedList(List<T> list) { this.list = list; }
+	public synchronized boolean putIfAbsent(T x) {
+		boolean contains = list.contains(x);
+		if (contains)
+			list.add(x);
+		return !contains;
+	}
+	public synchronized void clear() { list.clear(); }
+	// ... similarly delegate other List methods
+}
+   #+END_SRC
+   继承父类，把父类对象放进子类的一个 _final_  instance, 使用 _子类的内置锁_ 进行同步
+
+   [[file:build_blocks.org][Next:基础模块]]
+
+   [[file:sharing_objects.org][Previous:对象分享]]
+
+   [[file:jcip.org][Up:目录]]

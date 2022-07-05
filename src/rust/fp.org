@@ -1,0 +1,1138 @@
+#+TITLE: 闭包和迭代器
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: grep_example.html   
+#+HTML_LINK_HOME: rust.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+Rust 的设计灵感来源于很多现存的语言和技术。其中一个显著的影响就是 _函数式编程_ 。通常包含：
++ 将函数作为 _参数值_ 或其他函数的 _返回值_
++ 将函数赋值给 _变量_ 以供之后执行
++ ......
+  
+#+BEGIN_EXAMPLE
+本章不会讨论函数式编程是或不是什么的问题，而是展示 Rust 的一些在功能上与其他被认为是函数式语言类似的特性
+#+END_EXAMPLE
+更具体的，将要涉及：
++ _闭包_ ：一个可以储存在变量里的类似函数的结构
++ _迭代器_ ：一种处理元素序列的方式
++ 如何使用这些功能来改进前面的minigrep项目
++ 这两个功能的性能
+  
+#+BEGIN_EXAMPLE
+  还有其它受函数式风格影响的 Rust 功能，比如模式匹配和枚举，这些已经在其他章节中讲到过了
+
+  掌握闭包和迭代器则是编写符合语言风格的高性能 Rust 代码的重要一环，所以将专门用一整章来讲解他们
+#+END_EXAMPLE
+* 闭包：可以捕获环境的匿名函数
+  Rust 的 _闭包_ 是可以 *保存* 进 _变量_ 或作为 _参数传递_ 给其他函数的 *匿名函数* ：
++ 可以在一个地方 *创建* 闭包，然后在 _不同的上下文_ 中 *执行* _闭包运算_ 
++ 不同于函数，闭包允许 *捕获* _调用者作用域_ 中的值
+  
+接下来将展示闭包的这些功能如何复用代码和自定义行为
+** 使用闭包创建行为的抽象
+   #+BEGIN_EXAMPLE
+   考虑一下这个假想的情况：在一个通过 app 生成自定义健身计划的初创企业工作，其后端使用 Rust 编写
+   
+   生成健身计划的算法需要考虑很多不同的因素，比如用户的年龄、身体质量指数、用户喜好、最近的健身活动和用户指定的强度系数
+   
+   本例中实际的算法并不重要，重要的是这个计算只花费几秒钟。但希望在需要时调用算法，并且只希望调用一次，这样就不会让用户等得太久
+   #+END_EXAMPLE
+   
+   这里将通过调用 simulated_expensive_calculation 函数来模拟调用假象的算法，它会打印出 calculating slowly...，等待两秒，并接着返回传递给它的数字：
+   
+   #+BEGIN_SRC rust 
+  use std::thread;
+  use std::time::Duration;
+
+  fn simulated_expensive_calculation(intensity: u32) -> u32 {
+      println!("calculating slowly...");
+      thread::sleep(Duration::from_secs(2));
+      intensity
+  }
+   #+END_SRC
+   
+   接下来，main 函数中将会包含本例的健身 app 中的重要部分。这代表当用户请求健身计划时 app 会调用的代码。因为与 app 前端的交互与闭包的使用并不相关，所以将硬编码代表程序输入的值并打印输出。所需的输入有这些：
++ 一个来自用户的 intensity 数字，请求健身计划时指定，它代表用户喜好低强度还是高强度健身
++ 一个随机数，其会在健身计划中生成变化 
+  
+程序的输出将会是建议的锻炼计划。下面展示了将要使用的 main 函数：
+
+#+BEGIN_SRC rust 
+  fn main() {
+      let simulated_user_specified_value = 10;
+      let simulated_random_number = 7;
+
+      generate_workout(
+	  simulated_user_specified_value,
+	  simulated_random_number
+      );
+  }
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  出于简单考虑这里硬编码了 simulated_user_specified_value 变量的值为 10 和 simulated_random_number 变量的值为 7
+
+  一个实际的程序会从 app 前端获取强度系数并使用 rand crate 来生成随机数，main 函数使用模拟的输入值调用 generate_workout 函数
+#+END_EXAMPLE
+
+现在有了执行上下文，开始编写算法。下面的 generate_workout 函数包含最关心的 app 业务逻辑。本例中余下的代码修改都将在这个函数中进行：
+
+#+BEGIN_SRC rust 
+  fn generate_workout(intensity: u32, random_number: u32) {
+      if intensity < 25 {
+	  println!(
+	      "Today, do {} pushups!",
+	      simulated_expensive_calculation(intensity)
+	  );
+	  println!(
+	      "Next, do {} situps!",
+	      simulated_expensive_calculation(intensity)
+	  );
+      } else {
+	  if random_number == 3 {
+	      println!("Take a break today! Remember to stay hydrated!");
+	  } else {
+	      println!(
+		  "Today, run for {} minutes!",
+		  simulated_expensive_calculation(intensity)
+	      );
+	  }
+      }
+  }
+#+END_SRC
+
+generate_workout 函数的期望行为是首先检查用户需要低强度（由小于 25 的系数表示）锻炼还是高强度（25 或以上）锻炼：
++ 低强度锻炼计划会根据由 simulated_expensive_calculation 函数所模拟的复杂算法建议一定数量的俯卧撑和仰卧起坐
++ 如果用户需要高强度锻炼，这里有一些额外的逻辑：
+  + 如果 app 生成的随机数刚好是 3，app 相反会建议用户稍做休息并补充水分
+  + 如果不是，则用户会从复杂算法中得到数分钟跑步的高强度锻炼计划
+    
+这里有多处调用了慢计算函数 simulated_expensive_calculation ：
++ 第一个 if 块调用了 simulated_expensive_calculation 两次，else 中的 if 没有调用它
++ 而第二个 else 中的代码调用了它一次
+  
+#+BEGIN_EXAMPLE
+  现在这份代码能够应对需求了，但数据科学部门的同学告知将来会对调用 simulated_expensive_calculation 的方式做出一些改变
+
+  为了在要做这些改动的时候简化更新步骤，将重构代码来让它只调用 simulated_expensive_calculation 一次
+
+  同时还希望去掉目前多余的连续两次函数调用，并不希望在计算过程中增加任何其他此函数的调用
+
+  也就是说，不希望在完全无需其结果的情况调用函数，不过仍然希望只调用函数一次
+#+END_EXAMPLE
+*** 使用函数重构
+    有多种方法可以重构此程序。首先尝试的是将重复的 _simulated_expensive_calculation 函数调用_ *提取* 到一个 _变量_ 中： 
+    
+    #+BEGIN_SRC rust 
+  fn generate_workout(intensity: u32, random_number: u32) {
+      let expensive_result =
+	  simulated_expensive_calculation(intensity);
+
+      if intensity < 25 {
+	  println!(
+	      "Today, do {} pushups!",
+	      expensive_result
+	  );
+	  println!(
+	      "Next, do {} situps!",
+	      expensive_result
+	  );
+      } else {
+	  if random_number == 3 {
+	      println!("Take a break today! Remember to stay hydrated!");
+	  } else {
+	      println!(
+		  "Today, run for {} minutes!",
+		  expensive_result
+	      );
+	  }
+      }
+  }
+    #+END_SRC
+    
+    #+BEGIN_EXAMPLE
+    这个修改统一了 simulated_expensive_calculation 调用并解决了第一个 if 块中不必要的两次调用函数的问题
+    
+    不幸的是，现在所有的情况下都需要调用函数并等待结果，包括那个完全不需要这一结果的内部 if 块
+    #+END_EXAMPLE
+    
+    希望能够在程序的一个位置指定某些代码，并只在程序的某处 _实际需要结果_ 的时候 *执行* 这些 _代码_ 。这正是闭包的用武之地！
+*** 重构使用闭包储存代码
+    不同于总是在 if 块之前调用 simulated_expensive_calculation 函数并储存其结果，可以定义一个闭包并将其储存在变量中，如下所示。实际上可以选择将整个 simulated_expensive_calculation 函数体移动到这里引入的闭包中：
+    
+    #+BEGIN_SRC rust 
+  let expensive_closure = |num| {
+      println!("calculating slowly...");
+      thread::sleep(Duration::from_secs(2));
+      num
+  };
+    #+END_SRC
+    
+    闭包定义是 expensive_closure 赋值的 = 之后的部分：
++ 闭包的定义以一对竖线 _|_ 开始
++ 在竖线中指定闭包的 *参数* 
+#+BEGIN_EXAMPLE
+  之所以选择这个语法是因为它与 Smalltalk 和 Ruby 的闭包定义类似
+
+  这个闭包有一个参数 num；如果有多于一个参数，可以使用逗号分隔，比如 |param1, param2|
+#+END_EXAMPLE
++ 参数之后是存放 *闭包体* 的 _大括号_ ，如果闭包体只有一行则大括号是可以省略的
++ 闭包体的最后一行没有分号（正如函数体一样），所以闭包体最后一行的 _num_ 作为调用闭包时的 _返回值_  
++ 大括号之后闭包的结尾，需要用于 _let 语句的分号_ 
+  
+#+BEGIN_EXAMPLE
+  注意：这个 let 语句意味着 expensive_closure 包含一个匿名函数的定义，而不是调用匿名函数的 返回值
+
+  回忆一下使用闭包的原因是需要在一个位置定义代码，储存代码，并在之后的位置实际调用它
+
+  所以这里期望调用的代码现在储存在 expensive_closure 变量中
+#+END_EXAMPLE
+
+定义了闭包之后，可以改变 if 块中的代码来调用闭包以执行代码并获取结果值。调用闭包类似于 _调用函数_ ；指定存放闭包定义的变量名并后跟包含期望使用的参数的括号，如下面所示： 
+
+#+BEGIN_SRC rust 
+  fn generate_workout(intensity: u32, random_number: u32) {
+      let expensive_closure = |num| {
+	  println!("calculating slowly...");
+	  thread::sleep(Duration::from_secs(2));
+	  num
+      };
+
+      if intensity < 25 {
+	  println!(
+	      "Today, do {} pushups!",
+	      expensive_closure(intensity)
+	  );
+	  println!(
+	      "Next, do {} situps!",
+	      expensive_closure(intensity)
+	  );
+      } else {
+	  if random_number == 3 {
+	      println!("Take a break today! Remember to stay hydrated!");
+	  } else {
+	      println!(
+		  "Today, run for {} minutes!",
+		  expensive_closure(intensity)
+	      );
+	  }
+      }
+  }
+#+END_SRC
+
+现在耗时的计算只在一个地方被调用，并只会在需要结果的时候执行改代码
+
+#+BEGIN_EXAMPLE
+  然而，这里又重新引入了上面已经解决的问题：仍然在第一个 if 块中调用了闭包两次，这调用了慢计算代码两次而使得用户需要多等待一倍的时间
+
+  可以通过在 if 块中创建一个本地变量存放闭包调用的结果来解决这个问题，不过闭包可以提供另外一种解决方案
+
+  稍后会讨论这个方案，不过目前首先讨论一下为何闭包定义中和所涉及的 trait 中没有类型注解
+#+END_EXAMPLE
+
+** 闭包类型推断和注解
+   闭包不要求像 fn 函数那样在 _参数_ 和 _返回值_ 上 *注明* _类型_ 
+   
+   #+BEGIN_EXAMPLE
+   函数中需要类型注解是因为他们是暴露给用户的显式接口的一部分，严格的定义这些接口对于保证所有人都认同函数使用和返回值的类型来说是很重要的
+   
+   但是闭包并不用于这样暴露在外的接口：他们储存在变量中并被使用，不用命名他们或暴露给库的用户调用
+   
+   闭包通常很短并只与对应相对任意的场景较小的上下文中。在这些有限制的上下文中，编译器能可靠的推断参数和返回值的类型，类似于它是如何能够推断大部分变量的类型一样
+   
+   强制在这些小的匿名函数中注明类型是很恼人的，并且与编译器已知的信息存在大量的重复
+   #+END_EXAMPLE
+   
+   类似于变量，如果相比严格的必要性更希望增加明确性并变得更啰嗦，可以选择增加类型注解：
+   
+   #+BEGIN_SRC rust 
+  let expensive_closure = |num: u32| -> u32 {
+      println!("calculating slowly...");
+      thread::sleep(Duration::from_secs(2));
+      num
+  };
+   #+END_SRC
+   
+   有了类型注解闭包的语法就更类似函数了。如下是一个对其参数加一的函数的定义与拥有相同行为闭包语法的纵向对比：
+   
+   #+BEGIN_SRC rust 
+  fn  add_one_v1   (x: u32) -> u32 { x + 1 }
+  let add_one_v2 = |x: u32| -> u32 { x + 1 };
+  let add_one_v3 = |x|             { x + 1 };
+  let add_one_v4 = |x|               x + 1  ;
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   这展示了闭包语法如何类似于函数语法，除了使用竖线而不是括号以及几个可选的语法之外
+   
+   1. 第一行展示了一个函数定义
+   2. 第二行展示了一个完整标注的闭包定义
+   3. 第三行闭包定义中省略了类型注解
+   4. 第四行去掉了可选的大括号，因为闭包体只有一行
+   
+   这些都是有效的闭包定义，并在调用时产生相同的行为
+   
+   这里增加了一些空格来对齐相应部分
+   #+END_EXAMPLE
+   
+   闭包定义会为每个参数和返回值推断一个具体类型。例如，下面展示了仅仅将参数作为返回值的简短的闭包定义
+   
+   #+BEGIN_SRC rust 
+  let example_closure = |x| x;
+
+  let s = example_closure(String::from("hello"));
+  let n = example_closure(5);
+   #+END_SRC
+   
+   如果尝试调用闭包两次，第一次使用 String 类型作为参数而第二次使用 u32，则会得到一个错误：
+   
+   #+BEGIN_SRC sh 
+  error[E0308]: mismatched types
+   --> src/main.rs
+    |
+    | let n = example_closure(5);
+    |                         ^ expected struct `std::string::String`, found
+    integer
+    |
+    = note: expected type `std::string::String`
+	       found type `{integer}`
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   第一次使用 String 值调用 example_closure 时，编译器推断 x 和此闭包返回值的类型为 String
+   
+   接着这些类型被锁定进闭包 example_closure 中，如果尝试对同一闭包使用不同类型则会得到类型错误
+   #+END_EXAMPLE
+   
+** 使用带有泛型和 Fn trait 的闭包
+   #+BEGIN_EXAMPLE
+   回到前面的健身计划生成 app ，使用了闭包后的代码仍然调用了多于需要的慢计算闭包
+   
+   解决这个问题的一个方法是在全部代码中的每一个需要多个慢计算闭包结果的地方，可以将结果保存进变量以供复用，这样就可以使用变量而不是再次调用闭包
+   
+   但是这样就会有很多重复的保存结果变量的地方
+   #+END_EXAMPLE
+   
+   还有另一个可用的方案。可以创建一个 *存放* _闭包_ 和 *调用* 闭包 _结果_ 的 *结构体* 
+   
+   #+BEGIN_EXAMPLE
+   该结构体只会在需要结果时执行闭包，并会缓存结果值，这样余下的代码就不必再负责保存结果并可以复用该值
+   
+   这种模式被称 memoization 或 lazy evaluation
+   #+END_EXAMPLE
+   
+   为了让结构体存放闭包，需要 *指定* 闭包的 _类型_ ，因为 _结构体定义_ 需要知道其 _每一个字段的类型_
+   #+BEGIN_EXAMPLE
+   每一个闭包实例有其自己独有的匿名类型：也就是说，即便两个闭包有着相同的签名，他们的类型仍然可以被认为是不同
+   #+END_EXAMPLE
+   为了定义使用闭包的结构体、枚举或函数参数，需要使用 _泛型_ 和 _trait bound_ 
++ _Fn 系列 trait_ 由标准库提供
+#+BEGIN_EXAMPLE
+  所有的闭包都实现了 Fn、FnMut 或 FnOnce Trait中的一个，在 “闭包会捕获其环境” 部分会讨论这些 trait 的区别
+
+  在这个例子中可以使用 Fn trait
+#+END_EXAMPLE
+
++ 为了满足 Fn trait bound 增加了代表闭包所必须的 _参数_ 和 _返回值类型_ 的 *类型* 
+  
+#+BEGIN_EXAMPLE
+  在这个例子中，闭包有一个 u32 的参数并返回一个 u32
+
+  这样所指定的 trait bound 就是 Fn(u32) -> u32
+#+END_EXAMPLE
+
+下面展示了存放了 _闭包_ 和一个 _Option 结果值_ 的  _Cacher 结构体_ 的定义：
+#+BEGIN_SRC rust 
+  struct Cacher<T>
+      where T: Fn(u32) -> u32
+  {
+      calculation: T,
+      value: Option<u32>,
+  }
+#+END_SRC
+
+
+结构体 Cacher：
++ 一个 _泛型 T_ 的字段 _calculation_ 
+  + T 的 trait bound 指定了 T 是一个使用 _Fn 的闭包_ 
+    + 任何希望储存到 Cacher 实例的 calculation 字段的闭包必须有一个 u32 参数（由 Fn 之后的括号的内容指定）
+    + 必须返回一个 u32（由 -> 之后的内容）
+#+BEGIN_EXAMPLE
+  注意：函数也都实现了这三个 Fn trait
+
+  如果不需要捕获环境中的值，则可以使用实现了 Fn trait 的函数而不是闭包
+#+END_EXAMPLE
++ 字段 _value_ 是 _Option<u32>_ 类型的：
+  + 在执行闭包之前，value 将是 _None_
+  + 如果使用 Cacher 的代码请求闭包的结果，这时会执行闭包并将结果 *储存* 在 value 字段的 _Some 成员_ 中
+    + 如果代码再次请求闭包的结果，这时不再执行闭包，而是会 *返回* 存放在 _Some 成员_ 中的 *结果* 
+      
+实现Cacher的逻辑如下：
+
+#+BEGIN_SRC rust 
+  impl<T> Cacher<T>
+      where T: Fn(u32) -> u32
+  {
+      fn new(calculation: T) -> Cacher<T> {
+	  Cacher {
+	      calculation,
+	      value: None,
+	  }
+      }
+
+      fn value(&mut self, arg: u32) -> u32 {
+	  match self.value {
+	      Some(v) => v,
+	      None => {
+		  let v = (self.calculation)(arg);
+		  self.value = Some(v);
+		  v
+	      },
+	  }
+      }
+  }
+#+END_SRC
+
+1. Cacher 结构体的 _字段_ 是 *私有* 的，因为希望 Cacher 管理这些值而不是任由调用代码潜在的直接改变他们
+2. _Cacher::new_ 函数：
+   + 获取一个 _泛型参数 T_ ，它定义于 _impl 块上下文_ 中并与 Cacher 结构体有着相同的 trait bound
+   + 返回一个在Cacher实例，此时闭包还没有被执行
+     + _calculation 字段_ 中 *存放* 了 _指定闭包_
+     + _value 字段_ 中 存放了 _None_ 值
+3. 当调用代码需要闭包的执行结果时，不同于直接调用闭包，它会调用 _value_ 方法： *检查* _self.value_ 是否 *已经有* 了一个 _Some_ 的结果值；
+   + 如果有：返回 Some 中的值并不会再次执行闭包
+   + 如果 self.value 是 None：会调用 self.calculation 中储存的闭包，将结果保存到 self.value 以便将来使用，并同时返回结果值
+     
+下面代码展示了如何在 generate_workout 函数中利用 Cacher 结构体：
+#+BEGIN_SRC rust 
+  fn generate_workout(intensity: u32, random_number: u32) {
+      let mut expensive_result = Cacher::new(|num| {
+	  println!("calculating slowly...");
+	  thread::sleep(Duration::from_secs(2));
+	  num
+      });
+
+      if intensity < 25 {
+	  println!(
+	      "Today, do {} pushups!",
+	      expensive_result.value(intensity)
+	  );
+	  println!(
+	      "Next, do {} situps!",
+	      expensive_result.value(intensity)
+	  );
+      } else {
+	  if random_number == 3 {
+	      println!("Take a break today! Remember to stay hydrated!");
+	  } else {
+	      println!(
+		  "Today, run for {} minutes!",
+		  expensive_result.value(intensity)
+	      );
+	  }
+      }
+  }
+#+END_SRC
+
+1. 不同于直接将闭包保存进一个变量，保存一个新的 Cacher 实例来存放闭包
+2. 在每一个需要结果的地方，调用 Cacher 实例的 value 方法
+3. 可以调用 value 方法任意多次，或者一次也不调用，而慢计算最多只会运行一次。
+   
+#+BEGIN_EXAMPLE
+  改变 simulated_user_specified_value 和 simulated_random_number 变量中的值来验证在所有情况下在多个 if 和 else 块中，闭包打印的 calculating slowly... 只会在需要时出现并只会出现一次
+
+  Cacher 负责确保不会调用超过所需的慢计算所需的逻辑，这样 generate_workout 就可以专注业务逻辑了
+#+END_EXAMPLE
+
+*** Cacher的限制
+    #+BEGIN_EXAMPLE
+    值缓存是一种更加广泛的实用行为，可能希望在代码中的其他闭包中也使用他们
+    
+    然而，目前 Cacher 的实现存在两个小问题，这使得在不同上下文中复用变得很困难
+    #+END_EXAMPLE
+    
+    第一个问题是 Cacher 实例假设对于 value 方法的任何 arg 参数值总是会返回相同的值。也就是说，这个 Cacher 的测试会失败：
+    
+    #+BEGIN_SRC rust 
+  #[test]
+  fn call_with_different_values() {
+      let mut c = Cacher::new(|a| a);
+
+      let v1 = c.value(1);
+      let v2 = c.value(2);
+
+      assert_eq!(v2, 2);
+  }
+    #+END_SRC
+    
+    上面代码运行测试，它会在 assert_eq! 失败并显示如下信息：
+    
+    #+BEGIN_SRC sh 
+  thread 'call_with_different_values' panicked at 'assertion failed: `(left == right)`
+    left: `1`,
+   right: `2`', src/main.rs
+    #+END_SRC
+    
+    #+BEGIN_EXAMPLE
+    这里的问题是第一次使用 1 调用 c.value，Cacher 实例将 Some(1) 保存进 self.value。在这之后，无论传递什么值调用 value，它总是会返回 1
+    
+    可以修改 Cacher 存放一个哈希 map 而不是单独一个值。哈希 map 的 key 将是传递进来的 arg 值，而 value 则是对应 key 调用闭包的结果值
+    
+    相比之前检查 self.value 直接是 Some 还是 None 值，现在 value 函数会在哈希 map 中寻找 arg：
+    
+    如果找到的话就返回其对应的值，如果不存在，Cacher 会调用闭包并将结果值保存在哈希 map 对应 arg 值的位置
+    #+END_EXAMPLE
+    
+    当前 Cacher 实现的第二个问题是它的应用被限制为只 *接受* 获取一个 _u32_ 值并 *返回* 一个 _u32_ 值的闭包
+    
+    #+BEGIN_EXAMPLE
+    比如说，可能需要能够缓存一个获取字符串 slice 并返回 usize 值的闭包的结果
+    
+    这需要引入更多泛型参数来增加 Cacher 功能的灵活性
+    #+END_EXAMPLE
+    
+** 闭包会捕获其环境
+   #+BEGIN_EXAMPLE
+   在健身计划生成器的例子中，我们只将闭包作为内联匿名函数来使用
+   #+END_EXAMPLE
+   闭包还有另一个函数所没有的功能：他们可以 *捕获* 其 _环境_ 并访问其被 *定义的作用域* 的 _变量_ 。比如：有一个储存在 equal_to_x 变量中闭包的例子，它使用了闭包环境中的变量 x：
+   
+   #+BEGIN_SRC rust 
+  fn main() {
+      let x = 4;
+
+      let equal_to_x = |z| z == x;
+
+      let y = 4;
+
+      assert!(equal_to_x(y));
+  }
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   这里，即便 x 并不是 equal_to_x 的一个参数，equal_to_x 闭包也被允许使用变量 x，因为它与 equal_to_x 定义于相同的作用域
+   #+END_EXAMPLE
+   
+   函数则不能做到同样的事，如果尝试如下例子，它并不能编译：
+   
+   #+BEGIN_SRC rust 
+  fn main() {
+      let x = 4;
+
+      fn equal_to_x(z: i32) -> bool { z == x }
+
+      let y = 4;
+
+      assert!(equal_to_x(y));
+  }
+   #+END_SRC
+   
+   这会得到一个编译错误：
+   #+BEGIN_SRC sh 
+  error[E0434]: can't capture dynamic environment in a fn item; use the || { ...
+  } closure form instead
+   --> src/main.rs
+    |
+  4 |     fn equal_to_x(z: i32) -> bool { z == x }
+   #+END_SRC
+   
+   当闭包从环境中捕获一个值，闭包会在闭包体中储存这个值以供使用。这会使用内存并产生额外的开销
+   
+*** 闭包的类型
+    #+BEGIN_EXAMPLE
+    在更一般的场景中，当不需要闭包来捕获环境时，并不希望产生这些开销
+    
+    因为函数从未允许捕获环境，定义和使用函数也就从不会有这些额外开销
+    #+END_EXAMPLE
+    
+    闭包可以通过三种方式捕获其环境，他们直接对应函数的三种获取参数的方式： _获取所有权_ ， _可变借用_ 和 _不可变借用_ 。这三种捕获值的方式被编码为如下三个 Fn trait：
+1. _FnOnce_ : 消费从周围作用域捕获的变量
+  + _闭包周围的作用域_ 被称为其 *环境*
+  + 为了消费捕获到的变量，闭包必须 *获取其所有权* 并在 _定义_ 闭包时将其 *移动* 进闭包
+  + 名称的 Once 部分代表了闭包 *不能多次* 获取相同变量的所有权的，所以它只能被调用一次
+2. _FnMut_ : 获取 _可变的借用_ 值所以可以改变其环境
+3. _Fn_ : 从其环境获取 _不可变的借用_ 值
+   
+当创建一个闭包时，Rust 根据其 _如何使用环境中变量_ 来 *推断* 希望 _如何引用环境_ 
++ 由于所有闭包都可以被调用至少一次，所以所有闭包都实现了 FnOnce
++ 那些并没有移动被捕获变量的所有权到闭包内的闭包也实现了 FnMut
++ 而不需要对被捕获的变量进行可变访问的闭包则也实现了 Fn
+  
+#+BEGIN_EXAMPLE
+  在示例 13-12 中，equal_to_x 闭包不可变的借用了 x（所以 equal_to_x 具有 Fn trait），因为闭包体只需要读取 x 的值
+#+END_EXAMPLE
+
+如果希望 *强制* 闭包获取其使用的 *环境值的所有权* ，可以在参数列表前使用 _move_ 关键字
+
+#+BEGIN_EXAMPLE
+  这个技巧在将闭包传递给新线程以便将数据移动到新线程中时最为实用
+#+END_EXAMPLE
+
+下面在闭包定义中增加 move 关键字并使用 vector 代替整型
+#+BEGIN_SRC rust 
+  fn main() {
+      let x = vec![1, 2, 3];
+
+      let equal_to_x = move |z| z == x;
+
+      println!("can't use x here: {:?}", x);
+
+      let y = vec![1, 2, 3];
+
+      assert!(equal_to_x(y));
+  }
+#+END_SRC
+
+这个例子并不能编译，会产生以下错误：
+
+#+BEGIN_SRC sh 
+  error[E0382]: use of moved value: `x`
+   --> src/main.rs:6:40
+    |
+  4 |     let equal_to_x = move |z| z == x;
+    |                      -------- value moved (into closure) here
+  5 |
+  6 |     println!("can't use x here: {:?}", x);
+    |                                        ^ value used here after move
+    |
+    = note: move occurs because `x` has type `std::vec::Vec<i32>`, which does not
+    implement the `Copy` trait
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  x 被移动进了闭包，因为闭包使用 move 关键字定义
+
+  闭包获取了 x 的所有权以后， 接下来就不再允许在 println! 语句中使用 x 了
+
+  去掉 println! 即可修复问题
+#+END_EXAMPLE
+
+大部分需要指定一个 Fn 系列 trait bound 的时候，可以从 Fn 开始，而编译器会根据闭包体中的情况告诉你是否需要 FnMut 或 FnOnce
+
+* 迭代器
+  _迭代器_ 负责 *遍历* 序列中的 _每一项_ 和 *决定* 序列何时 _结束_ 的逻辑。当使用迭代器时，无需重新实现这些逻辑
+  
+  #+BEGIN_EXAMPLE
+  迭代器模式允许对一个项的序列进行某些处理
+  #+END_EXAMPLE
+  
+  在 Rust 中，迭代器是 惰性的，这意味着在调用方法使用迭代器之前它都不会有效果。例如，下面通过调用定义于 Vec 上的 _iter_ 方法在一个 vector v1 上 *创建* 了一个迭代器。这段代码本身没有任何用处：
+  
+  #+BEGIN_SRC rust 
+  let v1 = vec![1, 2, 3];
+
+  let v1_iter = v1.iter();
+  #+END_SRC
+  
+  
+  一旦创建迭代器之后，可以选择用多种方式利用它
+  
+  #+BEGIN_EXAMPLE
+  前面已经使用迭代器和 for 循环在每一个项上执行了一些代码
+  
+  虽然直到现在为止一直没有具体讨论调用 iter 到底具体做了什么
+  #+END_EXAMPLE
+  
+  下面的例子将迭代器的创建和 for 循环中的使用分开。迭代器被储存在 v1_iter 变量中，但这时没有进行迭代。一旦 for 循环开始使用 v1_iter，接着迭代器中的每一个元素被用于循环的一次迭代，这会打印出其每一个值：
+  
+  #+BEGIN_SRC rust 
+  let v1 = vec![1, 2, 3];
+
+  let v1_iter = v1.iter();
+
+  for val in v1_iter {
+      println!("Got: {}", val);
+  }
+  #+END_SRC
+  
+  #+BEGIN_EXAMPLE
+  在标准库中没有提供迭代器的语言中，可能会使用一个从 0 开始的索引变量，使用这个变量索引 vector 中的值，并循环增加其值直到达到 vector 的元素数量
+  
+  迭代器处理了所有这些逻辑，这减少了重复代码并消除了潜在的混乱
+  
+  另外，迭代器的实现方式提供了对多种不同的序列使用相同逻辑的灵活性，而不仅仅是像 vector 这样可索引的数据结构
+  #+END_EXAMPLE
+  
+** Iterator trait 和 next 方法
+   迭代器都实现了一个叫做 _Iterator_ 的定义于 _标准库_ 的 trait。这个 trait 的定义看起来像这样：
+   
+   #+BEGIN_SRC rust 
+  pub trait Iterator {
+      type Item;
+
+      fn next(&mut self) -> Option<Self::Item>;
+
+      // 此处省略了方法的默认实现
+  }
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   注意这里有一下还未讲到的新语法：type Item 和 Self::Item，他们定义了 trait 的 关联类型
+   
+   现在只需知道这段代码表明实现 Iterator trait 要求同时定义一个 Item 类型，这个 Item 类型被用作 next 方法的返回值类型
+   
+   换句话说，Item 类型将是迭代器返回元素的类型
+   #+END_EXAMPLE
+   
+   _next_ 是 Iterator 实现者被要求定义的唯一方法：
++ next *一次* 返回迭代器中的一个项，封装在 _Some_ 中
++ 当迭代器 *结束* 时，它返回 _None_ 
+  
+可以直接调用迭代器的 next 方法；
+#+BEGIN_SRC rust 
+  #[test]
+  fn iterator_demonstration() {
+      let v1 = vec![1, 2, 3];
+
+      let mut v1_iter = v1.iter();
+
+      assert_eq!(v1_iter.next(), Some(&1));
+      assert_eq!(v1_iter.next(), Some(&2));
+      assert_eq!(v1_iter.next(), Some(&3));
+      assert_eq!(v1_iter.next(), None);
+  }
+#+END_SRC
+
+注意：v1_iter 必须是 *可变* 的：在迭代器上调用 _next_ 方法 *改变* 了迭代器中用来记录 _序列位置_ 的状态。换句话说，每一个 next 调用都会从迭代器中消费一个项
+#+BEGIN_EXAMPLE
+  使用 for 循环时无需使 v1_iter 可变因为 for 循环会获取 v1_iter 的所有权并在后台使 v1_iter 可变
+#+END_EXAMPLE
+
+另外从 next _调用中得到的值_ 是 vector 的 *不可变引用* 
+
+#+BEGIN_EXAMPLE
+  iter 方法生成一个不可变引用的迭代器
+
+  如果需要一个获取 v1 所有权并返回拥有所有权的迭代器，则可以调用 into_iter 而不是 iter
+
+  类似的，如果希望迭代可变引用，则可以调用 iter_mut 而不是 iter
+#+END_EXAMPLE
+
+** 消费迭代器的方法
+   #+BEGIN_EXAMPLE
+   Iterator trait 有一系列不同的由标准库提供默认实现的方法，可以在 Iterator trait 的标准库 API 文档中找到所有这些方法
+   
+   一些方法在其定义中调用了 next 方法，这也就是为什么在实现 Iterator trait 时要求实现 next 方法的原因
+   #+END_EXAMPLE
+   这些调用 next 方法的方法被称为 _消费适配器_ ，因为调用他们会消耗迭代器。一个消费适配器的例子是 _sum_ 方法。这个方法获取迭代器的所有权并反复调用 next 来遍历迭代器，因而会消费迭代器。当其遍历每一个项时，它将每一个项加总到一个总和并在迭代完成时返回总和：
+   
+   #+BEGIN_SRC rust 
+  #[test]
+  fn iterator_sum() {
+      let v1 = vec![1, 2, 3];
+
+      let v1_iter = v1.iter();
+
+      let total: i32 = v1_iter.sum();
+
+      assert_eq!(total, 6);
+  }
+   #+END_SRC
+   
+   注意：调用 sum 之后 *不再允许使用* v1_iter， 因为调用 sum 时它会 *获取* _迭代器的所有权_ 
+   
+** 产生其他迭代器的方法
+   Iterator trait 中定义了另一类方法，被称为 _迭代器适配器_ ，他们允许将 _当前迭代器_ 变为 _不同类型的迭代器_ 。可以 _链式_ 调用多个迭代器适配器。不过因为所有的迭代器都是惰性的，必须调用一个消费适配器方法以便获取迭代器适配器调用的结果
+   
+   下面展示了一个调用迭代器适配器方法 map 的例子，该 map 方法使用 _闭包_ 来调用每个元素以生成新的迭代器。 这里的闭包创建了一个新的迭代器，对其中 vector 中的每个元素都被加 1：
+   
+   #+BEGIN_SRC rust 
+  let v1: Vec<i32> = vec![1, 2, 3];
+
+  v1.iter().map(|x| x + 1);
+   #+END_SRC
+   
+   不过这些代码会产生一个警告：
+   
+   #+BEGIN_SRC sh 
+  warning: unused `std::iter::Map` which must be used: iterator adaptors are lazy
+  and do nothing unless consumed
+   --> src/main.rs:4:5
+    |
+  4 |     v1.iter().map(|x| x + 1);
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: #[warn(unused_must_use)] on by default
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   上面的代码实际上并没有做任何事；所指定的闭包从未被调用过
+   
+   警告提醒了：迭代器适配器是惰性的，而这里需要消费迭代器
+   #+END_EXAMPLE
+   
+   为了修复这个警告并消费迭代器获取有用的结果，可以使用 collect 方法。这个方法消费迭代器并将结果收集到一个数据结构中：
+   
+   #+BEGIN_SRC rust 
+  let v1: Vec<i32> = vec![1, 2, 3];
+
+  let v2: Vec<_> = v1.iter().map(|x| x + 1).collect();
+
+  assert_eq!(v2, vec![2, 3, 4]);
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   因为传递给 map 的是一个闭包，可以指定任何希望在遍历的每个元素上执行的操作
+   
+   这是一个展示如何使用闭包来自定义行为同时又复用 Iterator trait 提供的迭代行为的绝佳例子
+   #+END_EXAMPLE
+   
+** 使用闭包获取环境
+   展示一个通过使用 filter 迭代器适配器和捕获环境的闭包的常规用例。迭代器的 _filter_ 方法需要一个使用迭代器的 _每一个项_ 并返回 _布尔值_ 的 _闭包_ ：
++ 如果闭包返回 true：其值将会包含在 filter 提供的新迭代器中
++ 如果闭包返回 false：其值不会包含在结果迭代器中
+  
+下面展示了使用 filter 和一个捕获环境中变量 shoe_size 的闭包，这样闭包就可以遍历一个 Shoe 结构体集合以便只返回指定大小的鞋子：
+
+#+BEGIN_SRC rust 
+  #[derive(PartialEq, Debug)]
+  struct Shoe {
+      size: u32,
+      style: String,
+  }
+
+  fn shoes_in_my_size(shoes: Vec<Shoe>, shoe_size: u32) -> Vec<Shoe> {
+      shoes.into_iter()
+	  .filter(|s| s.size == shoe_size)
+	  .collect()
+  }
+
+  #[test]
+  fn filters_by_size() {
+      let shoes = vec![
+	  Shoe { size: 10, style: String::from("sneaker") },
+	  Shoe { size: 13, style: String::from("sandal") },
+	  Shoe { size: 10, style: String::from("boot") },
+      ];
+
+      let in_my_size = shoes_in_my_size(shoes, 10);
+
+      assert_eq!(
+	  in_my_size,
+	  vec![
+	      Shoe { size: 10, style: String::from("sneaker") },
+	      Shoe { size: 10, style: String::from("boot") },
+	  ]
+      );
+  }
+#+END_SRC
+
+shoes_in_my_size 函数获取一个鞋子 vector 的所有权和一个鞋子大小作为参数。它返回一个只包含指定大小鞋子的 vector：
+1. shoes_in_my_size 函数体中调用了 into_iter 来创建一个获取 _vector 所有权_ 的迭代器
+2. 调用 filter 将这个迭代器适配成一个只含有那些闭包返回 true 的元素的新迭代器
+   + 闭包从环境中捕获了 shoe_size 变量并使用其值与每一只鞋的大小作比较，只保留指定大小的鞋子
+3. 调用 _collect_ 将迭代器适配器返回的值收集进一个 vector 并返回
+   
+** 创建自定义迭代器
+   #+BEGIN_EXAMPLE
+   已经展示了可以通过在 vector 上调用 iter、into_iter 或 iter_mut 来创建一个迭代器
+   
+   也可以用标准库中其他的集合类型创建迭代器，比如哈希 map
+   #+END_EXAMPLE
+   此外可以 *实现* _Iterator trait_ 来创建任何希望的迭代器。只需要 *定义* 中唯一要求提供的方法就是 _next_ 方法。一旦定义了它，就可以使用所有其他由 Iterator trait 提供的拥有默认实现的方法来创建自定义迭代器了！
+   
+   #+BEGIN_EXAMPLE
+   作为展示，创建一个只会从 1 数到 5 的迭代器
+   
+   首先，创建一个结构体来存放一些值
+   
+   接着实现 Iterator trait 将这个结构体放入迭代器中并在此实现中使用其值
+   #+END_EXAMPLE
+   定义一个 Counter 结构体和创建 Counter 实例的关联函数 new：
+   
+   #+BEGIN_SRC rust 
+  struct Counter {
+      count: u32,
+  }
+
+  impl Counter {
+      fn new() -> Counter {
+	  Counter { count: 0 }
+      }
+  }
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   Counter 结构体有一个字段 count。这个字段存放一个 u32 值，它会记录处理 1 到 5 的迭代过程中的位置
+   
+   count 是私有的因为希望 Counter 的实现来管理这个值
+   
+   new 函数通过总是从为 0 的 count 字段开始新实例来确保需要的行为
+   #+END_EXAMPLE
+   
+   为 Counter 类型实现 Iterator trait，通过定义 next 方法来指定使用迭代器时的行为：
+   
+   #+BEGIN_SRC rust 
+  impl Iterator for Counter {
+      type Item = u32;
+
+      fn next(&mut self) -> Option<Self::Item> {
+	  self.count += 1;
+
+	  if self.count < 6 {
+	      Some(self.count)
+	  } else {
+	      None
+	  }
+      }
+  }
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   这里将迭代器的关联类型 Item 设置为 u32，意味着迭代器会返回 u32 值集合
+   
+   再一次，这里仍无需担心关联类型
+   #+END_EXAMPLE
+   
+   希望迭代器对其内部状态加一，这也就是为何将 count 初始化为 0：
++ 希望迭代器首先返回 1。如果 count 值小于 6，next 会返回封装在 Some 中的当前值
++ 如果 count 大于或等于 6，迭代器会返回 None
+  
+*** 使用 Counter 迭代器的 next 方法 
+    下面展示了一个测试用来演示如何通过直接调用 next 方法来使用 Counter 结构体的迭代器：
+    
+    #+BEGIN_SRC rust 
+  #[test]
+  fn calling_next_directly() {
+      let mut counter = Counter::new();
+
+      assert_eq!(counter.next(), Some(1));
+      assert_eq!(counter.next(), Some(2));
+      assert_eq!(counter.next(), Some(3));
+      assert_eq!(counter.next(), Some(4));
+      assert_eq!(counter.next(), Some(5));
+      assert_eq!(counter.next(), None);
+  }
+    #+END_SRC
+    
+*** 使用自定义迭代器中其他 Iterator trait 方法
+    通过定义 next 方法实现 Iterator trait，现在就可以使用任何标准库定义的拥有默认实现的 Iterator trait 方法了，因为他们都使用了 next 方法的功能
+    
+    #+BEGIN_EXAMPLE
+    例如，出于某种原因希望获取 Counter 实例产生的值，将这些值与另一个 Counter 实例在省略了第一个值之后产生的值配对
+    
+    将每一对值相乘，只保留那些可以被三整除的结果，然后将所有保留的结果相加
+    #+END_EXAMPLE
+    
+    #+BEGIN_SRC rust 
+  #[test]
+  fn using_other_iterator_trait_methods() {
+      let sum: u32 = Counter::new().zip(Counter::new().skip(1))
+				   .map(|(a, b)| a * b)
+				   .filter(|x| x % 3 == 0)
+				   .sum();
+      assert_eq!(18, sum);
+  }
+    #+END_SRC
+    
+    注意 zip 只产生四对值；第五对值 _(5, None)_ *从未被产生* ，因为 zip 在任一输入迭代器返回 None 时也返回 None。
+    
+    #+BEGIN_EXAMPLE
+    只要指定了 next 方法如何工作，而标准库则提供了其它调用 next 的方法的默认实现
+    #+END_EXAMPLE
+    
+* 改进 minigrep 项目
+  #+BEGIN_EXAMPLE
+  有了这些关于迭代器的新知识，可以使用迭代器来改进上一章中 I/O 项目的实现来使得代码更简洁明了
+  #+END_EXAMPLE
+  
+** 使用迭代器并去掉 clone
+   上一章中 Config::new 的实现：
+   
+   #+BEGIN_SRC rust 
+  impl Config {
+      pub fn new(args: &[String]) -> Result<Config, &'static str> {
+          if args.len() < 3 {
+              return Err("not enough arguments");
+          }
+
+          let query = args[1].clone();
+          let filename = args[2].clone();
+
+          let case_sensitive = env::var("CASE_INSENSITIVE").is_err();
+
+          Ok(Config { query, filename, case_sensitive })
+      }
+  }
+   #+END_SRC
+   
+   #+BEGIN_EXAMPLE
+   这里需要 clone 的原因是参数 args 中有一个 String 元素的 slice，而 new 函数并不拥有 args
+   
+   为了能够返回 Config 实例的所有权，需要克隆 Config 中字段 query 和 filename 的值，这样 Config 实例就能拥有这些值
+   #+END_EXAMPLE
+   
+   在学习了迭代器之后，可以将 new 函数改为 *获取* 一个有 _所有权_ 的 _迭代器_ 作为参数而不是 _借用 slice_ 
+   
+   #+BEGIN_EXAMPLE
+   使用迭代器来检查 slice 长度和索引特定位置的代码，这会明确 Config::new 的工作因为迭代器会负责访问这些值
+   
+   一旦 Config::new 获取了迭代器的所有权并不再使用借用的索引操作，就可以将迭代器中的 String 值移动到 Config 中，而不是调用 clone 分配新的空间
+   #+END_EXAMPLE
+   
+*** 直接使用 env::args 返回的迭代器
+    更新 Config::new 如下：
+    
+    #+BEGIN_SRC rust 
+  impl Config {
+      pub fn new(mut args: std::env::Args) -> Result<Config, &'static str> {
+          args.next();
+
+          let query = match args.next() {
+              Some(arg) => arg,
+              None => return Err("Didn't get a query string"),
+          };
+
+          let filename = match args.next() {
+              Some(arg) => arg,
+              None => return Err("Didn't get a file name"),
+          };
+
+          let case_sensitive = env::var("CASE_INSENSITIVE").is_err();
+
+          Ok(Config { query, filename, case_sensitive })
+      }
+  }
+    #+END_SRC
+    
+    #+BEGIN_EXAMPLE
+    注意 env::args 返回值的第一个值是程序的名称。这里忽略它并获取下一个值，所以首先调用 next 并不对返回值做任何操作
+    
+    之后对希望放入 Config 中字段 query 调用 next：如果 next 返回 Some，使用 match 来提取其值。如果它返回 None，则意味着没有提供足够的参数并通过 Err 值提早返回
+    
+    对 filename 值进行同样的操作
+    #+END_EXAMPLE
+    
+    在main.rs里修改 Config::new 的调用：
+    
+    #+BEGIN_SRC rust 
+  fn main() {
+      let config = Config::new(env::args()).unwrap_or_else(|err| {
+          eprintln!("Problem parsing arguments: {}", err);
+          process::exit(1);
+      });
+
+      // --snip--
+  }
+    #+END_SRC
+    
+    #+BEGIN_EXAMPLE
+    不同于将迭代器的值收集到一个 vector 中接着传递一个 slice 给 Config::new，现在直接将 env::args 返回的迭代器的所有权传递给 Config::new
+    #+END_EXAMPLE
+    
+** 使用迭代器适配器来使代码更简明
+   上一章里search函数的实现如下：
+   
+   #+BEGIN_SRC rust 
+  pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
+      let mut results = Vec::new();
+      
+      for line in contents.lines() {
+          if line.contains(query) {
+              results.push(line);
+          }
+      }
+      results
+  }
+   #+END_SRC
+   
+   可以通过使用迭代器适配器方法来编写更简明的代码：
+   #+BEGIN_SRC rust 
+  pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
+      contents.lines()
+          .filter(|line| line.contains(query))
+          .collect()
+  }
+   #+END_SRC
+   
+   接下来的逻辑问题就是在代码中应该选择哪种风格？ 大部分 Rust 程序员倾向于使用迭代器风格：
+1. 相比使用不同的循环并创建新 vector，迭代器代码则更关注循环的目的，因为抽象了那些老生常谈的代码，这样就才能更容易看清业务代码，比如迭代器中每个元素必须面对的过滤条件
+2. 最小化可变状态的数量可使代码更简洁，比如上面的代码里避免了一个可变的中间 results vector 的使用，这也使得并行更加容易
+   
+#+BEGIN_EXAMPLE
+  不过这两种实现真的完全等同吗？直觉上的假设是更底层的循环会更快一些
+#+END_EXAMPLE
+
+* 性能对比：循环 VS 迭代器
+  #+BEGIN_EXAMPLE
+  为了决定使用哪个实现，需要知道哪个版本的 search 函数更快一些：是直接使用 for 循环的版本还是使用迭代器的版本
+  #+END_EXAMPLE
+  可以运行了一个性能测试，通过将阿瑟·柯南·道尔的“福尔摩斯探案集”的全部内容加载进 String 并寻找其中的单词 “the”。如下是 for 循环版本和迭代器版本的 search 函数的性能测试结果：
+  
+  #+BEGIN_SRC sh 
+  test bench_search_for  ... bench:  19,620,300 ns/iter (+/- 915,700)
+  test bench_search_iter ... bench:  19,234,900 ns/iter (+/- 657,200)
+  #+END_SRC
+  
+  结果迭代器版本还要稍微快一点！
+  
+  #+BEGIN_EXAMPLE
+  这里我们将不会查看性能测试的代码，目的并不是为了证明他们是完全等同的，而是得出一个怎样比较这两种实现方式性能的基本思路
+  #+END_EXAMPLE
+  
+  对于一个更全面的性能测试，将会检查不同长度的文本、不同的搜索单词、不同长度的单词和所有其他的可变情况。这里所要表达的是：迭代器，作为一个高级的抽象，被编译成了与手写的底层代码大体一致性能代码。迭代器是 Rust 的 零成本抽象之一，它意味着抽象并不会引入运行时开销
+  
+  #+BEGIN_EXAMPLE
+  它与本贾尼·斯特劳斯特卢普（C++ 的设计和实现者）在 “Foundations of C++”（2012） 中所定义的 零开销如出一辙：
+  
+  从整体来说，C++ 的实现遵循了零开销原则：你不需要的，无需为他们买单。更有甚者的是：你需要的时候，也不可能找到其他更好的代码了
+  #+END_EXAMPLE
+  
+  
+  作为另一个例子，这里有一些取自于音频解码器的代码：
+  
+  #+BEGIN_EXAMPLE
+  解码算法使用“线性预测数学运算”来根据之前样本的线性函数预测将来的值
+  
+  这些代码使用迭代器链来对作用域中的三个变量进行了某种数学计算：一个叫 buffer 的数据 slice、一个有 12 个元素的数组 coefficients、和一个代表位移位数的 qlp_shift
+  #+END_EXAMPLE
+  
+  例子中声明了这些变量但并没有提供任何值，虽然这些代码在其上下文之外没有什么意义，不过仍是一个简明的现实中的例子，来展示 Rust 如何将高级概念转换为底层代码：
+  
+  #+BEGIN_SRC rust 
+  let buffer: &mut [i32];
+  let coefficients: [i64; 12];
+  let qlp_shift: i16;
+
+  for i in 12..buffer.len() {
+      let prediction = coefficients.iter()
+                                   .zip(&buffer[i - 12..i])
+                                   .map(|(&c, &s)| c * s as i64)
+                                   .sum::<i64>() >> qlp_shift;
+      let delta = buffer[i];
+      buffer[i] = prediction as i32 + delta;
+  }
+  #+END_SRC
+  
+  #+BEGIN_EXAMPLE
+  像音频解码器这样的程序通常最看重计算的性能，这里，创建了一个迭代器，使用了两个适配器，接着消费了其值
+  
+  Rust 代码将会被编译为什么样的汇编代码呢？
+  
+  它被编译成与手写的相同的汇编代码。遍历 coefficients 的值完全用不到循环：Rust 知道这里会迭代 12 次，所以它“展开”了循环
+  
+  展开是一种移除循环控制代码的开销并替换为每个迭代中的重复代码的优化
+  #+END_EXAMPLE
+  
+  所有的系数都被储存在了寄存器中，这意味着访问他们非常快，这里也没有运行时数组访问边界检查。所有这些 Rust 能够提供的优化使得结果代码极为高效
+  
+  #+BEGIN_EXAMPLE
+  现在知道这些了，请放心大胆的使用迭代器和闭包吧！
+  
+  他们使得代码看起来更高级，但并不为此引入运行时性能损失
+  #+END_EXAMPLE
+  
+* 总结
+  闭包和迭代器是 Rust 受函数式编程语言观念所启发的功能：
++ 他们对 Rust 以底层的性能来明确的表达高级概念的能力有很大贡献
++ 闭包和迭代器的实现达到了不影响运行时性能的程度
+  
+#+BEGIN_EXAMPLE
+  现在改进了 I/O 项目的表现力，接下来看一看更多 cargo 的功能，他们将帮助我们准备好将项目分享给世界
+#+END_EXAMPLE
+
+[[file:cargo.org][Next：包管理器]]
+
+[[file:grep_example.org][Previous：构建命令行程序]]
+
+[[file:rust.org][Home: 目录]]

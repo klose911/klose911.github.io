@@ -1,0 +1,153 @@
+#+TITLE: 对象分享
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil
+#+HTML_LINK_UP: thread_safe.html   
+#+HTML_LINK_HOME: jcip.html
+* 可见性
+** 过时的变量
+   一个线程 _修改了变量的值_ ,  _另一个线程_  *并非* 总是能够 *及时获知最新的值* 
+   
+   #+BEGIN_SRC java
+  public class NoVisibility {
+          private static boolean ready;
+          private static int number;
+          private static class ReaderThread extends Thread {
+                  public void run() {
+                          while (!ready)
+                                  Thread.yield();
+                          System.out.println(number);
+                  }
+          }
+          public static void main(String[] args) {
+                  new ReaderThread().start();
+                  number = 42; //reader线程无法看见
+                  ready = true;
+          }
+  }
+   #+END_SRC
+
++ _64位变量_ 可能 _非原子_ 
++ _加锁_ 可以保证 _可见_ 
+** volatile变量　
+    volatile *无法保证操作的原子性* , 只能 *保证变量的可见性* ：
+1. 更改 _不依赖于当前值_ , 或者能够确保 _只会在单一线程中修改变量的值_ 
+2. 变量 _不需要_ 与 _其他状态变量_ 共同参与 _不变约束_ 
+   
+#+BEGIN_SRC java
+  volatile boolean asleep;
+  ...
+  while (!asleep)
+          countSomeSheep();
+#+END_SRC
+
+* this逃逸　
+   在 *构造函数返回之前 _其他线程_ 就持有该对象的引用* 
+   
+   #+BEGIN_SRC java
+     public class ThisEscape {
+	     private int a = 1;
+	     public ThisEscape() {  
+		     new Thread(new EscapeRunnable()).start();  
+		     this.a = 2;
+	     }  
+
+	     private class EscapeRunnable implements Runnable {  
+		     @Override  
+		     public void run() {  
+			     // 通过ThisEscape.this就可以引用外围类对象, 但是此时外围类对象可能还没有构造完成, 即发生了外围类的this引用的逃逸
+			     this.a += 1;
+		     }  
+	     }  
+   #+END_SRC
+   
+1. 使用一个 _private的构造器_ 中 *启动线程* 或 *注册监听*
+2. _public的工厂方法_ 来调用构造器
+   
+   
+   #+BEGIN_SRC java
+  public class ThisEscape {  
+          private final Thread t;  
+          private ThisEscape() { // private 的构造器
+                  t = new Thread(new EscapeRunnable());  // 启动线程
+                  // ...  
+          }  
+        
+          public static ThisEscape getInstance() { // public的工厂方法来调用构造器
+                  ThisEscape escape = new ThisEscape();
+                  escape.t.start();
+                  return escape;
+          }  
+        
+          private class EscapeRunnable implements Runnable {  
+                  @Override  
+                  public void run() {  
+                          // 此时可以保证外围类对象已经构造完成  
+                  }  
+          }  
+  }  
+   #+END_SRC
+   
+* 线程限制　
+** 栈限制
+变量申明在方法内　
+** ThreadLocal类
+    线程不安全的JDBC Connection可以放在 _ThreadLocal_ 里面　
+    
+* 不变对象
+构造完成后 *所有属性无法改变* ，所有属性都是 _final_ 
+
+#+BEGIN_EXAMPLE
+不会出现this逃逸　
+#+END_EXAMPLE
+   
+** volatile和不变对象进行同步
++ 当 *对象状态发生变化* 的时候， *重新构造一个新的不变对象*
++ 用 _volatile_ 保证每个 _新构造的不变对象_ *可见性* 
+    
+    #+BEGIN_SRC java
+      @Immutable
+      class OneValueCache {
+              private final BigInteger lastNumber;
+              private final BigInteger[] lastFactors;
+              public OneValueCache(BigInteger i,
+                                   BigInteger[] factors) {
+                      lastNumber = i;
+                      lastFactors = Arrays.copyOf(factors, factors.length);
+              }
+              public BigInteger[] getFactors(BigInteger i) {
+                      if (lastNumber == null || !lastNumber.equals(i))
+                              return null;
+                      else
+                              return Arrays.copyOf(lastFactors, lastFactors.length);
+              }
+      }
+
+      @ThreadSafe
+      public class VolatileCachedFactorizer implements Servlet {
+              private volatile OneValueCache cache =
+                      new OneValueCache(null, null);
+              public void service(ServletRequest req, ServletResponse resp) {
+                      BigInteger i = extractFromRequest(req);
+                      BigInteger[] factors = cache.getFactors(i);
+                      if (factors == null) {
+                              factors = factor(i);
+                              cache = new OneValueCache(i, factors);
+                      }
+                      encodeIntoResponse(resp, factors);
+              }
+      }
+    #+END_SRC
+    　
+    
+* 安全发布　
+1. _线程限制_ ：如果限制对象只可由单一的线程访问, 那么无论公开哪个成员, 都 *不会产生并发问题* 
+2.  _公开不可变成员_ ：如果对象的某个成员是不可变的, 那么公开该成员 *不会产生并发问题* 
+3.  _公开事实上的不可变成员_ ：如果对象的某个成员是可变的, 但 *约定访问该成员的所有线程不要去修改这个成员* , 那么该成员是事实上不可变的. 这种场景下公开该成员 *不会产生并发问题*
+4. _公开线程安全的成员_ ：线程安全的成员 *内部会妥善并发* 问题, 因此公开线程安全的成员是恰当的
+5.  _公开可变的非线程安全的成员_ ：这就要求所有访问该成员的线程使用 *特定的锁* 进行同步 
+
+[[file:composing_objects.org][Next:对象组合]]
+
+[[file:thread_safe.org][Previous:线程安全]]
+
+[[file:jcip.org][Up:目录]]

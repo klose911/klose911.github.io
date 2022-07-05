@@ -1,0 +1,209 @@
+#+TITLE: 消息传递
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: process.html   
+#+HTML_LINK_HOME: concurrency.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+* ping pong 
+  下面的例子中创建了两个进程，它们相互之间会发送多个消息：
+
+  #+begin_src erlang 
+  -module(message).
+
+  -export([start/0, ping/2, pong/0]).
+
+  ping(0, Pong_PID) ->
+      Pong_PID ! finished,
+      io:format("ping finished~n", []);
+
+  ping(N, Pong_PID) ->
+      Pong_PID ! {ping, self()},
+      receive
+	  pong ->
+	      io:format("Ping received pong~n", [])
+      end,
+      ping(N - 1, Pong_PID).
+
+  pong() ->
+      receive
+	  finished ->
+	      io:format("Pong finished~n", []);
+	  {ping, Ping_PID} ->
+	      io:format("Pong received ping~n", []),
+	      Ping_PID ! pong,
+	      pong()
+      end.
+
+  start() ->
+      Pong_PID = spawn(message, pong, []),
+      spawn(message, ping, [3, Pong_PID]).
+  #+end_src
+
+  start 函数先创建了一个进程，称之为 _pong_ ： 
+  #+begin_src erlang 
+  Pong_PID = spawn(message, pong, [])
+  #+end_src
+
+  #+begin_example
+    pong 这个进程会执行 message:pong 函数，而Pong_PID 是 “pong” 进程的进程标识符
+  #+end_example
+
+  接下来，start 函数又创建了另外一个进程 _ping_ ： 
+
+  #+begin_src erlang 
+  spawn(message, ping, [3, Pong_PID]) 
+  #+end_src
+
+  #+begin_example
+    ping 这个进程执行 message:ping(3, Pong_PID) 
+  #+end_example 
+
+* pong 进程
+** 接受消息
+   _pong_ 进程完成下面的工作：
+
+   #+begin_src erlang 
+  receive
+      finished ->
+	  io:format("Pong finished~n", []);
+      {ping, Ping_PID} ->
+	  io:format("Pong received ping~n", []),
+	  Ping_PID ! pong,
+	  pong()
+  end.
+   #+end_src
+
+   _receive_ 关键字被进程用来 *接收* 从 _其它进程_ *发送的消息* 。它的使用语法如下：
+
+   #+begin_example
+     receive
+	pattern1 ->
+	    actions1;
+	pattern2 ->
+	    actions2;
+	....
+	patternN
+	    actionsN
+     end.
+
+     注意：在 end 前的最后一个 actions 并没有 ";"
+   #+end_example
+
+
+   + Erlang 进程之间的消息可以是任何简单的 Erlang 项。比如说，可以是 _列表_ 、 _元组_ 、 _整数_ 、 _原子_ 、 _进程标识_ 等等
+   + 每个 _进程_ 都有 *独立的* _消息接收队列_ ：
+     + 新接收的消息被放置在接收队列的 *尾部*
+     + 当进程执行 receive: 
+       + _消息队列中第一个消息_ 与 receive 后的 _第一个模块_ 进行匹配
+	 + 如果匹配成功，则将该消息从消息队列中 *删除* ，并 *执行* 该模式后面的 _代码_
+	 + 如果第一个模式匹配失败，则测试第二个匹配。如果第二个匹配成功，则将该消息从消息队列中删除，并执行第二个匹配后的代码
+	 + 如果第二个匹配也失败，则匹配第三个，依次类推，直到所有模式都匹配结束
+       + 如果所有匹配都失败，则将 _第一个消息_ *留在* _消息队列_ 中，使用 _第二个消息_ 重复前面的过程
+	 + 第二个消息匹配成功时，则执行匹配成功后的程序并将消息从消息队列中取出（将第一个消息与其余的消息继续留在消息队列中）
+       + 如果第二个消息也匹配失败，则尝试第三个消息
+       + 依次类推，直到尝试完消息队列所有的消息为止
+       + 如果 _所有消息都处理结束_ （匹配失败或者匹配成功被移除），则 *进程阻塞* ，等待新的消息的到来
+     + 上面的过程将会一直重复下去。。。
+
+   #+begin_example
+   Erlang 实现是非常 “聪明” 的，它会尽量减少 receive 的每个消息与模式匹配测试的次数
+   #+end_example
+** 发送消息
+   #+begin_example
+   现在回到 pong 进程
+   #+end_example
+   “Pong” 一直等待接收消息：如果收到原子值 _finished_ ，“Pong” 会输出 “Pong finished”，然后结束进程
+
+   如果收到如下形式的消息： 
+   #+begin_example
+     {ping, Ping_PID}
+   #+end_example
+
+   则输出 “Pong received ping”，并向进程 _ping_ 发送一个 *原子值* 消息 _pong_ ： 
+   #+begin_src erlang 
+Ping_PID ! pong
+   #+end_src
+
+   这里是如何使用 _!_ 操作符 *发送消息* 的。 “!” 操作符的语法如下所示：
+
+   #+begin_example
+     Pid ! Message
+
+     这表示将消息（任何 Erlang 数据）发送到进程标识符为 Pid 的进程的消息队列中
+   #+end_example
+
+   将消息 pong 发送给进程 “ping” 后，“pong” 进程 *再次* 调用 _pong 函数_ ，这会使得再次回到 _receive_  *等待* _下一个消息_ 的到来
+* ping 进程
+** self 函数
+   现在回到 ping 进程，它是从下面的地方开始执行的：
+
+   #+begin_src erlang 
+  message:ping(3, Pong_PID) 
+   #+end_src
+
+   看一下 ping/2 函数，由于第一个参数的值是 3 而不是 0， 所以 ping/2 函数的第二个子句被执行
+   #+begin_example
+     第一个子句的头为 ping(0,Pong_PID)，第二个子句的头部为 ping(N,Pong_PID)，因此 N 为 3 
+   #+end_example
+
+   第二个子句将发送消息给 _pong_ 进程：
+
+   #+begin_src erlang 
+  Pong_PID ! {ping, self()},
+   #+end_src
+
+   _self()_ 函数返回 *当前进程* （执行 self() 的进程） 的 _进程标识符_ 
+
+   #+begin_example
+     在这儿为 “ping” 进程的进程标识符
+
+     回想一下 “pong” 的代码，这个进程标识符值被存储在变量 Ping_PID 当中
+   #+end_example
+
+   发送完消息后，“Ping” 接下来等待回复消息 “pong”：
+   #+begin_src erlang 
+  receive
+      pong ->
+	  io:format("Ping received pong~n", [])
+  end,
+   #+end_src
+
+   收到回复消息后，则输出 “Ping received pong”。之后 “ping” 也再次调用 ping 函数：
+   #+begin_src erlang 
+  ping(N - 1, Pong_PID)
+   #+end_src
+
+   N-1 使得第一个参数逐渐减小到 0。当其值变为 0 后，ping/2 函数的第一个子句会被执行：
+   #+begin_src erlang 
+  ping(0, Pong_PID) ->
+      Pong_PID !  finished,
+      io:format("ping finished~n", []);
+   #+end_src
+
+
+   此时，原子值 finished 被发送至 “pong” 进程（会导致进程结束），同时将“ping finished” 输出。随后，“Ping” 进程结束 
+* 测试
+
+  #+begin_src sh 
+    7> message:start() . 
+    Pong received ping
+    <0.104.0>
+    Ping received pong
+    Pong received ping
+    Ping received pong
+    Pong received ping
+    Ping received pong
+    ping finished
+    Pong finished
+  #+end_src
+
+  #+begin_example
+    <0.104.0> 是 start 函数的返回值：也就是  spawn(message, ping, [3, Pong_PID]). 所产生的进程标识符
+  #+end_example
+
+  [[file:register.org][Next：注册进程]]
+
+  [[file:process.org][Previous：进程]]
+
+  [[file:concurrency.org][Home：并发编程]]
+

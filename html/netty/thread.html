@@ -1,0 +1,1324 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Netty 多线程模型</title>
+<meta name="generator" content="Org mode" />
+<meta name="author" content="Wu, Shanliang" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { width: 90%; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2018 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="content">
+<h1 class="title">Netty 多线程模型</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#orgf1d7505">背景</a>
+<ul>
+<li><a href="#org927b7aa">Java线程模型的演进</a>
+<ul>
+<li><a href="#org910237d">单线程</a></li>
+<li><a href="#org0c7bc91">多线程</a></li>
+<li><a href="#org56540ce">线程池</a></li>
+</ul>
+</li>
+<li><a href="#orgc9de8f9">Reactor模型</a>
+<ul>
+<li><a href="#orgf22cb43">单线程模型</a></li>
+<li><a href="#org9fc5a7d">多线程模型</a></li>
+<li><a href="#org0d53bc5">主从Reactor多线程模型</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org687aed7">Netty线程模型</a>
+<ul>
+<li><a href="#orgd710c26">服务端线程模型</a>
+<ul>
+<li><a href="#orgc37f3a0">从用户线程发起创建服务端</a></li>
+<li><a href="#org2c191ba">Acceptor线程绑定监听端口，启动NIO服务端</a></li>
+<li><a href="#org272389b">监听客户端连接</a></li>
+<li><a href="#org929a423">监听网络读事件</a></li>
+<li><a href="#org0f00dda">处理读写事件</a></li>
+</ul>
+</li>
+<li><a href="#orgc8f30f8">客户端线程模型</a>
+<ul>
+<li><a href="#org6c72f7d">建立客户端连接</a></li>
+<li><a href="#orge5cbc81">发起连接操作</a></li>
+<li><a href="#org73011ce">Selector发起轮询操作</a></li>
+<li><a href="#org8a3d675">I/O读写</a></li>
+<li><a href="#org9643aa6">总结</a></li>
+</ul>
+</li>
+<li><a href="#orgb563a2a">Reactor线程NioEventLoop</a>
+<ul>
+<li><a href="#orgf2d65a8">NioEventLoop介绍</a>
+<ul>
+<li><a href="#org7c3e185">执行用户自定义Task</a></li>
+<li><a href="#orgd9dff6a">实现定时任务</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org9557d18">NioEventLoop设计原理</a>
+<ul>
+<li><a href="#org5c1761b">串行化设计避免线程竞争</a>
+<ul>
+<li><a href="#org83fffe8">串行执行Handler链</a></li>
+</ul>
+</li>
+<li><a href="#orgc65b887">定时任务与时间轮算法</a>
+<ul>
+<li><a href="#org40cd956">定时轮</a></li>
+</ul>
+</li>
+<li><a href="#org1a8175f">聚焦而不是膨胀</a></li>
+</ul>
+</li>
+<li><a href="#org5aa9ada">Netty线程开发最佳实践</a>
+<ul>
+<li><a href="#orgecc28a2">时间可控的简单业务</a></li>
+<li><a href="#org1a7a3c5">复杂和时间不可控业务</a></li>
+<li><a href="#orgaa303aa">业务线程避免直接操作ChannelHandler</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org354b2d7">总结</a></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orgf1d7505" class="outline-2">
+<h2 id="orgf1d7505">背景</h2>
+<div class="outline-text-2" id="text-orgf1d7505">
+</div>
+<div id="outline-container-org927b7aa" class="outline-3">
+<h3 id="org927b7aa">Java线程模型的演进</h3>
+<div class="outline-text-3" id="text-org927b7aa">
+</div>
+<div id="outline-container-org910237d" class="outline-4">
+<h4 id="org910237d">单线程</h4>
+<div class="outline-text-4" id="text-org910237d">
+<pre class="example">
+    时间回到十几年前，那时主流的CPU都还是单核（除了商用高性能的小机），CPU的核心频率是机器最重要的指标之一
+</pre>
+
+<p>
+在Java领域当时比较流行的是单线程编程，对于CPU密集型的应用程序而言， <b>频繁的通过多线程进行协作和抢占时间片反而会降低性能</b> 
+</p>
+</div>
+</div>
+
+<div id="outline-container-org0c7bc91" class="outline-4">
+<h4 id="org0c7bc91">多线程</h4>
+<div class="outline-text-4" id="text-org0c7bc91">
+<pre class="example">
+  随着硬件性能的提升，CPU的核数越来越越多，很多服务器标配已经达到32或64核
+
+  通过多线程并发编程，可以充分利用多核CPU的处理能力，提升系统的处理效率和并发性能
+</pre>
+
+<p>
+从2005年开始，随着多核处理器的逐步普及，java的多线程并发编程也逐渐流行起来，当时商用主流的JDK版本是1.4，用户可以通过 <b>new Thread() 的方式创建新的线程</b> 
+</p>
+
+<p>
+由于JDK1.4并没有提供类似线程池这样的线程管理容器，多线程之间的同步、协作、创建和销毁等工作都需要用户自己实现。由于 <b>创建和销毁线程是个相对比较重量级的操作，因此，这种原始的多线程编程效率和性能都不高</b> 
+</p>
+</div>
+</div>
+
+<div id="outline-container-org56540ce" class="outline-4">
+<h4 id="org56540ce">线程池</h4>
+<div class="outline-text-4" id="text-org56540ce">
+<pre class="example">
+  为了提升Java多线程编程的效率和性能，降低用户开发难度。JDK1.5推出了 java.util.concurrent 并发编程包
+
+  在并发编程类库中，提供了 线程池、线程安全容器、原子类等新的类库，极大的提升了Java多线程编程的效率，降低了开发难度
+</pre>
+
+<p>
+从JDK1.5开始， <b>基于线程池的并发编程已经成为Java多核编程的主流</b> 
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgc9de8f9" class="outline-3">
+<h3 id="orgc9de8f9">Reactor模型</h3>
+<div class="outline-text-3" id="text-orgc9de8f9">
+<pre class="example">
+  无论是C++还是Java编写的网络框架，大多数都是基于Reactor模式进行设计和开发
+</pre>
+<p>
+<span class="underline">Reactor</span> 模式 基于 <b>事件驱动</b> ，特别适合处理 <span class="underline">海量的I/O事件</span> 
+</p>
+</div>
+
+<div id="outline-container-orgf22cb43" class="outline-4">
+<h4 id="orgf22cb43">单线程模型</h4>
+<div class="outline-text-4" id="text-orgf22cb43">
+<p>
+Reactor <span class="underline">单线程</span> 模型， <span class="underline">所有的IO操作</span> 都在 <b>同一个NIO线程</b> 上面完成，NIO线程的职责如下：
+</p>
+<ol class="org-ol">
+<li>作为NIO服务端，接收客户端的TCP连接</li>
+<li>作为NIO客户端，向服务端发起TCP连接</li>
+<li>读取通信对端的请求或者应答消息</li>
+<li>向通信对端发送消息请求或者应答消息</li>
+</ol>
+
+<p>
+Reactor单线程模型示意图如下所示：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/reactor-single-thread.png" alt="reactor-single-thread.png" width="70%" />
+</p>
+</div>
+
+<p>
+由于Reactor模式使用的是 <span class="underline">异步非阻塞IO</span> ，所有的IO操作都不会导致阻塞，理论上一个线程可以独立处理所有IO相关的操作。从架构层面看，一个NIO线程确实可以完成其承担的职责。例如：
+</p>
+<ul class="org-ul">
+<li>通过 <span class="underline">Acceptor</span> 类： <b>接收</b> <span class="underline">客户端的TCP连接请求</span> 消息</li>
+<li>链路建立成功之后</li>
+<li>通过 <span class="underline">Dispatch</span> ：  <span class="underline">对应的ByteBuffer</span> <b>派发</b> 到指定的 <span class="underline">Handler</span> 上进行 <b>消息解码</b></li>
+<li><span class="underline">用户线程</span> 可以把 <span class="underline">消息编码</span> 通过 <span class="underline">NIO线程</span> 将消息 <b>发送给客户端</b></li>
+</ul>
+
+
+<p>
+对于一些 <b>小容量应用场景</b> ，可以使用单线程模型
+</p>
+
+<pre class="example">
+  对于高负载、大并发的应用场景却不合适，主要原因如下：
+
+  一个NIO线程同时处理成百上千的链路，性能上无法支撑
+  即便NIO线程的CPU负荷达到100%，也无法满足海量消息的编码、解码、读取和发送
+
+  当NIO线程负载过重之后，处理速度将变慢，这会导致大量客户端连接超时
+  超时之后往往会进行重发，这更加重了NIO线程的负载
+  最终会导致大量消息积压和处理超时，成为系统的性能瓶颈
+
+  一旦NIO线程意外跑飞，或者进入死循环
+  会导致整个系统通信模块不可用，不能接收和处理外部消息，造成节点故障
+
+  为了解决这些问题，演进出了 Reactor多线程模型 
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org9fc5a7d" class="outline-4">
+<h4 id="org9fc5a7d">多线程模型</h4>
+<div class="outline-text-4" id="text-org9fc5a7d">
+<p>
+Rector <span class="underline">多线程</span> 模型与单线程模型最大的区别就是有 <b>一组NIO线程</b> <span class="underline">处理IO操作</span> ，它的原理图如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/reactor-multi-threads.png" alt="reactor-multi-threads.png" width="70%" />
+</p>
+</div>
+
+<p>
+Reactor多线程模型的特点：
+</p>
+<ul class="org-ul">
+<li>有专门一个NIO线程 <b>Acceptor线程</b> 用于监听服务端， <b>接收</b> <span class="underline">客户端的TCP连接请求</span></li>
+<li>网络IO操作读、写等由 <b>一个NIO线程池</b> 负责
+<ul class="org-ul">
+<li>线程池可以采用 <span class="underline">标准的JDK线程池</span> 实现
+<ul class="org-ul">
+<li>一个任务队列</li>
+<li>N个可用的线程</li>
+</ul></li>
+<li>这些NIO线程负责 <span class="underline">消息的读取</span> 、 <span class="underline">解码</span> 、 <span class="underline">编码</span> 和 <span class="underline">发送</span></li>
+</ul></li>
+<li><b>1个NIO线程可以同时处理N条链路，但是1个链路只对应1个NIO线程</b> ，防止发生并发操作问题</li>
+</ul>
+
+<p>
+在 <b>绝大多数场景</b> 下，Reactor多线程模型都可以满足性能需求
+</p>
+
+<pre class="example">
+  在极个别特殊场景中， 一个NIO线程负责监听和处理所有的客户端连接可能会存在性能问题
+
+  例如并发百万客户端连接，或者服务端需要对客户端握手进行安全认证，但是认证本身非常损耗性能
+  在这类场景下，单独一个Acceptor线程可能会存在性能不足问题
+
+  为了解决性能问题，产生了第三种Reactor线程模型 主从Reactor多线程模型 
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org0d53bc5" class="outline-4">
+<h4 id="org0d53bc5">主从Reactor多线程模型</h4>
+<div class="outline-text-4" id="text-org0d53bc5">
+<p>
+<span class="underline">主从Reactor线程模型</span> 的特点是：
+</p>
+<ul class="org-ul">
+<li>服务端用于 <span class="underline">接收客户端连接</span> 的不再是个 <span class="underline">1个单独的NIO线程</span> ，而是一个 <b>独立的NIO线程池</b></li>
+<li><span class="underline">Acceptor</span> <b>接收</b> 到 <span class="underline">客户端TCP连接请求</span> <b>处理完成</b> 后（可能包含接入 <span class="underline">认证</span> 等）
+<ul class="org-ul">
+<li>将 <b>新创建</b> 的 <span class="underline">SocketChannel</span> <b>注册</b> 到 <span class="underline">IO线程池</span> 的 <b>某个IO线程</b> 上
+<ul class="org-ul">
+<li>由它负责 <span class="underline">SocketChannel</span> 的 <b>读写</b> 和 <b>编解码</b> 工作</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<pre class="example">
+Acceptor线程池仅仅只用于 客户端的登陆 、 握手和安全认证
+
+一旦链路建立成功，就将链路注册到后端subReactor线程池的IO线程上，由IO线程负责后续的IO操作
+</pre>
+
+<p>
+它的线程模型如下图所示：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/reactor-prim-sub-threads.png" alt="reactor-prim-sub-threads.png" width="70%" />
+</p>
+</div>
+
+<pre class="example">
+  利用主从NIO线程模型，可以解决1个服务端监听线程无法有效处理所有客户端连接的性能不足问题
+</pre>
+
+<p>
+它的工作流程总结如下：
+</p>
+<ol class="org-ol">
+<li>从主线程池中随机选择一个Reactor线程作为Acceptor线程，用于绑定监听端口，接收客户端连接</li>
+<li>Acceptor线程接收客户端连接请求之后创建新的SocketChannel，将其注册到主线程池的其它Reactor线程上，由其负责接入认证、IP黑白名单过滤、握手等操作</li>
+<li>业务层的链路正式建立，将 <span class="underline">SocketChannel</span> 从 <span class="underline">主线程池的Reactor线程</span> 的 <b>多路复用器</b> 上摘除， <b>重新注册</b> 到 <span class="underline">Sub线程池的线程</span> 上，用于处理I/O的读写操作</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org687aed7" class="outline-2">
+<h2 id="org687aed7">Netty线程模型</h2>
+<div class="outline-text-2" id="text-org687aed7">
+<pre class="example">
+ 事实上，Netty的线程模型与上面介绍的三种Reactor线程模型相似
+</pre>
+<p>
+下面通过Netty服务端和客户端的线程处理流程图来介绍Netty的线程模型
+</p>
+</div>
+
+<div id="outline-container-orgd710c26" class="outline-3">
+<h3 id="orgd710c26">服务端线程模型</h3>
+<div class="outline-text-3" id="text-orgd710c26">
+<p>
+一种比较流行的做法是服务端监听线程和IO线程分离，类似于Reactor的多线程模型，它的工作原理图如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-server-thread-process.png" alt="netty-server-thread-process.png" width="70%" />
+</p>
+</div>
+
+<p>
+下面结合Netty的源码，对服务端创建线程工作流程进行介绍：
+</p>
+</div>
+
+<div id="outline-container-orgc37f3a0" class="outline-4">
+<h4 id="orgc37f3a0">从用户线程发起创建服务端</h4>
+<div class="outline-text-4" id="text-orgc37f3a0">
+<p>
+第一步，从用户线程发起创建服务端操作，代码如下：
+</p>
+
+<div class="figure">
+<p><img src="pic/netty-create-server-bootstrap.png" alt="netty-create-server-bootstrap.png" width="70%" />
+</p>
+</div>
+
+<p>
+通常情况下，服务端的创建是在用户进程启动的时候进行，因此一般由Main函数或者启动类负责创建， 服务端的创建由业务线程负责完成
+</p>
+
+<p>
+在创建服务端的时候实例化了2个EventLoopGroup：
+</p>
+<pre class="example">
+1个EventLoopGroup实际就是一个EventLoop线程组，负责管理EventLoop的申请和释放*
+</pre>
+<ul class="org-ul">
+<li>EventLoopGroup管理的线程数：可以通过构造函数设置，如果没有设置，默认取 <b>-Dio.netty.eventLoopThreads</b> ，如果该系统参数也没有指定，则为可用的CPU内核数 * 2</li>
+<li>bossGroup线程组:：实际就是Acceptor线程池，负责处理客户端的TCP连接请求，如果系统只有一个服务端端口需要监听，则建议bossGroup线程组线程数设置为1</li>
+<li>workerGroup：是真正负责I/O读写操作的线程组，通过ServerBootstrap的group方法进行设置，用于后续的Channel绑定</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org2c191ba" class="outline-4">
+<h4 id="org2c191ba">Acceptor线程绑定监听端口，启动NIO服务端</h4>
+<div class="outline-text-4" id="text-org2c191ba">
+<p>
+第二步，Acceptor线程绑定监听端口，启动NIO服务端
+</p>
+
+<p>
+从bossGroup中选择一个Acceptor线程监听服务端，相关代码如下：
+</p>
+
+<div class="figure">
+<p><img src="pic/netty-server-create-channel.png" alt="netty-server-create-channel.png" width="70%" />
+</p>
+</div>
+
+<p>
+其中group()返回的就是bossGroup，next方法用于从线程组中获取可用线程来选择Acceptor线程，代码如下：
+</p>
+
+<div class="figure">
+<p><img src="pic/netty-eventloop-group-next.png" alt="netty-eventloop-group-next.png" width="70%" />
+</p>
+</div>
+
+
+<p>
+服务端Channel创建完成之后，将其注册到多路复用器Selector上，用于接收客户端的TCP连接，核心代码如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-register-server-channel-socket.png" alt="netty-register-server-channel-socket.png" width="70%" /> 
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org272389b" class="outline-4">
+<h4 id="org272389b">监听客户端连接</h4>
+<div class="outline-text-4" id="text-org272389b">
+<p>
+如果监听到客户端连接，则创建客户端SocketChannel连接，重新注册到workerGroup的IO线程上
+</p>
+
+<p>
+首先看Acceptor如何处理客户端的接入：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-acceptor-accept.png" alt="netty-acceptor-accept.png" width="70%" />
+</p>
+</div>
+
+<p>
+调用unsafe的read（）方法，对于NioServerSocketChannel，它调用了NioMessageUnsafe的read()方法，代码如下：
+</p>
+
+<div class="figure">
+<p><img src="pic/nio-message-unsafe-read.png" alt="nio-message-unsafe-read.png" width="70%" />
+</p>
+</div>
+
+<p>
+最终它会调用NioServerSocketChannel的doReadMessages方法，代码如下：
+</p>
+
+<div class="figure">
+<p><img src="pic/nio-server-socket-channel-do-read-message.png" alt="nio-server-socket-channel-do-read-message.png" width="70%" />
+</p>
+</div>
+
+<p>
+其中childEventLoopGroup就是之前的workerGroup, 从中选择一个I/O线程负责网络消息的读写
+</p>
+</div>
+</div>
+
+<div id="outline-container-org929a423" class="outline-4">
+<h4 id="org929a423">监听网络读事件</h4>
+<div class="outline-text-4" id="text-org929a423">
+<p>
+第四步，选择IO线程之后，将SocketChannel注册到多路复用器上，监听READ操作：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-register-socket-channel-for-read.png" alt="netty-register-socket-channel-for-read.png" width="70%" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org0f00dda" class="outline-4">
+<h4 id="org0f00dda">处理读写事件</h4>
+<div class="outline-text-4" id="text-org0f00dda">
+<p>
+处理网络的I/O读写事件，核心代码如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-server-io-process.png" alt="netty-server-io-process.png" width="70%" />
+</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgc8f30f8" class="outline-3">
+<h3 id="orgc8f30f8">客户端线程模型</h3>
+<div class="outline-text-3" id="text-orgc8f30f8">
+<p>
+相比于服务端，客户端的线程模型简单一些，它的工作原理如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-client-thread-model.png" alt="netty-client-thread-model.png" width="70%" />
+</p>
+</div>
+</div>
+
+<div id="outline-container-org6c72f7d" class="outline-4">
+<h4 id="org6c72f7d">建立客户端连接</h4>
+<div class="outline-text-4" id="text-org6c72f7d">
+<p>
+第一步，由用户线程发起客户端连接，示例代码如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-client-boot-strap.png" alt="netty-client-boot-strap.png" width="70%" />
+</p>
+</div>
+
+<p>
+相比于服务端，客户端只需要创建一个EventLoopGroup，因为它不需要独立的线程去监听客户端连接，也没必要通过一个单独的客户端线程去连接服务端。Netty是 <b>异步事件驱动的NIO框架，它的连接和所有IO操作都是异步的，因此不需要创建单独的连接线程</b> 。相关代码如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-client-create-channel.png" alt="netty-client-create-channel.png" width="70%" />
+</p>
+</div>
+
+<p>
+当前的group()就是之前传入的EventLoopGroup，从中获取可用的IO线程EventLoop，然后作为参数设置到新创建的NioSocketChannel中
+</p>
+</div>
+</div>
+
+<div id="outline-container-orge5cbc81" class="outline-4">
+<h4 id="orge5cbc81">发起连接操作</h4>
+<div class="outline-text-4" id="text-orge5cbc81">
+<p>
+第二步，发起连接操作，判断连接结果，代码如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #ffd700;">@Override</span>
+<span style="color: #00bfff; font-weight: bold;">protected</span> <span style="color: #98f5ff;">boolean</span> <span style="color: #daa520; font-weight: bold;">doConnect</span>(<span style="color: #98f5ff;">SocketAddress</span> <span style="color: #4eee94;">remoteAddress</span>, <span style="color: #98f5ff;">SocketAddress</span> <span style="color: #4eee94;">localAddress</span>) <span style="color: #00bfff; font-weight: bold;">throws</span> <span style="color: #98f5ff;">Exception</span> {
+    <span style="color: #00bfff; font-weight: bold;">if</span> (localAddress != <span style="color: #ffd700;">null</span>) {
+        javaChannel().socket().bind(localAddress);
+    }
+
+    <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">success</span> = <span style="color: #ffd700;">false</span>;
+    <span style="color: #00bfff; font-weight: bold;">try</span> {
+        <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">connected</span> = javaChannel().connect(remoteAddress);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (!connected) {
+            selectionKey().interestOps(<span style="color: #ffd700;">SelectionKey</span>.OP_CONNECT);
+        }
+        success = <span style="color: #ffd700;">true</span>;
+        <span style="color: #00bfff; font-weight: bold;">return</span> connected;
+    } <span style="color: #00bfff; font-weight: bold;">finally</span> {
+        <span style="color: #00bfff; font-weight: bold;">if</span> (!success) {
+            doClose();
+        }
+    }
+}
+</pre>
+</div>
+
+<p>
+判断连接结果：
+</p>
+<ul class="org-ul">
+<li>如果没有连接成功：则监听连接网络操作位SelectionKey.OP_CONNECT</li>
+<li>如果连接成功：则调用pipeline().fireChannelActive()将监听位修改为READ</li>
+</ul>
+</div>
+</div>
+
+
+<div id="outline-container-org73011ce" class="outline-4">
+<h4 id="org73011ce">Selector发起轮询操作</h4>
+<div class="outline-text-4" id="text-org73011ce">
+<p>
+第三步，由NioEventLoop的多路复用器轮询连接操作结果，代码如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">if</span> ((readyOps &amp; <span style="color: #ffd700;">SelectionKey</span>.OP_CONNECT) != 0) {
+    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">remove OP_CONNECT as otherwise Selector.select(..) will always return without blocking</span>
+    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">See https://github.com/netty/netty/issues/924</span>
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">ops</span> = k.interestOps();
+    ops &amp;= ~<span style="color: #ffd700;">SelectionKey</span>.OP_CONNECT;
+    k.interestOps(ops);
+
+    unsafe.finishConnect();
+}
+</pre>
+</div>
+
+<p>
+判断连接结果：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">finishConnect</span>() {
+    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Note this method is invoked by the event loop only if the connection attempt was</span>
+    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">neither cancelled nor timed out.</span>
+
+    <span style="color: #98f5ff;">assert</span> <span style="color: #daa520; font-weight: bold;">eventLoop</span>().inEventLoop();
+
+    <span style="color: #00bfff; font-weight: bold;">try</span> {
+        <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">wasActive</span> = isActive();
+        doFinishConnect();
+        fulfillConnectPromise(connectPromise, wasActive);
+</pre>
+</div>
+<p>
+如果或连接成功，重新设置监听位为READ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #ffd700;">@Override</span>
+<span style="color: #00bfff; font-weight: bold;">protected</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">doBeginRead</span>() <span style="color: #00bfff; font-weight: bold;">throws</span> <span style="color: #98f5ff;">Exception</span> {
+    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Channel.read() or ChannelHandlerContext.read() was called</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> (inputShutdown) {
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">SelectionKey</span> <span style="color: #4eee94;">selectionKey</span> = <span style="color: #00bfff; font-weight: bold;">this</span>.selectionKey;
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!selectionKey.isValid()) {
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    }
+
+    readPending = <span style="color: #ffd700;">true</span>;
+
+    <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">interestOps</span> = selectionKey.interestOps();
+    <span style="color: #00bfff; font-weight: bold;">if</span> ((interestOps &amp; readInterestOp) == 0) {
+        selectionKey.interestOps(interestOps | readInterestOp);
+    }
+}
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org8a3d675" class="outline-4">
+<h4 id="org8a3d675">I/O读写</h4>
+<div class="outline-text-4" id="text-org8a3d675">
+<p>
+第四步，由NioEventLoop线程负责I/O读写，同服务端
+</p>
+</div>
+</div>
+
+<div id="outline-container-org9643aa6" class="outline-4">
+<h4 id="org9643aa6">总结</h4>
+<div class="outline-text-4" id="text-org9643aa6">
+<p>
+客户端线程模型如下：
+</p>
+<ol class="org-ol">
+<li>由用户线程负责初始化客户端资源，发起连接操作</li>
+<li>如果连接成功，将SocketChannel注册到IO线程组的NioEventLoop线程中，监听读操作位</li>
+<li>如果没有立即连接成功，将SocketChannel注册到IO线程组的NioEventLoop线程中，监听连接操作位</li>
+<li>连接成功之后，修改监听位为READ，但是不需要切换线程</li>
+</ol>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-orgb563a2a" class="outline-3">
+<h3 id="orgb563a2a">Reactor线程NioEventLoop</h3>
+<div class="outline-text-3" id="text-orgb563a2a">
+</div>
+<div id="outline-container-orgf2d65a8" class="outline-4">
+<h4 id="orgf2d65a8">NioEventLoop介绍</h4>
+<div class="outline-text-4" id="text-orgf2d65a8">
+<p>
+NioEventLoop是Netty的Reactor线程，它的职责如下：
+</p>
+<ul class="org-ul">
+<li>服务端Acceptor线程：负责处理客户端的请求接入</li>
+<li>客户端Connecor线程：负责注册监听连接操作位，用于判断异步连接结果</li>
+<li>IO线程：监听网络读操作位，负责从SocketChannel中读取报文</li>
+<li>IO线程：负责向SocketChannel写入报文发送给对方，如果发生写半包，会自动注册监听写事件，用于后续继续发送半包数据，直到数据全部发送完成</li>
+<li>定时任务线程：执行定时任务，例如链路空闲检测和发送心跳消息等</li>
+<li>线程执行器：执行普通的任务线程(Runnable)</li>
+</ul>
+
+<p>
+在服务端和客户端线程模型章节我们已经详细介绍了NioEventLoop如何处理网络IO事件，下面简单看下它是如何处理定时任务和执行普通的Runnable的
+</p>
+</div>
+
+<div id="outline-container-org7c3e185" class="outline-5">
+<h5 id="org7c3e185">执行用户自定义Task</h5>
+<div class="outline-text-5" id="text-org7c3e185">
+<p>
+首先NioEventLoop继承SingleThreadEventExecutor，这就意味着它实际上是一个线程个数为1的线程池，类继承关系如下所示：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/nio-event-loop-class-hierachy.png" alt="nio-event-loop-class-hierachy.png" width="70%" />
+</p>
+</div>
+
+<p>
+其中，线程池和任务队列定义如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">EventExecutorGroup</span> <span style="color: #4eee94;">parent</span>;
+<span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">Queue</span>&lt;<span style="color: #98f5ff;">Runnable</span>&gt; <span style="color: #4eee94;">taskQueue</span>;
+<span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">Thread</span> <span style="color: #4eee94;">thread</span>;
+<span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">Semaphore</span> <span style="color: #4eee94;">threadLock</span> = <span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">Semaphore</span>(0);
+<span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #00bfff; font-weight: bold;">final</span> <span style="color: #98f5ff;">Set</span>&lt;<span style="color: #98f5ff;">Runnable</span>&gt; <span style="color: #4eee94;">shutdownHooks</span> = <span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">LinkedHashSet</span>&lt;<span style="color: #98f5ff;">Runnable</span>&gt;();
+</pre>
+</div>
+
+<p>
+对于用户而言，直接调用NioEventLoop的execute(Runnable task)方法即可执行自定义的Task，代码实现如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #ffd700;">@Override</span>
+<span style="color: #00bfff; font-weight: bold;">public</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">execute</span>(<span style="color: #98f5ff;">Runnable</span> <span style="color: #4eee94;">task</span>) {
+    <span style="color: #00bfff; font-weight: bold;">if</span> (task == <span style="color: #ffd700;">null</span>) {
+        <span style="color: #00bfff; font-weight: bold;">throw</span> <span style="color: #00bfff; font-weight: bold;">new</span> <span style="color: #98f5ff;">NullPointerException</span>(<span style="color: #deb887;">"task"</span>);
+    }
+
+    <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">inEventLoop</span> = inEventLoop();
+    <span style="color: #00bfff; font-weight: bold;">if</span> (inEventLoop) {
+        addTask(task);
+    } <span style="color: #00bfff; font-weight: bold;">else</span> {
+        startThread();
+        addTask(task);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (isShutdown() &amp;&amp; removeTask(task)) {
+            reject();
+        }
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!addTaskWakesUp &amp;&amp; wakesUpForTask(task)) {
+        wakeup(inEventLoop);
+    }
+}
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgd9dff6a" class="outline-5">
+<h5 id="orgd9dff6a">实现定时任务</h5>
+<div class="outline-text-5" id="text-orgd9dff6a">
+<p>
+NioEventLoop实现ScheduledExecutorService：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/nio-event-loop-interface-hirearchy.png" alt="nio-event-loop-interface-hirearchy.png" width="70%" />
+</p>
+</div>
+
+<p>
+通过调用SingleThreadEventExecutor的schedule系列方法，可以在NioEventLoop中执行Netty或者用户自定义的定时任务，接口定义如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/single-event-executor-schedule.png" alt="single-event-executor-schedule.png" width="70%" />
+</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org9557d18" class="outline-3">
+<h3 id="org9557d18">NioEventLoop设计原理</h3>
+<div class="outline-text-3" id="text-org9557d18">
+</div>
+<div id="outline-container-org5c1761b" class="outline-4">
+<h4 id="org5c1761b">串行化设计避免线程竞争</h4>
+<div class="outline-text-4" id="text-org5c1761b">
+<p>
+当系统在运行过程中，如果频繁的进行线程上下文切换，会带来额外的性能损耗。多线程并发执行某个业务流程，业务开发者还需要时刻对线程安全保持警惕，哪些数据可能会被并发修改，如何保护？这不仅降低了开发效率，也会带来额外的性能损耗
+</p>
+</div>
+
+<div id="outline-container-org83fffe8" class="outline-5">
+<h5 id="org83fffe8">串行执行Handler链</h5>
+<div class="outline-text-5" id="text-org83fffe8">
+<p>
+为了解决上述问题，Netty采用了串行化设计理念，从消息的读取、编码以及后续Handler的执行，始终都由IO线程NioEventLoop负责，这就意外着整个流程不会进行线程上下文的切换，数据也不会面临被并发修改的风险，对于用户而言，甚至不需要了解Netty的线程细节，这确实是个非常好的设计理念，它的工作原理图如下：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-handler-chain.png" alt="netty-handler-chain.png" width="70%" />
+</p>
+</div>
+
+<ul class="org-ul">
+<li>一个NioEventLoop聚合了一个多路复用器Selector，因此 <b>可以处理成百上千的客户端连接</b></li>
+<li>Netty的处理策略是每当有一个新的客户端接入，则从NioEventLoop线程组中顺序获取一个可用的NioEventLoop，当到达数组上限之后，重新返回到0，通过这种方式，可以 <b>基本保证各个NioEventLoop的负载均衡</b></li>
+<li>一个客户端连接只注册到一个NioEventLoop上，这样就 <b>避免了多个IO线程</b> 去并发操作它</li>
+</ul>
+
+<p>
+Netty通过串行化设计理念降低了用户的开发难度，提升了处理性能。利用线程组实现了多个串行化线程水平并行执行，线程之间并没有交集，这样既可以充分利用多核提升并行处理能力，同时避免了线程上下文的切换和并发保护带来的额外性能损耗
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgc65b887" class="outline-4">
+<h4 id="orgc65b887">定时任务与时间轮算法</h4>
+<div class="outline-text-4" id="text-orgc65b887">
+<p>
+在Netty中，有很多功能依赖定时任务，比较典型的有两种：
+</p>
+<ol class="org-ol">
+<li>客户端连接超时控制</li>
+<li>链路空闲检测</li>
+</ol>
+
+<p>
+一种比较常用的设计理念是在NioEventLoop中聚合JDK的定时任务线程池ScheduledExecutorService，通过它来执行定时任务。这样做单纯从性能角度看不是最优，原因有如下三点：
+</p>
+<ul class="org-ul">
+<li>在IO线程中聚合了一个独立的定时任务线程池，这样在处理过程中会存在线程上下文切换问题，这就打破了Netty的串行化设计理念</li>
+<li>存在多线程并发操作问题，因为定时任务Task和IO线程NioEventLoop可能同时访问并修改同一份数据</li>
+<li>JDK的ScheduledExecutorService从性能角度看，存在性能优化空间</li>
+</ul>
+
+<pre class="example">
+最早面临上述问题的是操作系统和协议栈，例如TCP协议栈，其可靠传输依赖超时重传机制，因此每个通过TCP传输的 packet 都需要一个 timer来调度 timeout 事件
+
+这类超时可能是海量的，如果为每个超时都创建一个定时器，从性能和资源消耗角度看都是不合理的
+</pre>
+</div>
+
+<div id="outline-container-org40cd956" class="outline-5">
+<h5 id="org40cd956">定时轮</h5>
+<div class="outline-text-5" id="text-org40cd956">
+<p>
+Netty的定时任务调度基于时间轮算法调度：
+</p>
+
+<pre class="example">
+     根据George Varghese和Tony Lauck 1996年的论文提出了一种定时轮的方式来管理和维护大量的timer调度
+</pre>
+
+<p>
+定时轮是一种数据结构，其主体是一个循环列表，每个列表中包含一个称之为slot的结构，它的原理图如下：
+</p>
+
+<div class="figure">
+<p><img src="pic/time-wheel-alogrithm.png" alt="time-wheel-alogrithm.png" width="70%" />
+</p>
+</div>
+
+<p>
+定时轮的工作原理可以类比于时钟，如上图箭头（指针）按某一个方向按固定频率轮动，每一次跳动称为一个tick。这样可以看出定时轮由个3个重要的属性参数：
+</p>
+<ul class="org-ul">
+<li>ticksPerWheel: 一轮的tick数</li>
+<li>tickDuration: 一个tick的持续时间</li>
+<li>timeUnit: 时间单位</li>
+</ul>
+
+<p>
+例如当ticksPerWheel=60，tickDuration=1，timeUnit=秒，这就和时钟的秒针走动完全类似了
+</p>
+
+<p>
+时间轮的执行由NioEventLoop来负责检测，首先看任务队列中是否有超时的定时任务和普通任务，如果有则按照比例循环执行这些任务，代码如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #ffd700;">@Override</span>
+<span style="color: #00bfff; font-weight: bold;">protected</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">run</span>() {
+    <span style="color: #00bfff; font-weight: bold;">for</span> (;;) {
+        <span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">oldWakenUp</span> = wakenUp.getAndSet(<span style="color: #ffd700;">false</span>);
+        <span style="color: #00bfff; font-weight: bold;">try</span> {
+            <span style="color: #00bfff; font-weight: bold;">if</span> (hasTasks()) {
+                selectNow();
+            } <span style="color: #00bfff; font-weight: bold;">else</span> {
+</pre>
+</div>
+
+<p>
+如果没有需要理解执行的任务，则调用Selector的select方法进行等待，等待的时间为定时任务队列中第一个超时的定时任务时延，代码如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">select</span>(<span style="color: #98f5ff;">boolean</span> <span style="color: #4eee94;">oldWakenUp</span>) <span style="color: #00bfff; font-weight: bold;">throws</span> <span style="color: #98f5ff;">IOException</span> {
+    <span style="color: #98f5ff;">Selector</span> <span style="color: #4eee94;">selector</span> = <span style="color: #00bfff; font-weight: bold;">this</span>.selector;
+    <span style="color: #00bfff; font-weight: bold;">try</span> {
+        <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">selectCnt</span> = 0;
+        <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">currentTimeNanos</span> = System.nanoTime();
+        <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">selectDeadLineNanos</span> = currentTimeNanos + delayNanos(currentTimeNanos);
+        <span style="color: #00bfff; font-weight: bold;">for</span> (;;) {
+            <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">timeoutMillis</span> = (selectDeadLineNanos - currentTimeNanos + 500000L) / 1000000L;
+            <span style="color: #00bfff; font-weight: bold;">if</span> (timeoutMillis &lt;= 0) {
+                <span style="color: #00bfff; font-weight: bold;">if</span> (selectCnt == 0) {
+                    selector.selectNow();
+                    selectCnt = 1;
+                }
+                <span style="color: #00bfff; font-weight: bold;">break</span>;
+            }
+
+            <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">selectedKeys</span> = selector.select(timeoutMillis);
+</pre>
+</div>
+
+<p>
+从定时任务Task队列中弹出delay最小的Task，计算超时时间，代码如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">protected</span> <span style="color: #98f5ff;">long</span> <span style="color: #daa520; font-weight: bold;">delayNanos</span>(<span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">currentTimeNanos</span>) {
+    <span style="color: #98f5ff;">ScheduledFutureTask</span>&lt;?&gt; <span style="color: #4eee94;">scheduledTask</span> = peekScheduledTask();
+    <span style="color: #00bfff; font-weight: bold;">if</span> (scheduledTask == <span style="color: #ffd700;">null</span>) {
+        <span style="color: #00bfff; font-weight: bold;">return</span> SCHEDULE_PURGE_INTERVAL;
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">return</span> scheduledTask.delayNanos(currentTimeNanos);
+}
+</pre>
+</div>
+
+<p>
+经过周期tick之后，扫描定时任务列表，将超时的定时任务移除到普通任务队列中，等待执行，相关代码如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">private</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">fetchFromScheduledTaskQueue</span>() {
+    <span style="color: #00bfff; font-weight: bold;">if</span> (hasScheduledTasks()) {
+        <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">nanoTime</span> = AbstractScheduledEventExecutor.nanoTime();
+        <span style="color: #00bfff; font-weight: bold;">for</span> (;;) {
+            <span style="color: #98f5ff;">Runnable</span> <span style="color: #4eee94;">scheduledTask</span> = pollScheduledTask(nanoTime);
+            <span style="color: #00bfff; font-weight: bold;">if</span> (scheduledTask == <span style="color: #ffd700;">null</span>) {
+                <span style="color: #00bfff; font-weight: bold;">break</span>;
+            }
+            taskQueue.add(scheduledTask);
+        }
+    }
+}
+</pre>
+</div>
+
+<p>
+检测和拷贝任务完成之后，就执行超时的定时任务，代码如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00bfff; font-weight: bold;">protected</span> <span style="color: #98f5ff;">boolean</span> <span style="color: #daa520; font-weight: bold;">runAllTasks</span>() {
+    fetchFromScheduledTaskQueue();
+    <span style="color: #98f5ff;">Runnable</span> <span style="color: #4eee94;">task</span> = pollTask();
+    <span style="color: #00bfff; font-weight: bold;">if</span> (task == <span style="color: #ffd700;">null</span>) {
+        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">false</span>;
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">for</span> (;;) {
+        <span style="color: #00bfff; font-weight: bold;">try</span> {
+            task.run();
+        } <span style="color: #00bfff; font-weight: bold;">catch</span> (<span style="color: #98f5ff;">Throwable</span> <span style="color: #4eee94;">t</span>) {
+            logger.warn(<span style="color: #deb887;">"A task raised an exception."</span>, t);
+        }
+
+        task = pollTask();
+        <span style="color: #00bfff; font-weight: bold;">if</span> (task == <span style="color: #ffd700;">null</span>) {
+            lastExecutionTime = ScheduledFutureTask.nanoTime();
+            <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">true</span>;
+        }
+    }
+}
+</pre>
+</div>
+
+<p>
+为了保证定时任务的执行不会因为过度挤占IO事件的处理，Netty提供了IO执行比例供用户设置，用户可以设置分配给IO的执行比例， <b>防止因为海量定时任务的执行导致IO处理超时或者积压</b> 
+</p>
+
+<p>
+因为获取系统的纳秒时间是件耗时的操作，所以Netty每执行64个定时任务检测一次是否达到执行的上限时间，达到则退出。如果没有执行完，放到下次Selector轮询时再处理，给IO事件的处理提供机会，代码如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check timeout every 64 tasks because nanoTime() is relatively expensive.</span>
+<span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">XXX: Hard-coded value - will make it configurable if it is really a problem.</span>
+<span style="color: #00bfff; font-weight: bold;">if</span> ((runTasks &amp; 0x3F) == 0) {
+    lastExecutionTime = ScheduledFutureTask.nanoTime();
+    <span style="color: #00bfff; font-weight: bold;">if</span> (lastExecutionTime &gt;= deadline) {
+        <span style="color: #00bfff; font-weight: bold;">break</span>;
+    }
+}
+
+task = pollTask();
+<span style="color: #00bfff; font-weight: bold;">if</span> (task == <span style="color: #ffd700;">null</span>) {
+    lastExecutionTime = ScheduledFutureTask.nanoTime();
+    <span style="color: #00bfff; font-weight: bold;">break</span>;
+}
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org1a8175f" class="outline-4">
+<h4 id="org1a8175f">聚焦而不是膨胀</h4>
+<div class="outline-text-4" id="text-org1a8175f">
+<p>
+Netty是个异步高性能的NIO框架，它并不是个业务运行容器，因此它 <b>不需要也不应该提供业务容器和业务线程</b> 。合理的设计模式是Netty <b>只负责提供和管理NIO线程</b> ，其它的业务层线程模型由用户自己集成，Netty不应该提供此类功能，只要将分层划分清楚，就会更有利于用户集成和扩展
+</p>
+
+<p>
+令人遗憾的是在Netty 3系列版本中，Netty提供了类似Mina异步Filter的ExecutionHandler，它聚合了JDK的线程池java.util.concurrent.Executor，用户异步执行后续的Handler
+</p>
+
+<p>
+ExecutionHandler是为了解决部分用户Handler可能存在执行时间不确定而导致IO线程被意外阻塞或者挂住，从需求合理性角度分析这类需求本身是合理的，但是Netty提供该功能却并不合适。原因总结如下：
+</p>
+<ol class="org-ol">
+<li>它打破了Netty坚持的串行化设计理念，在消息的接收和处理过程中发生了线程切换并引入新的线程池，打破了自身架构坚守的设计原则，实际是一种架构妥协</li>
+<li>潜在的线程并发安全问题，如果异步Handler也操作它前面的用户Handler，而用户Handler又没有进行线程安全保护，这就会导致隐蔽和致命的线程安全问题</li>
+<li>用户开发的复杂性，引入ExecutionHandler，打破了原来的ChannelPipeline串行执行模式，用户需要理解Netty底层的实现细节，关心线程安全等问题，这会导致得不偿失</li>
+</ol>
+
+<p>
+鉴于上述原因，Netty的后续版本彻底删除了ExecutionHandler，而且也没有提供类似的相关功能类，把精力聚焦在Netty的IO线程NioEventLoop上，这无疑是一种巨大的进步，Netty重新开始聚焦在IO线程本身，而不是提供用户相关的业务线程模型
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org5aa9ada" class="outline-3">
+<h3 id="org5aa9ada">Netty线程开发最佳实践</h3>
+<div class="outline-text-3" id="text-org5aa9ada">
+</div>
+<div id="outline-container-orgecc28a2" class="outline-4">
+<h4 id="orgecc28a2">时间可控的简单业务</h4>
+<div class="outline-text-4" id="text-orgecc28a2">
+<p>
+如果业务非常简单，执行时间非常短，不需要与外部网元交互、访问数据库和磁盘，不需要等待其它资源，则建议 <b>直接在业务ChannelHandler</b> 中执行，不需要再启业务的线程或者线程池。避免线程上下文切换，也不存在线程并发问题
+</p>
+</div>
+</div>
+
+<div id="outline-container-org1a7a3c5" class="outline-4">
+<h4 id="org1a7a3c5">复杂和时间不可控业务</h4>
+<div class="outline-text-4" id="text-org1a7a3c5">
+<p>
+对于此类业务，不建议直接在业务ChannelHandler中启动线程或者线程池处理，建议 <b>将不同的业务统一封装成Task，统一投递到后端的业务线程池中进行处理</b> 
+</p>
+
+<p>
+过多的业务ChannelHandler会带来开发效率和可维护性问题，不要把Netty当作业务容器，对于大多数复杂的业务产品，仍然需要集成或者开发自己的业务容器，做好和Netty的架构分层
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgaa303aa" class="outline-4">
+<h4 id="orgaa303aa">业务线程避免直接操作ChannelHandler</h4>
+<div class="outline-text-4" id="text-orgaa303aa">
+<p>
+对于ChannelHandler，IO线程和业务线程都可能会操作，因为业务通常是多线程模型，这样就会存在多线程操作ChannelHandler。为了尽量避免多线程并发问题，建议按照Netty自身的做法，通过将 <b>操作封装成独立的Task由NioEventLoop统一执行</b> ，而不是业务线程直接操作，相关代码如下所示：
+</p>
+
+
+<div class="figure">
+<p><img src="pic/netty-execute-business-logic.png" alt="netty-execute-business-logic.png" width="70%" />
+</p>
+</div>
+
+<p>
+如果你确认并发访问的数据或者并发操作是安全的，则无需多此一举，这个需要根据具体的业务场景进行判断，灵活处理
+</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org354b2d7" class="outline-2">
+<h2 id="org354b2d7">总结</h2>
+<div class="outline-text-2" id="text-org354b2d7">
+<p>
+尽管Netty的线程模型并不复杂，但是如何合理利用Netty开发出高性能、高并发的业务产品，仍然是个有挑战的工作。只有充分理解了Netty的线程模型和设计原理，才能开发出高质量的产品
+</p>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

@@ -1,0 +1,270 @@
+#+TITLE: 面试准备
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil
+* Java 
+** collections
++ String,StringBuilder,StringBuffer
+  + String因为是不变类，所以拼接效率差
+  + StringBuilder 线程不安全
+  + StringBuffer 线程安全，效率不如 StringBuilder 
++ hashmap结构：
+  + 数组：每个数组的元素是一个链表
+    + hash冲突：这时候需要全链表搜索
+    + Java8 之后改用 红黑树代替链表，加快搜索速度 O(logn) 
+  + 不可变的对象适合做key，比如String，Integer  
++ hashtable,concurrentHashMap
+  + HashTable 全量加锁
+  + ConcurrentyHashMap 分段加锁
+    + 读取不加锁
+    + 写时只有必要的情况才加锁
++ ArrayList和LinkedList 
+  + ArrayList 底层是数组，有扩容，随机访问元素快
+  + LinkedList: 底层是链表：添加，删除元素快
++ list为什么有序的，set为什么都是无序的：set基于hashset实现，而哈希本身就是无序的
++ 对象的深浅复制：
+  + 浅拷贝：Object类的clone方法只会拷贝对象中的 _基本的数据类型_ ，对于 _数组_ _集合_ 中的元素、 _引用_ 对象等都不会拷贝
+  + 深拷贝，必须覆写clone方法
+
+** concurrency 
++ wait,sleep分别是谁的方法，区别
+  + wait : Object 的方法，释放锁
+  + sleep: Thread的方法，不释放锁
++ 线程池参数： 任务会被缓存在任务队列 中
+  + core线程的数量
+  + max线程的数量：是否有界
+  + 超时时间：超过指定时间不用，超过core线程数目的线程会被消耗
+  + 线程的饱和策略
+    + 拒绝执行 
+    + 扔掉在执行的线程
+      + 扔掉最新的
+      + 扔掉最旧的
+    + CallerOnPolicy: 在提交任务的线程中执行任务
++ ThreadLocal原理
+  + ThreadID 作为 key的哈希表
+  + 只能在同一个线程中共享变量
+  + 线程结束后必须清空
++ 还有Java的锁
+  + 内置锁：synchronized
+    + 等待期间无法响应中断
+    + 只能隐含一个对象，难用
+    + 不支持公平锁
+    + 操作方便
+  + 显式锁: Lock/RenentraceLock
+    + 等待期间可以中断
+    + 支持多个条件变量，好用    
+    + 支持公平锁：先来先得
+    + 操作繁琐，更灵活。申请，释放可以不在同一段代码里    
++ 各种应用类
+  + BlockingQueue
+    + LinkedBlockingQueue: 基于链表实现的
+    + SynchronzeBlockingQueue: 没有队列，直接发送给消费者
+    + put：队列满了，线程阻塞
+    + get: 队列空了，线程阻塞
+  + CountDownLatch: 一组线程等待某个事件
+  + CyclicBarrier: 允许线程互相等待
+  + Semaphore: 信号量，permit 
+  + FutureTask: get方法获得返回值，提交给ExecutorService 
+
++ 线程安全的缓存： 
+  + 使用 ConcurrentHashMap
+  + 使用putIfAbsent等复合操作
+  + 把运算的结果包装成FutureTask, 避免重复计算
+
++ 悲观锁和乐观锁
+  + 悲观锁：基于互斥同步
+  + 乐观锁：基于冲突检测
+    + CAS：Compare and Swap： 要设置的值A，旧值B，先判断要设置的是否是B，如果是则设置为A，反之什么都不做，返回B 
+      + 底层汇编支持
+      + Atomic类
+      + ABA问题：检查的时候仍然是A，但在这期间可能已经被改为B，再被改成A
+        + AtomicStampedReference
+	+ 使用锁
+
++ JMM
+  + 线程内存
+  + 共享内存
+  + 读写操作
+
++ volatile
+  + 可见性，改动完毕所有线程可见，不会被缓存在当前线程可见的内存中
+  + 前提：
+    + 当前线程完成计算
+    + 变量不参与其他约束
+  + 两次判断来实现不同类
+
++ 锁优化：
+  + 锁消除：自动判断是否需要加锁，比如在synchronize的方法中使用了不变对象类
+  + 锁粗化：循环中如果多次获取同一个对象的锁，可优化在循环外加锁
+  + 轻量级锁：用CAS代替内置锁
+    + 对象头的Mark Word
+  + 锁偏向：偏心于第一个获取对象锁的线程，这个对象可以直接进行操作
+  + 锁自旋：用一个忙等待来代替加锁，在加锁时间很短暂的情况下
+
++ 线程模型：
+  + 内核：1:1 实现简单，效率差，windows, linux
+  + 用户：实现困难甚至很难完毕，比如阻塞一个线程，是否要阻塞jvm进程等
+  + 混合式：solaris 
+
++ servlet是否线程安全：不安全。使用线程池
+
+** jvm 
++ jvm内存模型
+  + stack
+  + 方法区
+  + heap
+  + direct access area 
++ jvm问题工具,jps,jinfo,jmap, jstack...
++ class loader 
+  + 双亲委派，一直往上调用，直到父亲无法加载，向下分派
+  + BootStrap：jvm
+  + Extension：rt/ext目录
+  + Application
+  + 自定义
++ GC
+  + GC root: 
+    + 虚拟机栈(栈帧中的 _本地变量表_ )中引用的对象
+    + 方法区中 _类静态属性_ 引用的对象
+    + 方法区中 _常量引用_ 的对象
+    + 本地方法栈中 _JNI(native方法)引用_ 的对象 
+  + 算法：
+    + 标记-清除
+    + 标记-整理
+    + 复制
+  + 垃圾回收器：
+    + 新生代：
+      + Serial：客户程序
+      + ParNew：并行 
+      + Parallel Scavenge：有利于吞吐量
+      + G1：大内存      
+    + 老生代： 
+      + CMS：初始标记 GC root, 并发分析可达性，重新标记（改动检查），并发清除
+        + 并发好，停顿短
+	+ 产生大量碎片
+      + Serial Old（MSC）
+      + Parallel Old
+      + G1
+** spring
++ ioc,aop原理
+  + 依赖注入：帮助初始化对应的对象，需要在取
+  + aop: 面向切面编程，集中处理某些逻辑
+    + dynanmic proxy
+      + 只能针对接口
+      + 重新编译一个对象，加上对应的代码
+    + assembler技术 
++ ioc初始化流程
++ springmvc的流程
++ springboot
+  + starter 
++ spring cloud相关组件
+  + zuul 
+  + eureka
+  + feign
+  + ribbon
+  + config server
+  + hystrix 
+
+* database 
++ 索引及底层实现 B*, B+
++ 索引失效的场景：计算
++ 最左原则
++ 查看执行计划
++ carndiation
++ 锁的类型，行级表级
++ 悲观，乐观锁
++ 数据库事物及特性
+  + ACID
+    + 原子性
+    + 一致性
+    + 隔离性
+    + 持久性
+      + redo，undo 
+  + 隔离级别：
+    + read uncommited：脏读，没有提交机制
+    + read commited: 不可重复读，一次事务里面读取的数据可能不一致(orcale) 
+    + read repeatable: 幻影读：事务A更新了某张表全部数据，但是另外一个事务B同时插入了一条新的记录，对于事务A这条数据是幻影(mysql)
+    + serialable：一般在应用层控制
+
+* network 
+** web 
++ session与cookie的区别
++ get和post区别
+  + 文件上传用post还是get
++ session的存储
+  + 服务器上
++ 防止表单重复提交
+  + session关联一个token
+  + 后台提交事务前校验token
++ http和https的区别：利用SSL加密
++ 短地址：
+  1. dns解析短域名
+  2. 利用get获取真正的url
+  3. redirect到真正的url 
++ 从浏览器输入网址的过程
+
+** nginx 
++ 负载均衡策略
+  + 轮询
+  + 权重
+  + ip hash
+  + url hash 
+** protocal 
++ tcp3次握手和4次挥手
++ tcp和udp的区别
++ dns 
+  + AName
+  + PTR
+  + host file 
+** NIO 
++ select，poll, epoll
++ netty
+
+* distribution 
++ 2PC/3PC 
+  1. 询问()
+  2. 确认
++ CAP
+  + zookeeper ：CA
+  + paxos
+    + 准备
+    + 批准
+** redis 
++ 高可用：
+  + 主从：数据备份与读负载均衡
+    + 写操作无法负载均衡
+    + 存储能力受到单机的限制
+  + 哨兵：自动化的故障恢复
+    + 写操作无法负载均衡
+    + 存储能力受到单机的限制
+  + 集群： Redis 把所有的 Key 分成了 16384 个 slot
+    + 每个 Redis 实例负责其中一部分 slot
+    + 集群中的所有信息（节点、端口、slot等），都通过节点之间定期的数据交换而更新。
++ redis是单线程还是多线程：单线程
+  + 没有线程切换开销，没有加锁
+  + 单个操作慢会极其降低效率
++ 缓存穿透怎么解决：缓存NULL
++ 数据结构：
+  + string
+  + list
+  + set
+  + sorted set
+  + hash
+
+** db 
++ 一致性hash算法
++ 分库分表：使用MultpleDataSource 
++ 分布式锁: 
+  + redis：原子操作 :  SETNX key value 1000
+  + mysql : 版本号字段
+  + zookeeper 
+  
+** rabbit mq 
++ exchange
+  + fanout: 广播
+  + direct: 根据routing key 进行路由
+  + topic：多个条件变量
+  + default：匿名，根据binding
++ queue：
+  + 持久性
+  + 消息确认
+  + 有界性
+* k8s

@@ -1,0 +1,125 @@
+#+TITLE: 线程安全
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: jcip.html   
+#+HTML_LINK_HOME: jcip.html
+#+OPTIONS: num:nil timestamp:nil
+* 定义　
+  多线程环境下 *无需 _调用方进行任何同步处理_ 也能保证正确性* , 线程安全的类无须使用者考虑同步问题　　
+* 原子性　
+** race condition
+*** check-and-act 
+    基于check的结果进行操作。由于check和act并非是原子的，进行act时check的结果可能已经无效 
+     
+    #+BEGIN_SRC java
+  @NotThreadSafe
+  public class LazyInitRace {  
+      private static ExpensiveObject instance = null;  
+      public static ExpensiveObject getInstance() {  
+          // if语句是一个check-and-act操作  
+          if (instance == null) {  
+              instance = new ExpensiveObject();  
+          }  
+          return instance;  
+      }  
+  }  
+    #+END_SRC 
+     
+*** read-and-modify 
+    读取某个变量的值，修改后写回。如果B线程在A线程read之后write之前修改了变量的值，那么A线程read的结果就失效了　
+     
+     
+    #+BEGIN_SRC java
+  @NotThreadSafe
+  public class CountingFactorizer implements Servlet {  
+          private final long count = 0;  
+          public void service(ServletRequest req, ServletResponse resp) {  
+                  BigInteger i = extractFromRequest(req);  
+                  BigInteger[] factors = factor(i);  
+                  // // 自增语句是一个Read‐modify‐write操作  
+                  count++;  
+                  encodeIntoResponse(resp, factors);  
+          }  
+  }  
+    #+END_SRC
+     
+*** 使用原子变量修复
+      
+    #+BEGIN_SRC java
+        @ThreadSafe
+        public class CountingFactorizer implements Servlet {
+                private final AtomicLong count = new AtomicLong(0);
+                public long getCount() { return count.get(); }
+                public void service(ServletRequest req, ServletResponse resp) {
+                        BigInteger i = extractFromRequest(req);
+                        BigInteger[] factors = factor(i);
+                        count.incrementAndGet();
+                        encodeIntoResponse(resp, factors);
+                }
+        }
+    #+END_SRC
+      
+* 同步锁
+  _每一个成员的操作都是原子的_ ，也不能保证 *所有涉及到成员的操作* 整体上是 *原子的* 
+    
+  #+BEGIN_SRC java
+  @NotThreadSafe
+  public class UnsafeCachingFactorizer implements Servlet {
+          private final AtomicReference<BigInteger> lastNumber
+          = new AtomicReference<BigInteger>();
+          private final AtomicReference<BigInteger[]> lastFactors
+          = new AtomicReference<BigInteger[]>();
+          public void service(ServletRequest req, ServletResponse resp) {
+                  BigInteger i = extractFromRequest(req);
+                  if (i.equals(lastNumber.get()))
+                          encodeIntoResponse(resp, lastFactors.get());
+                  else {
+                          BigInteger[] factors = factor(i);
+                          lastNumber.set(i);
+                          lastFactors.set(factors);
+                          encodeIntoResponse(resp, factors);
+                  }
+          }
+  }
+  #+END_SRC
+    
+** synchronize锁
+          
+   #+BEGIN_SRC java
+       @ThreadSafe
+       public class SynchronizedFactorizer implements Servlet {
+               @GuardedBy("this") private BigInteger lastNumber;
+               @GuardedBy("this") private BigInteger[] lastFactors;
+               public synchronized void service(ServletRequest req,
+                                                ServletResponse resp) {
+                       BigInteger i = extractFromRequest(req);
+                       if (i.equals(lastNumber))
+                               encodeIntoResponse(resp, lastFactors);
+                       else {
+                               BigInteger[] factors = factor(i);
+                               lastNumber = i;
+                               lastFactors = factors;
+                               encodeIntoResponse(resp, factors);
+                       }
+               }
+       }
+   #+END_SRC
+     
+*** 重入锁　
+    *同一个线程可以多次申请持有同一把锁* 而不会引起死锁
+    #+BEGIN_EXAMPLE
+      假设A线程持有lock，那么如果B线程申请lock锁，B线程就会被阻塞
+
+      但是如果A线程再次申请已经持有的lock锁，该申请将获得通过
+
+      这就是所谓的同一线程可多次获取同一把锁
+    #+END_EXAMPLE
+    作为锁的对象，不仅需要标识 _锁的所有者_ ，也需要标识 _所有者持有的计数_ ：
+    + 如果所有者线程刚刚 _申请到锁_ ，则 *计数器的值为1* 
+    + 每 _重新获取一次_ ，计数器的值 *加1* 
+    + 每 _退出一个同步代码块_ ，计数器的值 *减1* 
+    + 当 _计数器的值减为0_ 时，所有者线程才 *释放* 锁
+
+    [[file:sharing_objects.org][Next:对象分享]]
+
+    [[file:jcip.org][Up:目录]]
+

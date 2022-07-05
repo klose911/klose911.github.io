@@ -1,0 +1,161 @@
+#+TITLE: 观察者模式
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+#+HTML_LINK_HOME: fdp.html
+
+当一个对象变化时，其它依赖该对象的对象都会收到通知，并且随着变化，对象之间是一种一对多的关系!
+
+* UML 
+  #+ATTR_HTML: image :width 40% 
+  [[file:pic/observer.png]]
+
+* Java
++ 定义观察者接口Observer，当被观察的对象发生变化时，会调用这个接口的update方法：
+
+  #+BEGIN_SRC java
+    public interface Observer {
+            void update();
+    }
+  #+END_SRC
+
++ 实现2个具体的观察者类：
+
+  #+BEGIN_SRC java
+    public class Observer1 implements Observer {
+            @Override
+            public void update() {
+                    System.out.println("observer1 has received!");
+            }
+    }
+  #+END_SRC
+
+
+#+BEGIN_SRC java
+  public class Observer1 implements Observer {
+          @Override
+          public void update() {
+                  System.out.println("observer1 has received!");
+          }
+  }
+#+END_SRC
+
++ 定义被观察者的接口Subject：
+
+  #+BEGIN_SRC java
+    public interface Subject {
+            /*增加观察者*/
+            public void add(Observer observer);
+
+            /*删除观察者*/
+            public void del(Observer observer);
+
+            /*通知所有的观察者*/
+            public void notifyObservers();
+
+            /*自身的操作*/
+            public void operation();
+    }
+  #+END_SRC
+
++ 实现对观察者Observer的基本操作：
+  #+BEGIN_SRC java
+    public abstract class AbstractSubject implements Subject {
+            private Vector<Observer> observers = new Vector<>();
+
+            @Override
+            public void add(Observer observer) {
+                    observers.add(observer);
+            }
+
+            @Override
+            public void del(Observer observer) {
+                    observers.remove(observer);
+            }
+
+            @Override
+            public void notifyObservers() {
+                    for (Observer observer : observers)
+                            observer.update();
+            }
+    }
+  #+END_SRC
+
++ 实现被观察者真正的业务逻辑：
+
+  #+BEGIN_SRC java
+    public class MySubject extends AbstractSubject {
+            @Override
+            public void operation() {
+                    System.out.println("update self!");
+                    notifyObservers();
+            }
+    }
+  #+END_SRC
+
++ 测试类：
+  #+BEGIN_SRC java
+    public class ObserverTest {
+            public static void main(String[] args) {
+                    Subject sub = new MySubject();
+                    sub.add(new Observer1());
+                    sub.add(new Observer2());
+
+                    sub.operation();
+            }
+    }
+  #+END_SRC
+
++ 测试结果：
+
+  #+BEGIN_SRC sh
+    update self!
+    observer1 has received!
+    observer2 has received!
+  #+END_SRC
+
+* CLOS 
++ 定义观察者的通用方法：
+
+  #+BEGIN_SRC lisp
+    (defclass observer () ())
+    (defclass observer1 (observer) ())
+    (defclass observer2 (observer) ())
+
+    (defmethod update ((o observer1))
+      (format t "observer1 has received! ~C" #\linefeed))
+    (defmethod update ((o observer2))
+      (format t "observer2 has received! ~C" #\linefeed))
+  #+END_SRC
+
++ 使用辅助方法:after实现更新：
+
+  #+BEGIN_SRC lisp
+    (defclass subject ()
+      ((observers :accessor subject-observers
+                  :initarg :observers
+                  :initform '())))
+
+    (defmethod operation ((s subject))
+      (format t "update self! ~C" #\linefeed))
+    ;;依次调用观察者列表中每个元素的update方法
+    (defmethod operation :after ((s subject))
+      (mapc #'update (subject-observers s)))
+  #+END_SRC
+
++ 测试：
+  #+BEGIN_SRC lisp
+    (setf s (make-instance 'subject
+                           :observers (list (make-instance 'observer1) (make-instance 'observer2))))
+
+    (operation s)
+    ;; => update self! 
+    ;;    observer1 has received! 
+    ;;    observer2 has received! 
+  #+END_SRC
+
+
+[[file:iterator.org][Next：迭代模式]]
+
+[[file:template.org][Previous：模板模式]]
+
+[[file:fdp.org][Home：目录]]

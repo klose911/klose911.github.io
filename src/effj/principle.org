@@ -1,0 +1,438 @@
+#+TITLE: 通用原则
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: methods.html   
+#+HTML_LINK_HOME: effj.html
+#+OPTIONS: num:nil timestamp:nil *:nil ^:nil
+* 局部变量的作用域最小化
++ 在第一次使用它的地方才声明
++ 除了try-catch结构要求外，每个局部变量的声明都应该包含一个初始化的表达式
++ 使方法小而集中，每个方法包含较少的局部变量
+
+** 循环
+while循环往往在外面申明变量，容易产生拼写错误
+#+BEGIN_SRC java
+  Iterator<Element> i = c.iterator();
+  while (i.hasNext()) {
+          doSomething(i.next());
+  }
+
+  Iterator<Element> i2 = c2.iterator();
+  while (i.hasNext()) {// BUG!
+          doSomethingElse(i2.next());
+  }
+#+END_SRC
+
+for循环的变量作用域在循环体中
+#+BEGIN_SRC java
+  // No for-each loop or generics before release 1.5
+  for (Iterator i = c.iterator(); i.hasNext(); ) {
+          doSomething((Element) i.next());
+  }
+
+  for (Iterator i = c2.iterator(); i.hasNext(); ) {
+          doSomethingElse((Element) i.next());
+  }
+#+END_SRC
+
+* 优先使用for-each循环
+抛出异常的原因在于：花色的next方法被调用太多次了。每一次点数循环，花色的next方法应该只被调用一次
+   #+BEGIN_SRC java
+     // Can you spot the bug?
+     private static enum Suit {
+             CLUB, DIAMOND, HEART, SPADE
+     }
+     private static enum Rank {
+             ACE, DEUCE, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT,
+             NINE, TEN, JACK, QUEEN, KING
+     }
+
+     public static void main(String[] args) {
+             Collection<Suit> suits = Arrays.asList(Suit.values());
+             Collection<Rank> ranks = Arrays.asList(Rank.values());
+             List<Card> deck = new ArrayList<>();
+             //Exception in thread "main" java.util.NoSuchElementException
+             for (Iterator<Suit> i = suits.iterator();
+                  i.hasNext();) {
+                     for (Iterator<Rank> j = ranks.iterator();
+                          j.hasNext();) {
+                             deck.add(
+                                     //每次获得下一个点数，都会同时获得下一个花色，这样很快就用完了花色，抛出异常
+                                     new Card(i.next(), j.next()));
+                     }
+             }
+     }
+
+     private static final class Card{
+             private final Suit suit; 
+             private final Rank rank; 
+             private Card(Suit suit, Rank rank) {
+                     this.suit = suit;
+                     this.rank = rank;
+             }
+
+     }
+   #+END_SRC
+
+下面代码有着同样的错误，但却不会抛出异常，然而结果是错误的
+#+BEGIN_SRC java
+  // Same bug, different symptom!
+  enum Face { ONE, TWO, THREE, FOUR, FIVE, SIX }
+
+  Collection<Face> faces = Arrays.asList(Face.values());
+  for (Iterator<Face> i = faces.iterator(); i.hasNext(); )
+          for (Iterator<Face> j = faces.iterator(); j.hasNext(); )
+                  System.out.println(i.next() + " " + j.next());
+#+END_SRC
+
+丑陋的修复
+#+BEGIN_SRC java
+  // Fixed, but ugly - you can do better!
+  for (Iterator<Suit> i = suits.iterator(); i.hasNext(); ) {
+          Suit suit = i.next();
+          for (Iterator<Rank> j = ranks.iterator(); j.hasNext(); )
+                  decks.add(new Card(suit, j.next()));
+  }
+#+END_SRC
+
+优雅地使用for-each循环
+#+BEGIN_SRC java
+  // Preferred idiom for nested iteration on collections and arrays
+  for (Suit suit : suits) {
+          for (Rank rank : ranks) {
+                  decks.add(new Card(suit, rank));
+          }
+  }
+#+END_SRC
+
++ 相比传统的for循环，for-each循环在可读性和预防BUG方面有着无可比拟的优势，并且没有性能损失
++ for-each循环不但能遍历数组和集合，任何实现了Iterable的类都可以被遍历
+  #+BEGIN_SRC java
+    public interface Iterable<E> {
+    // Returns an iterator over the elements in this iterable
+            Iterator<E> iterator();
+    }
+  #+END_SRC
+
+** 无法使用for-each循环
+1. 过滤：遍历集合并删除选定元素
+2. 转换：遍历列表或数组，并取代它部分或者全部的元素值
+3. 平行迭代：如果需要并行的遍历多个集合，就需要显示的控制迭代器或者索引变量
+
+*** 函数式遍历
+Java8引入函数式编程后，可以使用函数式遍历
+#+BEGIN_SRC java
+  suits.forEach((suit) -> {
+                  ranks.forEach((rank) -> {
+                                  decks.add(new Card(suit, rank));
+                          });
+          });
+
+  decks.forEach((c) -> {
+                  System.out.println(c);
+          });
+#+END_SRC
+
+1. 过滤：filter返回一个删除了选定元素的集合拷贝
+2. 转换：map返回转换完毕的集合拷贝，reduce进行集合聚合
+3. 平行迭代：递归代替迭代
+
+* 熟悉和使用类库
++ 通过使用标准类库，可以充分利用这些编写标准类库的专家的知识，以及在你之前的其他人的使用经验。
++ 在每个重要的发行版本中，都会有许多新的特性被加入到类库中，与这些新特性保持同步是值得的
+
+* 如果需要精确地答案，请避免使用float和double
+float和double用来做浮点二进制计算的，以牺牲精度来换取快速，只适合于科学和工程计算
+
+** 货币计算
+float和double尤其不适合货币计算
+#+BEGIN_SRC java
+  //0.610000001
+  System.out.println(1.03 - .42);
+  //0.0999999998
+  System.out.println(1.00 - 9 * .10);
+
+  double funds = 1.00;
+  int itemsBought = 0;
+  for (double price = .10; funds >= price; price += .10) {
+          funds -= price;
+          itemsBought++;
+  }
+  //3 items bought.
+  //Change: $0.39999999
+  System.out.println(itemsBought + " items bought.");
+  System.out.println("Change: $" + funds);
+#+END_SRC
+
+使用BigDecimal代替
+#+BEGIN_SRC java
+  final BigDecimal TEN_CENTS = new BigDecimal(".10");
+  int itemsBought = 0;
+  BigDecimal funds = new BigDecimal("1.00");
+  for (BigDecimal price = TEN_CENTS;
+       funds.compareTo(price) >= 0;
+       price = price.add(TEN_CENTS)) {
+          itemsBought++;
+          funds = funds.subtract(price);
+  }
+          
+  //4 items bought.
+  //Money left: $0.00
+  System.out.println(itemsBought + " items bought.");
+  System.out.println("Money left over: $" + funds);
+#+END_SRC
+
+尽管BigDecimal很精确，但是不方便，也很慢。所以有些时候可以用int或long来表示分替代BigDecimal
+#+BEGIN_SRC java
+  int itemsBought = 0;
+  int funds = 100;
+  for (int price = 10; funds >= price; price += 10) {
+          itemsBought++;
+          funds -= price;
+  }
+  //4 items bought. 
+  //Money left over: 0 cents
+  System.out.println(itemsBought + " items bought.");
+  System.out.println("Money left over: " + funds + " cents");
+#+END_SRC
+如果整数不超过9位十进制数字，可以使用int。如果不超过18位，可以使用long。超过18位使用BigDecimal
+
+* 基本类型优先于装箱基本类型
+
+** 基本类型的优点
+*** 基本类型只有值，装箱基本类型还具有对象引用
+装箱基本类型运用==操作符几乎总是错误的
+
+first和second的引用不一样的，所以用==比较的结果总是false
+   #+BEGIN_SRC java
+     // Broken comparator - can you spot the flaw?
+     Comparator<Integer> naturalOrder = new Comparator<>() {
+                     public int compare(Integer first, Integer second) {
+                             return first < second ? -1 : (first == second ? 0 : 1);
+                     }
+             };
+   #+END_SRC
+
+使用自动装箱修复错误
+#+BEGIN_SRC java
+  Comparator<Integer> naturalOrder = new Comparator<Integer>() {
+                  public int compare(Integer first, Integer second) {
+                          int f = first;
+  // Auto-unboxing
+                          int s = second; // Auto-unboxing
+                          return f < s ? -1 : (f == s ? 0 : 1); // No unboxing
+                  }
+          };
+#+END_SRC
+
+*** 基本类型只有功能完备的值，而每个装箱基本类型还有非功能值null
+下面代码会抛出空指针异常
+   #+BEGIN_SRC java
+     public class Unbelievable {
+             static Integer i;
+             public static void main(String[] args) {
+                     if (i == 42)
+                             System.out.println("Unbelievable");
+             }
+     }
+   #+END_SRC
+
+*** 基本类型通常比装箱基本类型更节省时间和空间
+   多次的自动装箱会产生大量的临时对象，浪费大量的空间和时间
+   #+BEGIN_SRC java
+     // Hideously slow program! Can you spot the object creation?
+     public static void main(String[] args) {
+             Long sum = 0L;
+             for (long i = 0; i < Integer.MAX_VALUE; i++) {
+                     sum += i;
+             }
+             System.out.println(sum);
+     }
+   #+END_SRC
+
+** 何时使用装箱基本类型
++ 作为集合中的元素的键和值，无法将基本类型放在集合内
++ 范型中必须使用装箱基本类型作为类型参数
++ 在进行反射的方法调用时，必须使用装箱基本类型
+
+* 如果其他类型更合适，则尽量避免使用字符串
+字符串不适合代替其他的值类型
++ 字符串不适合代替枚举类型
++ 字符串不适合代替聚集类型，使用一个静态成员类来取代
+  #+BEGIN_SRC java
+    // Inappropriate use of string as aggregate type
+    String compoundKey = className + "#" + i.next();
+  #+END_SRC
++ 字符串不适合代替能力表
+客户端有可能使用同一个字符串，来表示不同的值
+  #+BEGIN_SRC java
+    // Broken - inappropriate use of string as capability!
+    public class ThreadLocal {
+            private ThreadLocal() { } // Noninstantiable
+
+            // Sets the current thread's value for the named variable.
+            public static void set(String key, Object value);
+
+            // Returns the current thread's value for the named variable.
+            public static Object get(String key);
+    }
+  #+END_SRC
+使用静态类来代替字符串
+#+BEGIN_SRC java
+  public class ThreadLocal {
+          private ThreadLocal() { } // Noninstantiable
+          public static class Key { // (Capability)
+                  Key() { }
+          }
+
+
+          // Generates a unique, unforgeable key
+          public static Key getKey() {
+                  return new Key();
+          }
+          
+          public static void set(Key key, Object value);
+          public static Object get(Key key);
+  }
+#+END_SRC
+再进一步可以用ThreadLocal的实例对象引用来代替静态类Key，换句话说每次客户端都产生一个新的ThreadLocal对象来作为Key
+#+BEGIN_SRC java
+  public final class ThreadLocal {
+          public ThreadLocal() { }
+          public void set(Object value);
+          public Object get();
+  }
+#+END_SRC
+最后用范型来完成类型安全
+#+BEGIN_SRC java
+  public final class ThreadLocal<T> {
+          public ThreadLocal() { }
+          public void set(T value);
+          public T get();
+  }
+#+END_SRC
+如果要用String来表示能力的时候，请考虑使用更安全更优雅的java.util.ThreadLocal
+
+* 当心字符串连接的性能
++ 连接n个字符串而重复使用'+'，则需要 n^2 的时间复杂度
++ 为了获得更好的性能，请使用StringBuilder替代String
++ 如果考虑线程安全性，请使用StringBuffer代码StringBuilder
+
+* 通过接口引用对象
+如果有合适的接口类型存在，那么对于参数、返回值、变量和域来说，就应该使用接口类型来进行声明
+
+** 接口会使程序更灵活
+   #+BEGIN_SRC java
+     // Good - uses interface as type
+     List<Subscriber> subscribers = new Vector<Subscriber>();
+   #+END_SRC
+
+   #+BEGIN_SRC java
+     // Bad - uses class as type!
+     Vector<Subscriber> subscribers = new Vector<Subscriber>();
+   #+END_SRC
+接口允许替换实现，而不改变API的签名，这给优化性能，增加功能提供了方便性
+
+** 没有合适的接口
+如果没有合适的接口存在，完全可以用类而不是接口来引用对象
++ 值类，比如String, BigDecimal
++ 框架的基础类，比如java.util.TimerTask，但这些类往往是抽象类
++ 需要子类的某些public方法
+
+* 接口优先于反射机制
+反射机制通过Class对象能够获得Constructor、Method、Field等实例，调用这些实例上的方法可以进行底层类的初始化、调用底层类的方法、并访问底层类中的域 
+
+** 反射机制的缺陷
++ 丧失了编译时类型检查的好处。包括异常检查
++ 执行反射访问所需要的代码非常笨拙和冗长
++ 性能损失，反射方法调用比普通方法慢了许多
+
+普通应用程序在运行时不应该以反射方式访问对象。反射只应该被用于为了能够和编译期还未知的类一起工作
+
+** 有限制地使用反射
+定义接口，利用反射来创建接口的实例对象，调用接口地方法
+
+#+BEGIN_SRC java
+  public class CreateInstanceWithReflection {
+          // Reflective instantiation with interface access
+
+          public static void main(String[] args) {
+                  // Translate the class name into a Class object
+                  Class<?> cl = null;
+                  try {
+                          cl = Class.forName(args[0]);
+                  } catch (ClassNotFoundException e) {
+                          System.err.println("Class not found.");
+                          System.exit(1);
+                  }
+          
+                  // Instantiate the class
+                  Set<String> s = null;
+                  try {
+                          s = (Set<String>) cl.newInstance();
+                  } catch (IllegalAccessException e) {
+                          System.err.println("Class not accessible.");
+                          System.exit(1);
+                  } catch (InstantiationException e) {
+                          System.err.println("Class not instantiable.");
+                          System.exit(1);
+                  }
+          
+                  // Exercise the set
+                  s.addAll(Arrays.asList(args).subList(1, args.length));
+                  System.out.println(s);
+          }
+  }
+#+END_SRC
+
+如果动态传入HashSet则按照hashcode排序来保存输出，而TreeSet是按照字母顺序来保存和输出
+#+BEGIN_SRC sh
+  $ java CreateInstanceWithReflection java.util.HashSet hello world klose joy
+
+  [world, joy, klose, hello]
+
+  $ java CreateInstanceWithReflection java.util.TreeSet hello world klose joy
+
+  [hello, joy, klose world] 
+#+END_SRC
+有限制地使用反射机制，虽然也要付出少许代价，却能获得许多好处，如果有可能，就应该仅仅使用反射机制来实例化对象
+
+* 谨慎地使用本地方法
+本地方法允许调用C或者C++编写的程序代码
+
+** 用途
++ 提供了“访问特定于平台的机制”的能力
++ 提供了访问遗留代码库的能力
++ 编写应用程序中注重性能的部分，以提高系统的性能。但是使用本地方法来提高性能的做法方法不值得提倡！
+
+** 缺点
++ 不安全，特别是存在内存管理的问题
++ 操作系统相关，不可移植
++ 可读性差，代码冗长
+
+* 谨慎地进行优化
+1. 不要进行优化
+2. （仅针对专家）还是不要进行优化
+
+总之：在还没有绝对清晰的未优化方案之前，请不要进行优化
+** 建议
++ 努力编写好的程序而不是快的程序
++ 努力避免那些限制性能的设计决策：例如数据模型，接口通信协议等
++ 考虑API设计决策的性能后果：比如使用可变类会导致无穷的拷贝
++ 为获得好的性能而对API进行包装，是非常不好的做法：糟糕的接口设计会一直困扰维护，修改，演进
++ 每次试图做优化之前和之后，要使用profile工具对性能进行测量
++ 再多的底层优化也无法弥补算法的选择不当
+
+* 遵守普遍接受的命名惯例
+   #+CAPTION: 命名惯例
+   #+ATTR_HTML: :border 1 :rules all :frame boader　
+| 类型       | 示例                                    |
+| 包         | com.google.inject, org.joda.time.format |
+| 类和接口   | FutureTask, LinkedHashMap, HttpServlet  |
+| 方法       | ensureCapacity, getCrc                  |
+| 常量成员   | MIN_VALUE, NEGATIVE_INFINITY            |
+| 方法内变量 | i, xref, houseNumber                    |
+| 类型参数   | T, E, K, V, X, T1, T2                   |
+
+[[file:methods.org][Previous：方法]]
+
+[[file:effj.org][Home：目录]]
