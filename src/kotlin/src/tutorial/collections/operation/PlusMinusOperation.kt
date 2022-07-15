@@ -5,6 +5,6 @@ fun main() {
 
     val plusList = numbers + "five"
     val minusList = numbers - listOf("three", "four")
-    println(plusList) //
-    println(minusList) // 
+    println(plusList) // [one, two, three, four, five]
+    println(minusList) // [one, two]
 }
