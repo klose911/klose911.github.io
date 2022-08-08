@@ -3,3 +3,271 @@
 #+HTML_LINK_UP: ./write.html
 #+HTML_LINK_HOME: ./collections.html
 #+OPTIONS: num:nil timestamp:nil
+
+_List_ 是 Kotlin 标准库中最受欢迎的集合类型。对列表元素的 *索引* 访问为 List 提供了一组强大的操作 
+* 按索引取元素
+  List 支持按索引取元素的所有常用操作： _elementAt()_ 、 _first()_ 、 _last()_ 与取单个元素中列出的其他操作
+
+  #+BEGIN_EXAMPLE
+    List 的特点是能通过索引访问特定元素，因此读取元素的最简单方法是按索引检索它
+  #+END_EXAMPLE
+
+
+  通过 _get()_ 函数或简写语法 _[index]_ 来传递索引参数完成的。如果 List 长度小于指定的索引，则抛出异常。 另外，还有两个函数能避免此类异常：
+  + _getOrElse()_ 提供用于计算默认值的函数，如果集合中不存在索引，则返回默认值
+  + _getOrNull()_ 返回 null 作为默认值 
+
+  #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = listOf(1, 2, 3, 4)
+      println(numbers.get(0))
+      println(numbers[0])
+      //numbers.get(5)                         // exception!
+      println(numbers.getOrNull(5))             // null
+      println(numbers.getOrElse(5, {it}))        // 5
+  //sampleEnd
+  }
+  #+END_SRC
+* 取列表的一部分
+
+  除了取集合的一部分中常用的操作， List 还提供 _subList()_ 该函数将指定元素范围的视图作为列表返回
+
+  #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = (0..13).toList()
+      println(numbers.subList(3, 6))
+  //sampleEnd
+  }
+  #+END_SRC
+
+  #+BEGIN_EXAMPLE
+    如果原始集合的元素发生变化，则它在先前创建的子列表中也会发生变化，反之亦然
+  #+END_EXAMPLE
+* 查找元素位置
+** 线性查找
+
+   在任何列表中，都可以使用 _indexOf()_ 或 _lastIndexOf()_ 函数找到元素的位置。 它们返回与列表中给定参数相等的元素的第一个或最后一个位置。 如果没有这样的元素，则两个函数均返回 -1 
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = listOf(1, 2, 3, 4, 2, 5)
+      println(numbers.indexOf(2))
+      println(numbers.lastIndexOf(2))
+  //sampleEnd
+  }
+   #+END_SRC
+
+   还有一对函数接受 _谓词_ 并搜索与之匹配的元素：
+   + _indexOfFirst()_ 返回与谓词匹配的第一个元素的索引，如果没有此类元素，则返回 -1
+   + _indexOfLast()_ 返回与谓词匹配的最后一个元素的索引，如果没有此类元素，则返回 -1 
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = mutableListOf(1, 2, 3, 4)
+      println(numbers.indexOfFirst { it > 2})
+      println(numbers.indexOfLast { it % 2 == 1})
+  //sampleEnd
+  }
+   #+END_SRC
+** 在有序列表中二分查找
+   #+BEGIN_EXAMPLE
+     还有另一种搜索列表中元素的方法：二分查找算法
+
+     它的工作速度明显快于其他内置搜索功能，但要求该列表按照一定的顺序（自然排序或函数参数中提供的另一种排序）按升序排序过
+
+     否则，结果是不确定的
+   #+END_EXAMPLE
+   要搜索已排序列表中的元素，请调用 _binarySearch()_ 函数，并将该值作为参数传递：
+   + 如果存在这样的元素，则函数返回其索引
+     + 如果有多个具有给定值的元素，搜索则可以返回其任何索引
+   + 否则，将返回 _-insertionPoint - 1_ 
+     + insertionPoint 为应插入此元素的索引，以便列表保持排序
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = mutableListOf("one", "two", "three", "four")
+      numbers.sort()
+      println(numbers)
+      println(numbers.binarySearch("two"))  // 3
+      println(numbers.binarySearch("z")) // -5
+      println(numbers.binarySearch("two", 0, 2))  // -3
+  //sampleEnd
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     还可以指定要搜索的索引区间：在这种情况下，该函数仅在两个提供的索引之间搜索
+   #+END_EXAMPLE
+*** Comparator 二分搜索
+    如果列表元素不是 Comparable，则应提供一个用于二分搜索的 Comparator。 该列表必须根据此 Comparator 以升序排序：
+
+    #+BEGIN_SRC kotlin 
+  data class Product(val name: String, val price: Double)
+
+  fun main() {
+  //sampleStart
+      val productList = listOf(
+	  Product("WebStorm", 49.0),
+	  Product("AppCode", 99.0),
+	  Product("DotTrace", 129.0),
+	  Product("ReSharper", 149.0))
+
+      println(productList.binarySearch(Product("AppCode", 99.0), compareBy<Product> { it.price }.thenBy { it.name }))
+  //sampleEnd
+  }
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      这是一个不可排序的 Product 实例列表，以及一个定义排序的 Comparator：如果 p1 的价格小于 p2 的价格，则产品 p1 在产品 p2 之前
+
+      因此，按照此顺序对列表进行升序排序后，使用 binarySearch() 查找指定的 Product的索引
+    #+END_EXAMPLE
+
+    当列表使用与自然排序不同的顺序时（例如，对 String 元素不区分大小写的顺序），自定义 Comparator 也很方便 
+
+    #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val colors = listOf("Blue", "green", "ORANGE", "Red", "yellow")
+      println(colors.binarySearch("RED", String.CASE_INSENSITIVE_ORDER)) // 3
+  //sampleEnd
+  }
+    #+END_SRC
+
+*** 比较函数二分搜索
+    使用 _比较_ 函数的二分搜索无需提供明确的搜索值即可查找元素。 取而代之的是，它使用一个比较函数将 _元素_ *映射* 到 _Int_ 值，并 *搜索* 函数返回 _0_ 的元素
+
+    #+BEGIN_EXAMPLE
+      该列表必须根据提供的函数以升序排序；换句话说，比较的返回值必须从一个列表元素增长到下一个列表元素
+    #+END_EXAMPLE
+
+    #+BEGIN_SRC kotlin 
+  import kotlin.math.sign
+  //sampleStart
+  data class Product(val name: String, val price: Double)
+
+  fun priceComparison(product: Product, price: Double) = sign(product.price - price).toInt()
+
+  fun main() {
+      val productList = listOf(
+	  Product("WebStorm", 49.0),
+	  Product("AppCode", 99.0),
+	  Product("DotTrace", 129.0),
+	  Product("ReSharper", 149.0))
+
+      println(productList.binarySearch { priceComparison(it, 99.0) })
+  }
+  //sampleEnd
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      Comparator 与比较函数二分搜索都可以针对列表区间执行
+    #+END_EXAMPLE
+
+* List 写操作
+  除了集合写操作中描述的集合修改操作之外，可变列表还支持特定的写操作。 这些操作使用索引来访问元素以扩展列表修改功能
+
+
+** 添加
+   要将元素添加到列表中的特定位置，请使用 _add()_ 或 _addAll()_ 并提供元素插入的位置作为附加参数。 位置之后的所有元素都将向右移动 
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = mutableListOf("one", "five", "six")
+      numbers.add(1, "two")
+      numbers.addAll(2, listOf("three", "four"))
+      println(numbers)
+  //sampleEnd
+  }
+   #+END_SRC
+
+
+** 更新
+   列表还提供了在指定位置替换元素的函数 _set()_ 及其操作符形式 _[]_ 
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = mutableListOf("one", "five", "three")
+      numbers[1] =  "two"
+      println(numbers)
+  //sampleEnd
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     set() 不会更改其他元素的索引
+   #+END_EXAMPLE
+
+   _fill()_ 简单地将所有集合元素的值替换为指定值
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = mutableListOf(1, 2, 3, 4)
+      numbers.fill(3)
+      println(numbers)
+  //sampleEnd
+  }
+   #+END_SRC
+
+** 删除
+   要从列表中删除指定位置的元素，请使用 _removeAt()_ 函数，并将位置作为参数。 在元素被删除之后出现的所有元素索引将减 1 
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = mutableListOf(1, 2, 3, 4, 3)    
+      numbers.removeAt(1)
+      println(numbers)
+  //sampleEnd
+  }
+   #+END_SRC
+
+** 排序
+   在集合排序中，描述了按特定顺序检索集合元素的操作。 对于可变列表，标准库中提供了类似的扩展函数，这些扩展函数可以执行相同的排序操作。将此类操作应用于列表实例时，它将 *更改* 指定实例中元素的 _顺序_ 。这些排序函数的名称与应用于只读列表的函数的名称相似：
+   + sort* 在所有排序函数的名称中代替 sorted*： _sort()_ 、 _sortDescending()_ 、 _sortBy()_ 等等
+   + _shuffle()_ 代替 shuffled()
+   + _reverse()_ 代替 reversed()
+
+   #+BEGIN_SRC kotlin 
+  fun main() {
+  //sampleStart
+      val numbers = mutableListOf("one", "two", "three", "four")
+
+      numbers.sort()
+      println("Sort into ascending: $numbers")
+      numbers.sortDescending()
+      println("Sort into descending: $numbers")
+
+      numbers.sortBy { it.length }
+      println("Sort into ascending by length: $numbers")
+      numbers.sortByDescending { it.last() }
+      println("Sort into descending by the last letter: $numbers")
+
+      numbers.sortWith(compareBy<String> { it.length }.thenBy { it })
+      println("Sort by Comparator: $numbers")
+
+      numbers.shuffle()
+      println("Shuffle: $numbers")
+
+      numbers.reverse()
+      println("Reverse: $numbers")
+  //sampleEnd
+  }
+   #+END_SRC
+
+   #+BEGIN_EXAMPLE
+     asReversed() 在可变列表上调用会返回另一个可变列表，该列表是原始列表的反向视图
+
+     注意： 原始列表的索引顺序并不改变，但在该视图中的值更改将反映在原始列表中
+   #+END_EXAMPLE
+
+   #+ATTR_HTML: :border 1 :rules all :frame boader
+   | [[file:set.org][Next: Set]] | [[file:write.org][Previous：更改]] | [[file:collections.org][Home：集合]] |
