@@ -156,4 +156,49 @@ We are going to start our journey in OS development by writing a small, bare-met
     However, arm_control flag is undocumented and it is preferable to use kernel8.img naming convention instead
   #+END_EXAMPLE
 * The linker script
+  The primary purpose of the linker script is to describe how the sections in the input object files ( _c.o_ and _s.o_ ) should be mapped into the output file ( _.elf_ )
+
+  #+BEGIN_EXAMPLE
+    More information about linker scripts can be found: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
+  #+END_EXAMPLE
+
+  Now let's take a look at the RPi OS linker script:
+
+  #+BEGIN_SRC sh 
+  SECTIONS
+  {
+      .text.boot : { *(.text.boot) }
+      .text :  { *(.text) }
+      .rodata : { *(.rodata) }
+      .data : { *(.data) }
+      . = ALIGN(0x8);
+      bss_begin = .;
+      .bss : { *(.bss*) } 
+      bss_end = .;
+  }
+  #+END_SRC
+
+  1. After startup, the Raspberry Pi loads _kernel8.img_ into memory and starts execution from the beginning of the file. That's why the _.text.boot section_ must be first
+     #+BEGIN_EXAMPLE
+       we are going to put the OS startup code inside this section
+     #+END_EXAMPLE
+  2. The _.text_ , _.rodata_ , and _.data_ sections contain *kernel-compiled* _instructions_ , _read-only data_ , and _normal data_ 
+  3. The _.bss_ section contains data that should be initialized to 0:
+     + By putting such data in a separate section, the compiler can save some space in the ELF binary
+       #+BEGIN_EXAMPLE
+	 only the section size is stored in the ELF header, but the section itself is omitted
+       #+END_EXAMPLE
+     + After loading the image into memory, we must initialize the .bss section to 0
+       #+BEGIN_EXAMPLE
+	 that's why we need to record the start and end of the section
+
+	 hence the bss_begin and bss_end symbols
+       #+END_EXAMPLE
+     + align the section so that it starts at an address that is a _multiple_ of 8
+       #+BEGIN_EXAMPLE
+	 If the section is not aligned, it would be more difficult to use the str instruction to store 0 at the beginning of the bss section
+
+	 because the str instruction can be used only with 8-byte-aligned addresses
+       #+END_EXAMPLE
+* Booting the kernel
 

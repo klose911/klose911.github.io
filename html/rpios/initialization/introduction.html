@@ -241,6 +241,7 @@ for the JavaScript code in this tag.
 <li><a href="#org7c2c542">Project structure</a></li>
 <li><a href="#org42035ff">Makefile</a></li>
 <li><a href="#orge171d7a">The linker script</a></li>
+<li><a href="#org3fc748b">Booting the kernel</a></li>
 </ul>
 </div>
 </div>
@@ -458,6 +459,72 @@ However, arm_control flag is undocumented and it is preferable to use kernel8.im
 </div>
 <div id="outline-container-orge171d7a" class="outline-2">
 <h2 id="orge171d7a">The linker script</h2>
+<div class="outline-text-2" id="text-orge171d7a">
+<p>
+The primary purpose of the linker script is to describe how the sections in the input object files ( <span class="underline">c.o</span> and <span class="underline">s.o</span> ) should be mapped into the output file ( <span class="underline">.elf</span> )
+</p>
+
+<pre class="example">
+More information about linker scripts can be found: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
+</pre>
+
+<p>
+Now let's take a look at the RPi OS linker script:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">SECTIONS
+{
+    .text.boot : { *(.text.boot) }
+    .text :  { *(.text) }
+    .rodata : { *(.rodata) }
+    .data : { *(.data) }
+    <span style="color: #f08080;">.</span> = ALIGN(0x8);
+    bss_begin = .;
+    .bss : { *(.bss*) } 
+    bss_end = .;
+}
+</pre>
+</div>
+
+<ol class="org-ol">
+<li><p>
+After startup, the Raspberry Pi loads <span class="underline">kernel8.img</span> into memory and starts execution from the beginning of the file. That's why the <span class="underline">.text.boot section</span> must be first
+</p>
+<pre class="example">
+we are going to put the OS startup code inside this section
+</pre></li>
+<li>The <span class="underline">.text</span> , <span class="underline">.rodata</span> , and <span class="underline">.data</span> sections contain <b>kernel-compiled</b> <span class="underline">instructions</span> , <span class="underline">read-only data</span> , and <span class="underline">normal data</span></li>
+<li>The <span class="underline">.bss</span> section contains data that should be initialized to 0:
+<ul class="org-ul">
+<li><p>
+By putting such data in a separate section, the compiler can save some space in the ELF binary
+</p>
+<pre class="example">
+only the section size is stored in the ELF header, but the section itself is omitted
+</pre></li>
+<li><p>
+After loading the image into memory, we must initialize the .bss section to 0
+</p>
+<pre class="example">
+that's why we need to record the start and end of the section
+
+hence the bss_begin and bss_end symbols
+</pre></li>
+<li><p>
+align the section so that it starts at an address that is a <span class="underline">multiple</span> of 8
+</p>
+<pre class="example">
+If the section is not aligned, it would be more difficult to use the str instruction to store 0 at the beginning of the bss section
+
+because the str instruction can be used only with 8-byte-aligned addresses
+</pre></li>
+</ul></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org3fc748b" class="outline-2">
+<h2 id="org3fc748b">Booting the kernel</h2>
 </div>
 </div>
 <div id="postamble" class="status">
