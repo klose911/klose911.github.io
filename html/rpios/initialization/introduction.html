@@ -241,7 +241,21 @@ for the JavaScript code in this tag.
 <li><a href="#org7c2c542">Project structure</a></li>
 <li><a href="#org42035ff">Makefile</a></li>
 <li><a href="#orge171d7a">The linker script</a></li>
-<li><a href="#org3fc748b">Booting the kernel</a></li>
+<li><a href="#org3fc748b">Booting the kernel</a>
+<ul>
+<li><a href="#org8b2ac13">assembler instructions</a></li>
+</ul>
+</li>
+<li><a href="#org7ed2742">The kernel_main function</a>
+<ul>
+<li><a href="#org00fed48">Raspberry Pi devices</a>
+<ul>
+<li><a href="#org0277f77">GPIO</a></li>
+</ul>
+</li>
+<li><a href="#org64ccbc4">Mini UART initialization</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -525,6 +539,260 @@ because the str instruction can be used only with 8-byte-aligned addresses
 </div>
 <div id="outline-container-org3fc748b" class="outline-2">
 <h2 id="org3fc748b">Booting the kernel</h2>
+<div class="outline-text-2" id="text-org3fc748b">
+<p>
+Now it is time to take a look at the <span class="underline">boot.S</span> file. This file contains the kernel startup code:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #ffd700;">#include</span> <span style="color: #deb887;">"mm.h"</span>
+
+<span style="color: #00bfff; font-weight: bold;">.section</span> <span style="color: #deb887;">".text.boot"</span>
+
+<span style="color: #00bfff; font-weight: bold;">.globl</span> _start
+<span style="color: #daa520; font-weight: bold;">_start</span>:
+    <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, mpidr_el1        
+    <span style="color: #00bfff; font-weight: bold;">and</span>    x0, x0,#0xFF        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check processor id</span>
+    <span style="color: #00bfff; font-weight: bold;">cbz</span>    x0, master        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Hang for all non-primary CPU</span>
+    <span style="color: #00bfff; font-weight: bold;">b</span>    proc_hang
+
+<span style="color: #daa520; font-weight: bold;">proc_hang</span>: 
+    <span style="color: #00bfff; font-weight: bold;">b</span> proc_hang
+
+<span style="color: #daa520; font-weight: bold;">master</span>:
+    <span style="color: #00bfff; font-weight: bold;">adr</span>    x0, bss_begin
+    <span style="color: #00bfff; font-weight: bold;">adr</span>    x1, bss_end
+    <span style="color: #00bfff; font-weight: bold;">sub</span>    x1, x1, x0
+    <span style="color: #00bfff; font-weight: bold;">bl</span>     memzero
+
+    <span style="color: #00bfff; font-weight: bold;">mov</span>    sp, #LOW_MEMORY
+    <span style="color: #00bfff; font-weight: bold;">bl</span>    kernel_main
+</pre>
+</div>
+
+<p>
+Let's review this file in detail:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.section</span> <span style="color: #deb887;">".text.boot"</span>
+</pre>
+</div>
+
+
+<p>
+First, we specify that everything defined in boot.S should go in the <span class="underline">.text.boot</span> section. Previously, we saw that this section is placed at the beginning of the kernel image by the linker script. So when the kernel is started, execution begins at the <span class="underline">start</span> function: 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.globl</span> _start
+<span style="color: #daa520; font-weight: bold;">_start</span>:
+    <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, mpidr_el1        
+    <span style="color: #00bfff; font-weight: bold;">and</span>    x0, x0,#0xFF        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check processor id</span>
+    <span style="color: #00bfff; font-weight: bold;">cbz</span>    x0, master        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Hang for all non-primary CPU</span>
+    <span style="color: #00bfff; font-weight: bold;">b</span>    proc_hang
+</pre>
+</div>
+
+<p>
+The first thing this function does is check the processor ID. The Raspberry Pi 3 has four core processors, and after the device is powered on, each core begins to execute the same code
+</p>
+
+<pre class="example">
+However, we don't want to work with four cores
+
+we want to work only with the first one and put all of the other cores in an endless loop
+</pre>
+
+<p>
+This is exactly what the start function is responsible for. It gets the processor ID from the <span class="underline">mpidr_el1</span> system register. If the current process ID is 0, then execution is transferred to the master function:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">master</span>:
+    <span style="color: #00bfff; font-weight: bold;">adr</span>    x0, bss_begin
+    <span style="color: #00bfff; font-weight: bold;">adr</span>    x1, bss_end
+    <span style="color: #00bfff; font-weight: bold;">sub</span>    x1, x1, x0
+    <span style="color: #00bfff; font-weight: bold;">bl</span>     memzero
+</pre>
+</div>
+
+
+<p>
+Here, we clean the <span class="underline">.bss</span> section by calling <span class="underline">memzero</span> 
+</p>
+
+<pre class="example">
+We will define this function memzero later
+
+In ARMv8 architecture, by convention, the first seven arguments are passed to the called function via registers x0 ~ x6
+
+The memzero function accepts only two arguments: the start address (bss_begin) and the size of the section needed to be cleaned (bss_end - bss_begin) 
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">sp</span>, #LOW_MEMORY
+ <span style="color: #00bfff; font-weight: bold;">bl</span>    kernel_main
+</pre>
+</div>
+
+<p>
+After cleaning the .bss section, we <b>initialize</b> the <span class="underline">stack pointer</span> and pass <b>execution</b> to the <span class="underline">kernel_main</span> function. The Raspberry Pi loads the kernel at address <span class="underline">0</span> 
+</p>
+
+<pre class="example">
+that's why the initial stack pointer can be set to any location high enough so that stack will not override the kernel image when it grows sufficiently large
+</pre>
+
+<p>
+<span class="underline">LOW_MEMORY</span> is defined in <span class="underline">mm.h</span> and is equal to <span class="underline">4MB</span> 
+</p>
+
+<pre class="example">
+Our kernel's stack won't grow very large and the image itself is tiny
+
+so 4MB is more than enough for us
+</pre>
+</div>
+<div id="outline-container-org8b2ac13" class="outline-3">
+<h3 id="org8b2ac13">assembler instructions</h3>
+<div class="outline-text-3" id="text-org8b2ac13">
+<p>
+For those of you who are not familiar with ARM assembler syntax, let me quickly summarize the instructions that we have used:
+</p>
+<ul class="org-ul">
+<li>mrs: Load value from a system register to one of the general purpose registers x0 ~ x30</li>
+<li><p>
+and: Perform the logical AND operation
+</p>
+<pre class="example">
+We use this command to strip the last byte from the value we obtain from the mpidr_el1 register
+</pre></li>
+<li>cbz: Compare the result of the previously executed operation to <span class="underline">0</span> and <b>jump</b> (or branch in ARM terminology) to the provided label if the comparison yields <span class="underline">true</span></li>
+<li>b: Perform an unconditional branch to some label</li>
+<li><p>
+adr: Load a label's relative address into the target register
+</p>
+<pre class="example">
+In this case, we want pointers to the start and end of the .bss region
+</pre></li>
+<li>sub: Subtract values from two registers</li>
+<li><p>
+bl: perform an unconditional branch and store the <b>return address</b> in <span class="underline">x30</span> (the link register)
+</p>
+<pre class="example">
+Branch With a link:
+
+When the subroutine is finished, use the ret instruction to jump back to the return address
+</pre></li>
+<li>mov: Move a value between registers or from a constant to a register</li>
+</ul>
+</div>
+</div>
+</div>
+<div id="outline-container-org7ed2742" class="outline-2">
+<h2 id="org7ed2742">The kernel_main function</h2>
+<div class="outline-text-2" id="text-org7ed2742">
+<p>
+We have seen that the boot code eventually passes control to the <span class="underline">kernel_main</span> function. Let's take a look at it:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ffd700;">#include</span> <span style="color: #deb887;">"mini_uart.h"</span>
+
+<span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">kernel_main</span>(<span style="color: #98f5ff;">void</span>)
+{
+    uart_init();
+    uart_send_string(<span style="color: #deb887;">"Hello, world!\r\n"</span>);
+
+    <span style="color: #00bfff; font-weight: bold;">while</span> (1) {
+        uart_send(uart_recv());
+    }
+}
+</pre>
+</div>
+
+<p>
+This function is one of the simplest in the kernel. It works with the <span class="underline">Mini UART</span> device to print to screen and read user input. The kernel just prints Hello, world! and then enters an infinite loop that reads characters from the user and sends them back to the screen
+</p>
+</div>
+<div id="outline-container-org00fed48" class="outline-3">
+<h3 id="org00fed48">Raspberry Pi devices</h3>
+<div class="outline-text-3" id="text-org00fed48">
+<p>
+Now we are going to dig into something specific to the Raspberry Pi
+</p>
+
+<pre class="example">
+Before we begin, I recommend that you download the BCM2837 ARM Peripherals manual
+</pre>
+
+<p>
+<span class="underline">BCM2837</span> is a board that is used by the Raspberry Pi 3 Models B, and B+
+</p>
+
+<pre class="example">
+Sometime in our discussion, I will also mention BCM2835 and BCM2836 - those are names of the board used in older versions of the Raspberry Pi
+</pre>
+
+<p>
+Before we proceed to the implementation details, I want to share some basic concepts on how to work with <b>memory-mapped</b> devices. BCM2837 is a simple <span class="underline">SOC</span> (System on a chip) board. In such a board, access to all devices is performed via memory-mapped registers. The Raspberry Pi 3 reserves the memory above address <span class="underline">0x3F000000</span> for <b>devices</b> . To activate or configure a particular device, you need to write some data in one of the device's registers. A device register is just a <span class="underline">32-bit</span> region of memory. The meaning of each bit in each device register is described in the BCM2837 ARM Peripherals manual
+</p>
+
+<pre class="example">
+Take a look at section 1.2.3 ARM physical addresses in the manual and the surrounding documentation for more context on why we use 0x3F000000 as a base address
+
+even though 0x7E000000 is used throughout the manual
+</pre>
+
+<p>
+From the kernel_main function, you can guess that we are going to work with a Mini UART device. UART stands for <span class="underline">Universal asynchronous receiver-transmitter</span> (通用异步接收器). This device is capable of converting values stored in one of its memory mapped registers to a sequence of high and low voltages. This sequence is passed to your computer via the <span class="underline">TTL-to-serial</span> cable and is interpreted by your terminal emulator 
+</p>
+
+<pre class="example">
+We are going to use the Mini UART to facilitate communication with our Raspberry Pi
+
+If you want to see the specification of the Mini UART registers, please go to page 8 of the BCM2837 ARM Peripherals manual
+</pre>
+
+<p>
+A Raspberry Pi has two UARTs:  <span class="underline">Mini UART</span> and <span class="underline">PL011 UART</span>
+</p>
+
+<pre class="example">
+There is, however, an optional exercise that shows how to work with PL011 UART
+
+You can refer to the official documentation if you want to find out more about Raspberry Pi UARTs and learn the difference between them
+</pre>
+</div>
+<div id="outline-container-org0277f77" class="outline-4">
+<h4 id="org0277f77">GPIO</h4>
+<div class="outline-text-4" id="text-org0277f77">
+<p>
+Another device that you need to familiarize yourself with is the <b>GPIO</b> <span class="underline">General-purpose input/output</span> . GPIOs are responsible for controlling GPIO pins. You should be able to easily recognize them in the image below:
+</p>
+
+
+<div class="figure">
+<p><img src="../pic/gpio-pins.jpg" alt="gpio-pins.jpg" width="70%" />
+</p>
+</div>
+
+<p>
+The GPIO can be used to configure the behavior of different GPIO pins. For example, to be able to use the Mini UART, we need to activate <span class="underline">pins 14</span> and <span class="underline">15</span> and set them up to use this device. The image below illustrates how numbers are assigned to the GPIO pins:
+</p>
+
+
+<div class="figure">
+<p><img src="../pic/gpio-numbers.png" alt="gpio-numbers.png" width="70%" />
+</p>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org64ccbc4" class="outline-3">
+<h3 id="org64ccbc4">Mini UART initialization</h3>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
