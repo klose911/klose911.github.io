@@ -6,10 +6,10 @@
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Introducing RPi OS, or bare-metal "Hello, World!"</title>
-<meta name="generator" content="Org mode" />
 <meta name="author" content="Wu, Shanliang" />
-<style type="text/css">
- <!--/*--><![CDATA[/*><!--*/
+<meta name="generator" content="Org Mode" />
+<style>
+  #content { max-width: 60em; margin: auto; }
   .title  { text-align: center;
              margin-bottom: .2em; }
   .subtitle { text-align: center;
@@ -30,8 +30,9 @@
   #postamble p, #preamble p { font-size: 90%; margin: .2em; }
   p.verse { margin-left: 3%; }
   pre {
-    border: 1px solid #ccc;
-    box-shadow: 3px 3px 3px #eee;
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
     padding: 8pt;
     font-family: monospace;
     overflow: auto;
@@ -39,22 +40,22 @@
   }
   pre.src {
     position: relative;
-    overflow: visible;
-    padding-top: 1.2em;
+    overflow: auto;
   }
   pre.src:before {
     display: none;
     position: absolute;
-    background-color: white;
-    top: -10px;
-    right: 10px;
+    top: -8px;
+    right: 12px;
     padding: 3px;
-    border: 1px solid black;
+    color: #555;
+    background-color: #f2f2f299;
   }
-  pre.src:hover:before { display: inline;}
+  pre.src:hover:before { display: inline; margin-top: 14px;}
   /* Languages per Org manual */
   pre.src-asymptote:before { content: 'Asymptote'; }
   pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
   pre.src-C:before { content: 'C'; }
   /* pre.src-C++ doesn't work in CSS */
   pre.src-clojure:before { content: 'Clojure'; }
@@ -160,6 +161,19 @@
   .footdef  { margin-bottom: 1em; }
   .figure { padding: 1em; }
   .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
   .inlinetask {
     padding: 10px;
     border: 2px solid gray;
@@ -177,102 +191,56 @@
   .org-info-js_search-highlight
     { background-color: #ffff00; color: #000000; font-weight: bold; }
   .org-svg { width: 90%; }
-  /*]]>*/-->
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
-<script type="text/javascript">
-/*
-@licstart  The following is the entire license notice for the
-JavaScript code in this tag.
-
-Copyright (C) 2012-2019 Free Software Foundation, Inc.
-
-The JavaScript code in this tag is free software: you can
-redistribute it and/or modify it under the terms of the GNU
-General Public License (GNU GPL) as published by the Free Software
-Foundation, either version 3 of the License, or (at your option)
-any later version.  The code is distributed WITHOUT ANY WARRANTY;
-without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
-
-As additional permission under GNU GPL version 3 section 7, you
-may distribute non-source (e.g., minimized or compacted) forms of
-that code without the copy of the GNU GPL normally required by
-section 4, provided you include this license notice and a URL
-through which recipients can access the Corresponding Source.
-
-
-@licend  The above is the entire license notice
-for the JavaScript code in this tag.
-*/
-<!--/*--><![CDATA[/*><!--*/
- function CodeHighlightOn(elem, id)
- {
-   var target = document.getElementById(id);
-   if(null != target) {
-     elem.cacheClassElem = elem.className;
-     elem.cacheClassTarget = target.className;
-     target.className = "code-highlighted";
-     elem.className   = "code-highlighted";
-   }
- }
- function CodeHighlightOff(elem, id)
- {
-   var target = document.getElementById(id);
-   if(elem.cacheClassElem)
-     elem.className = elem.cacheClassElem;
-   if(elem.cacheClassTarget)
-     target.className = elem.cacheClassTarget;
- }
-/*]]>*///-->
-</script>
 </head>
 <body>
 <div id="org-div-home-and-up">
  <a accesskey="h" href=""> UP </a>
  |
  <a accesskey="H" href="./initialization.html"> HOME </a>
-</div><div id="content">
+</div><div id="content" class="content">
 <h1 class="title">Introducing RPi OS, or bare-metal "Hello, World!"</h1>
-<div id="table-of-contents">
+<div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
-<div id="text-table-of-contents">
+<div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org7c2c542">Project structure</a></li>
-<li><a href="#org42035ff">Makefile</a></li>
-<li><a href="#orge171d7a">The linker script</a></li>
-<li><a href="#org3fc748b">Booting the kernel</a>
+<li><a href="#org5d5f8e9">Project structure</a></li>
+<li><a href="#orgcdb8261">Makefile</a></li>
+<li><a href="#org7cc1d32">The linker script</a></li>
+<li><a href="#orgce842b2">Booting the kernel</a>
 <ul>
-<li><a href="#org8b2ac13">assembler instructions</a></li>
+<li><a href="#orgcdea281">assembler instructions</a></li>
 </ul>
 </li>
-<li><a href="#org7ed2742">The kernel_main function</a>
+<li><a href="#org3f9fd33">The kernel_main function</a>
 <ul>
-<li><a href="#org00fed48">Raspberry Pi devices</a>
+<li><a href="#orgd26d045">Raspberry Pi devices</a>
 <ul>
-<li><a href="#org0277f77">GPIO</a></li>
+<li><a href="#orgbd761a1">GPIO</a></li>
 </ul>
 </li>
-<li><a href="#org64ccbc4">Mini UART initialization</a>
+<li><a href="#orgda891db">Mini UART initialization</a>
 <ul>
-<li><a href="#org87a53a1">GPIO alternative function selection</a></li>
-<li><a href="#org7075ade">GPIO pull-up/down</a></li>
-<li><a href="#org92d0206">Initializing the Mini UART</a></li>
+<li><a href="#orgaa73207">GPIO alternative function selection</a></li>
+<li><a href="#orge6cc327">GPIO pull-up/down</a></li>
+<li><a href="#org72f81eb">Initializing the Mini UART</a></li>
 </ul>
 </li>
-<li><a href="#orge6bbc1f">Sending data using the Mini UART</a></li>
+<li><a href="#org9ff1731">Sending data using the Mini UART</a></li>
 </ul>
 </li>
-<li><a href="#org0ff83e3">Raspberry Pi config</a></li>
+<li><a href="#org407de89">Raspberry Pi config</a></li>
+<li><a href="#org6cee46d">Testing the kernel</a></li>
 </ul>
 </div>
 </div>
 <p>
 We are going to start our journey in OS development by writing a small, bare-metal "Hello, World" application. 
 </p>
-<div id="outline-container-org7c2c542" class="outline-2">
-<h2 id="org7c2c542">Project structure</h2>
-<div class="outline-text-2" id="text-org7c2c542">
+<div id="outline-container-org5d5f8e9" class="outline-2">
+<h2 id="org5d5f8e9">Project structure</h2>
+<div class="outline-text-2" id="text-org5d5f8e9">
 <p>
 Let's briefly describe the main components of this folder:
 </p>
@@ -284,9 +252,9 @@ Let's briefly describe the main components of this folder:
 </ol>
 </div>
 </div>
-<div id="outline-container-org42035ff" class="outline-2">
-<h2 id="org42035ff">Makefile</h2>
-<div class="outline-text-2" id="text-org42035ff">
+<div id="outline-container-orgcdb8261" class="outline-2">
+<h2 id="orgcdb8261">Makefile</h2>
+<div class="outline-text-2" id="text-orgcdb8261">
 <p>
 Now let's take a closer look at the project Makefile. The primary purpose of the make utility is to automatically determine what pieces of a program need to be recompiled, and to issue commands to recompile them. If you are not familiar with make and Makefiles, I recommend that you read this article. The Makefile used in the first lesson can be found here. The whole Makefile is listed below:
 </p>
@@ -303,26 +271,26 @@ SRC_DIR = src
 all : kernel8.img
 
 clean :
-    rm -rf $(<span style="color: #fa8072;">BUILD_DIR</span>) *.img 
+rm -rf $(BUILD_DIR) *.img 
 
-$(<span style="color: #fa8072;">BUILD_DIR</span>)/%_c.o: $(<span style="color: #fa8072;">SRC_DIR</span>)/%.c
-    mkdir -p $(@D)
-    $(<span style="color: #fa8072;">ARMGNU</span>)-gcc $(<span style="color: #fa8072;">COPS</span>) -MMD -c $&lt; -o $<span style="color: #4eee94;">@</span>
+$(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
+mkdir -p $(@D)
+$(ARMGNU)-gcc $(COPS) -MMD -c $&lt; -o $<span style="color: #4eee94;">@</span>
 
-$(<span style="color: #fa8072;">BUILD_DIR</span>)/%_s.o: $(<span style="color: #fa8072;">SRC_DIR</span>)/%.S
-    $(<span style="color: #fa8072;">ARMGNU</span>)-gcc $(<span style="color: #fa8072;">ASMOPS</span>) -MMD -c $&lt; -o $<span style="color: #4eee94;">@</span>
+$(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
+$(ARMGNU)-gcc $(ASMOPS) -MMD -c $&lt; -o $<span style="color: #4eee94;">@</span>
 
-C_FILES = $(<span style="color: #fa8072;">wildcard</span> $(<span style="color: #fa8072;">SRC_DIR</span>)/*.c)
-ASM_FILES = $(<span style="color: #fa8072;">wildcard</span> $(<span style="color: #fa8072;">SRC_DIR</span>)/*.S)
-OBJ_FILES = $(<span style="color: #fa8072;">C_FILES</span>:$(<span style="color: #fa8072;">SRC_DIR</span>)/%.c=$(<span style="color: #fa8072;">BUILD_DIR</span>)/%_c.o)
-OBJ_FILES += $(<span style="color: #fa8072;">ASM_FILES</span>:$(<span style="color: #fa8072;">SRC_DIR</span>)/%.S=$(<span style="color: #fa8072;">BUILD_DIR</span>)/%_s.o)
+C_FILES = $(wildcard $(SRC_DIR)/*.c)
+ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
+OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
+OBJ_FILES += $(ASM_FILES:$(SRC_DIR)/%.S=$(BUILD_DIR)/%_s.o)
 
-DEP_FILES = $(<span style="color: #fa8072;">OBJ_FILES</span>:%.o=%.d)
--include $(<span style="color: #fa8072;">DEP_FILES</span>)
+DEP_FILES = $(OBJ_FILES:%.o=%.d)
+-include $(DEP_FILES)
 
-kernel8.img: $(<span style="color: #fa8072;">SRC_DIR</span>)/linker.ld $(<span style="color: #fa8072;">OBJ_FILES</span>)
-    $(<span style="color: #fa8072;">ARMGNU</span>)-ld -T $(<span style="color: #fa8072;">SRC_DIR</span>)/linker.ld -o $(<span style="color: #fa8072;">BUILD_DIR</span>)/kernel8.elf  $(<span style="color: #fa8072;">OBJ_FILES</span>)
-    $(<span style="color: #fa8072;">ARMGNU</span>)-objcopy $(<span style="color: #fa8072;">BUILD_DIR</span>)/kernel8.elf -O binary kernel8.img
+kernel8.img: $(SRC_DIR)/linker.ld $(OBJ_FILES)
+$(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o $(BUILD_DIR)/kernel8.elf  $(OBJ_FILES)
+$(ARMGNU)-objcopy $(BUILD_DIR)/kernel8.elf -O binary kernel8.img
 </pre>
 </div>
 
@@ -354,7 +322,7 @@ ASMOPS = -Iinclude
 <li><p>
 <span class="underline">-nostdlib</span> : Don't use the C standard library
 </p>
-<pre class="example">
+<pre class="example" id="org34d1098">
 Most of the calls in the C standard library eventually interact with the operating system
 
 We are writing a bare-metal program, and we don't have any underlying operating system
@@ -364,7 +332,7 @@ so the C standard library is not going to work for us anyway
 <li><p>
 <span class="underline">-nostartfiles</span> Don't use standard startup files
 </p>
-<pre class="example">
+<pre class="example" id="orgd1decf8">
 Startup files are responsible for setting an initial stack pointer, initializing static data, and jumping to the main entry point
 
 We are going to do all of this by ourselves
@@ -372,17 +340,16 @@ We are going to do all of this by ourselves
 <li><p>
 <span class="underline">-ffreestanding</span> A freestanding environment is an environment in which the standard library may not exist, and program startup may not necessarily be at main
 </p>
-<pre class="example">
+<pre class="example" id="org0bcf051">
 The option -ffreestanding directs the compiler to not assume that standard functions have their usual definition
 </pre></li>
 <li><span class="underline">-Iinclude</span> : Search for header files in the include folder</li>
 <li><p>
 <span class="underline">-mgeneral-regs-only</span> : Use only general-purpose registers. ARM processors also have NEON registers. We don't want the compiler to use them because they add additional complexity 
 </p>
-<pre class="example">
+<pre class="example" id="org8dfb561">
 for example, we will need to store the registers during a context switch
-</pre></li>
-</ul>
+</pre>
 
 <div class="org-src-container">
 <pre class="src src-sh">BUILD_DIR = build
@@ -398,7 +365,7 @@ SRC_DIR = src
 <pre class="src src-sh">all : kernel8.img
 
 clean :
-    rm -rf $(<span style="color: #fa8072;">BUILD_DIR</span>) *.img 
+rm -rf $(BUILD_DIR) *.img 
 </pre>
 </div>
 
@@ -411,12 +378,12 @@ Next, we define make targets. The first two targets are pretty simple:
 </ul>
 
 <div class="org-src-container">
-<pre class="src src-sh">$(<span style="color: #fa8072;">BUILD_DIR</span>)/%_c.o: $(<span style="color: #fa8072;">SRC_DIR</span>)/%.c
-    mkdir -p $(@D)
-    $(<span style="color: #fa8072;">ARMGNU</span>)-gcc $(<span style="color: #fa8072;">COPS</span>) -MMD -c $&lt; -o $<span style="color: #4eee94;">@</span>
+<pre class="src src-sh">$(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
+mkdir -p $(@D)
+$(ARMGNU)-gcc $(COPS) -MMD -c $&lt; -o $<span style="color: #4eee94;">@</span>
 
-$(<span style="color: #fa8072;">BUILD_DIR</span>)/%_s.o: $(<span style="color: #fa8072;">SRC_DIR</span>)/%.S
-    $(<span style="color: #fa8072;">ARMGNU</span>)-gcc $(<span style="color: #fa8072;">ASMOPS</span>) -MMD -c $&lt; -o $<span style="color: #4eee94;">@</span>
+$(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
+$(ARMGNU)-gcc $(ASMOPS) -MMD -c $&lt; -o $<span style="color: #4eee94;">@</span>
 </pre>
 </div>
 
@@ -425,10 +392,10 @@ The next two targets are responsible for compiling C and assembler files. If, fo
 </p>
 
 <div class="org-src-container">
-<pre class="src src-sh">C_FILES = $(<span style="color: #fa8072;">wildcard</span> $(<span style="color: #fa8072;">SRC_DIR</span>)/*.c)
-ASM_FILES = $(<span style="color: #fa8072;">wildcard</span> $(<span style="color: #fa8072;">SRC_DIR</span>)/*.S)
-OBJ_FILES = $(<span style="color: #fa8072;">C_FILES</span>:$(<span style="color: #fa8072;">SRC_DIR</span>)/%.c=$(<span style="color: #fa8072;">BUILD_DIR</span>)/%_c.o)
-OBJ_FILES += $(<span style="color: #fa8072;">ASM_FILES</span>:$(<span style="color: #fa8072;">SRC_DIR</span>)/%.S=$(<span style="color: #fa8072;">BUILD_DIR</span>)/%_s.o)
+<pre class="src src-sh">C_FILES = $(wildcard $(SRC_DIR)/*.c)
+ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
+OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
+OBJ_FILES += $(ASM_FILES:$(SRC_DIR)/%.S=$(BUILD_DIR)/%_s.o)
 </pre>
 </div>
 
@@ -437,8 +404,8 @@ Here we are building an array of all object files (OBJ_FILES) created from the c
 </p>
 
 <div class="org-src-container">
-<pre class="src src-sh">DEP_FILES = $(<span style="color: #fa8072;">OBJ_FILES</span>:%.o=%.d)
--include $(<span style="color: #fa8072;">DEP_FILES</span>)
+<pre class="src src-sh">DEP_FILES = $(OBJ_FILES:%.o=%.d)
+-include $(DEP_FILES)
 </pre>
 </div>
 
@@ -447,7 +414,7 @@ The next two lines are a little bit tricky. If you take a look at how we defined
 </p>
 
 <div class="org-src-container">
-<pre class="src src-sh">$(<span style="color: #fa8072;">ARMGNU</span>)-ld -T $(<span style="color: #fa8072;">SRC_DIR</span>)/linker.ld -o kernel8.elf  $(<span style="color: #fa8072;">OBJ_FILES</span>)
+<pre class="src src-sh">$(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o kernel8.elf  $(OBJ_FILES)
 </pre>
 </div>
 
@@ -456,7 +423,7 @@ We use the <span class="underline">OBJ_FILES</span> array to build the <span cla
 </p>
 
 <div class="org-src-container">
-<pre class="src src-sh">$(<span style="color: #fa8072;">ARMGNU</span>)-objcopy kernel8.elf -O binary kernel8.img
+<pre class="src src-sh">$(ARMGNU)-objcopy kernel8.elf -O binary kernel8.img
 </pre>
 </div>
 
@@ -464,7 +431,7 @@ We use the <span class="underline">OBJ_FILES</span> array to build the <span cla
 kernel8.elf is in the <b>ELF</b> format
 </p>
 
-<pre class="example">
+<pre class="example" id="org7e3ef99">
 The problem is that ELF files are designed to be executed by an operating system
 </pre>
 
@@ -472,21 +439,22 @@ The problem is that ELF files are designed to be executed by an operating system
 To write a bare-metal program, we need to extract all executable and data sections from the ELF file and put them into the kernel8.img image. The trailing <span class="underline">8</span> denotes ARMv8 which is a 64-bit architecture. This filename tells the firmware to <b>boot</b> the processor into <span class="underline">64-bit</span> mode. You can also boot the CPU in the 64-bit mode by using <span class="underline">arm_control=0x200</span> flag in the config.txt file
 </p>
 
-<pre class="example">
+<pre class="example" id="org67ae10e">
 The RPi OS previously used this method, and you can still find it in some of the exercise answers
 
 However, arm_control flag is undocumented and it is preferable to use kernel8.img naming convention instead
-</pre>
+</pre></li>
+</ul>
 </div>
 </div>
-<div id="outline-container-orge171d7a" class="outline-2">
-<h2 id="orge171d7a">The linker script</h2>
-<div class="outline-text-2" id="text-orge171d7a">
+<div id="outline-container-org7cc1d32" class="outline-2">
+<h2 id="org7cc1d32">The linker script</h2>
+<div class="outline-text-2" id="text-org7cc1d32">
 <p>
 The primary purpose of the linker script is to describe how the sections in the input object files ( <span class="underline">c.o</span> and <span class="underline">s.o</span> ) should be mapped into the output file ( <span class="underline">.elf</span> )
 </p>
 
-<pre class="example">
+<pre class="example" id="org4fdcc9d">
 More information about linker scripts can be found: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
 </pre>
 
@@ -501,7 +469,7 @@ Now let's take a look at the RPi OS linker script:
     .text :  { *(.text) }
     .rodata : { *(.rodata) }
     .data : { *(.data) }
-    <span style="color: #f08080;">.</span> = ALIGN(0x8);
+    . = ALIGN(0x8);
     bss_begin = .;
     .bss : { *(.bss*) } 
     bss_end = .;
@@ -513,7 +481,7 @@ Now let's take a look at the RPi OS linker script:
 <li><p>
 After startup, the Raspberry Pi loads <span class="underline">kernel8.img</span> into memory and starts execution from the beginning of the file. That's why the <span class="underline">.text.boot section</span> must be first
 </p>
-<pre class="example">
+<pre class="example" id="org6e8d424">
 we are going to put the OS startup code inside this section
 </pre></li>
 <li>The <span class="underline">.text</span> , <span class="underline">.rodata</span> , and <span class="underline">.data</span> sections contain <b>kernel-compiled</b> <span class="underline">instructions</span> , <span class="underline">read-only data</span> , and <span class="underline">normal data</span></li>
@@ -522,13 +490,13 @@ we are going to put the OS startup code inside this section
 <li><p>
 By putting such data in a separate section, the compiler can save some space in the ELF binary
 </p>
-<pre class="example">
+<pre class="example" id="orgc5f2ff4">
 only the section size is stored in the ELF header, but the section itself is omitted
 </pre></li>
 <li><p>
 After loading the image into memory, we must initialize the .bss section to 0
 </p>
-<pre class="example">
+<pre class="example" id="orgbfd8d5b">
 that's why we need to record the start and end of the section
 
 hence the bss_begin and bss_end symbols
@@ -536,7 +504,7 @@ hence the bss_begin and bss_end symbols
 <li><p>
 align the section so that it starts at an address that is a <span class="underline">multiple</span> of 8
 </p>
-<pre class="example">
+<pre class="example" id="orgdf4ff1e">
 If the section is not aligned, it would be more difficult to use the str instruction to store 0 at the beginning of the bss section
 
 because the str instruction can be used only with 8-byte-aligned addresses
@@ -545,36 +513,36 @@ because the str instruction can be used only with 8-byte-aligned addresses
 </ol>
 </div>
 </div>
-<div id="outline-container-org3fc748b" class="outline-2">
-<h2 id="org3fc748b">Booting the kernel</h2>
-<div class="outline-text-2" id="text-org3fc748b">
+<div id="outline-container-orgce842b2" class="outline-2">
+<h2 id="orgce842b2">Booting the kernel</h2>
+<div class="outline-text-2" id="text-orgce842b2">
 <p>
 Now it is time to take a look at the <span class="underline">boot.S</span> file. This file contains the kernel startup code:
 </p>
 
 <div class="org-src-container">
-<pre class="src src-asm"><span style="color: #ffd700;">#include</span> <span style="color: #deb887;">"mm.h"</span>
+<pre class="src src-asm">        #include <span style="color: #deb887;">"mm.h"</span>
 
-<span style="color: #00bfff; font-weight: bold;">.section</span> <span style="color: #deb887;">".text.boot"</span>
+        <span style="color: #00bfff; font-weight: bold;">.section</span> <span style="color: #deb887;">".text.boot"</span>
 
-<span style="color: #00bfff; font-weight: bold;">.globl</span> _start
+        <span style="color: #00bfff; font-weight: bold;">.globl</span> _start
 <span style="color: #daa520; font-weight: bold;">_start</span>:
-    <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, mpidr_el1        
-    <span style="color: #00bfff; font-weight: bold;">and</span>    x0, x0,#0xFF        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check processor id</span>
-    <span style="color: #00bfff; font-weight: bold;">cbz</span>    x0, master        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Hang for all non-primary CPU</span>
-    <span style="color: #00bfff; font-weight: bold;">b</span>    proc_hang
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, mpidr_el1        
+        <span style="color: #00bfff; font-weight: bold;">and</span>    x0, x0,#0xFF        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check processor id</span>
+        <span style="color: #00bfff; font-weight: bold;">cbz</span>    x0, master        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Hang for all non-primary CPU</span>
+        <span style="color: #00bfff; font-weight: bold;">b</span>    proc_hang
 
 <span style="color: #daa520; font-weight: bold;">proc_hang</span>: 
-    <span style="color: #00bfff; font-weight: bold;">b</span> proc_hang
+        <span style="color: #00bfff; font-weight: bold;">b</span> proc_hang
 
 <span style="color: #daa520; font-weight: bold;">master</span>:
-    <span style="color: #00bfff; font-weight: bold;">adr</span>    x0, bss_begin
-    <span style="color: #00bfff; font-weight: bold;">adr</span>    x1, bss_end
-    <span style="color: #00bfff; font-weight: bold;">sub</span>    x1, x1, x0
-    <span style="color: #00bfff; font-weight: bold;">bl</span>     memzero
+        <span style="color: #00bfff; font-weight: bold;">adr</span>    x0, bss_begin
+        <span style="color: #00bfff; font-weight: bold;">adr</span>    x1, bss_end
+        <span style="color: #00bfff; font-weight: bold;">sub</span>    x1, x1, x0
+        <span style="color: #00bfff; font-weight: bold;">bl</span>     memzero
 
-    <span style="color: #00bfff; font-weight: bold;">mov</span>    sp, #LOW_MEMORY
-    <span style="color: #00bfff; font-weight: bold;">bl</span>    kernel_main
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    sp, #LOW_MEMORY
+        <span style="color: #00bfff; font-weight: bold;">bl</span>    kernel_main
 </pre>
 </div>
 
@@ -593,12 +561,12 @@ First, we specify that everything defined in boot.S should go in the <span class
 </p>
 
 <div class="org-src-container">
-<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.globl</span> _start
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">.globl</span> _start
 <span style="color: #daa520; font-weight: bold;">_start</span>:
-    <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, mpidr_el1        
-    <span style="color: #00bfff; font-weight: bold;">and</span>    x0, x0,#0xFF        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check processor id</span>
-    <span style="color: #00bfff; font-weight: bold;">cbz</span>    x0, master        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Hang for all non-primary CPU</span>
-    <span style="color: #00bfff; font-weight: bold;">b</span>    proc_hang
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, mpidr_el1        
+        <span style="color: #00bfff; font-weight: bold;">and</span>    x0, x0,#0xFF        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check processor id</span>
+        <span style="color: #00bfff; font-weight: bold;">cbz</span>    x0, master        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Hang for all non-primary CPU</span>
+        <span style="color: #00bfff; font-weight: bold;">b</span>    proc_hang
 </pre>
 </div>
 
@@ -606,7 +574,7 @@ First, we specify that everything defined in boot.S should go in the <span class
 The first thing this function does is check the processor ID. The Raspberry Pi 3 has four core processors, and after the device is powered on, each core begins to execute the same code
 </p>
 
-<pre class="example">
+<pre class="example" id="org3ce542f">
 However, we don't want to work with four cores
 
 we want to work only with the first one and put all of the other cores in an endless loop
@@ -618,10 +586,10 @@ This is exactly what the start function is responsible for. It gets the processo
 
 <div class="org-src-container">
 <pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">master</span>:
-    <span style="color: #00bfff; font-weight: bold;">adr</span>    x0, bss_begin
-    <span style="color: #00bfff; font-weight: bold;">adr</span>    x1, bss_end
-    <span style="color: #00bfff; font-weight: bold;">sub</span>    x1, x1, x0
-    <span style="color: #00bfff; font-weight: bold;">bl</span>     memzero
+        <span style="color: #00bfff; font-weight: bold;">adr</span>    x0, bss_begin
+        <span style="color: #00bfff; font-weight: bold;">adr</span>    x1, bss_end
+        <span style="color: #00bfff; font-weight: bold;">sub</span>    x1, x1, x0
+        <span style="color: #00bfff; font-weight: bold;">bl</span>     memzero
 </pre>
 </div>
 
@@ -630,7 +598,7 @@ This is exactly what the start function is responsible for. It gets the processo
 Here, we clean the <span class="underline">.bss</span> section by calling <span class="underline">memzero</span> 
 </p>
 
-<pre class="example">
+<pre class="example" id="orgd2ee76d">
 We will define this function memzero later
 
 In ARMv8 architecture, by convention, the first seven arguments are passed to the called function via registers x0 ~ x6
@@ -640,7 +608,7 @@ The memzero function accepts only two arguments: the start address (bss_begin) a
 
 <div class="org-src-container">
 <pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">sp</span>, #LOW_MEMORY
- <span style="color: #00bfff; font-weight: bold;">bl</span>    kernel_main
+<span style="color: #daa520; font-weight: bold;">bl</span>    <span style="color: #00bfff; font-weight: bold;">kernel</span>_main
 </pre>
 </div>
 
@@ -648,7 +616,7 @@ The memzero function accepts only two arguments: the start address (bss_begin) a
 After cleaning the .bss section, we <b>initialize</b> the <span class="underline">stack pointer</span> and pass <b>execution</b> to the <span class="underline">kernel_main</span> function. The Raspberry Pi loads the kernel at address <span class="underline">0</span> 
 </p>
 
-<pre class="example">
+<pre class="example" id="org35beaea">
 that's why the initial stack pointer can be set to any location high enough so that stack will not override the kernel image when it grows sufficiently large
 </pre>
 
@@ -656,15 +624,15 @@ that's why the initial stack pointer can be set to any location high enough so t
 <span class="underline">LOW_MEMORY</span> is defined in <span class="underline">mm.h</span> and is equal to <span class="underline">4MB</span> 
 </p>
 
-<pre class="example">
+<pre class="example" id="orgd75a0e4">
 Our kernel's stack won't grow very large and the image itself is tiny
 
 so 4MB is more than enough for us
 </pre>
 </div>
-<div id="outline-container-org8b2ac13" class="outline-3">
-<h3 id="org8b2ac13">assembler instructions</h3>
-<div class="outline-text-3" id="text-org8b2ac13">
+<div id="outline-container-orgcdea281" class="outline-3">
+<h3 id="orgcdea281">assembler instructions</h3>
+<div class="outline-text-3" id="text-orgcdea281">
 <p>
 For those of you who are not familiar with ARM assembler syntax, let me quickly summarize the instructions that we have used:
 </p>
@@ -673,7 +641,7 @@ For those of you who are not familiar with ARM assembler syntax, let me quickly 
 <li><p>
 and: Perform the logical AND operation
 </p>
-<pre class="example">
+<pre class="example" id="orgbc971af">
 We use this command to strip the last byte from the value we obtain from the mpidr_el1 register
 </pre></li>
 <li>cbz: Compare the result of the previously executed operation to <span class="underline">0</span> and <b>jump</b> (or branch in ARM terminology) to the provided label if the comparison yields <span class="underline">true</span></li>
@@ -681,14 +649,14 @@ We use this command to strip the last byte from the value we obtain from the mpi
 <li><p>
 adr: Load a label's relative address into the target register
 </p>
-<pre class="example">
+<pre class="example" id="orgbcf4e2d">
 In this case, we want pointers to the start and end of the .bss region
 </pre></li>
 <li>sub: Subtract values from two registers</li>
 <li><p>
 bl: perform an unconditional branch and store the <b>return address</b> in <span class="underline">x30</span> (the link register)
 </p>
-<pre class="example">
+<pre class="example" id="orgaad6b4f">
 Branch With a link:
 
 When the subroutine is finished, use the ret instruction to jump back to the return address
@@ -698,9 +666,9 @@ When the subroutine is finished, use the ret instruction to jump back to the ret
 </div>
 </div>
 </div>
-<div id="outline-container-org7ed2742" class="outline-2">
-<h2 id="org7ed2742">The kernel_main function</h2>
-<div class="outline-text-2" id="text-org7ed2742">
+<div id="outline-container-org3f9fd33" class="outline-2">
+<h2 id="org3f9fd33">The kernel_main function</h2>
+<div class="outline-text-2" id="text-org3f9fd33">
 <p>
 We have seen that the boot code eventually passes control to the <span class="underline">kernel_main</span> function. Let's take a look at it:
 </p>
@@ -724,14 +692,14 @@ We have seen that the boot code eventually passes control to the <span class="un
 This function is one of the simplest in the kernel. It works with the <span class="underline">Mini UART</span> device to print to screen and read user input. The kernel just prints Hello, world! and then enters an infinite loop that reads characters from the user and sends them back to the screen
 </p>
 </div>
-<div id="outline-container-org00fed48" class="outline-3">
-<h3 id="org00fed48">Raspberry Pi devices</h3>
-<div class="outline-text-3" id="text-org00fed48">
+<div id="outline-container-orgd26d045" class="outline-3">
+<h3 id="orgd26d045">Raspberry Pi devices</h3>
+<div class="outline-text-3" id="text-orgd26d045">
 <p>
 Now we are going to dig into something specific to the Raspberry Pi
 </p>
 
-<pre class="example">
+<pre class="example" id="org0598103">
 Before we begin, I recommend that you download the BCM2837 ARM Peripherals manual
 </pre>
 
@@ -739,7 +707,7 @@ Before we begin, I recommend that you download the BCM2837 ARM Peripherals manua
 <span class="underline">BCM2837</span> is a board that is used by the Raspberry Pi 3 Models B, and B+
 </p>
 
-<pre class="example">
+<pre class="example" id="org05b191b">
 Sometime in our discussion, I will also mention BCM2835 and BCM2836 - those are names of the board used in older versions of the Raspberry Pi
 </pre>
 
@@ -747,7 +715,7 @@ Sometime in our discussion, I will also mention BCM2835 and BCM2836 - those are 
 Before we proceed to the implementation details, I want to share some basic concepts on how to work with <b>memory-mapped</b> devices. BCM2837 is a simple <span class="underline">SOC</span> (System on a chip) board. In such a board, access to all devices is performed via memory-mapped registers. The Raspberry Pi 3 reserves the memory above address <span class="underline">0x3F000000</span> for <b>devices</b> . To activate or configure a particular device, you need to write some data in one of the device's registers. A device register is just a <span class="underline">32-bit</span> region of memory. The meaning of each bit in each device register is described in the BCM2837 ARM Peripherals manual
 </p>
 
-<pre class="example">
+<pre class="example" id="orgb869e87">
 Take a look at section 1.2.3 ARM physical addresses in the manual and the surrounding documentation for more context on why we use 0x3F000000 as a base address
 
 even though 0x7E000000 is used throughout the manual
@@ -757,7 +725,7 @@ even though 0x7E000000 is used throughout the manual
 From the kernel_main function, you can guess that we are going to work with a Mini UART device. UART stands for <span class="underline">Universal asynchronous receiver-transmitter</span> (通用异步接收器). This device is capable of converting values stored in one of its memory mapped registers to a sequence of high and low voltages. This sequence is passed to your computer via the <span class="underline">TTL-to-serial</span> cable and is interpreted by your terminal emulator 
 </p>
 
-<pre class="example">
+<pre class="example" id="org1f773c5">
 We are going to use the Mini UART to facilitate communication with our Raspberry Pi
 
 If you want to see the specification of the Mini UART registers, please go to page 8 of the BCM2837 ARM Peripherals manual
@@ -767,21 +735,21 @@ If you want to see the specification of the Mini UART registers, please go to pa
 A Raspberry Pi has two UARTs:  <span class="underline">Mini UART</span> and <span class="underline">PL011 UART</span>
 </p>
 
-<pre class="example">
+<pre class="example" id="org8d53988">
 There is, however, an optional exercise that shows how to work with PL011 UART
 
 You can refer to the official documentation if you want to find out more about Raspberry Pi UARTs and learn the difference between them
 </pre>
 </div>
-<div id="outline-container-org0277f77" class="outline-4">
-<h4 id="org0277f77">GPIO</h4>
-<div class="outline-text-4" id="text-org0277f77">
+<div id="outline-container-orgbd761a1" class="outline-4">
+<h4 id="orgbd761a1">GPIO</h4>
+<div class="outline-text-4" id="text-orgbd761a1">
 <p>
 Another device that you need to familiarize yourself with is the <b>GPIO</b> <span class="underline">General-purpose input/output</span> . GPIOs are responsible for controlling GPIO pins. You should be able to easily recognize them in the image below:
 </p>
 
 
-<div class="figure">
+<div id="org8aa5872" class="figure">
 <p><img src="../pic/gpio-pins.jpg" alt="gpio-pins.jpg" width="70%" />
 </p>
 </div>
@@ -791,16 +759,16 @@ The GPIO can be used to configure the behavior of different GPIO pins. For examp
 </p>
 
 
-<div class="figure">
+<div id="org1549f17" class="figure">
 <p><img src="../pic/gpio-numbers.png" alt="gpio-numbers.png" width="70%" />
 </p>
 </div>
 </div>
 </div>
 </div>
-<div id="outline-container-org64ccbc4" class="outline-3">
-<h3 id="org64ccbc4">Mini UART initialization</h3>
-<div class="outline-text-3" id="text-org64ccbc4">
+<div id="outline-container-orgda891db" class="outline-3">
+<h3 id="orgda891db">Mini UART initialization</h3>
+<div class="outline-text-3" id="text-orgda891db">
 <p>
 Now let's take a look at how mini UART is initialized. This code is defined in <span class="underline">mini_uart.c</span> : 
 </p>
@@ -839,21 +807,21 @@ Now let's take a look at how mini UART is initialized. This code is defined in <
 Here, we use the two functions <span class="underline">put32</span> and <span class="underline">get32</span> . Those functions are very simple; they allow us to read and write some data to and from a 32-bit register
 </p>
 
-<pre class="example">
+<pre class="example" id="org7b4f089">
 You can take a look at how they are implemented in utils.S
 
 uart_init is one of the most complex and important functions in this lesson, and we will continue to examine it in the next three sections
 </pre>
 </div>
-<div id="outline-container-org87a53a1" class="outline-4">
-<h4 id="org87a53a1">GPIO alternative function selection</h4>
-<div class="outline-text-4" id="text-org87a53a1">
+<div id="outline-container-orgaa73207" class="outline-4">
+<h4 id="orgaa73207">GPIO alternative function selection</h4>
+<div class="outline-text-4" id="text-orgaa73207">
 <p>
 First, we need to <b>activate</b> the <span class="underline">GPIO pins</span> . Most of the pins can be used with different devices, so before using a particular pin, we need to select the pin's alternative function. An alternative function is just a number from 0 to 5 that can be set for each pin and configures which device is connected to the pin. You can see the list of all available GPIO alternative functions in the image below:
 </p>
 
 
-<div class="figure">
+<div id="org19ceaf8" class="figure">
 <p><img src="../pic/alt.png" alt="alt.png" width="70%" />
 </p>
 </div>
@@ -863,7 +831,7 @@ Here you can see that pins <span class="underline">14</span> and <span class="un
 </p>
 
 
-<div class="figure">
+<div id="org8a6eb01" class="figure">
 <p><img src="../pic/gpfsel1.png" alt="gpfsel1.png" width="70%" />
 </p>
 </div>
@@ -887,10 +855,10 @@ selector |= 2&lt;&lt;15;                      <span style="color: #5f9ea0; font-
 </div>
 </div>
 
-<div id="outline-container-org7075ade" class="outline-4">
-<h4 id="org7075ade">GPIO pull-up/down</h4>
-<div class="outline-text-4" id="text-org7075ade">
-<pre class="example">
+<div id="outline-container-orge6cc327" class="outline-4">
+<h4 id="orge6cc327">GPIO pull-up/down</h4>
+<div class="outline-text-4" id="text-orge6cc327">
+<pre class="example" id="orgbbdc1dd">
 When you work with Raspberry Pi GPIO pins, you will often encounter terms such as pull-up/pull-down
 
 For those who are too lazy to read the whole article, I will briefly explain the pull-up/pull-down concept
@@ -903,7 +871,7 @@ If you use a particular pin as input and don't connect anything to this pin, you
 Switching between pin states is not a very simple procedure because it requires physically toggling a switch on the electric circuit. This process involves the GPPUD and GPPUDCLK registers and is described on page 101 of the BCM2837 ARM Peripherals manual. I copied the description here:
 </p>
 
-<pre class="example">
+<pre class="example" id="orgdd6fe5d">
 The GPIO Pull-up/down Clock Registers control the actuation of internal pull-downs on
 the respective GPIO pins. These registers must be used in conjunction with the GPPUD
 register to effect GPIO Pull-up/down changes. The following sequence of events is
@@ -934,9 +902,9 @@ delay(150);
 </div>
 </div>
 
-<div id="outline-container-org92d0206" class="outline-4">
-<h4 id="org92d0206">Initializing the Mini UART</h4>
-<div class="outline-text-4" id="text-org92d0206">
+<div id="outline-container-org72f81eb" class="outline-4">
+<h4 id="org72f81eb">Initializing the Mini UART</h4>
+<div class="outline-text-4" id="text-org72f81eb">
 <p>
 Now our Mini UART is connected to the GPIO pins, and the pins are configured. The rest of the uart_init function is dedicated to Mini UART initialization.
 </p>
@@ -989,7 +957,7 @@ It is possible to configure the Mini UART to generate a processor interrupt each
 </pre>
 </div>
 
-<pre class="example">
+<pre class="example" id="org4d1089e">
 We are going to start working with interrupts in lesson 3, so for now, we will just disable this feature
 </pre>
 
@@ -1015,7 +983,7 @@ The RTS line is used in the flow control and we don't need it. Set it to be high
 The baud rate is the rate at which information is transferred in a communication channel. “115200 baud” means that the serial port is capable of transferring a maximum of <span class="underline">115200</span> bits per second. The baud rate of your Raspberry Pi mini UART device should be the same as <b>the baud rate in your terminal emulator</b> . The Mini UART calculates baud rate according to the following equation:
 </p>
 
-<pre class="example">
+<pre class="example" id="orgd6e4fc5">
 baudrate = system_clock_freq / (8 * ( baudrate_reg + 1 ))
 
 The system_clock_freq is 250 MHz, so we can easily calculate the value of baudrate_reg as 270
@@ -1034,9 +1002,9 @@ After this line is executed, the Mini UART is ready for work!
 </div>
 </div>
 
-<div id="outline-container-orge6bbc1f" class="outline-3">
-<h3 id="orge6bbc1f">Sending data using the Mini UART</h3>
-<div class="outline-text-3" id="text-orge6bbc1f">
+<div id="outline-container-org9ff1731" class="outline-3">
+<h3 id="org9ff1731">Sending data using the Mini UART</h3>
+<div class="outline-text-3" id="text-org9ff1731">
 <p>
 After the Mini UART is ready, we can try to use it to send and receive some data. To do this, we can use the following two functions:
 </p>
@@ -1072,8 +1040,9 @@ Both of the functions:
 <li>Bit zero, if set to 1, indicates that the data is ready, this means that we can read from the UART</li>
 <li>Bit five, if set to 1, tells us that the transmitter is empty, meaning that we can write to the UART</li>
 </ul></li>
-<li>we use <span class="underline">AUX_MU_IO_REG</span> to either store the value of the transmitted character or read the value of the received character</li>
-</ol>
+<li><p>
+we use <span class="underline">AUX_MU_IO_REG</span> to either store the value of the transmitted character or read the value of the received character 
+</p>
 
 <p>
 We also have a very simple function that is capable of sending strings instead of characters:
@@ -1091,13 +1060,109 @@ We also have a very simple function that is capable of sending strings instead o
 
 <p>
 This function just iterates over all characters in a string and sends them one by one 
-</p>
+</p></li>
+</ol>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org0ff83e3" class="outline-2">
-<h2 id="org0ff83e3">Raspberry Pi config</h2>
+<div id="outline-container-org407de89" class="outline-2">
+<h2 id="org407de89">Raspberry Pi config</h2>
+<div class="outline-text-2" id="text-org407de89">
+<p>
+The Raspberry Pi startup sequence is the following:
+</p>
+<ol class="org-ol">
+<li>The device is powered on</li>
+<li>The GPU starts up and reads the <span class="underline">config.txt</span> file from the boot partition. This file contains some configuration parameters that the GPU uses to further adjust the startup sequence</li>
+<li><span class="underline">kernel8.img</span> is loaded into memory and executed</li>
+</ol>
+
+<p>
+To be able to run our simple OS, the config.txt file should be the following:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #4eee94;">kernel_old</span>=1
+<span style="color: #4eee94;">disable_commandline_tags</span>=1
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>kernel_old=1: specifies that the kernel image should be loaded at address 0</li>
+<li>disable_commandline_tags: instructs the GPU to not pass any command line arguments to the booted image</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org6cee46d" class="outline-2">
+<h2 id="org6cee46d">Testing the kernel</h2>
+<div class="outline-text-2" id="text-org6cee46d">
+<p>
+Now that we have gone through all of the source code, it is time to see it work. To build and test the kernel you need to do the following:
+</p>
+<ol class="org-ol">
+<li>Execute <span class="underline">./build.sh</span> or ./build.bat from src/lesson01 in order to build the kernel</li>
+<li><p>
+Copy the generated kernel8.img file to the boot partition of your Raspberry Pi flash card and delete kernel7.img as well as any other kernel*.img files that may be present on your SD card
+</p>
+<pre class="example" id="org2ca76d7">
+Make sure you left all other files in the boot partition untouched
+</pre></li>
+<li>Modify the <span class="underline">config.txt</span> file as described in the previous section</li>
+<li>Connect the <span class="underline">USB-to-TTL serial cable</span> as described in the Prerequisites</li>
+<li>Power on your Raspberry Pi</li>
+<li>Open your terminal emulator. You should be able to see the <span class="underline">Hello, world!</span> message there</li>
+</ol>
+
+<p>
+Note that the sequence of steps described above asumes that you have Raspbian installed on your SD card. It is also posible to run the RPi OS using an empty SD card:
+</p>
+<ol class="org-ol">
+<li>Prepare your SD card:
+<ul class="org-ul">
+<li>Use an MBR partition table</li>
+<li><p>
+Format the boot partition as FAT32
+</p>
+<pre class="example" id="org8a6caf6">
+The card should be formatted exactly in the same way as it is required to install Raspbian
+
+Check HOW TO FORMAT AN SD CARD AS FAT section in the official documentation for more information
+</pre></li>
+</ul></li>
+<li>Copy the following files to the card:
+<ul class="org-ul">
+<li><span class="underline">bootcode.bin</span> This is the GPU bootloader, it contains the <span class="underline">GPU code</span> to <b>start</b> the GPU and <b>load</b> the GPU firmware</li>
+<li><span class="underline">start.elf</span> This is the <span class="underline">GPU firmware</span> . It reads config.txt and <b>enables</b> the GPU to load and run ARM specific user code from kernel8.img</li>
+</ul></li>
+<li>Copy kernel8.img and config.txt files</li>
+<li>Connect the USB-to-TTL serial cable</li>
+<li>Power on your Raspberry Pi</li>
+<li>Use your terminal emulator to connect to the RPi OS</li>
+</ol>
+
+<pre class="example" id="orgd4882a1">
+Unfortunately, all Raspberry Pi firmware files are closed-sourced and undocumented
+
+For more information about the Raspberry Pi startup sequence, you can refer to some unofficial sources, like this StackExchange question or this Github repository
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="linux.html">Next: Linux project structure</a></td>
+<td class="org-left"><a href="initialization.html">Home: Kernel Initialization</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">

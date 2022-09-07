@@ -5,15 +5,15 @@
 
 We are going to start our journey in OS development by writing a small, bare-metal "Hello, World" application. 
 * Project structure
-  Let's briefly describe the main components of this folder:
-  1. _Makefile_ : We will use the make utility to build the kernel. make's behavior is configured by a Makefile, which contains instructions on how to compile and link the source code.
-  2. _build.sh_ or _build.bat_ : You'll need these files if you want to build the kernel using Docker. You won't need to have the make utility or the compiler toolchain installed on your laptop.
-  3. _src_ : This folder contains all of the source code.
-  4. _include_ : All of the header files are placed here.
+Let's briefly describe the main components of this folder:
+1. _Makefile_ : We will use the make utility to build the kernel. make's behavior is configured by a Makefile, which contains instructions on how to compile and link the source code.
+2. _build.sh_ or _build.bat_ : You'll need these files if you want to build the kernel using Docker. You won't need to have the make utility or the compiler toolchain installed on your laptop.
+3. _src_ : This folder contains all of the source code.
+4. _include_ : All of the header files are placed here.
 * Makefile
-  Now let's take a closer look at the project Makefile. The primary purpose of the make utility is to automatically determine what pieces of a program need to be recompiled, and to issue commands to recompile them. If you are not familiar with make and Makefiles, I recommend that you read this article. The Makefile used in the first lesson can be found here. The whole Makefile is listed below:
+Now let's take a closer look at the project Makefile. The primary purpose of the make utility is to automatically determine what pieces of a program need to be recompiled, and to issue commands to recompile them. If you are not familiar with make and Makefiles, I recommend that you read this article. The Makefile used in the first lesson can be found here. The whole Makefile is listed below:
 
-  #+BEGIN_SRC sh 
+#+BEGIN_SRC sh 
   ARMGNU ?= aarch64-linux-gnu
 
   COPS = -Wall -nostdlib -nostartfiles -ffreestanding -Iinclude -mgeneral-regs-only
@@ -25,14 +25,14 @@ We are going to start our journey in OS development by writing a small, bare-met
   all : kernel8.img
 
   clean :
-      rm -rf $(BUILD_DIR) *.img 
+  rm -rf $(BUILD_DIR) *.img 
 
   $(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
-      mkdir -p $(@D)
-      $(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
+  mkdir -p $(@D)
+  $(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
 
   $(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
-      $(ARMGNU)-gcc $(ASMOPS) -MMD -c $< -o $@
+  $(ARMGNU)-gcc $(ASMOPS) -MMD -c $< -o $@
 
   C_FILES = $(wildcard $(SRC_DIR)/*.c)
   ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
@@ -43,62 +43,62 @@ We are going to start our journey in OS development by writing a small, bare-met
   -include $(DEP_FILES)
 
   kernel8.img: $(SRC_DIR)/linker.ld $(OBJ_FILES)
-      $(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o $(BUILD_DIR)/kernel8.elf  $(OBJ_FILES)
-      $(ARMGNU)-objcopy $(BUILD_DIR)/kernel8.elf -O binary kernel8.img
-  #+END_SRC
+  $(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o $(BUILD_DIR)/kernel8.elf  $(OBJ_FILES)
+  $(ARMGNU)-objcopy $(BUILD_DIR)/kernel8.elf -O binary kernel8.img
+#+END_SRC
 
-  Now, let's inspect this file in detail:
+Now, let's inspect this file in detail:
 
-  #+BEGIN_SRC sh 
+#+BEGIN_SRC sh 
   ARMGNU ?= aarch64-linux-gnu
-  #+END_SRC
+#+END_SRC
 
-  The Makefile starts with a variable definition. _ARMGNU_ is a cross-compiler prefix. We need to use a cross-compiler because we are compiling the source code for the arm64 architecture on an x86 machine. So instead of gcc, we will use _aarch64-linux-gnu-gcc_ 
+The Makefile starts with a variable definition. _ARMGNU_ is a cross-compiler prefix. We need to use a cross-compiler because we are compiling the source code for the arm64 architecture on an x86 machine. So instead of gcc, we will use _aarch64-linux-gnu-gcc_ 
 
-  #+BEGIN_SRC sh 
+#+BEGIN_SRC sh 
   COPS = -Wall -nostdlib -nostartfiles -ffreestanding -Iinclude -mgeneral-regs-only
   ASMOPS = -Iinclude 
-  #+END_SRC
+#+END_SRC
 
 
-  _COPS_ and _ASMOPS_ are options that we pass to the compiler when compiling C and assembler code, respectively. These options require a short explanation:
-  + _-Wall_ : Show all warnings
-  + _-nostdlib_ : Don't use the C standard library
-    #+BEGIN_EXAMPLE
-      Most of the calls in the C standard library eventually interact with the operating system
+_COPS_ and _ASMOPS_ are options that we pass to the compiler when compiling C and assembler code, respectively. These options require a short explanation:
++ _-Wall_ : Show all warnings
++ _-nostdlib_ : Don't use the C standard library
+  #+BEGIN_EXAMPLE
+    Most of the calls in the C standard library eventually interact with the operating system
 
-      We are writing a bare-metal program, and we don't have any underlying operating system
+    We are writing a bare-metal program, and we don't have any underlying operating system
 
-      so the C standard library is not going to work for us anyway
-    #+END_EXAMPLE
-  + _-nostartfiles_ Don't use standard startup files
-    #+BEGIN_EXAMPLE
-      Startup files are responsible for setting an initial stack pointer, initializing static data, and jumping to the main entry point
+    so the C standard library is not going to work for us anyway
+  #+END_EXAMPLE
++ _-nostartfiles_ Don't use standard startup files
+  #+BEGIN_EXAMPLE
+    Startup files are responsible for setting an initial stack pointer, initializing static data, and jumping to the main entry point
 
-      We are going to do all of this by ourselves
-    #+END_EXAMPLE
-  + _-ffreestanding_ A freestanding environment is an environment in which the standard library may not exist, and program startup may not necessarily be at main
-    #+BEGIN_EXAMPLE
-      The option -ffreestanding directs the compiler to not assume that standard functions have their usual definition
-    #+END_EXAMPLE
-  + _-Iinclude_ : Search for header files in the include folder
-  + _-mgeneral-regs-only_ : Use only general-purpose registers. ARM processors also have NEON registers. We don't want the compiler to use them because they add additional complexity 
-    #+BEGIN_EXAMPLE
-      for example, we will need to store the registers during a context switch
-    #+END_EXAMPLE
+    We are going to do all of this by ourselves
+  #+END_EXAMPLE
++ _-ffreestanding_ A freestanding environment is an environment in which the standard library may not exist, and program startup may not necessarily be at main
+  #+BEGIN_EXAMPLE
+    The option -ffreestanding directs the compiler to not assume that standard functions have their usual definition
+  #+END_EXAMPLE
++ _-Iinclude_ : Search for header files in the include folder
++ _-mgeneral-regs-only_ : Use only general-purpose registers. ARM processors also have NEON registers. We don't want the compiler to use them because they add additional complexity 
+  #+BEGIN_EXAMPLE
+    for example, we will need to store the registers during a context switch
+  #+END_EXAMPLE
 
   #+BEGIN_SRC sh 
-  BUILD_DIR = build
-  SRC_DIR = src
+    BUILD_DIR = build
+    SRC_DIR = src
   #+END_SRC
 
   _SRC_DIR_ and _BUILD_DIR_ are directories that contain source code and compiled object files, respectively 
 
   #+BEGIN_SRC sh 
-  all : kernel8.img
+    all : kernel8.img
 
-  clean :
-      rm -rf $(BUILD_DIR) *.img 
+    clean :
+    rm -rf $(BUILD_DIR) *.img 
   #+END_SRC
 
   Next, we define make targets. The first two targets are pretty simple: 
@@ -106,40 +106,40 @@ We are going to start our journey in OS development by writing a small, bare-met
   + The clean target is responsible for deleting all compilation artifacts and the compiled kernel image 
 
   #+BEGIN_SRC sh 
-  $(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
-      mkdir -p $(@D)
-      $(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
+    $(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
+    mkdir -p $(@D)
+    $(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
 
-  $(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
-      $(ARMGNU)-gcc $(ASMOPS) -MMD -c $< -o $@
+    $(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
+    $(ARMGNU)-gcc $(ASMOPS) -MMD -c $< -o $@
   #+END_SRC
 
   The next two targets are responsible for compiling C and assembler files. If, for example, in the src directory we have _foo.c_ and _foo.S_ files, they will be compiled into _build/foo_c.o_ and _build/foo_s.o_ , respectively. *$<* and *$@* are substituted at runtime with the *input and output filenames* (foo.c and foo_c.o). Before compiling C files, we also create a build directory in case it doesn't exist yet 
 
   #+BEGIN_SRC sh 
-  C_FILES = $(wildcard $(SRC_DIR)/*.c)
-  ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
-  OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
-  OBJ_FILES += $(ASM_FILES:$(SRC_DIR)/%.S=$(BUILD_DIR)/%_s.o)
+    C_FILES = $(wildcard $(SRC_DIR)/*.c)
+    ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
+    OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
+    OBJ_FILES += $(ASM_FILES:$(SRC_DIR)/%.S=$(BUILD_DIR)/%_s.o)
   #+END_SRC
 
   Here we are building an array of all object files (OBJ_FILES) created from the concatenation of both C and assembler source files (see Substitution References).
 
   #+BEGIN_SRC sh 
-  DEP_FILES = $(OBJ_FILES:%.o=%.d)
-  -include $(DEP_FILES)
+    DEP_FILES = $(OBJ_FILES:%.o=%.d)
+    -include $(DEP_FILES)
   #+END_SRC
 
   The next two lines are a little bit tricky. If you take a look at how we defined our compilation targets for both C and assembler source files, you will notice that we used the _-MMD_ parameter. This parameter instructs the gcc compiler to create a dependency file for each generated object file. A dependency file defines all of the dependencies for a particular source file. These dependencies usually contain a list of all included headers. We need to include all of the generated dependency files so that make knows what exactly to recompile in case a header changes 
 
   #+BEGIN_SRC sh 
-  $(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o kernel8.elf  $(OBJ_FILES)
+    $(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o kernel8.elf  $(OBJ_FILES)
   #+END_SRC
 
   We use the _OBJ_FILES_ array to build the _kernel8.elf_ file. We use the linker script _src/linker.ld_ to define the *basic layout of the resulting executable image* 
 
   #+BEGIN_SRC sh 
-  $(ARMGNU)-objcopy kernel8.elf -O binary kernel8.img
+    $(ARMGNU)-objcopy kernel8.elf -O binary kernel8.img
   #+END_SRC
 
   kernel8.elf is in the *ELF* format
@@ -156,15 +156,15 @@ We are going to start our journey in OS development by writing a small, bare-met
     However, arm_control flag is undocumented and it is preferable to use kernel8.img naming convention instead
   #+END_EXAMPLE
 * The linker script
-  The primary purpose of the linker script is to describe how the sections in the input object files ( _c.o_ and _s.o_ ) should be mapped into the output file ( _.elf_ )
+The primary purpose of the linker script is to describe how the sections in the input object files ( _c.o_ and _s.o_ ) should be mapped into the output file ( _.elf_ )
 
-  #+BEGIN_EXAMPLE
-    More information about linker scripts can be found: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
-  #+END_EXAMPLE
+#+BEGIN_EXAMPLE
+  More information about linker scripts can be found: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
+#+END_EXAMPLE
 
-  Now let's take a look at the RPi OS linker script:
+Now let's take a look at the RPi OS linker script:
 
-  #+BEGIN_SRC sh 
+#+BEGIN_SRC sh 
   SECTIONS
   {
       .text.boot : { *(.text.boot) }
@@ -176,149 +176,149 @@ We are going to start our journey in OS development by writing a small, bare-met
       .bss : { *(.bss*) } 
       bss_end = .;
   }
-  #+END_SRC
+#+END_SRC
 
-  1. After startup, the Raspberry Pi loads _kernel8.img_ into memory and starts execution from the beginning of the file. That's why the _.text.boot section_ must be first
+1. After startup, the Raspberry Pi loads _kernel8.img_ into memory and starts execution from the beginning of the file. That's why the _.text.boot section_ must be first
+   #+BEGIN_EXAMPLE
+     we are going to put the OS startup code inside this section
+   #+END_EXAMPLE
+2. The _.text_ , _.rodata_ , and _.data_ sections contain *kernel-compiled* _instructions_ , _read-only data_ , and _normal data_ 
+3. The _.bss_ section contains data that should be initialized to 0:
+   + By putting such data in a separate section, the compiler can save some space in the ELF binary
      #+BEGIN_EXAMPLE
-       we are going to put the OS startup code inside this section
+       only the section size is stored in the ELF header, but the section itself is omitted
      #+END_EXAMPLE
-  2. The _.text_ , _.rodata_ , and _.data_ sections contain *kernel-compiled* _instructions_ , _read-only data_ , and _normal data_ 
-  3. The _.bss_ section contains data that should be initialized to 0:
-     + By putting such data in a separate section, the compiler can save some space in the ELF binary
-       #+BEGIN_EXAMPLE
-	 only the section size is stored in the ELF header, but the section itself is omitted
-       #+END_EXAMPLE
-     + After loading the image into memory, we must initialize the .bss section to 0
-       #+BEGIN_EXAMPLE
-	 that's why we need to record the start and end of the section
+   + After loading the image into memory, we must initialize the .bss section to 0
+     #+BEGIN_EXAMPLE
+       that's why we need to record the start and end of the section
 
-	 hence the bss_begin and bss_end symbols
-       #+END_EXAMPLE
-     + align the section so that it starts at an address that is a _multiple_ of 8
-       #+BEGIN_EXAMPLE
-	 If the section is not aligned, it would be more difficult to use the str instruction to store 0 at the beginning of the bss section
+       hence the bss_begin and bss_end symbols
+     #+END_EXAMPLE
+   + align the section so that it starts at an address that is a _multiple_ of 8
+     #+BEGIN_EXAMPLE
+       If the section is not aligned, it would be more difficult to use the str instruction to store 0 at the beginning of the bss section
 
-	 because the str instruction can be used only with 8-byte-aligned addresses
-       #+END_EXAMPLE
+       because the str instruction can be used only with 8-byte-aligned addresses
+     #+END_EXAMPLE
 * Booting the kernel
 
-  Now it is time to take a look at the _boot.S_ file. This file contains the kernel startup code:
+Now it is time to take a look at the _boot.S_ file. This file contains the kernel startup code:
 
-  #+BEGIN_SRC asm 
-  #include "mm.h"
+#+BEGIN_SRC asm 
+	  #include "mm.h"
 
-  .section ".text.boot"
+	  .section ".text.boot"
 
-  .globl _start
+	  .globl _start
   _start:
-      mrs    x0, mpidr_el1        
-      and    x0, x0,#0xFF        // Check processor id
-      cbz    x0, master        // Hang for all non-primary CPU
-      b    proc_hang
+	  mrs    x0, mpidr_el1        
+	  and    x0, x0,#0xFF        // Check processor id
+	  cbz    x0, master        // Hang for all non-primary CPU
+	  b    proc_hang
 
   proc_hang: 
-      b proc_hang
+	  b proc_hang
 
   master:
-      adr    x0, bss_begin
-      adr    x1, bss_end
-      sub    x1, x1, x0
-      bl     memzero
+	  adr    x0, bss_begin
+	  adr    x1, bss_end
+	  sub    x1, x1, x0
+	  bl     memzero
 
-      mov    sp, #LOW_MEMORY
-      bl    kernel_main
-  #+END_SRC
+	  mov    sp, #LOW_MEMORY
+	  bl    kernel_main
+#+END_SRC
 
-  Let's review this file in detail:
+Let's review this file in detail:
 
-  #+BEGIN_SRC asm
-  .section ".text.boot"
-  #+END_SRC
+#+BEGIN_SRC asm
+	  .section ".text.boot"
+#+END_SRC
 
 
-  First, we specify that everything defined in boot.S should go in the _.text.boot_ section. Previously, we saw that this section is placed at the beginning of the kernel image by the linker script. So when the kernel is started, execution begins at the _start_ function: 
+First, we specify that everything defined in boot.S should go in the _.text.boot_ section. Previously, we saw that this section is placed at the beginning of the kernel image by the linker script. So when the kernel is started, execution begins at the _start_ function: 
 
-  #+BEGIN_SRC asm 
-  .globl _start
+#+BEGIN_SRC asm 
+	  .globl _start
   _start:
-      mrs    x0, mpidr_el1        
-      and    x0, x0,#0xFF        // Check processor id
-      cbz    x0, master        // Hang for all non-primary CPU
-      b    proc_hang
-  #+END_SRC
+	  mrs    x0, mpidr_el1        
+	  and    x0, x0,#0xFF        // Check processor id
+	  cbz    x0, master        // Hang for all non-primary CPU
+	  b    proc_hang
+#+END_SRC
 
-  The first thing this function does is check the processor ID. The Raspberry Pi 3 has four core processors, and after the device is powered on, each core begins to execute the same code
+The first thing this function does is check the processor ID. The Raspberry Pi 3 has four core processors, and after the device is powered on, each core begins to execute the same code
 
-  #+BEGIN_EXAMPLE
-    However, we don't want to work with four cores
+#+BEGIN_EXAMPLE
+  However, we don't want to work with four cores
 
-    we want to work only with the first one and put all of the other cores in an endless loop
-  #+END_EXAMPLE
+  we want to work only with the first one and put all of the other cores in an endless loop
+#+END_EXAMPLE
 
-  This is exactly what the start function is responsible for. It gets the processor ID from the _mpidr_el1_ system register. If the current process ID is 0, then execution is transferred to the master function:
+This is exactly what the start function is responsible for. It gets the processor ID from the _mpidr_el1_ system register. If the current process ID is 0, then execution is transferred to the master function:
 
-  #+BEGIN_SRC asm 
+#+BEGIN_SRC asm 
   master:
-      adr    x0, bss_begin
-      adr    x1, bss_end
-      sub    x1, x1, x0
-      bl     memzero
-  #+END_SRC
+	  adr    x0, bss_begin
+	  adr    x1, bss_end
+	  sub    x1, x1, x0
+	  bl     memzero
+#+END_SRC
 
 
-  Here, we clean the _.bss_ section by calling _memzero_ 
+Here, we clean the _.bss_ section by calling _memzero_ 
 
-  #+BEGIN_EXAMPLE
-    We will define this function memzero later
+#+BEGIN_EXAMPLE
+  We will define this function memzero later
 
-    In ARMv8 architecture, by convention, the first seven arguments are passed to the called function via registers x0 ~ x6
+  In ARMv8 architecture, by convention, the first seven arguments are passed to the called function via registers x0 ~ x6
 
-    The memzero function accepts only two arguments: the start address (bss_begin) and the size of the section needed to be cleaned (bss_end - bss_begin) 
-  #+END_EXAMPLE
+  The memzero function accepts only two arguments: the start address (bss_begin) and the size of the section needed to be cleaned (bss_end - bss_begin) 
+#+END_EXAMPLE
 
-  #+BEGIN_SRC asm 
-     mov    sp, #LOW_MEMORY
-      bl    kernel_main
-  #+END_SRC
+#+BEGIN_SRC asm 
+	  mov    sp, #LOW_MEMORY
+	  bl    kernel_main
+#+END_SRC
 
-  After cleaning the .bss section, we *initialize* the _stack pointer_ and pass *execution* to the _kernel_main_ function. The Raspberry Pi loads the kernel at address _0_ 
+After cleaning the .bss section, we *initialize* the _stack pointer_ and pass *execution* to the _kernel_main_ function. The Raspberry Pi loads the kernel at address _0_ 
 
-  #+BEGIN_EXAMPLE
-    that's why the initial stack pointer can be set to any location high enough so that stack will not override the kernel image when it grows sufficiently large
-  #+END_EXAMPLE
+#+BEGIN_EXAMPLE
+  that's why the initial stack pointer can be set to any location high enough so that stack will not override the kernel image when it grows sufficiently large
+#+END_EXAMPLE
 
-  _LOW_MEMORY_ is defined in _mm.h_ and is equal to _4MB_ 
+_LOW_MEMORY_ is defined in _mm.h_ and is equal to _4MB_ 
 
-  #+BEGIN_EXAMPLE
-    Our kernel's stack won't grow very large and the image itself is tiny
+#+BEGIN_EXAMPLE
+  Our kernel's stack won't grow very large and the image itself is tiny
 
-    so 4MB is more than enough for us
-  #+END_EXAMPLE
+  so 4MB is more than enough for us
+#+END_EXAMPLE
 ** assembler instructions 
-   For those of you who are not familiar with ARM assembler syntax, let me quickly summarize the instructions that we have used:
-   + mrs: Load value from a system register to one of the general purpose registers x0 ~ x30
-   + and: Perform the logical AND operation
-     #+BEGIN_EXAMPLE
-       We use this command to strip the last byte from the value we obtain from the mpidr_el1 register
-     #+END_EXAMPLE
-   + cbz: Compare the result of the previously executed operation to _0_ and *jump* (or branch in ARM terminology) to the provided label if the comparison yields _true_
-   + b: Perform an unconditional branch to some label
-   + adr: Load a label's relative address into the target register
-     #+BEGIN_EXAMPLE
-       In this case, we want pointers to the start and end of the .bss region
-     #+END_EXAMPLE
-   + sub: Subtract values from two registers
-   + bl: perform an unconditional branch and store the *return address* in _x30_ (the link register)
-     #+BEGIN_EXAMPLE
-       Branch With a link:
+For those of you who are not familiar with ARM assembler syntax, let me quickly summarize the instructions that we have used:
++ mrs: Load value from a system register to one of the general purpose registers x0 ~ x30
++ and: Perform the logical AND operation
+  #+BEGIN_EXAMPLE
+    We use this command to strip the last byte from the value we obtain from the mpidr_el1 register
+  #+END_EXAMPLE
++ cbz: Compare the result of the previously executed operation to _0_ and *jump* (or branch in ARM terminology) to the provided label if the comparison yields _true_
++ b: Perform an unconditional branch to some label
++ adr: Load a label's relative address into the target register
+  #+BEGIN_EXAMPLE
+    In this case, we want pointers to the start and end of the .bss region
+  #+END_EXAMPLE
++ sub: Subtract values from two registers
++ bl: perform an unconditional branch and store the *return address* in _x30_ (the link register)
+  #+BEGIN_EXAMPLE
+    Branch With a link:
 
-       When the subroutine is finished, use the ret instruction to jump back to the return address
-     #+END_EXAMPLE
-   + mov: Move a value between registers or from a constant to a register
+    When the subroutine is finished, use the ret instruction to jump back to the return address
+  #+END_EXAMPLE
++ mov: Move a value between registers or from a constant to a register
 * The kernel_main function
-  We have seen that the boot code eventually passes control to the _kernel_main_ function. Let's take a look at it:
+We have seen that the boot code eventually passes control to the _kernel_main_ function. Let's take a look at it:
 
-  #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   #include "mini_uart.h"
 
   void kernel_main(void)
@@ -330,59 +330,59 @@ We are going to start our journey in OS development by writing a small, bare-met
 		  uart_send(uart_recv());
 	  }
   }
-  #+END_SRC
+#+END_SRC
 
-  This function is one of the simplest in the kernel. It works with the _Mini UART_ device to print to screen and read user input. The kernel just prints Hello, world! and then enters an infinite loop that reads characters from the user and sends them back to the screen
+This function is one of the simplest in the kernel. It works with the _Mini UART_ device to print to screen and read user input. The kernel just prints Hello, world! and then enters an infinite loop that reads characters from the user and sends them back to the screen
 ** Raspberry Pi devices
-   Now we are going to dig into something specific to the Raspberry Pi
+Now we are going to dig into something specific to the Raspberry Pi
 
-   #+BEGIN_EXAMPLE
-     Before we begin, I recommend that you download the BCM2837 ARM Peripherals manual
-   #+END_EXAMPLE
+#+BEGIN_EXAMPLE
+  Before we begin, I recommend that you download the BCM2837 ARM Peripherals manual
+#+END_EXAMPLE
 
-   _BCM2837_ is a board that is used by the Raspberry Pi 3 Models B, and B+
+_BCM2837_ is a board that is used by the Raspberry Pi 3 Models B, and B+
 
-   #+BEGIN_EXAMPLE
-     Sometime in our discussion, I will also mention BCM2835 and BCM2836 - those are names of the board used in older versions of the Raspberry Pi
-   #+END_EXAMPLE
+#+BEGIN_EXAMPLE
+  Sometime in our discussion, I will also mention BCM2835 and BCM2836 - those are names of the board used in older versions of the Raspberry Pi
+#+END_EXAMPLE
 
-   Before we proceed to the implementation details, I want to share some basic concepts on how to work with *memory-mapped* devices. BCM2837 is a simple _SOC_ (System on a chip) board. In such a board, access to all devices is performed via memory-mapped registers. The Raspberry Pi 3 reserves the memory above address _0x3F000000_ for *devices* . To activate or configure a particular device, you need to write some data in one of the device's registers. A device register is just a _32-bit_ region of memory. The meaning of each bit in each device register is described in the BCM2837 ARM Peripherals manual
+Before we proceed to the implementation details, I want to share some basic concepts on how to work with *memory-mapped* devices. BCM2837 is a simple _SOC_ (System on a chip) board. In such a board, access to all devices is performed via memory-mapped registers. The Raspberry Pi 3 reserves the memory above address _0x3F000000_ for *devices* . To activate or configure a particular device, you need to write some data in one of the device's registers. A device register is just a _32-bit_ region of memory. The meaning of each bit in each device register is described in the BCM2837 ARM Peripherals manual
 
-   #+BEGIN_EXAMPLE
-     Take a look at section 1.2.3 ARM physical addresses in the manual and the surrounding documentation for more context on why we use 0x3F000000 as a base address
+#+BEGIN_EXAMPLE
+  Take a look at section 1.2.3 ARM physical addresses in the manual and the surrounding documentation for more context on why we use 0x3F000000 as a base address
 
-     even though 0x7E000000 is used throughout the manual
-   #+END_EXAMPLE
+  even though 0x7E000000 is used throughout the manual
+#+END_EXAMPLE
 
-   From the kernel_main function, you can guess that we are going to work with a Mini UART device. UART stands for _Universal asynchronous receiver-transmitter_ (通用异步接收器). This device is capable of converting values stored in one of its memory mapped registers to a sequence of high and low voltages. This sequence is passed to your computer via the _TTL-to-serial_ cable and is interpreted by your terminal emulator 
+From the kernel_main function, you can guess that we are going to work with a Mini UART device. UART stands for _Universal asynchronous receiver-transmitter_ (通用异步接收器). This device is capable of converting values stored in one of its memory mapped registers to a sequence of high and low voltages. This sequence is passed to your computer via the _TTL-to-serial_ cable and is interpreted by your terminal emulator 
 
-   #+BEGIN_EXAMPLE
-     We are going to use the Mini UART to facilitate communication with our Raspberry Pi
+#+BEGIN_EXAMPLE
+  We are going to use the Mini UART to facilitate communication with our Raspberry Pi
 
-     If you want to see the specification of the Mini UART registers, please go to page 8 of the BCM2837 ARM Peripherals manual
-   #+END_EXAMPLE
+  If you want to see the specification of the Mini UART registers, please go to page 8 of the BCM2837 ARM Peripherals manual
+#+END_EXAMPLE
 
-   A Raspberry Pi has two UARTs:  _Mini UART_ and _PL011 UART_
+A Raspberry Pi has two UARTs:  _Mini UART_ and _PL011 UART_
 
-   #+BEGIN_EXAMPLE
-     There is, however, an optional exercise that shows how to work with PL011 UART
+#+BEGIN_EXAMPLE
+  There is, however, an optional exercise that shows how to work with PL011 UART
 
-     You can refer to the official documentation if you want to find out more about Raspberry Pi UARTs and learn the difference between them
-   #+END_EXAMPLE
+  You can refer to the official documentation if you want to find out more about Raspberry Pi UARTs and learn the difference between them
+#+END_EXAMPLE
 *** GPIO 
-    Another device that you need to familiarize yourself with is the *GPIO* _General-purpose input/output_ . GPIOs are responsible for controlling GPIO pins. You should be able to easily recognize them in the image below:
+Another device that you need to familiarize yourself with is the *GPIO* _General-purpose input/output_ . GPIOs are responsible for controlling GPIO pins. You should be able to easily recognize them in the image below:
 
-    #+ATTR_HTML: image :width 70% 
-    [[file:../pic/gpio-pins.jpg]]
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/gpio-pins.jpg]]
 
-    The GPIO can be used to configure the behavior of different GPIO pins. For example, to be able to use the Mini UART, we need to activate _pins 14_ and _15_ and set them up to use this device. The image below illustrates how numbers are assigned to the GPIO pins:
+The GPIO can be used to configure the behavior of different GPIO pins. For example, to be able to use the Mini UART, we need to activate _pins 14_ and _15_ and set them up to use this device. The image below illustrates how numbers are assigned to the GPIO pins:
 
-    #+ATTR_HTML: image :width 70% 
-    [[file:../pic/gpio-numbers.png]]
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/gpio-numbers.png]]
 ** Mini UART initialization
-   Now let's take a look at how mini UART is initialized. This code is defined in _mini_uart.c_ : 
+Now let's take a look at how mini UART is initialized. This code is defined in _mini_uart.c_ : 
 
-   #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   void uart_init ( void )
   {
 	  unsigned int selector;
@@ -409,31 +409,31 @@ We are going to start our journey in OS development by writing a small, bare-met
 
 	  put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
   }
-   #+END_SRC
+#+END_SRC
 
-   Here, we use the two functions _put32_ and _get32_ . Those functions are very simple; they allow us to read and write some data to and from a 32-bit register
+Here, we use the two functions _put32_ and _get32_ . Those functions are very simple; they allow us to read and write some data to and from a 32-bit register
 
-   #+BEGIN_EXAMPLE
-     You can take a look at how they are implemented in utils.S
+#+BEGIN_EXAMPLE
+  You can take a look at how they are implemented in utils.S
 
-     uart_init is one of the most complex and important functions in this lesson, and we will continue to examine it in the next three sections
-   #+END_EXAMPLE
+  uart_init is one of the most complex and important functions in this lesson, and we will continue to examine it in the next three sections
+#+END_EXAMPLE
 *** GPIO alternative function selection
 
-    First, we need to *activate* the _GPIO pins_ . Most of the pins can be used with different devices, so before using a particular pin, we need to select the pin's alternative function. An alternative function is just a number from 0 to 5 that can be set for each pin and configures which device is connected to the pin. You can see the list of all available GPIO alternative functions in the image below:
+First, we need to *activate* the _GPIO pins_ . Most of the pins can be used with different devices, so before using a particular pin, we need to select the pin's alternative function. An alternative function is just a number from 0 to 5 that can be set for each pin and configures which device is connected to the pin. You can see the list of all available GPIO alternative functions in the image below:
 
-    #+ATTR_HTML: image :width 70% 
-    [[file:../pic/alt.png]]
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/alt.png]]
 
-    Here you can see that pins _14_ and _15_ have the _TXD1_ and _RXD1_ alternative functions available. This means that if we select alternative function number 5 for pins 14 and 15, they will be used as a Mini UART Transmit Data pin and Mini UART Receive Data pin, respectively. The _GPFSEL1_ register is used to control alternative functions for pins 10-19. The meaning of all the bits in those registers is shown in the following table: 
+Here you can see that pins _14_ and _15_ have the _TXD1_ and _RXD1_ alternative functions available. This means that if we select alternative function number 5 for pins 14 and 15, they will be used as a Mini UART Transmit Data pin and Mini UART Receive Data pin, respectively. The _GPFSEL1_ register is used to control alternative functions for pins 10-19. The meaning of all the bits in those registers is shown in the following table: 
 
-    #+ATTR_HTML: image :width 70% 
-    [[file:../pic/gpfsel1.png]]
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/gpfsel1.png]]
 
 
-    So now you know everything you need to understand the following lines of code that are used to configure GPIO pins 14 and 15 to work with the Mini UART device:
+So now you know everything you need to understand the following lines of code that are used to configure GPIO pins 14 and 15 to work with the Mini UART device:
 
-    #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   unsigned int selector;
 
   selector = get32(GPFSEL1);
@@ -442,49 +442,49 @@ We are going to start our journey in OS development by writing a small, bare-met
   selector &= ~(7<<15);                   // clean gpio15
   selector |= 2<<15;                      // set alt5 for gpio 15
   put32(GPFSEL1,selector);
-    #+END_SRC
+#+END_SRC
 
 *** GPIO pull-up/down
-    #+BEGIN_EXAMPLE
-      When you work with Raspberry Pi GPIO pins, you will often encounter terms such as pull-up/pull-down
+#+BEGIN_EXAMPLE
+  When you work with Raspberry Pi GPIO pins, you will often encounter terms such as pull-up/pull-down
 
-      For those who are too lazy to read the whole article, I will briefly explain the pull-up/pull-down concept
-    #+END_EXAMPLE
-    If you use a particular pin as input and don't connect anything to this pin, you will not be able to identify whether the value of the pin is 1 or 0. In fact, the device will report random values. The pull-up/pull-down mechanism allows you to overcome this issue. If you set the pin to the pull-up state and nothing is connected to it, it will report 1 all the time (for the pull-down state, the value will always be 0). In our case, we need neither the _pull-up_ nor the _pull-down_ state, because both the 14 and 15 pins are going to be connected all the time. The pin state is preserved even after a reboot, so before using any pin, we always have to initialize its state. There are three available states: pull-up, pull-down, and *neither* (to remove the current pull-up or pull-down state), and we need the third one.
+  For those who are too lazy to read the whole article, I will briefly explain the pull-up/pull-down concept
+#+END_EXAMPLE
+If you use a particular pin as input and don't connect anything to this pin, you will not be able to identify whether the value of the pin is 1 or 0. In fact, the device will report random values. The pull-up/pull-down mechanism allows you to overcome this issue. If you set the pin to the pull-up state and nothing is connected to it, it will report 1 all the time (for the pull-down state, the value will always be 0). In our case, we need neither the _pull-up_ nor the _pull-down_ state, because both the 14 and 15 pins are going to be connected all the time. The pin state is preserved even after a reboot, so before using any pin, we always have to initialize its state. There are three available states: pull-up, pull-down, and *neither* (to remove the current pull-up or pull-down state), and we need the third one.
 
-    Switching between pin states is not a very simple procedure because it requires physically toggling a switch on the electric circuit. This process involves the GPPUD and GPPUDCLK registers and is described on page 101 of the BCM2837 ARM Peripherals manual. I copied the description here:
+Switching between pin states is not a very simple procedure because it requires physically toggling a switch on the electric circuit. This process involves the GPPUD and GPPUDCLK registers and is described on page 101 of the BCM2837 ARM Peripherals manual. I copied the description here:
 
-    #+BEGIN_EXAMPLE
-      The GPIO Pull-up/down Clock Registers control the actuation of internal pull-downs on
-      the respective GPIO pins. These registers must be used in conjunction with the GPPUD
-      register to effect GPIO Pull-up/down changes. The following sequence of events is
-      required:
-      1. Write to GPPUD to set the required control signal (i.e. Pull-up or Pull-Down or neither
-      to remove the current Pull-up/down)
-      2. Wait 150 cycles – this provides the required set-up time for the control signal
-      3. Write to GPPUDCLK0/1 to clock the control signal into the GPIO pads you wish to
-      modify – NOTE only the pads which receive a clock will be modified, all others will
-      retain their previous state.
-      4. Wait 150 cycles – this provides the required hold time for the control signal
-      5. Write to GPPUD to remove the control signal
-      6. Write to GPPUDCLK0/1 to remove the clock
-    #+END_EXAMPLE
+#+BEGIN_EXAMPLE
+  The GPIO Pull-up/down Clock Registers control the actuation of internal pull-downs on
+  the respective GPIO pins. These registers must be used in conjunction with the GPPUD
+  register to effect GPIO Pull-up/down changes. The following sequence of events is
+  required:
+  1. Write to GPPUD to set the required control signal (i.e. Pull-up or Pull-Down or neither
+  to remove the current Pull-up/down)
+  2. Wait 150 cycles – this provides the required set-up time for the control signal
+  3. Write to GPPUDCLK0/1 to clock the control signal into the GPIO pads you wish to
+  modify – NOTE only the pads which receive a clock will be modified, all others will
+  retain their previous state.
+  4. Wait 150 cycles – this provides the required hold time for the control signal
+  5. Write to GPPUD to remove the control signal
+  6. Write to GPPUDCLK0/1 to remove the clock
+#+END_EXAMPLE
 
-    This procedure describes how we can remove both the pull-up and pull-down states from a pin, which is what we are doing for pins 14 and 15 in the following code:
+This procedure describes how we can remove both the pull-up and pull-down states from a pin, which is what we are doing for pins 14 and 15 in the following code:
 
-    #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   put32(GPPUD,0);
   delay(150);
   put32(GPPUDCLK0,(1<<14)|(1<<15));
   delay(150);
   put32(GPPUDCLK0,0);
-    #+END_SRC
+#+END_SRC
 
 *** Initializing the Mini UART
 
-    Now our Mini UART is connected to the GPIO pins, and the pins are configured. The rest of the uart_init function is dedicated to Mini UART initialization.
+Now our Mini UART is connected to the GPIO pins, and the pins are configured. The rest of the uart_init function is dedicated to Mini UART initialization.
 
-    #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
   put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
   put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
@@ -493,68 +493,68 @@ We are going to start our journey in OS development by writing a small, bare-met
   put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
 
   put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
-    #+END_SRC
+#+END_SRC
 
-    Let's examine this code snippet line by line.
+Let's examine this code snippet line by line.
 
-    #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
-    #+END_SRC
+#+END_SRC
 
-    This line enables the Mini UART. We must do this in the beginning, because this also enables access to all the other Mini UART registers.
+This line enables the Mini UART. We must do this in the beginning, because this also enables access to all the other Mini UART registers.
 
-    #+BEGIN_SRC c
+#+BEGIN_SRC c
   put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
-    #+END_SRC
+#+END_SRC
     
-    Here we disable the receiver and transmitter before the configuration is finished. We also permanently disable auto-flow control because it requires us to use additional GPIO pins, and the TTL-to-serial cable doesn't support it
+Here we disable the receiver and transmitter before the configuration is finished. We also permanently disable auto-flow control because it requires us to use additional GPIO pins, and the TTL-to-serial cable doesn't support it
 
-    #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
-    #+END_SRC
+#+END_SRC
     
-    It is possible to configure the Mini UART to generate a processor interrupt each time new data is available
+It is possible to configure the Mini UART to generate a processor interrupt each time new data is available
 
-    #+BEGIN_SRC c
+#+BEGIN_SRC c
   put32(AUX_MU_LCR_REG,3);                //Enable 8 bit mode
-    #+END_SRC
+#+END_SRC
 
-    #+BEGIN_EXAMPLE
-      We are going to start working with interrupts in lesson 3, so for now, we will just disable this feature
-    #+END_EXAMPLE
+#+BEGIN_EXAMPLE
+  We are going to start working with interrupts in lesson 3, so for now, we will just disable this feature
+#+END_EXAMPLE
 
-    Mini UART can support either 7- or 8-bit operations. This is because an ASCII character is 7 bits for the standard set and 8 bits for the extended. We are going to use 8-bit mode.
+Mini UART can support either 7- or 8-bit operations. This is because an ASCII character is 7 bits for the standard set and 8 bits for the extended. We are going to use 8-bit mode.
 
-    #+BEGIN_SRC c
+#+BEGIN_SRC c
   put32(AUX_MU_MCR_REG,0);                //Set RTS line to be always high
-    #+END_SRC
+#+END_SRC
 
-    The RTS line is used in the flow control and we don't need it. Set it to be high all the time.
+The RTS line is used in the flow control and we don't need it. Set it to be high all the time.
 
-    #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
-    #+END_SRC
+#+END_SRC
     
-    The baud rate is the rate at which information is transferred in a communication channel. “115200 baud” means that the serial port is capable of transferring a maximum of _115200_ bits per second. The baud rate of your Raspberry Pi mini UART device should be the same as *the baud rate in your terminal emulator* . The Mini UART calculates baud rate according to the following equation:
+The baud rate is the rate at which information is transferred in a communication channel. “115200 baud” means that the serial port is capable of transferring a maximum of _115200_ bits per second. The baud rate of your Raspberry Pi mini UART device should be the same as *the baud rate in your terminal emulator* . The Mini UART calculates baud rate according to the following equation:
 
-    #+BEGIN_EXAMPLE
-      baudrate = system_clock_freq / (8 * ( baudrate_reg + 1 ))
+#+BEGIN_EXAMPLE
+  baudrate = system_clock_freq / (8 * ( baudrate_reg + 1 ))
 
-      The system_clock_freq is 250 MHz, so we can easily calculate the value of baudrate_reg as 270
-    #+END_EXAMPLE
+  The system_clock_freq is 250 MHz, so we can easily calculate the value of baudrate_reg as 270
+#+END_EXAMPLE
 
 
-    #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
-    #+END_SRC
+#+END_SRC
 
-    After this line is executed, the Mini UART is ready for work!
+After this line is executed, the Mini UART is ready for work!
 
 ** Sending data using the Mini UART
-   After the Mini UART is ready, we can try to use it to send and receive some data. To do this, we can use the following two functions:
+After the Mini UART is ready, we can try to use it to send and receive some data. To do this, we can use the following two functions:
 
 
-   #+BEGIN_SRC c 
+#+BEGIN_SRC c 
   void uart_send ( char c )
   {
 	  while(1) {
@@ -572,25 +572,76 @@ We are going to start our journey in OS development by writing a small, bare-met
 	  }
 	  return(get32(AUX_MU_IO_REG)&0xFF);
   }
-   #+END_SRC
+#+END_SRC
 
-   Both of the functions:
-   1. start with an _infinite loop_, the purpose of which is to verify whether the device is *ready* to transmit or receive data, We are using the _AUX_MU_LSR_REG_ register to do this:
-      + Bit zero, if set to 1, indicates that the data is ready, this means that we can read from the UART
-      + Bit five, if set to 1, tells us that the transmitter is empty, meaning that we can write to the UART
-   2. we use _AUX_MU_IO_REG_ to either store the value of the transmitted character or read the value of the received character 
+Both of the functions:
+1. start with an _infinite loop_, the purpose of which is to verify whether the device is *ready* to transmit or receive data, We are using the _AUX_MU_LSR_REG_ register to do this:
+   + Bit zero, if set to 1, indicates that the data is ready, this means that we can read from the UART
+   + Bit five, if set to 1, tells us that the transmitter is empty, meaning that we can write to the UART
+2. we use _AUX_MU_IO_REG_ to either store the value of the transmitted character or read the value of the received character 
 
    We also have a very simple function that is capable of sending strings instead of characters:
 
    #+BEGIN_SRC c 
-  void uart_send_string(char* str)
-  {
-	  for (int i = 0; str[i] != '\0'; i ++) {
-		  uart_send((char)str[i]);
-	  }
-  }
+     void uart_send_string(char* str)
+     {
+	     for (int i = 0; str[i] != '\0'; i ++) {
+		     uart_send((char)str[i]);
+	     }
+     }
    #+END_SRC
 
    This function just iterates over all characters in a string and sends them one by one 
 
 * Raspberry Pi config
+The Raspberry Pi startup sequence is the following:
+1. The device is powered on
+2. The GPU starts up and reads the _config.txt_ file from the boot partition. This file contains some configuration parameters that the GPU uses to further adjust the startup sequence
+3. _kernel8.img_ is loaded into memory and executed
+
+To be able to run our simple OS, the config.txt file should be the following:
+#+begin_src sh 
+  kernel_old=1
+  disable_commandline_tags=1
+#+end_src
+
++ kernel_old=1: specifies that the kernel image should be loaded at address 0
++ disable_commandline_tags: instructs the GPU to not pass any command line arguments to the booted image
+
+* Testing the kernel
+Now that we have gone through all of the source code, it is time to see it work. To build and test the kernel you need to do the following:
+1. Execute _./build.sh_ or ./build.bat from src/lesson01 in order to build the kernel
+2. Copy the generated kernel8.img file to the boot partition of your Raspberry Pi flash card and delete kernel7.img as well as any other kernel*.img files that may be present on your SD card
+   #+begin_example
+     Make sure you left all other files in the boot partition untouched
+   #+end_example
+3. Modify the _config.txt_ file as described in the previous section
+4. Connect the _USB-to-TTL serial cable_ as described in the Prerequisites
+5. Power on your Raspberry Pi
+6. Open your terminal emulator. You should be able to see the _Hello, world!_ message there
+
+Note that the sequence of steps described above asumes that you have Raspbian installed on your SD card. It is also posible to run the RPi OS using an empty SD card:
+1. Prepare your SD card:
+   + Use an MBR partition table
+   + Format the boot partition as FAT32
+     #+begin_example
+       The card should be formatted exactly in the same way as it is required to install Raspbian
+
+       Check HOW TO FORMAT AN SD CARD AS FAT section in the official documentation for more information
+     #+end_example
+2. Copy the following files to the card:
+   + _bootcode.bin_ This is the GPU bootloader, it contains the _GPU code_ to *start* the GPU and *load* the GPU firmware
+   + _start.elf_ This is the _GPU firmware_ . It reads config.txt and *enables* the GPU to load and run ARM specific user code from kernel8.img
+3. Copy kernel8.img and config.txt files
+4. Connect the USB-to-TTL serial cable
+5. Power on your Raspberry Pi
+6. Use your terminal emulator to connect to the RPi OS
+
+#+begin_example
+  Unfortunately, all Raspberry Pi firmware files are closed-sourced and undocumented
+
+  For more information about the Raspberry Pi startup sequence, you can refer to some unofficial sources, like this StackExchange question or this Github repository
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:linux.org][Next: Linux project structure]] | [[file:initialization.org][Home: Kernel Initialization]] | 
