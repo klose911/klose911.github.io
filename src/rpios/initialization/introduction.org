@@ -380,4 +380,217 @@ We are going to start our journey in OS development by writing a small, bare-met
     #+ATTR_HTML: image :width 70% 
     [[file:../pic/gpio-numbers.png]]
 ** Mini UART initialization
+   Now let's take a look at how mini UART is initialized. This code is defined in _mini_uart.c_ : 
 
+   #+BEGIN_SRC c 
+  void uart_init ( void )
+  {
+	  unsigned int selector;
+
+	  selector = get32(GPFSEL1);
+	  selector &= ~(7<<12);                   // clean gpio14
+	  selector |= 2<<12;                      // set alt5 for gpio14
+	  selector &= ~(7<<15);                   // clean gpio15
+	  selector |= 2<<15;                      // set alt5 for gpio 15
+	  put32(GPFSEL1,selector);
+
+	  put32(GPPUD,0);
+	  delay(150);
+	  put32(GPPUDCLK0,(1<<14)|(1<<15));
+	  delay(150);
+	  put32(GPPUDCLK0,0);
+
+	  put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
+	  put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
+	  put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
+	  put32(AUX_MU_LCR_REG,3);                //Enable 8 bit mode
+	  put32(AUX_MU_MCR_REG,0);                //Set RTS line to be always high
+	  put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
+
+	  put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
+  }
+   #+END_SRC
+
+   Here, we use the two functions _put32_ and _get32_ . Those functions are very simple; they allow us to read and write some data to and from a 32-bit register
+
+   #+BEGIN_EXAMPLE
+     You can take a look at how they are implemented in utils.S
+
+     uart_init is one of the most complex and important functions in this lesson, and we will continue to examine it in the next three sections
+   #+END_EXAMPLE
+*** GPIO alternative function selection
+
+    First, we need to *activate* the _GPIO pins_ . Most of the pins can be used with different devices, so before using a particular pin, we need to select the pin's alternative function. An alternative function is just a number from 0 to 5 that can be set for each pin and configures which device is connected to the pin. You can see the list of all available GPIO alternative functions in the image below:
+
+    #+ATTR_HTML: image :width 70% 
+    [[file:../pic/alt.png]]
+
+    Here you can see that pins _14_ and _15_ have the _TXD1_ and _RXD1_ alternative functions available. This means that if we select alternative function number 5 for pins 14 and 15, they will be used as a Mini UART Transmit Data pin and Mini UART Receive Data pin, respectively. The _GPFSEL1_ register is used to control alternative functions for pins 10-19. The meaning of all the bits in those registers is shown in the following table: 
+
+    #+ATTR_HTML: image :width 70% 
+    [[file:../pic/gpfsel1.png]]
+
+
+    So now you know everything you need to understand the following lines of code that are used to configure GPIO pins 14 and 15 to work with the Mini UART device:
+
+    #+BEGIN_SRC c 
+  unsigned int selector;
+
+  selector = get32(GPFSEL1);
+  selector &= ~(7<<12);                   // clean gpio14
+  selector |= 2<<12;                      // set alt5 for gpio14
+  selector &= ~(7<<15);                   // clean gpio15
+  selector |= 2<<15;                      // set alt5 for gpio 15
+  put32(GPFSEL1,selector);
+    #+END_SRC
+
+*** GPIO pull-up/down
+    #+BEGIN_EXAMPLE
+      When you work with Raspberry Pi GPIO pins, you will often encounter terms such as pull-up/pull-down
+
+      For those who are too lazy to read the whole article, I will briefly explain the pull-up/pull-down concept
+    #+END_EXAMPLE
+    If you use a particular pin as input and don't connect anything to this pin, you will not be able to identify whether the value of the pin is 1 or 0. In fact, the device will report random values. The pull-up/pull-down mechanism allows you to overcome this issue. If you set the pin to the pull-up state and nothing is connected to it, it will report 1 all the time (for the pull-down state, the value will always be 0). In our case, we need neither the _pull-up_ nor the _pull-down_ state, because both the 14 and 15 pins are going to be connected all the time. The pin state is preserved even after a reboot, so before using any pin, we always have to initialize its state. There are three available states: pull-up, pull-down, and *neither* (to remove the current pull-up or pull-down state), and we need the third one.
+
+    Switching between pin states is not a very simple procedure because it requires physically toggling a switch on the electric circuit. This process involves the GPPUD and GPPUDCLK registers and is described on page 101 of the BCM2837 ARM Peripherals manual. I copied the description here:
+
+    #+BEGIN_EXAMPLE
+      The GPIO Pull-up/down Clock Registers control the actuation of internal pull-downs on
+      the respective GPIO pins. These registers must be used in conjunction with the GPPUD
+      register to effect GPIO Pull-up/down changes. The following sequence of events is
+      required:
+      1. Write to GPPUD to set the required control signal (i.e. Pull-up or Pull-Down or neither
+      to remove the current Pull-up/down)
+      2. Wait 150 cycles – this provides the required set-up time for the control signal
+      3. Write to GPPUDCLK0/1 to clock the control signal into the GPIO pads you wish to
+      modify – NOTE only the pads which receive a clock will be modified, all others will
+      retain their previous state.
+      4. Wait 150 cycles – this provides the required hold time for the control signal
+      5. Write to GPPUD to remove the control signal
+      6. Write to GPPUDCLK0/1 to remove the clock
+    #+END_EXAMPLE
+
+    This procedure describes how we can remove both the pull-up and pull-down states from a pin, which is what we are doing for pins 14 and 15 in the following code:
+
+    #+BEGIN_SRC c 
+  put32(GPPUD,0);
+  delay(150);
+  put32(GPPUDCLK0,(1<<14)|(1<<15));
+  delay(150);
+  put32(GPPUDCLK0,0);
+    #+END_SRC
+
+*** Initializing the Mini UART
+
+    Now our Mini UART is connected to the GPIO pins, and the pins are configured. The rest of the uart_init function is dedicated to Mini UART initialization.
+
+    #+BEGIN_SRC c 
+  put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
+  put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
+  put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
+  put32(AUX_MU_LCR_REG,3);                //Enable 8 bit mode
+  put32(AUX_MU_MCR_REG,0);                //Set RTS line to be always high
+  put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
+
+  put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
+    #+END_SRC
+
+    Let's examine this code snippet line by line.
+
+    #+BEGIN_SRC c 
+  put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
+    #+END_SRC
+
+    This line enables the Mini UART. We must do this in the beginning, because this also enables access to all the other Mini UART registers.
+
+    #+BEGIN_SRC c
+  put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
+    #+END_SRC
+    
+    Here we disable the receiver and transmitter before the configuration is finished. We also permanently disable auto-flow control because it requires us to use additional GPIO pins, and the TTL-to-serial cable doesn't support it
+
+    #+BEGIN_SRC c 
+  put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
+    #+END_SRC
+    
+    It is possible to configure the Mini UART to generate a processor interrupt each time new data is available
+
+    #+BEGIN_SRC c
+  put32(AUX_MU_LCR_REG,3);                //Enable 8 bit mode
+    #+END_SRC
+
+    #+BEGIN_EXAMPLE
+      We are going to start working with interrupts in lesson 3, so for now, we will just disable this feature
+    #+END_EXAMPLE
+
+    Mini UART can support either 7- or 8-bit operations. This is because an ASCII character is 7 bits for the standard set and 8 bits for the extended. We are going to use 8-bit mode.
+
+    #+BEGIN_SRC c
+  put32(AUX_MU_MCR_REG,0);                //Set RTS line to be always high
+    #+END_SRC
+
+    The RTS line is used in the flow control and we don't need it. Set it to be high all the time.
+
+    #+BEGIN_SRC c 
+  put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
+    #+END_SRC
+    
+    The baud rate is the rate at which information is transferred in a communication channel. “115200 baud” means that the serial port is capable of transferring a maximum of _115200_ bits per second. The baud rate of your Raspberry Pi mini UART device should be the same as *the baud rate in your terminal emulator* . The Mini UART calculates baud rate according to the following equation:
+
+    #+BEGIN_EXAMPLE
+      baudrate = system_clock_freq / (8 * ( baudrate_reg + 1 ))
+
+      The system_clock_freq is 250 MHz, so we can easily calculate the value of baudrate_reg as 270
+    #+END_EXAMPLE
+
+
+    #+BEGIN_SRC c 
+  put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
+    #+END_SRC
+
+    After this line is executed, the Mini UART is ready for work!
+
+** Sending data using the Mini UART
+   After the Mini UART is ready, we can try to use it to send and receive some data. To do this, we can use the following two functions:
+
+
+   #+BEGIN_SRC c 
+  void uart_send ( char c )
+  {
+	  while(1) {
+		  if(get32(AUX_MU_LSR_REG)&0x20) 
+			  break;
+	  }
+	  put32(AUX_MU_IO_REG,c);
+  }
+
+  char uart_recv ( void )
+  {
+	  while(1) {
+		  if(get32(AUX_MU_LSR_REG)&0x01) 
+			  break;
+	  }
+	  return(get32(AUX_MU_IO_REG)&0xFF);
+  }
+   #+END_SRC
+
+   Both of the functions:
+   1. start with an _infinite loop_, the purpose of which is to verify whether the device is *ready* to transmit or receive data, We are using the _AUX_MU_LSR_REG_ register to do this:
+      + Bit zero, if set to 1, indicates that the data is ready, this means that we can read from the UART
+      + Bit five, if set to 1, tells us that the transmitter is empty, meaning that we can write to the UART
+   2. we use _AUX_MU_IO_REG_ to either store the value of the transmitted character or read the value of the received character 
+
+   We also have a very simple function that is capable of sending strings instead of characters:
+
+   #+BEGIN_SRC c 
+  void uart_send_string(char* str)
+  {
+	  for (int i = 0; str[i] != '\0'; i ++) {
+		  uart_send((char)str[i]);
+	  }
+  }
+   #+END_SRC
+
+   This function just iterates over all characters in a string and sends them one by one 
+
+* Raspberry Pi config
