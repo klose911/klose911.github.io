@@ -1,5 +1,5 @@
 #+TITLE: Kernel build system
-#+SETUPFILE: https://fniessen.github.io/org-html-themes/org/theme-readtheorg.setup
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_HOME: ./initialization.html
 #+HTML_LINK_UP: ./linux.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
@@ -8,4 +8,130 @@
   After we examined Linux kernel structure, it worth spending some time investigating how we can build and run it
 #+end_example
 Linux also uses _make_ utility to build the kernel, though Linux Makefile is much more complicated. Before we will take a look at the makefile, let's learn some important concepts about Linux build system, which is called _kbuild_
+* A few essential kbuild concepts
 
+Build process can be customized by using kbuild variables. Those variables are defined in _Kconfig_ files.
++ Here you can define the variables themselves and their default values
+  + Variables can have different types, including string, boolean and integer
++ In a Kconfig file you can also define dependencies between variables
+  #+begin_example
+     for example, you can say that if variable X is selected then variable Y will be selected implicitly
+
+    you can take a look at arm64 Kconfig file. This file defines all variables, specific for arm64 architecture
+  #+end_example
++ Kconfig functionality is not part of the standard make and is implemented in the Linux makefile
++ Variables, defined in Kconfig are exposed to the kernel source code as well as to the nested makefiles
++ Variable values can be set during kernel configuration step
+  #+begin_example
+    for example, if you type make menuconfig a console GUI will be shown
+
+    It allows you to customize values for all kernel variables and stores the values in .config
+
+    Use make help command to view all possible options to configure the kernel
+  #+end_example
+
+Linux uses *recursive* build. This means that each subfolder of the Linux kernel can define it's own Makefile and Kconfig. Most of the nested Makefiles are very simple and just define what object files need to be compiled. Usually, such definitions have the following format:
+
+#+begin_src makefile
+  obj-$(SOME_CONFIG_VARIABLE) += some_file.o
+#+end_src
+
+This definition means that _some_file.c_ will be compiled and linked to the kernel only if _SOME_CONFIG_VARIABLE_ is *set* . If you want to compile and link a file unconditionally, you need to change the previous definition to look like this 
+
+#+begin_src makefile
+  obj-y += some_file.o
+#+end_src
+
+Before we move forward, you need to understand the structure of a basic make _rule_ and be comfortable with make _terminology_ . Common rule structure is illustrated in the following diagram:
+#+begin_src makefile
+  targets : prerequisites
+  recipe
+  …
+#+end_src
++ _targets_ : are file names, separated by spaces. Targets are *generated* after the rule is executed. Usually, there is only one target per rule
++ _prerequisites_ : are files that make trackes to see whether it needs to *update* the targets
++ _recipe_ is a *bash* script. Make calls it when some of the prerequisites have been updated. The recipe is responsible for *generating* the targets.
+
+  #+begin_example
+    Both targets and prerequisites can include wildcards (%). When wildcards are used the recipe is executed for each of the matched prerequisites separately
+
+    In this case, you can use $< and $@ variables to refer to the prerequisite and the target inside the recipe 
+  #+end_example
+
+_make_ is very good in detecting whether any of the prerequisites have been changed and updating only targets that need to be rebuilt
+#+begin_example
+    However, if a recipe is dynamically updated, make is unable to detect this change
+
+    One good example is when you change some configuration variable, which results in appending an additional option to the recipe
+
+    By default, in this case, make will not recompile previously generated object files, because their prerequisites haven't been changed, only the recipe have been updated
+#+end_example
+
+
+To overcome this behavior Linux introduces _if_changed_ function. To see how it works let's consider the following example:
+#+begin_src makefile 
+  cmd_compile = gcc $(flags) -o $@ $<
+
+  %.o: %.c FORCE
+  $(call if_changed,compile)
+#+end_src
+
+Here for each .c file we build corresponding .o file by calling if_changed function with the argument compile. _if_changed_ then looks for _cmd_compile_ variable (it adds cmd_ prefix to the first argument) and checks whether this variable has been updated since the last execution, or any of the prerequisites has been changed:
++ If yes: cmd_compile command is executed and object file is regenerated
+
+Our sample rule has 2 prerequisites: source .c file and _FORCE_
++ FORCE is a special prerequisite that forces the recipe to be called each time when make command is called
+  #+begin_example
+      Without it, the recipe would be called only if .c file was changed
+  #+end_example
+* Building the kernel
+
+Now, that we learned some important concepts about the Linux build system, let's try to figure out what exactly is going on after you type make command. This process is very complicated and includes a lot of details, most of which we will skip. Our goal will be to answer 2 questions.
+1. How exactly are source files compiled into object files?
+2. How are object files linked into the OS image?
+
+We are going to tackle the second question first.
+** Link stage
+As you might see from the output of _make help_ command, the default target, which is responsible for building the kernel, is called *vmlinux* and it looks like this:
+
+#+begin_src makefile 
+  cmd_link-vmlinux =                                                 \
+  $(CONFIG_SHELL) $< $(LD) $(LDFLAGS) $(LDFLAGS_vmlinux) ;    \
+  $(if $(ARCH_POSTLINK), $(MAKE) -f $(ARCH_POSTLINK) $@, true)
+
+  vmlinux: scripts/link-vmlinux.sh vmlinux_prereq $(vmlinux-deps) FORCE
+  +$(call if_changed,link-vmlinux)
+#+end_src
+
+This target uses already familiar to us _if_changed_ function. Whenever some of the prerequsities are updated _cmd_link-vmlinux_ command is executed. This command executes _scripts/link-vmlinux.sh_ script
+
+#+begin_example
+  Note usage of $< automatic variable in the cmd_link-vmlinux command
+
+  It also executes architecture specific postlink script, but we are not very interested in it
+#+end_example
+
+When _scripts/link-vmlinux.sh_ is executed it assumes that all required object files are already built and their locations are stored in 3 variables:
++ _KBUILD_VMLINUX_INIT_
++ _KBUILD_VMLINUX_MAIN_
++ _KBUILD_VMLINUX_LIBS_
+
+_link-vmlinux.sh_ script first creates thin archive from all available object files. thin archive is a special object that contains references to a set of *object files* as well as their combined *symbol table* . This is done inside _archive_builtin_ function. In order to create thin archive this function uses *ar* utility. Generated thin archive is stored as _built-in.o_ file and has the format that is understandable by the linker, so it can be used as any other normal object file
+
+Next _modpost_link_ is called. This function calls _linker_ and *generates* _vmlinux.o_ object file
+#+begin_example
+  We need this object file to perform Section mismatch analysis
+
+  This analysis is performed by the modpost program
+#+end_example
+
+Next _kernel symbol table_ is generated. It contains information about all functions and global variables as well as their location in the vmlinux binary. The main work is done inside _kallsyms_ function:
+1. This function first uses *nm* to extract all symbols from vmlinux binary
+2. Then it uses _scripts/kallsyms_ utility to generate a special assembler file containing all symbols in a special format, understandable by the Linux kernel
+3. Next, this assembler file is compiled and linked together with the original binary. Information from the kernel symbol table is used to generate _/proc/kallsyms_ file at runtime
+   #+begin_example
+     This process is repeated several times because after the final link addresses of some symbols can be changed
+   #+end_example
+
+Finally _vmlinux_ binary is ready and _System.map_ is build. System.map contains the same information as _/proc/kallsyms_ but this is *static* file and unlike /proc/kallsyms it is not generated at runtime. System.map is mostly used to *resolve* _addresses_ to _symbol names_ during kernel oops. The same *nm* utility is used to build System.map 
+** Build stage

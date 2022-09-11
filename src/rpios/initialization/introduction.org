@@ -1,5 +1,5 @@
 #+TITLE: Introducing RPi OS, or bare-metal "Hello, World!"
-#+SETUPFILE: https://fniessen.github.io/org-html-themes/org/theme-readtheorg.setup
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_HOME: ./initialization.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
 
@@ -13,7 +13,7 @@ Let's briefly describe the main components of this folder:
 * Makefile
 Now let's take a closer look at the project Makefile. The primary purpose of the make utility is to automatically determine what pieces of a program need to be recompiled, and to issue commands to recompile them. If you are not familiar with make and Makefiles, I recommend that you read this article. The Makefile used in the first lesson can be found here. The whole Makefile is listed below:
 
-#+BEGIN_SRC sh 
+#+BEGIN_SRC makefile 
   ARMGNU ?= aarch64-linux-gnu
 
   COPS = -Wall -nostdlib -nostartfiles -ffreestanding -Iinclude -mgeneral-regs-only
@@ -49,13 +49,13 @@ Now let's take a closer look at the project Makefile. The primary purpose of the
 
 Now, let's inspect this file in detail:
 
-#+BEGIN_SRC sh 
+#+BEGIN_SRC makefile
   ARMGNU ?= aarch64-linux-gnu
 #+END_SRC
 
 The Makefile starts with a variable definition. _ARMGNU_ is a cross-compiler prefix. We need to use a cross-compiler because we are compiling the source code for the arm64 architecture on an x86 machine. So instead of gcc, we will use _aarch64-linux-gnu-gcc_ 
 
-#+BEGIN_SRC sh 
+#+BEGIN_SRC makefile
   COPS = -Wall -nostdlib -nostartfiles -ffreestanding -Iinclude -mgeneral-regs-only
   ASMOPS = -Iinclude 
 #+END_SRC
@@ -87,14 +87,14 @@ _COPS_ and _ASMOPS_ are options that we pass to the compiler when compiling C an
     for example, we will need to store the registers during a context switch
   #+END_EXAMPLE
 
-  #+BEGIN_SRC sh 
+  #+BEGIN_SRC makefile
     BUILD_DIR = build
     SRC_DIR = src
   #+END_SRC
 
   _SRC_DIR_ and _BUILD_DIR_ are directories that contain source code and compiled object files, respectively 
 
-  #+BEGIN_SRC sh 
+  #+BEGIN_SRC makefile
     all : kernel8.img
 
     clean :
@@ -105,7 +105,7 @@ _COPS_ and _ASMOPS_ are options that we pass to the compiler when compiling C an
   + the all target is the default one, and it is executed whenever you type make without any arguments (make always uses the first target as the default). This target just redirects all work to a different target, kernel8.img
   + The clean target is responsible for deleting all compilation artifacts and the compiled kernel image 
 
-  #+BEGIN_SRC sh 
+  #+BEGIN_SRC makefile
     $(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
     mkdir -p $(@D)
     $(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
@@ -116,7 +116,7 @@ _COPS_ and _ASMOPS_ are options that we pass to the compiler when compiling C an
 
   The next two targets are responsible for compiling C and assembler files. If, for example, in the src directory we have _foo.c_ and _foo.S_ files, they will be compiled into _build/foo_c.o_ and _build/foo_s.o_ , respectively. *$<* and *$@* are substituted at runtime with the *input and output filenames* (foo.c and foo_c.o). Before compiling C files, we also create a build directory in case it doesn't exist yet 
 
-  #+BEGIN_SRC sh 
+  #+BEGIN_SRC makefile
     C_FILES = $(wildcard $(SRC_DIR)/*.c)
     ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
     OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
@@ -125,20 +125,20 @@ _COPS_ and _ASMOPS_ are options that we pass to the compiler when compiling C an
 
   Here we are building an array of all object files (OBJ_FILES) created from the concatenation of both C and assembler source files (see Substitution References).
 
-  #+BEGIN_SRC sh 
+  #+BEGIN_SRC makefile
     DEP_FILES = $(OBJ_FILES:%.o=%.d)
     -include $(DEP_FILES)
   #+END_SRC
 
   The next two lines are a little bit tricky. If you take a look at how we defined our compilation targets for both C and assembler source files, you will notice that we used the _-MMD_ parameter. This parameter instructs the gcc compiler to create a dependency file for each generated object file. A dependency file defines all of the dependencies for a particular source file. These dependencies usually contain a list of all included headers. We need to include all of the generated dependency files so that make knows what exactly to recompile in case a header changes 
 
-  #+BEGIN_SRC sh 
+  #+BEGIN_SRC makefile
     $(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o kernel8.elf  $(OBJ_FILES)
   #+END_SRC
 
   We use the _OBJ_FILES_ array to build the _kernel8.elf_ file. We use the linker script _src/linker.ld_ to define the *basic layout of the resulting executable image* 
 
-  #+BEGIN_SRC sh 
+  #+BEGIN_SRC makefile
     $(ARMGNU)-objcopy kernel8.elf -O binary kernel8.img
   #+END_SRC
 
@@ -164,7 +164,7 @@ The primary purpose of the linker script is to describe how the sections in the 
 
 Now let's take a look at the RPi OS linker script:
 
-#+BEGIN_SRC sh 
+#+BEGIN_SRC elf
   SECTIONS
   {
       .text.boot : { *(.text.boot) }
