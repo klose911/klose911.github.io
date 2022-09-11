@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/float_number/target/debug/float_number: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/float_number/src/main.rs

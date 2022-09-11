@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/basic_data_type/char/target/debug/char: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/basic_data_type/char/src/main.rs

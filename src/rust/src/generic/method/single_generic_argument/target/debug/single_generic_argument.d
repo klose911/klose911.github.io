@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/generic/method/single_generic_argument/target/debug/single_generic_argument: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/generic/method/single_generic_argument/src/main.rs

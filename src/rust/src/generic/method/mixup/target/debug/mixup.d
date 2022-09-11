@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/generic/method/mixup/target/debug/mixup: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/generic/method/mixup/src/main.rs

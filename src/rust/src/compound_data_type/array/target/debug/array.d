@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/compound_data_type/array/target/debug/array: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/compound_data_type/array/src/main.rs

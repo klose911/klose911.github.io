@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/collections/String/concate/target/debug/concate: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/collections/String/concate/src/main.rs

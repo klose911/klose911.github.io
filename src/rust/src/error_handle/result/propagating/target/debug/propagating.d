@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/error_handle/result/propagating/target/debug/propagating: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/error_handle/result/propagating/src/main.rs

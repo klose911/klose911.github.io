@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/modules/pub_enum/target/debug/libpub_enum.rlib: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/modules/pub_enum/src/lib.rs

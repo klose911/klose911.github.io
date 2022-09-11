@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/struct/rectangles/target/debug/rectangles: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/struct/rectangles/src/main.rs

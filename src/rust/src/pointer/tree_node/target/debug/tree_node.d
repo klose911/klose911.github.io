@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/pointer/tree_node/target/debug/tree_node: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/pointer/tree_node/src/main.rs
