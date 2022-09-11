@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/hello_cargo/target/debug/hello_cargo: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/hello_cargo/src/main.rs

@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/pointer/drop_trait/target/debug/drop_trait: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/pointer/drop_trait/src/main.rs

@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/ownership/both_mut_immut_references/target/debug/both_mut_immut_references: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/ownership/both_mut_immut_references/src/main.rs

@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/lifetime/struct_with_reference/target/debug/struct_with_reference: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/lifetime/struct_with_reference/src/main.rs

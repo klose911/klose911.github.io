@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/matcher/wildcard/target/debug/wildcard: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/matcher/wildcard/src/main.rs

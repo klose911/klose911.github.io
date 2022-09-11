@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/collections/String/iterator/target/debug/iterator: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/collections/String/iterator/src/main.rs

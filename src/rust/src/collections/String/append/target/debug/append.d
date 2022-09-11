@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/collections/String/append/target/debug/append: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/collections/String/append/src/main.rs

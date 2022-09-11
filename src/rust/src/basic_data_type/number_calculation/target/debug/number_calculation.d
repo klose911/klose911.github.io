@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/basic_data_type/number_calculation/target/debug/number_calculation: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/basic_data_type/number_calculation/src/main.rs

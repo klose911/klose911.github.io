@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/error_handle/backtrace/target/debug/backtrace: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/error_handle/backtrace/src/main.rs

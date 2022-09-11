@@ -1,1 +1,0 @@
-/home/klose/Documents/programming/html/klose911.github.io/src/rust/src/collections/String/create/target/debug/create: /home/klose/Documents/programming/html/klose911.github.io/src/rust/src/collections/String/create/src/main.rs
