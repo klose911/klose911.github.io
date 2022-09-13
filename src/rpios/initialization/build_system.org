@@ -135,3 +135,159 @@ Next _kernel symbol table_ is generated. It contains information about all funct
 
 Finally _vmlinux_ binary is ready and _System.map_ is build. System.map contains the same information as _/proc/kallsyms_ but this is *static* file and unlike /proc/kallsyms it is not generated at runtime. System.map is mostly used to *resolve* _addresses_ to _symbol names_ during kernel oops. The same *nm* utility is used to build System.map 
 ** Build stage
+Now let's take one step backward and examine how source code files are compiled into object files. As you might remember one of the prerequisites of the vmlinux target is _$(vmlinux-deps)_ variable. Let me now copy a few relevant lines from the main Linux makefile to demonstrate how this variable is built
+
+#+begin_src makefile 
+  init-y        := init/
+  drivers-y    := drivers/ sound/ firmware/
+  net-y        := net/
+  libs-y        := lib/
+  core-y        := usr/
+
+  core-y        += kernel/ certs/ mm/ fs/ ipc/ security/ crypto/ block/
+
+  init-y        := $(patsubst %/, %/built-in.o, $(init-y))
+  core-y        := $(patsubst %/, %/built-in.o, $(core-y))
+  drivers-y    := $(patsubst %/, %/built-in.o, $(drivers-y))
+  net-y        := $(patsubst %/, %/built-in.o, $(net-y))
+
+  export KBUILD_VMLINUX_INIT := $(head-y) $(init-y)
+  export KBUILD_VMLINUX_MAIN := $(core-y) $(libs-y2) $(drivers-y) $(net-y) $(virt-y)
+  export KBUILD_VMLINUX_LIBS := $(libs-y1)
+  export KBUILD_LDS          := arch/$(SRCARCH)/kernel/vmlinux.lds
+
+  vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_INIT) $(KBUILD_VMLINUX_MAIN) $(KBUILD_VMLINUX_LIBS)
+#+end_src
+
+It all starts with variables like _init-y_ , _core-y_ , etc., which combined contains all subfolders of the Linux kernel that contains buildable source code. Then _built-in.o_ is appended to all the subfolder names
+
+#+begin_example
+  for example, drivers/ becomes drivers/built-in.o. vmlinux-deps then just aggregates all resulting values
+
+  This explains how vmlinux eventually becomes dependent on all built-in.o files
+#+end_example
+
+Next question is how all built-in.o objects are created? Once again, let me copy all relevant lines and explain how it all works:
+
+#+begin_src makefile 
+  $(sort $(vmlinux-deps)): $(vmlinux-dirs) ;
+
+  vmlinux-dirs    := $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+  $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+  $(net-y) $(net-m) $(libs-y) $(libs-m) $(virt-y)))
+
+  build := -f $(srctree)/scripts/Makefile.build obj               #Copied from `scripts/Kbuild.include`
+
+  $(vmlinux-dirs): prepare scripts
+  $(Q)$(MAKE) $(build)=$@
+
+#+end_src
+
+The first line tells us that _vmlinux-deps_ depends on _vmlinux-dirs_ . Next, we can see that _vmlinux-dirs_ is a variable that contains all direct root subfolders without / character at the end. And the most important line here is the recipe to build $(vmlinux-dirs) target. After substitution of all variables, this recipe will look like the following
+
+#+begin_src sh 
+  make -f scripts/Makefile.build obj=drivers
+#+end_src
+
+This line just calls another makefile (scripts/Makefile.build) and passes obj variable, which contains a folder to be compiled
+
+#+begin_example
+  we use drivers folder as an example, but this rule will be executed for all root subfolders
+#+end_example
+
+Next logical step is to take a look at _scripts/Makefile.build_ . The first important thing that happens after it is executed is that all variables from Makefile or Kbuild files, defined in the *current directory* , are included. By current directory I mean the _directory_ *referenced* by the _obj_ variable. The inclusion is done in the following 3 lines.
+
+#+begin_src makefile 
+  kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
+  kbuild-file := $(if $(wildcard $(kbuild-dir)/Kbuild),$(kbuild-dir)/Kbuild,$(kbuild-dir)/Makefile)
+  include $(kbuild-file)
+#+end_src
+
+Nested makefiles are mostly responsible for initializing variables like obj-y:
++ obj-y variable should contain list of all source code files, located in the current directory
++ Another important variable that is initialized by the nested makefiles is _subdir-y_ . This variable contains a list of all subfolders that need to be visited *before* the source code in the curent directory can be built
+  #+begin_example
+    subdir-y is used to implement recursive descending into subfolders
+  #+end_example
+
+When _make_ is called without specifying the target (as it is in the case when scripts/Makefile.build is executed) it uses the first target. The first target for scripts/Makefile.build is called *__build* and it can be found here Let's take a look at it
+
+#+begin_src makefile
+  __build: $(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y)) \
+  $(if $(KBUILD_MODULES),$(obj-m) $(modorder-target)) \
+  $(subdir-ym) $(always)
+  @:
+#+end_src
+
+As you can see __build target doesn't have a receipt, but it depends on a bunch of other targets. We are only interested in *$(builtin-target)*
+
+#+begin_example
+   it is responsible for creating built-in.o file, and $(subdir-ym)
+#+end_example
+
+Let's take a look at _subdir-ym_ : it is responsible for descending into nested directories. This variable is just a concatenation of _subdir-y_ and _subdir-m_ variables
+
+#+begin_example
+  subdir-m variable is similar to subdir-y, but it defines subfolders need to be included in a separate kernel module
+
+  We skip the discussion of modules, for now, to keep focused
+#+end_example
+
+subdir-ym target should look familiar to you:
+
+#+begin_src makefile 
+  $(subdir-ym):
+  $(Q)$(MAKE) $(build)=$@
+#+end_src
+
+#+begin_example
+This target just triggers execution of the scripts/Makefile.build in one of the nested subfolders
+#+end_example
+
+Now it is time to examine the _builtin-target_ target. Once again I am copying only relevant lines here:
+
+#+begin_src makefile 
+  cmd_make_builtin = rm -f $@; $(AR) rcSTP$(KBUILD_ARFLAGS)
+  cmd_make_empty_builtin = rm -f $@; $(AR) rcSTP$(KBUILD_ARFLAGS)
+
+  cmd_link_o_target = $(if $(strip $(obj-y)),\
+  $(cmd_make_builtin) $@ $(filter $(obj-y), $^) \
+  $(cmd_secanalysis),\
+  $(cmd_make_empty_builtin) $@)
+
+  $(builtin-target): $(obj-y) FORCE
+  $(call if_changed,link_o_target)
+#+end_src
+
+This target depends on _$(obj-y)_ target and obj-y is a list of all object files that need to be built in the current folder. After those files become ready _cmd_link_o_target_ command is executed:
++ In case if obj-y variable is *empty* _cmd_make_empty_builtin_ is called, which just creates an empty built-in.o
++ Otherwise, _cmd_make_builtin_ command is executed; it uses familiar to us _ar_ tool to create _built-in.o_ thin archive
+
+Finally we got to the point where we need to compile something. You remember that our last unexplored dependency is _$(obj-y)_ and obj-y is just a list of object files. The target that compiles all object files from corresponding .c files is defined here. Let's examine all lines, needed to understand this target.
+
+#+begin_src makefile 
+  cmd_cc_o_c = $(CC) $(c_flags) -c -o $@ $<
+
+  define rule_cc_o_c
+  $(call echo-cmd,checksrc) $(cmd_checksrc)              \
+  $(call cmd_and_fixdep,cc_o_c)                      \
+  $(cmd_modversions_c)                          \
+  $(call echo-cmd,objtool) $(cmd_objtool)                  \
+  $(call echo-cmd,record_mcount) $(cmd_record_mcount)
+  endef
+
+  $(obj)/%.o: $(src)/%.c $(recordmcount_source) $(objtool_dep) FORCE
+  $(call cmd,force_checksrc)
+  $(call if_changed_rule,cc_o_c)
+#+end_src
+
+Inside it's recipe this target calls _rule_cc_o_c_ . This rule is responsible for a lot of things, like:
++ checking the source code for some common errors _cmd_checksrc_
++ enabling versioning for exported module symbols _cmd_modversions_c_
++ using objtool to validate some aspects of generated object files
++ constructing a list of calls to mcount function so that ftrace can find them quickly
+
+But most importantly it calls *cmd_cc_o_c* command that actually compiles all .c files to object files
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:startup.org][Next: Startup sequence]] | [[file:linux.org][Previous: Project Structure]] | [[file:initialization.org][Home: Kernel Initialization]] |

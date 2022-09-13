@@ -215,7 +215,7 @@
 </ul>
 </div>
 </div>
-<pre class="example" id="org8ed742e">
+<pre class="example" id="org7fec797">
 After we examined Linux kernel structure, it worth spending some time investigating how we can build and run it
 </pre>
 <p>
@@ -235,7 +235,7 @@ Build process can be customized by using kbuild variables. Those variables are d
 <li><p>
 In a Kconfig file you can also define dependencies between variables
 </p>
-<pre class="example" id="orgc6b5a76">
+<pre class="example" id="orgfe00bd3">
  for example, you can say that if variable X is selected then variable Y will be selected implicitly
 
 you can take a look at arm64 Kconfig file. This file defines all variables, specific for arm64 architecture
@@ -245,7 +245,7 @@ you can take a look at arm64 Kconfig file. This file defines all variables, spec
 <li><p>
 Variable values can be set during kernel configuration step
 </p>
-<pre class="example" id="org88cb99b">
+<pre class="example" id="org96fbbc1">
 for example, if you type make menuconfig a console GUI will be shown
 
 It allows you to customize values for all kernel variables and stores the values in .config
@@ -288,7 +288,7 @@ recipe
 <span class="underline">recipe</span> is a <b>bash</b> script. Make calls it when some of the prerequisites have been updated. The recipe is responsible for <b>generating</b> the targets.
 </p>
 
-<pre class="example" id="org533eb7a">
+<pre class="example" id="org209482f">
 Both targets and prerequisites can include wildcards (%). When wildcards are used the recipe is executed for each of the matched prerequisites separately
 
 In this case, you can use $&lt; and $@ variables to refer to the prerequisite and the target inside the recipe 
@@ -298,7 +298,7 @@ In this case, you can use $&lt; and $@ variables to refer to the prerequisite an
 <p>
 <span class="underline">make</span> is very good in detecting whether any of the prerequisites have been changed and updating only targets that need to be rebuilt
 </p>
-<pre class="example" id="org1e13a57">
+<pre class="example" id="orgc6374a6">
 However, if a recipe is dynamically updated, make is unable to detect this change
 
 One good example is when you change some configuration variable, which results in appending an additional option to the recipe
@@ -332,7 +332,7 @@ Our sample rule has 2 prerequisites: source .c file and <span class="underline">
 <li><p>
 FORCE is a special prerequisite that forces the recipe to be called each time when make command is called
 </p>
-<pre class="example" id="orgc1c58fb">
+<pre class="example" id="org205c033">
 Without it, the recipe would be called only if .c file was changed
 </pre></li>
 </ul>
@@ -374,7 +374,7 @@ $(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">ARCH_P
 This target uses already familiar to us <span class="underline">if_changed</span> function. Whenever some of the prerequsities are updated <span class="underline">cmd_link-vmlinux</span> command is executed. This command executes <span class="underline">scripts/link-vmlinux.sh</span> script
 </p>
 
-<pre class="example" id="org659f30e">
+<pre class="example" id="orga124bcc">
 Note usage of $&lt; automatic variable in the cmd_link-vmlinux command
 
 It also executes architecture specific postlink script, but we are not very interested in it
@@ -396,7 +396,7 @@ When <span class="underline">scripts/link-vmlinux.sh</span> is executed it assum
 <p>
 Next <span class="underline">modpost_link</span> is called. This function calls <span class="underline">linker</span> and <b>generates</b> <span class="underline">vmlinux.o</span> object file
 </p>
-<pre class="example" id="orgc271ece">
+<pre class="example" id="orga83cee4">
 We need this object file to perform Section mismatch analysis
 
 This analysis is performed by the modpost program
@@ -411,7 +411,7 @@ Next <span class="underline">kernel symbol table</span> is generated. It contain
 <li><p>
 Next, this assembler file is compiled and linked together with the original binary. Information from the kernel symbol table is used to generate <span class="underline">/proc/kallsyms</span> file at runtime
 </p>
-<pre class="example" id="org43d1175">
+<pre class="example" id="orgd43f5df">
 This process is repeated several times because after the final link addresses of some symbols can be changed
 </pre></li>
 </ol>
@@ -423,6 +423,228 @@ Finally <span class="underline">vmlinux</span> binary is ready and <span class="
 </div>
 <div id="outline-container-orgb654287" class="outline-3">
 <h3 id="orgb654287">Build stage</h3>
+<div class="outline-text-3" id="text-orgb654287">
+<p>
+Now let's take one step backward and examine how source code files are compiled into object files. As you might remember one of the prerequisites of the vmlinux target is <span class="underline">$(vmlinux-deps)</span> variable. Let me now copy a few relevant lines from the main Linux makefile to demonstrate how this variable is built
+</p>
+
+<div class="org-src-container">
+<pre class="src src-makefile"><span style="color: #4eee94;">init-y</span>        := init/
+<span style="color: #4eee94;">drivers-y</span>    := drivers/ sound/ firmware/
+<span style="color: #4eee94;">net-y</span>        := net/
+<span style="color: #4eee94;">libs-y</span>        := lib/
+<span style="color: #4eee94;">core-y</span>        := usr/
+
+<span style="color: #4eee94;">core-y</span>        += kernel/ certs/ mm/ fs/ ipc/ security/ crypto/ block/
+
+<span style="color: #4eee94;">init-y</span>        := $(<span style="color: #4eee94;">patsubst</span> %/, %/built-in.o, $(<span style="color: #4eee94;">init-y</span>))
+<span style="color: #4eee94;">core-y</span>        := $(<span style="color: #4eee94;">patsubst</span> %/, %/built-in.o, $(<span style="color: #4eee94;">core-y</span>))
+<span style="color: #4eee94;">drivers-y</span>    := $(<span style="color: #4eee94;">patsubst</span> %/, %/built-in.o, $(<span style="color: #4eee94;">drivers-y</span>))
+<span style="color: #4eee94;">net-y</span>        := $(<span style="color: #4eee94;">patsubst</span> %/, %/built-in.o, $(<span style="color: #4eee94;">net-y</span>))
+
+export <span style="color: #4eee94;">KBUILD_VMLINUX_INIT</span> := $(<span style="color: #4eee94;">head-y</span>) $(<span style="color: #4eee94;">init-y</span>)
+export <span style="color: #4eee94;">KBUILD_VMLINUX_MAIN</span> := $(<span style="color: #4eee94;">core-y</span>) $(<span style="color: #4eee94;">libs-y2</span>) $(<span style="color: #4eee94;">drivers-y</span>) $(<span style="color: #4eee94;">net-y</span>) $(<span style="color: #4eee94;">virt-y</span>)
+export <span style="color: #4eee94;">KBUILD_VMLINUX_LIBS</span> := $(<span style="color: #4eee94;">libs-y1</span>)
+export <span style="color: #4eee94;">KBUILD_LDS</span>          := arch/$(<span style="color: #4eee94;">SRCARCH</span>)/kernel/vmlinux.lds
+
+<span style="color: #4eee94;">vmlinux-deps</span> := $(<span style="color: #4eee94;">KBUILD_LDS</span>) $(<span style="color: #4eee94;">KBUILD_VMLINUX_INIT</span>) $(<span style="color: #4eee94;">KBUILD_VMLINUX_MAIN</span>) $(<span style="color: #4eee94;">KBUILD_VMLINUX_LIBS</span>)
+</pre>
+</div>
+
+<p>
+It all starts with variables like <span class="underline">init-y</span> , <span class="underline">core-y</span> , etc., which combined contains all subfolders of the Linux kernel that contains buildable source code. Then <span class="underline">built-in.o</span> is appended to all the subfolder names
+</p>
+
+<pre class="example" id="org1d8619b">
+for example, drivers/ becomes drivers/built-in.o. vmlinux-deps then just aggregates all resulting values
+
+This explains how vmlinux eventually becomes dependent on all built-in.o files
+</pre>
+
+<p>
+Next question is how all built-in.o objects are created? Once again, let me copy all relevant lines and explain how it all works:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-makefile"><span style="color: #daa520; font-weight: bold;">$(</span><span style="color: #daa520; font-weight: bold;">sort</span><span style="color: #daa520; font-weight: bold;"> $(</span><span style="color: #daa520; font-weight: bold;">vmlinux-deps</span><span style="color: #daa520; font-weight: bold;">))</span>: $(<span style="color: #4eee94;">vmlinux-dirs</span>) ;
+
+<span style="color: #4eee94;">vmlinux-dirs</span>    := $(<span style="color: #4eee94;">patsubst</span> %/,%,$(<span style="color: #4eee94;">filter</span> %/, $(<span style="color: #4eee94;">init-y</span>) $(<span style="color: #4eee94;">init-m</span>) \
+$(<span style="color: #4eee94;">core-y</span>) $(<span style="color: #4eee94;">core-m</span>) $(<span style="color: #4eee94;">drivers-y</span>) $(<span style="color: #4eee94;">drivers-m</span>) \
+$(<span style="color: #4eee94;">net-y</span>) $(<span style="color: #4eee94;">net-m</span>) $(<span style="color: #4eee94;">libs-y</span>) $(<span style="color: #4eee94;">libs-m</span>) $(<span style="color: #4eee94;">virt-y</span>)))
+
+<span style="color: #4eee94;">build</span> := -f $(<span style="color: #4eee94;">srctree</span>)/scripts/Makefile.build obj               <span style="color: #5f9ea0; font-style: italic;">#</span><span style="color: #5f9ea0; font-style: italic;">Copied from `scripts/Kbuild.include`</span>
+
+<span style="color: #daa520; font-weight: bold;">$(</span><span style="color: #daa520; font-weight: bold;">vmlinux-dirs</span><span style="color: #daa520; font-weight: bold;">)</span>: prepare scripts
+$(<span style="color: #4eee94;">Q</span>)$(<span style="color: #4eee94;">MAKE</span>) $(<span style="color: #4eee94;">build</span>)=<span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span>
+
+</pre>
+</div>
+
+<p>
+The first line tells us that <span class="underline">vmlinux-deps</span> depends on <span class="underline">vmlinux-dirs</span> . Next, we can see that <span class="underline">vmlinux-dirs</span> is a variable that contains all direct root subfolders without / character at the end. And the most important line here is the recipe to build $(vmlinux-dirs) target. After substitution of all variables, this recipe will look like the following
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">make -f scripts/Makefile.build <span style="color: #4eee94;">obj</span>=drivers
+</pre>
+</div>
+
+<p>
+This line just calls another makefile (scripts/Makefile.build) and passes obj variable, which contains a folder to be compiled
+</p>
+
+<pre class="example" id="orge04e6f2">
+we use drivers folder as an example, but this rule will be executed for all root subfolders
+</pre>
+
+<p>
+Next logical step is to take a look at <span class="underline">scripts/Makefile.build</span> . The first important thing that happens after it is executed is that all variables from Makefile or Kbuild files, defined in the <b>current directory</b> , are included. By current directory I mean the <span class="underline">directory</span> <b>referenced</b> by the <span class="underline">obj</span> variable. The inclusion is done in the following 3 lines.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-makefile"><span style="color: #4eee94;">kbuild-dir</span> := $(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">filter</span> /%,$(<span style="color: #4eee94;">src</span>)),$(<span style="color: #4eee94;">src</span>),$(<span style="color: #4eee94;">srctree</span>)/$(<span style="color: #4eee94;">src</span>))
+<span style="color: #4eee94;">kbuild-file</span> := $(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">wildcard</span> $(<span style="color: #4eee94;">kbuild-dir</span>)/Kbuild),$(<span style="color: #4eee94;">kbuild-dir</span>)/Kbuild,$(<span style="color: #4eee94;">kbuild-dir</span>)/Makefile)
+<span style="color: #00bfff; font-weight: bold;">include</span> $(<span style="color: #4eee94;">kbuild-file</span>)
+</pre>
+</div>
+
+<p>
+Nested makefiles are mostly responsible for initializing variables like obj-y:
+</p>
+<ul class="org-ul">
+<li>obj-y variable should contain list of all source code files, located in the current directory</li>
+<li><p>
+Another important variable that is initialized by the nested makefiles is <span class="underline">subdir-y</span> . This variable contains a list of all subfolders that need to be visited <b>before</b> the source code in the curent directory can be built
+</p>
+<pre class="example" id="org798375e">
+subdir-y is used to implement recursive descending into subfolders
+</pre></li>
+</ul>
+
+<p>
+When <span class="underline">make</span> is called without specifying the target (as it is in the case when scripts/Makefile.build is executed) it uses the first target. The first target for scripts/Makefile.build is called <b>__build</b> and it can be found here Let's take a look at it
+</p>
+
+<div class="org-src-container">
+<pre class="src src-makefile"><span style="color: #daa520; font-weight: bold;">__build</span>: $(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">KBUILD_BUILTIN</span>),$(<span style="color: #4eee94;">builtin-target</span>) $(<span style="color: #4eee94;">lib-target</span>) $(<span style="color: #4eee94;">extra-y</span>)) \
+$(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">KBUILD_MODULES</span>),$(<span style="color: #4eee94;">obj-m</span>) $(<span style="color: #4eee94;">modorder-target</span>)) \
+$(<span style="color: #4eee94;">subdir-ym</span>) $(<span style="color: #4eee94;">always</span>)
+<span style="color: #daa520; font-weight: bold;">@</span>:
+</pre>
+</div>
+
+<p>
+As you can see __build target doesn't have a receipt, but it depends on a bunch of other targets. We are only interested in <b>$(builtin-target)</b>
+</p>
+
+<pre class="example" id="org2a57c44">
+it is responsible for creating built-in.o file, and $(subdir-ym)
+</pre>
+
+<p>
+Let's take a look at <span class="underline">subdir-ym</span> : it is responsible for descending into nested directories. This variable is just a concatenation of <span class="underline">subdir-y</span> and <span class="underline">subdir-m</span> variables
+</p>
+
+<pre class="example" id="orgf4fa39e">
+subdir-m variable is similar to subdir-y, but it defines subfolders need to be included in a separate kernel module
+
+We skip the discussion of modules, for now, to keep focused
+</pre>
+
+<p>
+subdir-ym target should look familiar to you:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-makefile"><span style="color: #daa520; font-weight: bold;">$(</span><span style="color: #daa520; font-weight: bold;">subdir-ym</span><span style="color: #daa520; font-weight: bold;">)</span>:
+$(<span style="color: #4eee94;">Q</span>)$(<span style="color: #4eee94;">MAKE</span>) $(<span style="color: #4eee94;">build</span>)=<span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span>
+</pre>
+</div>
+
+<pre class="example" id="orgaf1af59">
+This target just triggers execution of the scripts/Makefile.build in one of the nested subfolders
+</pre>
+
+<p>
+Now it is time to examine the <span class="underline">builtin-target</span> target. Once again I am copying only relevant lines here:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-makefile"><span style="color: #4eee94;">cmd_make_builtin</span> = rm -f <span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span>; $(<span style="color: #4eee94;">AR</span>) rcSTP$(<span style="color: #4eee94;">KBUILD_ARFLAGS</span>)
+<span style="color: #4eee94;">cmd_make_empty_builtin</span> = rm -f <span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span>; $(<span style="color: #4eee94;">AR</span>) rcSTP$(<span style="color: #4eee94;">KBUILD_ARFLAGS</span>)
+
+<span style="color: #4eee94;">cmd_link_o_target</span> = $(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">strip</span> $(<span style="color: #4eee94;">obj-y</span>)),\
+$(<span style="color: #4eee94;">cmd_make_builtin</span>) <span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span> $(<span style="color: #4eee94;">filter</span> $(<span style="color: #4eee94;">obj-y</span>), $<span style="color: #ffd700;">^</span>) \
+$(<span style="color: #4eee94;">cmd_secanalysis</span>),\
+$(<span style="color: #4eee94;">cmd_make_empty_builtin</span>) <span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span>)
+
+<span style="color: #daa520; font-weight: bold;">$(</span><span style="color: #daa520; font-weight: bold;">builtin-target</span><span style="color: #daa520; font-weight: bold;">)</span>: $(<span style="color: #4eee94;">obj-y</span>) FORCE
+$(<span style="color: #4eee94;">call</span> if_changed,link_o_target)
+</pre>
+</div>
+
+<p>
+This target depends on <span class="underline">$(obj-y)</span> target and obj-y is a list of all object files that need to be built in the current folder. After those files become ready <span class="underline">cmd_link_o_target</span> command is executed:
+</p>
+<ul class="org-ul">
+<li>In case if obj-y variable is <b>empty</b> <span class="underline">cmd_make_empty_builtin</span> is called, which just creates an empty built-in.o</li>
+<li>Otherwise, <span class="underline">cmd_make_builtin</span> command is executed; it uses familiar to us <span class="underline">ar</span> tool to create <span class="underline">built-in.o</span> thin archive</li>
+</ul>
+
+<p>
+Finally we got to the point where we need to compile something. You remember that our last unexplored dependency is <span class="underline">$(obj-y)</span> and obj-y is just a list of object files. The target that compiles all object files from corresponding .c files is defined here. Let's examine all lines, needed to understand this target.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-makefile"><span style="color: #4eee94;">cmd_cc_o_c</span> = $(<span style="color: #4eee94;">CC</span>) $(<span style="color: #4eee94;">c_flags</span>) -c -o <span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span> $<span style="color: #ffd700;">&lt;</span>
+
+define rule_cc_o_c
+$(<span style="color: #4eee94;">call</span> echo-cmd,checksrc) $(<span style="color: #4eee94;">cmd_checksrc</span>)              \
+$(<span style="color: #4eee94;">call</span> cmd_and_fixdep,cc_o_c)                      \
+$(<span style="color: #4eee94;">cmd_modversions_c</span>)                          \
+$(<span style="color: #4eee94;">call</span> echo-cmd,objtool) $(<span style="color: #4eee94;">cmd_objtool</span>)                  \
+$(<span style="color: #4eee94;">call</span> echo-cmd,record_mcount) $(<span style="color: #4eee94;">cmd_record_mcount</span>)
+endef
+
+<span style="color: #daa520; font-weight: bold;">$(</span><span style="color: #daa520; font-weight: bold;">obj</span><span style="color: #daa520; font-weight: bold;">)/%.o</span>: $(<span style="color: #4eee94;">src</span>)/%.c $(<span style="color: #4eee94;">recordmcount_source</span>) $(<span style="color: #4eee94;">objtool_dep</span>) FORCE
+$(<span style="color: #4eee94;">call</span> cmd,force_checksrc)
+$(<span style="color: #4eee94;">call</span> if_changed_rule,cc_o_c)
+</pre>
+</div>
+
+<p>
+Inside it's recipe this target calls <span class="underline">rule_cc_o_c</span> . This rule is responsible for a lot of things, like:
+</p>
+<ul class="org-ul">
+<li>checking the source code for some common errors <span class="underline">cmd_checksrc</span></li>
+<li>enabling versioning for exported module symbols <span class="underline">cmd_modversions_c</span></li>
+<li>using objtool to validate some aspects of generated object files</li>
+<li>constructing a list of calls to mcount function so that ftrace can find them quickly</li>
+</ul>
+
+<p>
+But most importantly it calls <b>cmd_cc_o_c</b> command that actually compiles all .c files to object files
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="startup.html">Next: Startup sequence</a></td>
+<td class="org-left"><a href="linux.html">Previous: Project Structure</a></td>
+<td class="org-left"><a href="initialization.html">Home: Kernel Initialization</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 </div>
