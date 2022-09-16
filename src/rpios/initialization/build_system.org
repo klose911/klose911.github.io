@@ -10,7 +10,7 @@
 Linux also uses _make_ utility to build the kernel, though Linux Makefile is much more complicated. Before we will take a look at the makefile, let's learn some important concepts about Linux build system, which is called _kbuild_
 * A few essential kbuild concepts
 
-Build process can be customized by using kbuild variables. Those variables are defined in _Kconfig_ files.
+Build process can be customized by using kbuild variables. Those variables are defined in [[https://github.com/torvalds/linux/tree/v4.14/arch/arm64/Kconfig][Kconfig]] files.
 + Here you can define the variables themselves and their default values
   + Variables can have different types, including string, boolean and integer
 + In a Kconfig file you can also define dependencies between variables
@@ -68,7 +68,7 @@ _make_ is very good in detecting whether any of the prerequisites have been chan
 #+end_example
 
 
-To overcome this behavior Linux introduces _if_changed_ function. To see how it works let's consider the following example:
+To overcome this behavior Linux introduces [[https://github.com/torvalds/linux/blob/v4.14/scripts/Kbuild.include#L264][if_changed]] function. To see how it works let's consider the following example:
 #+begin_src makefile 
   cmd_compile = gcc $(flags) -o $@ $<
 
@@ -92,7 +92,7 @@ Now, that we learned some important concepts about the Linux build system, let's
 
 We are going to tackle the second question first.
 ** Link stage
-As you might see from the output of _make help_ command, the default target, which is responsible for building the kernel, is called *vmlinux* and it looks like this:
+As you might see from the output of _make help_ command, the default target, which is responsible for building the kernel, is called [[https://github.com/torvalds/linux/blob/v4.14/Makefile#L1004][vmlinux]] and it looks like this:
 
 #+begin_src makefile 
   cmd_link-vmlinux =                                                 \
@@ -103,7 +103,7 @@ As you might see from the output of _make help_ command, the default target, whi
   +$(call if_changed,link-vmlinux)
 #+end_src
 
-This target uses already familiar to us _if_changed_ function. Whenever some of the prerequsities are updated _cmd_link-vmlinux_ command is executed. This command executes _scripts/link-vmlinux.sh_ script
+This target uses already familiar to us _if_changed_ function. Whenever some of the prerequsities are updated _cmd_link-vmlinux_ command is executed. This command executes [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh][scripts/link-vmlinux.sh]] script
 
 #+begin_example
   Note usage of $< automatic variable in the cmd_link-vmlinux command
@@ -116,24 +116,24 @@ When _scripts/link-vmlinux.sh_ is executed it assumes that all required object f
 + _KBUILD_VMLINUX_MAIN_
 + _KBUILD_VMLINUX_LIBS_
 
-_link-vmlinux.sh_ script first creates thin archive from all available object files. thin archive is a special object that contains references to a set of *object files* as well as their combined *symbol table* . This is done inside _archive_builtin_ function. In order to create thin archive this function uses *ar* utility. Generated thin archive is stored as _built-in.o_ file and has the format that is understandable by the linker, so it can be used as any other normal object file
+_link-vmlinux.sh_ script first creates thin archive from all available object files. thin archive is a special object that contains references to a set of *object files* as well as their combined *symbol table* . This is done inside [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L56][archive_builtin]] function. In order to create thin archive this function uses [[https://sourceware.org/binutils/docs/binutils/ar.html][ar]] utility. Generated thin archive is stored as _built-in.o_ file and has the format that is understandable by the linker, so it can be used as any other normal object file
 
-Next _modpost_link_ is called. This function calls _linker_ and *generates* _vmlinux.o_ object file
+Next [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L69][modpost_link]] is called. This function calls _linker_ and *generates* _vmlinux.o_ object file
 #+begin_example
   We need this object file to perform Section mismatch analysis
 
   This analysis is performed by the modpost program
 #+end_example
 
-Next _kernel symbol table_ is generated. It contains information about all functions and global variables as well as their location in the vmlinux binary. The main work is done inside _kallsyms_ function:
-1. This function first uses *nm* to extract all symbols from vmlinux binary
-2. Then it uses _scripts/kallsyms_ utility to generate a special assembler file containing all symbols in a special format, understandable by the Linux kernel
+Next _kernel symbol table_ is generated. It contains information about all functions and global variables as well as their location in the vmlinux binary. The main work is done inside [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L146][kallsyms]] function:
+1. This function first uses [[https://sourceware.org/binutils/docs/binutils/nm.html][nm]] to extract all symbols from vmlinux binary
+2. Then it uses [[https://github.com/torvalds/linux/blob/v4.14/scripts/kallsyms.c][scripts/kallsyms]] utility to generate a special assembler file containing all symbols in a special format, understandable by the Linux kernel
 3. Next, this assembler file is compiled and linked together with the original binary. Information from the kernel symbol table is used to generate _/proc/kallsyms_ file at runtime
    #+begin_example
      This process is repeated several times because after the final link addresses of some symbols can be changed
    #+end_example
 
-Finally _vmlinux_ binary is ready and _System.map_ is build. System.map contains the same information as _/proc/kallsyms_ but this is *static* file and unlike /proc/kallsyms it is not generated at runtime. System.map is mostly used to *resolve* _addresses_ to _symbol names_ during kernel oops. The same *nm* utility is used to build System.map 
+Finally _vmlinux_ binary is ready and _System.map_ is build. System.map contains the same information as _/proc/kallsyms_ but this is *static* file and unlike /proc/kallsyms it is not generated at runtime. System.map is mostly used to *resolve* _addresses_ to _symbol names_ during [[https://en.wikipedia.org/wiki/Linux_kernel_oops][kernel oops]]. The same *nm* utility is used to build System.map 
 ** Build stage
 Now let's take one step backward and examine how source code files are compiled into object files. As you might remember one of the prerequisites of the vmlinux target is _$(vmlinux-deps)_ variable. Let me now copy a few relevant lines from the main Linux makefile to demonstrate how this variable is built
 
@@ -189,13 +189,13 @@ The first line tells us that _vmlinux-deps_ depends on _vmlinux-dirs_ . Next, we
   make -f scripts/Makefile.build obj=drivers
 #+end_src
 
-This line just calls another makefile (scripts/Makefile.build) and passes obj variable, which contains a folder to be compiled
+This line just calls another makefile [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build][scripts/Makefile.build]] and passes obj variable, which contains a folder to be compiled
 
 #+begin_example
   we use drivers folder as an example, but this rule will be executed for all root subfolders
 #+end_example
 
-Next logical step is to take a look at _scripts/Makefile.build_ . The first important thing that happens after it is executed is that all variables from Makefile or Kbuild files, defined in the *current directory* , are included. By current directory I mean the _directory_ *referenced* by the _obj_ variable. The inclusion is done in the following 3 lines.
+Next logical step is to take a look at _scripts/Makefile.build_ . The first important thing that happens after it is executed is that all variables from Makefile or Kbuild files, defined in the *current directory* , are included. By current directory I mean the _directory_ *referenced* by the _obj_ variable. The inclusion is done in the [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L43-L45][following 3 lines]] 
 
 #+begin_src makefile 
   kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
@@ -219,7 +219,7 @@ When _make_ is called without specifying the target (as it is in the case when s
   @:
 #+end_src
 
-As you can see __build target doesn't have a receipt, but it depends on a bunch of other targets. We are only interested in *$(builtin-target)*
+As you can see *__build* target doesn't have a receipt, but it depends on a bunch of other targets. We are only interested in *$(builtin-target)*
 
 #+begin_example
    it is responsible for creating built-in.o file, and $(subdir-ym)
@@ -244,7 +244,7 @@ subdir-ym target should look familiar to you:
 This target just triggers execution of the scripts/Makefile.build in one of the nested subfolders
 #+end_example
 
-Now it is time to examine the _builtin-target_ target. Once again I am copying only relevant lines here:
+Now it is time to examine the [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467][builtin-target]] target. Once again I am copying only relevant lines here:
 
 #+begin_src makefile 
   cmd_make_builtin = rm -f $@; $(AR) rcSTP$(KBUILD_ARFLAGS)
@@ -263,7 +263,7 @@ This target depends on _$(obj-y)_ target and obj-y is a list of all object files
 + In case if obj-y variable is *empty* _cmd_make_empty_builtin_ is called, which just creates an empty built-in.o
 + Otherwise, _cmd_make_builtin_ command is executed; it uses familiar to us _ar_ tool to create _built-in.o_ thin archive
 
-Finally we got to the point where we need to compile something. You remember that our last unexplored dependency is _$(obj-y)_ and obj-y is just a list of object files. The target that compiles all object files from corresponding .c files is defined here. Let's examine all lines, needed to understand this target.
+Finally we got to the point where we need to compile something. You remember that our last unexplored dependency is _$(obj-y)_ and obj-y is just a list of object files. The target that compiles all object files from corresponding .c files is defined [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467][here]]. Let's examine all lines, needed to understand this target.
 
 #+begin_src makefile 
   cmd_cc_o_c = $(CC) $(c_flags) -c -o $@ $<
@@ -284,8 +284,8 @@ Finally we got to the point where we need to compile something. You remember tha
 Inside it's recipe this target calls _rule_cc_o_c_ . This rule is responsible for a lot of things, like:
 + checking the source code for some common errors _cmd_checksrc_
 + enabling versioning for exported module symbols _cmd_modversions_c_
-+ using objtool to validate some aspects of generated object files
-+ constructing a list of calls to mcount function so that ftrace can find them quickly
++ using [[https://github.com/torvalds/linux/tree/v4.14/tools/objtool][objtool]] to validate some aspects of generated object files
++ constructing a list of calls to mcount function so that [[https://github.com/torvalds/linux/blob/v4.14/Documentation/trace/ftrace.txt][ftrace]] can find them quickly
 
 But most importantly it calls *cmd_cc_o_c* command that actually compiles all .c files to object files
 
