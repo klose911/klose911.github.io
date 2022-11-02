@@ -1,17 +1,29 @@
-#+TITLE: Introducing RPi OS, or bare-metal "Hello, World!"
+#+TITLE: RPi OS 入门：裸机 “Hello, World!”
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_HOME: ./initialization.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
 
-We are going to start our journey in OS development by writing a small, bare-metal "Hello, World" application. 
-* Project structure
-Let's briefly describe the main components of this folder:
-1. _Makefile_ : We will use the [[http://www.math.tau.ac.il/~danha/courses/software1/make-intro.html][make]] utility to build the kernel. make's behavior is configured by a Makefile, which contains instructions on how to compile and link the source code.
-2. _build.sh_ or _build.bat_ : You'll need these files if you want to build the kernel using Docker. You won't need to have the make utility or the compiler toolchain installed on your laptop.
-3. _src_ : This folder contains all of the source code.
-4. _include_ : All of the header files are placed here.
+通过编写一个小的裸机 _Hello, World_ 应用程序开始我们的OS开发之旅
+
+#+begin_example
+  .假设您已通过Prerequisites并已准备就绪. 如果没有, 现在是时候这样做了
+#+end_example
+
+* 项目结构
+简要描述此文件夹的主要组件：
+1. _Makefile_ ：将使用 [[http://www.math.tau.ac.il/~danha/courses/software1/make-intro.html][make]] 实用程序来构建内核. make的行为由Makefile配置, 该文件包含有关如何编译和链接源代码的说明
+2. _build.sh_ or _build.bat_： 如果要使用Docker构建内核, 则需要这些文件. 您无需在笔记本电脑上安装make实用程序或编译器工具链
+3. _src_ ： 此文件夹包含所有源代码
+4. _include_ ：所有的头文件都放在这里 
 * Makefile
-Now let's take a closer look at the project Makefile. The primary purpose of the make utility is to automatically determine what pieces of a program need to be recompiled, and to issue commands to recompile them. If you are not familiar with make and Makefiles, I recommend that you read this article. The Makefile used in the first lesson can be found here. The whole Makefile is listed below:
+
+现在, 来仔细看看项目Makefile
+
+#+begin_example
+make程序的主要目的是自动确定需要重新编译什么程序的片段, 并发出命令来重新译编
+#+end_example
+
+下面列出了整个Makefile：
 
 #+BEGIN_SRC makefile 
   ARMGNU ?= aarch64-linux-gnu
@@ -47,44 +59,43 @@ Now let's take a closer look at the project Makefile. The primary purpose of the
   $(ARMGNU)-objcopy $(BUILD_DIR)/kernel8.elf -O binary kernel8.img
 #+END_SRC
 
-Now, let's inspect this file in detail:
+现在, 来详细阐述该文件：
 
 #+BEGIN_SRC makefile
   ARMGNU ?= aarch64-linux-gnu
 #+END_SRC
 
-The Makefile starts with a variable definition. _ARMGNU_ is a cross-compiler prefix. We need to use a [[https://en.wikipedia.org/wiki/Cross_compiler][cross-compiler]] because we are compiling the source code for the arm64 architecture on an x86 machine. So instead of gcc, we will use _aarch64-linux-gnu-gcc_ 
+Makefile以变量定义开头. _ARMGNU_ 是交叉编译器前缀. 因为正在x86计算机上编译arm64体系结构的源代码, 我们需要 [[https://en.wikipedia.org/wiki/Cross_compiler][交叉编译]]. 因此, 将使用 _aarch64-linux-gnu-gcc_ 代替 gcc
 
 #+BEGIN_SRC makefile
   COPS = -Wall -nostdlib -nostartfiles -ffreestanding -Iinclude -mgeneral-regs-only
   ASMOPS = -Iinclude 
 #+END_SRC
 
-
-_COPS_ and _ASMOPS_ are options that we pass to the compiler when compiling C and assembler code, respectively. These options require a short explanation:
-+ _-Wall_ : Show all warnings
-+ _-nostdlib_ : Don't use the C standard library
+_COPS_ 和 _ASMOPS_ 是在编译C和汇编代码时分别传递给编译器的选项.这些选项的简短说明：
++ _-Wall_ : 显示所有警告
++ _-nostdlib_ : 不使用C的标准库
   #+BEGIN_EXAMPLE
-    Most of the calls in the C standard library eventually interact with the operating system
+    C标准库中的大多数函数调用最终都会与操作系统交互
 
-    We are writing a bare-metal program, and we don't have any underlying operating system
-
-    so the C standard library is not going to work for us anyway
+    我们正在编写一个裸机程序, 并且没有任何底层操作系统, 因此C标准库无论如何都无法工作
   #+END_EXAMPLE
-+ _-nostartfiles_ Don't use standard startup files
++ _-nostartfiles_ 不要使用标准的启动文件
   #+BEGIN_EXAMPLE
-    Startup files are responsible for setting an initial stack pointer, initializing static data, and jumping to the main entry point
+    启动文件负责设置初始堆栈指针, 初始化静态数据以及跳转到主入口点
 
-    We are going to do all of this by ourselves
+    这里需要我们自己完成所有这一切
   #+END_EXAMPLE
-+ _-ffreestanding_ A freestanding environment is an environment in which the standard library may not exist, and program startup may not necessarily be at main
++ _-ffreestanding_ _独立环境_ (ffreestanding)是标准库不存在的环境, 并且程序启动入口不是主要的
   #+BEGIN_EXAMPLE
-    The option -ffreestanding directs the compiler to not assume that standard functions have their usual definition
+    选项-ffreestanding指示编译器不需要定义标准函数具有其通常的意义
   #+END_EXAMPLE
-+ _-Iinclude_ : Search for header files in the include folder
-+ _-mgeneral-regs-only_ : Use only general-purpose registers. ARM processors also have [[https://developer.arm.com/technologies/neon][NEON]] registers. We don't want the compiler to use them because they add additional complexity 
++ _-Iinclude_ : 在 _include_ 文件夹中搜索头文件 
++ _-mgeneral-regs-only_ : 仅使用通用寄存器. ARM处理器还具有 [[https://developer.arm.com/technologies/neon][NEON]] 寄存器
   #+BEGIN_EXAMPLE
-    for example, we will need to store the registers during a context switch
+    不希望编译器使用它们, 因为它们会增加额外的复杂性
+
+    例如, 因为需要在上下文切换期间存储寄存器
   #+END_EXAMPLE
 
   #+BEGIN_SRC makefile
@@ -92,77 +103,95 @@ _COPS_ and _ASMOPS_ are options that we pass to the compiler when compiling C an
     SRC_DIR = src
   #+END_SRC
 
-  _SRC_DIR_ and _BUILD_DIR_ are directories that contain source code and compiled object files, respectively 
+_SRC_DIR_ 和 _BUILD_DIR_ 是分别包含源代码和编译后Object文件的目录 
 
-  #+BEGIN_SRC makefile
-    all : kernel8.img
+#+BEGIN_SRC makefile
+  all : kernel8.img
 
-    clean :
-    rm -rf $(BUILD_DIR) *.img 
-  #+END_SRC
+  clean :
+  rm -rf $(BUILD_DIR) *.img 
+#+END_SRC
 
-  Next, we define make targets. The first two targets are pretty simple: 
-  + the all target is the default one, and it is executed whenever you type make without any arguments (make always uses the first target as the default). This target just redirects all work to a different target, kernel8.img
-  + The clean target is responsible for deleting all compilation artifacts and the compiled kernel image 
+接下来, 定义make目标. 前两个参数非常简单:
++ _all_ 参数是 *默认* 目标, 每当输入不带任何参数的make时, 它就会执行
+  #+begin_example
+    make 始终使用第一个参数作为默认参数
 
-  #+BEGIN_SRC makefile
-    $(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
-    mkdir -p $(@D)
-    $(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
+    这个参数只是将所有工作重定向到另一个参数, kernel8.img
+  #+end_example
++ _clean_ 参数负责删除所有编译附加文件和已编译内核映像 
 
-    $(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
-    $(ARMGNU)-gcc $(ASMOPS) -MMD -c $< -o $@
-  #+END_SRC
 
-  The next two targets are responsible for compiling C and assembler files. If, for example, in the src directory we have _foo.c_ and _foo.S_ files, they will be compiled into _build/foo_c.o_ and _build/foo_s.o_ , respectively. *$<* and *$@* are substituted at runtime with the *input and output filenames* (foo.c and foo_c.o). Before compiling C files, we also create a build directory in case it doesn't exist yet 
+#+BEGIN_SRC makefile
+  $(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
+  mkdir -p $(@D)
+  $(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
 
-  #+BEGIN_SRC makefile
-    C_FILES = $(wildcard $(SRC_DIR)/*.c)
-    ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
-    OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
-    OBJ_FILES += $(ASM_FILES:$(SRC_DIR)/%.S=$(BUILD_DIR)/%_s.o)
-  #+END_SRC
+  $(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
+  $(ARMGNU)-gcc $(ASMOPS) -MMD -c $< -o $@
+#+END_SRC
 
-  Here we are building an array of all object files (OBJ_FILES) created from the concatenation of both C and assembler source files (see [[https://www.gnu.org/software/make/manual/html_node/Substitution-Refs.html][Substitution References]]).
+接下来的两个参数负责编译C和汇编文件
+#+begin_example
+   例如, 如果在 src 文件夹中有 foo.c 和 foo.S 文件
 
-  #+BEGIN_SRC makefile
-    DEP_FILES = $(OBJ_FILES:%.o=%.d)
-    -include $(DEP_FILES)
-  #+END_SRC
+  他们将会分别被编译为 build/foo_c.o 和 build/foo_s.o
+#+end_example
 
-  The next two lines are a little bit tricky. If you take a look at how we defined our compilation targets for both C and assembler source files, you will notice that we used the _-MMD_ parameter. This parameter instructs the gcc compiler to create a dependency file for each generated object file. A dependency file defines all of the dependencies for a particular source file. These dependencies usually contain a list of all included headers. We need to include all of the generated dependency files so that make knows what exactly to recompile in case a header changes 
+_$<_ 和 _$@_ 在运行时将被替换成 *输入* 文件名和 *输出* 文件名 (foo.c and foo_c.o). 在编译C文件之前, 还创建了一个 _build_ 目录, 以防该目录不存在 
 
-  #+BEGIN_SRC makefile
-    $(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o kernel8.elf  $(OBJ_FILES)
-  #+END_SRC
 
-  We use the _OBJ_FILES_ array to build the _kernel8.elf_ file. We use the linker script _src/linker.ld_ to define the *basic layout of the resulting executable image* 
+#+BEGIN_SRC makefile
+  C_FILES = $(wildcard $(SRC_DIR)/*.c)
+  ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
+  OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
+  OBJ_FILES += $(ASM_FILES:$(SRC_DIR)/%.S=$(BUILD_DIR)/%_s.o)
+#+END_SRC
 
-  #+BEGIN_SRC makefile
-    $(ARMGNU)-objcopy kernel8.elf -O binary kernel8.img
-  #+END_SRC
 
-  kernel8.elf is in the [[https://en.wikipedia.org/wiki/Executable_and_Linkable_Format][ELF]] format
+在这里, 正在构建一个由C和汇编源文件的串联创建的目标文件 _OBJ_FILES_ 的数组
 
-  #+BEGIN_EXAMPLE
-    The problem is that ELF files are designed to be executed by an operating system
-  #+END_EXAMPLE
+#+BEGIN_SRC makefile
+  DEP_FILES = $(OBJ_FILES:%.o=%.d)
+  -include $(DEP_FILES)
+#+END_SRC
 
-  To write a bare-metal program, we need to extract all executable and data sections from the ELF file and put them into the kernel8.img image. The trailing _8_ denotes ARMv8 which is a 64-bit architecture. This filename tells the firmware to *boot* the processor into _64-bit_ mode. You can also boot the CPU in the 64-bit mode by using _arm_control=0x200_ flag in the config.txt file
+接下来的两行有些棘手. 如果看一下如何为C和汇编源文件定义编译目标, 会注意到我们使用了 _-MMD_ 参数. 这个参数指示gcc编译器为每个生成的目标文件创建一个 *依赖文件* 。依赖性文件定义了特定源文件的所有依赖性. 这些依赖项通常包含所有包含的头文件的列表. 需要包括所有生成的依赖文件, 以便在头文件更改时知道要重新编译的内容
 
-  #+BEGIN_EXAMPLE
-    The RPi OS previously used this method, and you can still find it in some of the exercise answers
+#+BEGIN_SRC makefile
+  $(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o kernel8.elf  $(OBJ_FILES)
+#+END_SRC
 
-    However, arm_control flag is undocumented and it is preferable to use kernel8.img naming convention instead
-  #+END_EXAMPLE
-* The linker script
-The primary purpose of the linker script is to describe how the sections in the input object files ( _c.o_ and _s.o_ ) should be mapped into the output file ( _.elf_ )
+使用链接器脚本 _src /linker.ld_ 定义生成的 *可执行映像的基本布局* 
+
+#+BEGIN_SRC makefile
+  $(ARMGNU)-objcopy kernel8.elf -O binary kernel8.img
+#+END_SRC
+
+_kernel8.elf_ 遵循 [[https://en.wikipedia.org/wiki/Executable_and_Linkable_Format][ELF]] 格式
 
 #+BEGIN_EXAMPLE
-  More information about linker scripts can be found: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
+  问题是ELF文件设计为由操作系统执行
 #+END_EXAMPLE
 
-Now let's take a look at the RPi OS linker script:
+要编写裸机程序, 需要从ELF文件中提取所有可执行文件和数据段, 然后将它们放入 kernel8.img 中
+#+begin_example
+  尾部的 8 表示ARMv8, 它是64位体系结构. 该文件名告诉固件将处理器引导到64位模式
+
+  也可以使用config.txt文件中的arm_control = 0x200标志以64位模式引导CPU
+
+  RPi OS以前使用此方法, 仍然可以在一些练习答案中找到它. 然而, arm_control标志没有文档, 最好使用kernel8.img命名约定
+#+end_example
+
+* 链接器脚本
+链接描述文件的主要目的是描述如何将输入目标文件 _(_c.o和_s.o)_ 中的 _段_ *映射* 到 _输出文件(.elf)_ 中
+
+
+#+BEGIN_EXAMPLE
+  这里可以找到有关链接描述文件的更多信息: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
+#+END_EXAMPLE
+
+现在看一下RPi OS链接器脚本:
 
 #+BEGIN_SRC elf
   SECTIONS
@@ -178,31 +207,33 @@ Now let's take a look at the RPi OS linker script:
   }
 #+END_SRC
 
-1. After startup, the Raspberry Pi loads _kernel8.img_ into memory and starts execution from the beginning of the file. That's why the _.text.boot section_ must be first
+1. 启动后, Raspberry Pi将 _kernel8.img_ 加载到内存中, 并从文件开头开始执行
    #+BEGIN_EXAMPLE
-     we are going to put the OS startup code inside this section
+     这就是为什么.text.boot部分必须放在第一的原因
+
+     也因此操作系统引导代码将被放到这里
    #+END_EXAMPLE
-2. The _.text_ , _.rodata_ , and _.data_ sections contain *kernel-compiled* _instructions_ , _read-only data_ , and _normal data_ 
-3. The _.bss_ section contains data that should be initialized to 0:
-   + By putting such data in a separate section, the compiler can save some space in the ELF binary
+2. _.text_,  _.rodata_ , 和 _.data_ 部分分别包含内核编译的 _代码段_ ,  _只读数据段_ , 和 _一般数据段_
+3. _.bss_ 部分包含 应 *初始化* 为 _0_ 的数据
+   + 通过将此类数据放在单独的段中, 编译器可以在ELF二进制文件中节省一些空间
      #+BEGIN_EXAMPLE
-       only the section size is stored in the ELF header, but the section itself is omitted
+       只有段大小存储在ELF标头中, 但段本身被省略
      #+END_EXAMPLE
-   + After loading the image into memory, we must initialize the .bss section to 0
+   + 将img加载到内存后, 必须手动将 _.bss_ 部分初始化为0; 
      #+BEGIN_EXAMPLE
-       that's why we need to record the start and end of the section
+       这就是为什么需要记录本段的开始和结束
 
-       hence the bss_begin and bss_end symbols
+       也就是bss_begin和bss_end符号
      #+END_EXAMPLE
-   + align the section so that it starts at an address that is a _multiple_ of 8
+   +  对齐该段, 使其以 _8_ 的倍数开头的地址开始
      #+BEGIN_EXAMPLE
-       If the section is not aligned, it would be more difficult to use the str instruction to store 0 at the beginning of the bss section
+       如果该部分未对齐, 使用str指令在bss节的开头存储0会更加困难
 
-       because the str instruction can be used only with 8-byte-aligned addresses
+       因为str指令只能与8字节对齐的地址一起使用
      #+END_EXAMPLE
-* Booting the kernel
+* 引导内核
 
-Now it is time to take a look at the _boot.S_ file. This file contains the kernel startup code:
+现在是时候看看 _boot.S_ 文件了. 此文件包含内核启动代码：
 
 #+BEGIN_SRC asm 
 	  #include "mm.h"
@@ -229,14 +260,13 @@ Now it is time to take a look at the _boot.S_ file. This file contains the kerne
 	  bl    kernel_main
 #+END_SRC
 
-Let's review this file in detail:
+让我们详细查看该文件：
 
 #+BEGIN_SRC asm
 	  .section ".text.boot"
 #+END_SRC
 
-
-First, we specify that everything defined in boot.S should go in the _.text.boot_ section. Previously, we saw that this section is placed at the beginning of the kernel image by the linker script. So when the kernel is started, execution begins at the _start_ function: 
+首先, 指定在boot.S中的所有内容都应在 _.text.boot_ 部分中. 前面已经看到, 该节通过链接描述文件放置在内核映像的开头。因此, 当内核启动时, 执行从 _start_ 函数开始：
 
 #+BEGIN_SRC asm 
 	  .globl _start
@@ -247,15 +277,14 @@ First, we specify that everything defined in boot.S should go in the _.text.boot
 	  b    proc_hang
 #+END_SRC
 
-The first thing this function does is check the processor ID. The Raspberry Pi 3 has four core processors, and after the device is powered on, each core begins to execute the same code
+这个函数做的第一件事就是检查 _processor id_ . Raspberry Pi 3 有四个核心, 设备开启之后, 每个核心处理相同的代码
+
 
 #+BEGIN_EXAMPLE
-  However, we don't want to work with four cores
-
-  we want to work only with the first one and put all of the other cores in an endless loop
+  然而, 现在不需要四个核心都工作; 希望只是用第一个核心并且将其他核心放到尾部的无穷循环中
 #+END_EXAMPLE
 
-This is exactly what the start function is responsible for. It gets the processor ID from the [[http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0500g/BABHBJCI.html][mpidr_el1]] system register. If the current process ID is 0, then execution is transferred to the master function:
+这就是 *_start* 函数的做的事情. 从 [[http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0500g/BABHBJCI.html][mpidr_el1]] 系统寄存器获取 processor ID. 如果当前 process ID 是 0, 之后执行跳转到 _master_ 函数:
 
 #+BEGIN_SRC asm 
   master:
@@ -265,15 +294,14 @@ This is exactly what the start function is responsible for. It gets the processo
 	  bl     memzero
 #+END_SRC
 
-
-Here, we clean the _.bss_ section by calling _memzero_ 
+在这里, 通过调用 _memzero_ 来清理 _.bss段_ 
 
 #+BEGIN_EXAMPLE
-  We will define this function memzero later
+  稍后将定义 memzero 函数
 
-  In ARMv8 architecture, by convention, the first seven arguments are passed to the called function via registers x0 ~ x6
+  在ARMv8架构中, 按照惯例, 前七个参数通过寄存器 x0 – x6 传递给调用的函数
 
-  The memzero function accepts only two arguments: the start address (bss_begin) and the size of the section needed to be cleaned (bss_end - bss_begin) 
+  memzero 函数仅接受两个参数: 起始地址 (bss_begin) 以及需要清理的部分的大小 (bss_end - bss_begin) 
 #+END_EXAMPLE
 
 #+BEGIN_SRC asm 
@@ -281,42 +309,40 @@ Here, we clean the _.bss_ section by calling _memzero_
 	  bl    kernel_main
 #+END_SRC
 
-After cleaning the .bss section, we *initialize* the _stack pointer_ and pass *execution* to the _kernel_main_ function. The Raspberry Pi loads the kernel at address _0_ 
+清理 _.bss段_ 后, 接着 *初始化* _堆栈指针_ 并将 _执行_ *传递* 给 _kernel_main_ 函数
 
 #+BEGIN_EXAMPLE
-  that's why the initial stack pointer can be set to any location high enough so that stack will not override the kernel image when it grows sufficiently large
+  Raspberry Pi在地址0加载内核，这就是为什么可以将初始堆栈指针设置到足够高的任何位置的原因
+
+  即使当堆栈映像变得足够大时, 堆栈不会覆盖内核映像
 #+END_EXAMPLE
 
-_LOW_MEMORY_ is defined in _mm.h_ and is equal to _4MB_ 
+_LOW_MEMORY_ 在 _mm.h_ 中定义等于 *4MB* 
 
 #+BEGIN_EXAMPLE
-  Our kernel's stack won't grow very large and the image itself is tiny
-
-  so 4MB is more than enough for us
+  我们的内核堆栈不会变得很大, 并且img本身很小, 因此4MB已经绰绰有余
 #+END_EXAMPLE
+
 ** assembler instructions 
-For those of you who are not familiar with ARM assembler syntax, let me quickly summarize the instructions that we have used:
-+ *mrs* : Load value from a system register to one of the general purpose registers x0 ~ x30
-+ *and* : Perform the logical AND operation
-  #+BEGIN_EXAMPLE
-    We use this command to strip the last byte from the value we obtain from the mpidr_el1 register
-  #+END_EXAMPLE
-+ *cbz* : Compare the result of the previously executed operation to _0_ and *jump* (or branch in ARM terminology) to the provided label if the comparison yields _true_
-+ *b* : Perform an unconditional branch to some label
-+ *adr* : Load a label's relative address into the target register
-  #+BEGIN_EXAMPLE
-    In this case, we want pointers to the start and end of the .bss region
-  #+END_EXAMPLE
-+ *sub* : Subtract values from two registers
-+ *bl* : perform an unconditional branch and store the *return address* in _x30_ (the link register)
-  #+BEGIN_EXAMPLE
-    Branch With a link:
+对于那些不熟悉ARM汇编器语法的人, 快速总结一下已经使用的指令：
 
-    When the subroutine is finished, use the ret instruction to jump back to the return address
++ *mrs* : 将值从系统寄存器加载到通用寄存器 _x0_ – _x30_
++ *and* : 执行逻辑与运算
+  #+BEGIN_EXAMPLE
+    使用此命令从 mpidr_el1 寄存器中将获得的值剥离最后一个字节
   #+END_EXAMPLE
-+ *mov* : Move a value between registers or from a constant to a register
-* The kernel_main function
-We have seen that the boot code eventually passes control to the _kernel_main_ function. Let's take a look at it:
++ *cbz* : 比较之前执行的操作的结果, 并且如果比较结果为真, 就跳转 (在ARM术语中也叫做 _branch_) 到提供的标签 
++ *b* : 无条件跳转到某个标签(branch) 
++ *adr* : 将标签的相对地址加载到目标寄存器中
+  #+BEGIN_EXAMPLE
+    在这种情况下, 需要指向.bss区域开始和结束的指针
+  #+END_EXAMPLE
++ *sub* : 从两个寄存器取值互减.
++ *bl* : 执行无条件分支并将返回地址存储在 _x30_ 中(链接寄存器). 子程序完成后, 使用ret指令跳回到调用人地址.
++ *mov* : 在寄存器之间移动一个值 或者 从常量移动到寄存器
+
+* kernel_main 函数
+已经看到引导代码最终将控制权传递给了 _kernel_main_ 函数：
 
 #+BEGIN_SRC c 
   #include "mini_uart.h"
@@ -332,66 +358,68 @@ We have seen that the boot code eventually passes control to the _kernel_main_ f
   }
 #+END_SRC
 
-This function is one of the simplest in the kernel. It works with the _Mini UART_ device to print to screen and read user input. The kernel just prints Hello, world! and then enters an infinite loop that reads characters from the user and sends them back to the screen
+此函数是内核中最简单的函数之一. 它与 _Mini UART_ 设备 打印到屏幕并读取用户输入. 内核只是打印 Hello, world! 然后进入无限循环, 此循环从用户读取字符并将其发送回屏幕
+
+
 ** Raspberry Pi devices
-Now we are going to dig into something specific to the Raspberry Pi
+现在, 将深入研究Raspberry Pi的特定功能
+
 
 #+BEGIN_EXAMPLE
-  Before we begin, I recommend that you download the BCM2837 ARM Peripherals manual
+  开始之前, 建议下载BCM2837 ARM Peripherals manual
 #+END_EXAMPLE
 
-_BCM2837_ is a board that is used by the Raspberry Pi 3 Models B, and B+
+_BCM2837_ 是 Raspberry Pi 3 Model B 和 B+ 使用的芯片
 
 #+BEGIN_EXAMPLE
-  Sometime in our discussion, I will also mention BCM2835 and BCM2836 - those are names of the board used in older versions of the Raspberry Pi
+  在讨论中, 有时还将提到 BCM2835 和 BCM2836 - 这些是旧版Raspberry Pi中使用的芯片的名称
 #+END_EXAMPLE
 
-Before we proceed to the implementation details, I want to share some basic concepts on how to work with *memory-mapped* devices. BCM2837 is a simple [[https://en.wikipedia.org/wiki/System_on_a_chip][SOC (System on a chip)]] board. In such a board, access to all devices is performed via *memory-mapped* _registers_ . The Raspberry Pi 3 reserves the memory above address _0x3F000000_ for *devices* . To activate or configure a particular device, you need to write some data in one of the device's registers. A device register is just a _32-bit_ region of memory. The meaning of each bit in each device register is described in the BCM2837 ARM Peripherals manual
+在进行到细节之前, 想分享一些有关如何使用 _内存映射设备_ 的基本概念. BCM2837 是一个简单的 [[https://en.wikipedia.org/wiki/System_on_a_chip][SOC (System on a chip 系统)]] 芯片. 在这样的芯片上, 通过映射到内存的寄存器访问设备. Raspberry Pi 3 保留比 _0x3F000000_ 高位的地址用于 *设备* . 去启用或者配置一个特定设备, 需要写入到设备的一个寄存器中一些数据. 一个设备的寄存器在内存中占据 _32位_ 。 BCM2837 ARM Peripherals 手册中描述了寄存器中每一位的作用
 
 #+BEGIN_EXAMPLE
-  Take a look at section 1.2.3 ARM physical addresses in the manual and the surrounding documentation for more context on why we use 0x3F000000 as a base address
+  在手册中看一下 1.2.3节 ARM 的物理地址和有关更多为什么用 0x3F000000 作为基地址的背景信息
 
-  even though 0x7E000000 is used throughout the manual
+  即使在整个手册中使用  0x7E000000 
 #+END_EXAMPLE
 
-From the kernel_main function, you can guess that we are going to work with a Mini UART device. UART stands for [[https://en.wikipedia.org/wiki/Universal_asynchronous_receiver-transmitter][Universal asynchronous receiver-transmitter]] (通用异步接收器). This device is capable of converting values stored in one of its memory mapped registers to a sequence of high and low voltages. This sequence is passed to your computer via the _TTL-to-serial_ cable and is interpreted by your terminal emulator 
+从 kernel_main 函数, 可以想到将使用 Mini UART设备. UART代表  [[https://en.wikipedia.org/wiki/Universal_asynchronous_receiver-transmitter][Universal asynchronous receiver-transmitter]] （通用异步收发器）。该设备能够将存储在其存储器映射寄存器之一中的值转换为 _高电压_ 和 _低电压_ *序列* . 该序列通过 _TTL转串口电缆_ 传递到计算机, 并由 _终端仿真器_ *解释* 
 
 #+BEGIN_EXAMPLE
-  We are going to use the Mini UART to facilitate communication with our Raspberry Pi
+  我们将使用Mini UART来促进与Raspberry Pi的通信
 
-  If you want to see the specification of the Mini UART registers, please go to page 8 of the BCM2837 ARM Peripherals manual
+  如果要查看Mini UART寄存器的规范, 请阅读 BCM2837 ARM Peripherals手册
 #+END_EXAMPLE
 
-A Raspberry Pi has two UARTs:  _Mini UART_ and _PL011 UART_
+Raspberry Pi具有两个UART： _MINI UART_ 和 _PL011 UART_ 
 
 #+BEGIN_EXAMPLE
-  There is, however, an optional exercise that shows how to work with PL011 UART
+  在本教程中, 我们将仅使用第一个教程, 因为它更简单
 
-  You can refer to the official documentation if you want to find out more about Raspberry Pi UARTs and learn the difference between them
+  但是, 有一个可选的exercise显示了如何使用PL011 UART
 #+END_EXAMPLE
 *** GPIO 
-Another device that you need to familiarize yourself with is the *GPIO* [[https://en.wikipedia.org/wiki/General-purpose_input/output][General-purpose input/output]] . GPIOs are responsible for controlling GPIO pins. You should be able to easily recognize them in the image below:
+需要熟悉的另一个设备是 *GPIO*  [[https://en.wikipedia.org/wiki/General-purpose_input/output][General-purpose input/output]] （通用输入/输出）。GPIO负责控制GPIO引脚. 应该能够在下图中轻松识别它们：
 
 #+ATTR_HTML: image :width 70% 
 [[file:../pic/gpio-pins.jpg]]
 
-The GPIO can be used to configure the behavior of different GPIO pins. For example, to be able to use the Mini UART, we need to activate _pins 14_ and _15_ and set them up to use this device. The image below illustrates how numbers are assigned to the GPIO pins:
-
+GPIO可用于配置不同GPIO引脚的行为. 例如, 为了能够使用Mini UART, 需要 *激活* _引脚14_ 和 _15_ 并将其设置为使用此设备。下图说明了如何将数字分配给GPIO引脚：
 #+ATTR_HTML: image :width 70% 
-[[file:../pic/gpio-numbers.png]]
-** Mini UART initialization
-Now let's take a look at how mini UART is initialized. This code is defined in _mini_uart.c_ : 
-
+[[file:../pic/gpio-numbers.png
+]]
+** 初始化 Mini UART
+现在看一下如何初始化 MINI UART。该代码在 _mini_uart.c_ :
 #+BEGIN_SRC c 
   void uart_init ( void )
   {
 	  unsigned int selector;
 
 	  selector = get32(GPFSEL1);
-	  selector &= ~(7<<12);                   // clean gpio14
-	  selector |= 2<<12;                      // set alt5 for gpio14
-	  selector &= ~(7<<15);                   // clean gpio15
-	  selector |= 2<<15;                      // set alt5 for gpio 15
+	  selector &= ~(7<<12);                   //  把 gpio14 清除
+	  selector |= 2<<12;                      //  把 gpio14 设置为 模式5 (alt5) 
+							      selector &= ~(7<<15);                   //  把 gpio15 清除
+	  selector |= 2<<15;                      //  把 gpio15 设置为 模式5 (alt5)
 	  put32(GPFSEL1,selector);
 
 	  put32(GPPUD,0);
@@ -400,78 +428,79 @@ Now let's take a look at how mini UART is initialized. This code is defined in _
 	  delay(150);
 	  put32(GPPUDCLK0,0);
 
-	  put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
-	  put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
-	  put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
-	  put32(AUX_MU_LCR_REG,3);                //Enable 8 bit mode
-	  put32(AUX_MU_MCR_REG,0);                //Set RTS line to be always high
-	  put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
+	  put32(AUX_ENABLES,1);                   // 启动 mini uart (同时允许写入它的寄存器) 
+							     put32(AUX_MU_CNTL_REG,0);               // 禁用自动流控, 接收器以及发射器 (这是暂时的) 
+														put32(AUX_MU_IER_REG,0);                //  禁用接受和发送中断
+	  put32(AUX_MU_LCR_REG,3);                //  启用 8bit 模式
+	  put32(AUX_MU_MCR_REG,0);                // 把 RTS line 设置为永远高电平
+	  put32(AUX_MU_BAUD_REG,270);             //  设置比特率为 115200
 
-	  put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
+	  put32(AUX_MU_CNTL_REG,3);               //   最后, 启用发射器和接收器
   }
 #+END_SRC
 
-Here, we use the two functions _put32_ and _get32_ . Those functions are very simple; they allow us to read and write some data to and from a 32-bit register
-
+在这里, 我们使用两个函数 _put32_ 和 _get32_ . 这些功能非常简单; 它们允许在32位寄存器中读写数据
 #+BEGIN_EXAMPLE
-  You can take a look at how they are implemented in utils.S
+  这两个函 utils.S 中实现
 
-  uart_init is one of the most complex and important functions in this lesson, and we will continue to examine it in the next three sections
+  uart_init 是本课中最复杂, 最重要的功能之一, 在接下来的三个小节里继续进行研究
 #+END_EXAMPLE
-*** GPIO alternative function selection
+*** GPIO 功能选择
 
-First, we need to *activate* the _GPIO pins_ . Most of the pins can be used with different devices, so before using a particular pin, we need to select the pin's alternative function. An alternative function is just a number from 0 to 5 that can be set for each pin and configures which device is connected to the pin. You can see the list of all available GPIO alternative functions in the image below:
-
+首先, 需要 *激活* _GPIO引脚_ . 大多数引脚可以与不同的设备一起使用, 所以在使用特定的引脚之前, 需要设置引脚的 _替代功能_ (alternative function). 替代功能可以为每个引脚设置的0到5之间的数字, 并配置将哪个设备连接到该引脚。在下图中可以看到所有可用的GPIO替代功能的列表：
 #+ATTR_HTML: image :width 70% 
 [[file:../pic/alt.png]]
 
-Here you can see that pins _14_ and _15_ have the _TXD1_ and _RXD1_ alternative functions available. This means that if we select alternative function number 5 for pins 14 and 15, they will be used as a Mini UART Transmit Data pin and Mini UART Receive Data pin, respectively. The _GPFSEL1_ register is used to control alternative functions for pins 10-19. The meaning of all the bits in those registers is shown in the following table: 
+在这里可以看到 引脚 _14_ 和 _15_ 具有 _TXD1_ 和 _RXD1_ 替代功能. 这意味着如果为引脚14和15选择替代功能编号 _5_ , 它们将分别用作 *Mini UART发送数据引脚* 和 *Mini UART接收数据引脚* 。 _GPFSEL1_ 寄存器用于控制引脚 _10-19_ 的替代功能 
 
 #+ATTR_HTML: image :width 70% 
 [[file:../pic/gpfsel1.png]]
 
-
-So now you know everything you need to understand the following lines of code that are used to configure GPIO pins 14 and 15 to work with the Mini UART device:
-
+下面这些代码用于配置GPIO引脚14和15以与Mini UART器件配合使用：
 #+BEGIN_SRC c 
   unsigned int selector;
 
   selector = get32(GPFSEL1);
-  selector &= ~(7<<12);                   // clean gpio14
-  selector |= 2<<12;                      // set alt5 for gpio14
-  selector &= ~(7<<15);                   // clean gpio15
-  selector |= 2<<15;                      // set alt5 for gpio 15
-  put32(GPFSEL1, selector);
+  selector &= ~(7<<12);                   // 将 gpio14 清除
+  selector |= 2<<12;                      // 将 gpio14 设置为 5 (alt5)
+  selector &= ~(7<<15);                   //  将 gpio15 清除
+  selector |= 2<<15;                      //  把 gpio15 设置为5 (alt 5) 
+	  put32(GPFSEL1, selector);
 #+END_SRC
 
 *** GPIO pull-up/down
 #+BEGIN_EXAMPLE
-  When you work with Raspberry Pi GPIO pins, you will often encounter terms such as pull-up/pull-down
+  当使用Raspberry Pi GPIO引脚时, 经常会遇到诸如上拉/下拉等术语. 这些概念的详细解释在 https://grantwinney.com/using-pullup-and-pulldown-resistors-on-the-raspberry-pi/ 这篇 文章中.
 
-  For those who are too lazy to read the whole article, I will briefly explain the pull-up/pull-down concept
+  对于那些懒于阅读整篇文章的人, 简要解释上拉/下拉概念
 #+END_EXAMPLE
-If you use a particular pin as input and don't connect anything to this pin, you will not be able to identify whether the value of the pin is 1 or 0. In fact, the device will report random values. The pull-up/pull-down mechanism allows you to overcome this issue. If you set the pin to the pull-up state and nothing is connected to it, it will report 1 all the time (for the pull-down state, the value will always be 0). In our case, we need neither the _pull-up_ nor the _pull-down_ state, because both the 14 and 15 pins are going to be connected all the time. The pin state is preserved even after a reboot, so before using any pin, we always have to initialize its state. There are three available states: pull-up, pull-down, and *neither* (to remove the current pull-up or pull-down state), and we need the third one.
 
-Switching between pin states is not a very simple procedure because it requires physically toggling a switch on the electric circuit. This process involves the _GPPUD_ and _GPPUDCLK_ registers and is described on page 101 of the BCM2837 ARM Peripherals manual. I copied the description here:
+如果使用特定的引脚作为输入, 并且不将该引脚连接任何东西, 则将无法识别该引脚的值是1还是0. 实际上, 设备将报告为随机值.  _上拉_ / _下拉_ 机制可解决此问题. 如果将引脚设置为上拉状态, 但没有任何连接, 则引脚将始终报告 _1_ (对于下拉状态, 该值始终为0)
+
+#+begin_example
+  就我们而言, 既不需要上拉状态也不需要下拉状态, 因为 14 和 15 引脚将一直保持连接状态
+
+  即使重新启动后, 引脚状态也会保留, 因此在使用任何引脚之前, 总是必须初始化其状态
+
+  有三种可用状态: 上拉, 下拉和两者都不显示(以删除当前的上拉或下拉状态), 这里我们需要第三个
+#+end_example
+
+引脚状态之间的切换不是一个非常简单的过程, 因为它需要物理上触发电路上的一个开关. 该过程涉及 _GPPUD_ 和 _GPPUDCLK_ 寄存器。
+在 BCM2837 ARM Peripherals 手册的第101页中进行了描述如果通过 GPIO上/下时钟寄存器 控制 相应GPIO引脚 上下拉的设置. 这些寄存器必须与GPPUD结合使用 寄存器以影响GPIO上拉/下拉更改
+
 
 #+BEGIN_EXAMPLE
-  The GPIO Pull-up/down Clock Registers control the actuation of internal pull-downs on
-  the respective GPIO pins. These registers must be used in conjunction with the GPPUD
-  register to effect GPIO Pull-up/down changes. The following sequence of events is
-  required:
-  1. Write to GPPUD to set the required control signal (i.e. Pull-up or Pull-Down or neither
-  to remove the current Pull-up/down)
-  2. Wait 150 cycles – this provides the required set-up time for the control signal
-  3. Write to GPPUDCLK0/1 to clock the control signal into the GPIO pads you wish to
-  modify – NOTE only the pads which receive a clock will be modified, all others will
-  retain their previous state.
-  4. Wait 150 cycles – this provides the required hold time for the control signal
-  5. Write to GPPUD to remove the control signal
-  6. Write to GPPUDCLK0/1 to remove the clock
+  需要以下事件顺序：
+
+  1. 写入GPPUD以设置所需的控制信号(即上拉或下拉, 或都不设置以消除当前的上拉/下拉)
+  2. 等待150个周期：这为控制信号提供了所需的建立时间
+  3. 写入 GPPUDCLK0/1 以将控制信号输入您要修改的GPIO引脚：注意只有接收时钟的引脚会被修改, 所有其他将保持以前的状态.
+  4. 等待150个循环： 这为控制信号提供了所需的保持时间
+  5. 写入GPPUD以删除控制信号
+  6. 写入 GPPUDCLK0/1 以删除时钟
 #+END_EXAMPLE
 
-This procedure describes how we can remove both the pull-up and pull-down states from a pin, which is what we are doing for pins 14 and 15 in the following code:
-
+此过程描述了如何从引脚上移除上拉和下拉状态。在下面的代码中, 对引脚14和15进行操作：
 #+BEGIN_SRC c 
   put32(GPPUD, 0);
   delay(150);
@@ -480,79 +509,85 @@ This procedure describes how we can remove both the pull-up and pull-down states
   put32(GPPUDCLK0, 0);
 #+END_SRC
 
-*** Initializing the Mini UART
+*** 初始化Mini UART
 
-Now our Mini UART is connected to the GPIO pins, and the pins are configured. The rest of the uart_init function is dedicated to Mini UART initialization.
+现在 Mini UART已连接到GPIO引脚, 并且已配置了这些引脚. uart_init函数的其余部分专用于Mini UART初始化
 
-#+BEGIN_SRC c 
-  put32(AUX_ENABLES, 1);                   //Enable mini uart (this also enables access to its registers)
-  put32(AUX_MU_CNTL_REG, 0);               //Disable auto flow control and disable receiver and transmitter (for now)
-  put32(AUX_MU_IER_REG, 0);                //Disable receive and transmit interrupts
-  put32(AUX_MU_LCR_REG, 3);                //Enable 8 bit mode
-  put32(AUX_MU_MCR_REG, 0);                //Set RTS line to be always high
-  put32(AUX_MU_BAUD_REG, 270);             //Set baud rate to 115200
-
-  put32(AUX_MU_CNTL_REG, 3);               //Finally, enable transmitter and receiver
-#+END_SRC
-
-Let's examine this code snippet line by line.
 
 #+BEGIN_SRC c 
-  put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
+  put32(AUX_ENABLES,1);                   // 启动 mini uart (同时允许写入它的寄存器) 
+  put32(AUX_MU_CNTL_REG,0);               // 禁用自动流控, 接收器以及发射器 (这是暂时的) 
+  put32(AUX_MU_IER_REG,0);                // 禁用接受和发送中断
+  put32(AUX_MU_LCR_REG,3);                // 启用 8bit 模式
+  put32(AUX_MU_MCR_REG,0);                // 把 RTS line 设置为永远高电平
+  put32(AUX_MU_BAUD_REG,270);             // 设置比特率为 115200
+  put32(AUX_MU_IIR_REG,6);                // Clear FIFO
+
+  put32(AUX_MU_CNTL_REG,3);               // 最后, 启用发射器和接收器
 #+END_SRC
 
-This line enables the Mini UART. We must do this in the beginning, because this also enables access to all the other Mini UART registers
+逐行检查此代码段:
+
+#+BEGIN_SRC c 
+  put32(AUX_ENABLES,1);                   // 启动 mini uart (同时允许写入它的寄存器)
+#+END_SRC
+
+这行启动了 Mini UART. 必须在一开始就这样做, 因为这样才可以访问所有其他 Mini UART 寄存器
 
 #+BEGIN_SRC c
-  put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
+  put32(AUX_MU_CNTL_REG,0);               // 禁用自动流控, 接收器以及发射器 (这是暂时的)
 #+END_SRC
     
-Here we disable the receiver and transmitter before the configuration is finished. We also permanently disable auto-flow control because it requires us to use additional GPIO pins, and the TTL-to-serial cable doesn't support it
+在这里, 在配置完成之前禁用接收器和发送器
+
+#+begin_example
+  接下来将永久禁用自动流控制, 因为它需要使用其他GPIO引脚, 而TTL转串口电缆不支持
+#+end_example
 
 #+BEGIN_SRC c 
-  put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
+  put32(AUX_MU_IER_REG,0);                // 禁用接受和发送中断
 #+END_SRC
     
-It is possible to configure the Mini UART to generate a processor interrupt each time new data is available
+可以配置Mini UART, 以在每次有新数据可用时产生处理器中断
 
 #+BEGIN_EXAMPLE
-  We are going to start working with interrupts in lesson 3, so for now, we will just disable this feature
+  将在以后中开始处理中断, 所以现在禁用此功能
 #+END_EXAMPLE
 
 #+BEGIN_SRC c
-  put32(AUX_MU_LCR_REG,3);                //Enable 8 bit mode
+  put32(AUX_MU_LCR_REG,3);                // 启用 8bit 模式
 #+END_SRC
 
-Mini UART can support either 7- or 8-bit operations. This is because an ASCII character is 7 bits for the standard set and 8 bits for the extended. We are going to use 8-bit mode.
+MINI UART可以支持7位或8位操作. 这是因为ASCII字符对于标准集是7位, 扩展集是8位。这里使用8位模式
 
 #+BEGIN_SRC c
-  put32(AUX_MU_MCR_REG,0);                //Set RTS line to be always high
+  put32(AUX_MU_MCR_REG,0);                // 把 RTS line 设置为永远高电平
 #+END_SRC
 
-The RTS line is used in the flow control and we don't need it. Set it to be high all the time.
+RTS line 用于流量控制, 不需要它. 始终将其设置为高.
+
 
 #+BEGIN_SRC c 
   put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
 #+END_SRC
     
-The baud rate is the rate at which information is transferred in a communication channel. “115200 baud” means that the serial port is capable of transferring a maximum of _115200_ bits per second. The baud rate of your Raspberry Pi mini UART device should be the same as *the baud rate in your terminal emulator* . The Mini UART calculates baud rate according to the following equation:
-
+波特率是在通信信道中传输信息的速率： _115200_ 表示该串行端口每秒最多可传输115200位。Raspberry Pi 的 MINI UART设备的波特率应与终端仿真器中的波特率相同。Mini UART根据以下公式计算波特率:
 #+BEGIN_EXAMPLE
   baudrate = system_clock_freq / (8 * ( baudrate_reg + 1 ))
-
-  The system_clock_freq is 250 MHz, so we can easily calculate the value of baudrate_reg as 270
 #+END_EXAMPLE
+
+system_clock_freq是 250 MHz, 这样就可以轻松计算出 baudrate_reg 应为 _270_ 
 
 
 #+BEGIN_SRC c 
-  put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
+  put32(AUX_MU_CNTL_REG,3);               // 最后, 启用发射器和接收器
 #+END_SRC
 
-After this line is executed, the Mini UART is ready for work!
+执行完此行后, Mini UART准备就绪！
 
-** Sending data using the Mini UART
-After the Mini UART is ready, we can try to use it to send and receive some data. To do this, we can use the following two functions:
+** 使用Mini UART 
 
+Mini UART准备好后, 可以尝试使用它来发送和接收一些数据. 为此, 实现了以下两个函数：
 
 #+BEGIN_SRC c 
   void uart_send ( char c )
@@ -574,74 +609,81 @@ After the Mini UART is ready, we can try to use it to send and receive some data
   }
 #+END_SRC
 
-Both of the functions:
-1. start with an _infinite loop_, the purpose of which is to verify whether the device is *ready* to transmit or receive data, We are using the _AUX_MU_LSR_REG_ register to do this:
-   + Bit zero, if set to 1, indicates that the data is ready, this means that we can read from the UART
-   + Bit five, if set to 1, tells us that the transmitter is empty, meaning that we can write to the UART
-2. we use _AUX_MU_IO_REG_ to either store the value of the transmitted character or read the value of the received character 
+这两个函数：
+1. 都以无限循环开始, 其目的是验证设备是否已准备好发送或接收数据. 使用 _AUX_MU_LSR_REG_ 寄存器来执行此操作
+   + 第 _零_ 位, 如果设置为 _1_ , 表示数据已 *准备就绪* ; 这意味着我们可以从 MINI UART中 *读取* 
+   + 第 _五_ 位, 如果设置为 _1_ , 表示发射器是 *空闲* 的, 这意味着我们可以 *写入* MINI UART
+2. 使用 _AUX_MU_IO_REG_ 来 *存储* 已发送字符的值或 *读取* 已接收字符的值
 
-   We also have a very simple function that is capable of sending strings instead of characters:
+还有一个非常简单的功能, 能够发送字符串而不是字符：
+#+BEGIN_SRC c 
+  void uart_send_string(char* str)
+  {
+	  for (int i = 0; str[i] != '\0'; i ++) {
+		  uart_send((char)str[i]);
+	  }
+  }
+#+END_SRC
 
-   #+BEGIN_SRC c 
-     void uart_send_string(char* str)
-     {
-	     for (int i = 0; str[i] != '\0'; i ++) {
-		     uart_send((char)str[i]);
-	     }
-     }
-   #+END_SRC
+* Raspberry Pi 配置
+Raspberry Pi的启动顺序如下(简化):
+1. 设备上电
+2. GPU启动并从启动分区读取 _config.txt_ 文件. 该文件包含一些配置参数, GPU使用这些参数进一步调整启动顺序
+3. _kernel8.img_ 被加载到内存中并执行
 
-   This function just iterates over all characters in a string and sends them one by one 
-
-* Raspberry Pi config
-The Raspberry Pi startup sequence is the following:
-1. The device is powered on
-2. The GPU starts up and reads the _config.txt_ file from the boot partition. This file contains some configuration parameters that the GPU uses to further adjust the startup sequence
-3. _kernel8.img_ is loaded into memory and executed
-
-To be able to run our simple OS, the config.txt file should be the following:
+为了能够运行我们的简单操作系统, config.txt文件应为以下文件:
 #+begin_src sh 
   kernel_old=1
   disable_commandline_tags=1
 #+end_src
 
-+ kernel_old=1: specifies that the kernel image should be loaded at address 0
-+ disable_commandline_tags: instructs the GPU to not pass any command line arguments to the booted image
++ kernel_old=1: 内核将被加载到内存地址0
++ disable_commandline_tags: gpu不会传递任何参数给加载的内核
 
-* Testing the kernel
-Now that we have gone through all of the source code, it is time to see it work. To build and test the kernel you need to do the following:
-1. Execute _./build.sh_ or ./build.bat from src/lesson01 in order to build the kernel
-2. Copy the generated kernel8.img file to the boot partition of your Raspberry Pi flash card and delete kernel7.img as well as any other kernel*.img files that may be present on your SD card
+* 内核测试
+#+begin_example
+  现在已经遍历了所有源代码, 是时候来看一下它的工作了
+#+end_example
+要构建和测试内核, 需要执行以下操作：
+1. 执行 _./build.sh_ 或者 _./build.bat_ 从 src/lesson01 去构建内核
+2. 将生成的 _kernel8.img_ 文件 *复制* 到 Raspberry Pi 闪存卡的 _boot 分区_ 和 *删除* _kernel7.img_
    #+begin_example
-     Make sure you left all other files in the boot partition untouched
+     请保留启动分区中的所有其他文件
    #+end_example
-3. Modify the _config.txt_ file as described in the previous section
-4. Connect the _USB-to-TTL serial cable_ as described in the Prerequisites
-5. Power on your Raspberry Pi
-6. Open your terminal emulator. You should be able to see the _Hello, world!_ message there
-
-Note that the sequence of steps described above asumes that you have Raspbian installed on your SD card. It is also posible to run the RPi OS using an empty SD card:
-1. Prepare your SD card:
-   + Use an MBR partition table
-   + Format the boot partition as FAT32
-     #+begin_example
-       The card should be formatted exactly in the same way as it is required to install Raspbian
-
-       Check HOW TO FORMAT AN SD CARD AS FAT section in the official documentation for more information
-     #+end_example
-2. Copy the following files to the card:
-   + _bootcode.bin_ This is the GPU bootloader, it contains the _GPU code_ to *start* the GPU and *load* the GPU firmware
-   + _start.elf_ This is the _GPU firmware_ . It reads config.txt and *enables* the GPU to load and run ARM specific user code from kernel8.img
-3. Copy kernel8.img and config.txt files
-4. Connect the USB-to-TTL serial cable
-5. Power on your Raspberry Pi
-6. Use your terminal emulator to connect to the RPi OS
+3. 如上一节所述修改 _config.txt_ 文件
+4. 连接 _USB至TTL_ 串行电缆
+5. 给 Raspberry Pi 供电
+6. 打开终端模拟器. 应该可以在那里看到 Hello, world！ 消息
 
 #+begin_example
-  Unfortunately, all Raspberry Pi firmware files are closed-sourced and undocumented
+  请注意, 上述步骤顺序假定 SD卡上已安装Raspbian
 
-  For more information about the Raspberry Pi startup sequence, you can refer to some unofficial sources, like this StackExchange question or this Github repository
+#+end_example
+
+当然也可以使用空的SD卡运行RPi OS
+1. 准备 SD卡:
+   + 使用 MBR分区表
+   + 将 boot 分区格式化为 FAT32
+     #+begin_example
+       该卡的格式应与安装Raspbian所需的格式完全相同
+
+       可以查看 HOW TO FORMAT AN SD CARD AS FAT 部分在 official documenation 官方文档 来获取更多信息
+     #+end_example
+2. 将以下文件复制到卡中：
+   + _bootcode.bin_ : 这是 _GPU引导程序_ , 它包含用于 *启动* GPU和 *加载* GPU固件的GPU代码
+   + _start.elf_ 这是 _GPU固件_ . 它 *读取* _config.txt_ , 并使GPU从 _kernel8.img_ 加载并运行ARM特定的用户代码 
+3. 复制 _kernel8.img_ 和 _config.txt_ 文件
+4. 连接 _USB至TTL_ 串行电缆
+5. 给 Raspberry Pi 供电
+6. 使用终端仿真器连接到RPi OS
+
+#+begin_example
+  不幸的是, 所有Raspberry Pi固件文件都是闭源的没有文档
+
+  有关Raspberry Pi启动顺序的更多信息, 可以参考一些非官方的资料, 比如
+  (https://raspberrypi.stackexchange.com/questions/10442/what-is-the-boot-sequence) StackExchange 问​​题
+  (https://github.com/DieterReuter/workshop-raspberrypi-64bit-os/blob/master/part1-bootloader.md) 这个 Github 仓库
 #+end_example
 
 #+ATTR_HTML: :border 1 :rules all :frame boader
-| [[file:linux.org][Next: Linux project structure]] | [[file:initialization.org][Home: Kernel Initialization]] | 
+| [[file:linux.org][Next: Linux 项目结构]] | [[file:initialization.org][Home: 内核初始化]] |

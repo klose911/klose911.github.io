@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Introducing RPi OS, or bare-metal "Hello, World!"</title>
+<title>RPi OS 入门：裸机 “Hello, World!”</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -200,55 +200,60 @@
  |
  <a accesskey="H" href="./initialization.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">Introducing RPi OS, or bare-metal "Hello, World!"</h1>
+<h1 class="title">RPi OS 入门：裸机 “Hello, World!”</h1>
 <div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org5d5f8e9">Project structure</a></li>
+<li><a href="#orgfafb4e5">项目结构</a></li>
 <li><a href="#orgcdb8261">Makefile</a></li>
-<li><a href="#org7cc1d32">The linker script</a></li>
-<li><a href="#orgce842b2">Booting the kernel</a>
+<li><a href="#org431a8f2">链接器脚本</a></li>
+<li><a href="#org5191b46">引导内核</a>
 <ul>
 <li><a href="#orgcdea281">assembler instructions</a></li>
 </ul>
 </li>
-<li><a href="#org3f9fd33">The kernel_main function</a>
+<li><a href="#org8e0458c">kernel_main 函数</a>
 <ul>
 <li><a href="#orgd26d045">Raspberry Pi devices</a>
 <ul>
 <li><a href="#orgbd761a1">GPIO</a></li>
 </ul>
 </li>
-<li><a href="#orgda891db">Mini UART initialization</a>
+<li><a href="#org9f761b7">初始化 Mini UART</a>
 <ul>
-<li><a href="#orgaa73207">GPIO alternative function selection</a></li>
+<li><a href="#orgd515f33">GPIO 功能选择</a></li>
 <li><a href="#orge6cc327">GPIO pull-up/down</a></li>
-<li><a href="#org72f81eb">Initializing the Mini UART</a></li>
+<li><a href="#org8e27924">初始化Mini UART</a></li>
 </ul>
 </li>
-<li><a href="#org9ff1731">Sending data using the Mini UART</a></li>
+<li><a href="#orgfa63a8a">使用Mini UART</a></li>
 </ul>
 </li>
-<li><a href="#org407de89">Raspberry Pi config</a></li>
-<li><a href="#org6cee46d">Testing the kernel</a></li>
+<li><a href="#orgab03da8">Raspberry Pi 配置</a></li>
+<li><a href="#org6f55ed9">内核测试</a></li>
 </ul>
 </div>
 </div>
 <p>
-We are going to start our journey in OS development by writing a small, bare-metal "Hello, World" application. 
+通过编写一个小的裸机 <span class="underline">Hello, World</span> 应用程序开始我们的OS开发之旅
 </p>
-<div id="outline-container-org5d5f8e9" class="outline-2">
-<h2 id="org5d5f8e9">Project structure</h2>
-<div class="outline-text-2" id="text-org5d5f8e9">
+
+<pre class="example" id="orga119ace">
+.假设您已通过Prerequisites并已准备就绪. 如果没有, 现在是时候这样做了
+</pre>
+
+<div id="outline-container-orgfafb4e5" class="outline-2">
+<h2 id="orgfafb4e5">项目结构</h2>
+<div class="outline-text-2" id="text-orgfafb4e5">
 <p>
-Let's briefly describe the main components of this folder:
+简要描述此文件夹的主要组件：
 </p>
 <ol class="org-ol">
-<li><span class="underline">Makefile</span> : We will use the <a href="http://www.math.tau.ac.il/~danha/courses/software1/make-intro.html">make</a> utility to build the kernel. make's behavior is configured by a Makefile, which contains instructions on how to compile and link the source code.</li>
-<li><span class="underline">build.sh</span> or <span class="underline">build.bat</span> : You'll need these files if you want to build the kernel using Docker. You won't need to have the make utility or the compiler toolchain installed on your laptop.</li>
-<li><span class="underline">src</span> : This folder contains all of the source code.</li>
-<li><span class="underline">include</span> : All of the header files are placed here.</li>
+<li><span class="underline">Makefile</span> ：将使用 <a href="http://www.math.tau.ac.il/~danha/courses/software1/make-intro.html">make</a> 实用程序来构建内核. make的行为由Makefile配置, 该文件包含有关如何编译和链接源代码的说明</li>
+<li><span class="underline">build.sh</span> or _build.bat_： 如果要使用Docker构建内核, 则需要这些文件. 您无需在笔记本电脑上安装make实用程序或编译器工具链</li>
+<li><span class="underline">src</span> ： 此文件夹包含所有源代码</li>
+<li><span class="underline">include</span> ：所有的头文件都放在这里</li>
 </ol>
 </div>
 </div>
@@ -256,7 +261,15 @@ Let's briefly describe the main components of this folder:
 <h2 id="orgcdb8261">Makefile</h2>
 <div class="outline-text-2" id="text-orgcdb8261">
 <p>
-Now let's take a closer look at the project Makefile. The primary purpose of the make utility is to automatically determine what pieces of a program need to be recompiled, and to issue commands to recompile them. If you are not familiar with make and Makefiles, I recommend that you read this article. The Makefile used in the first lesson can be found here. The whole Makefile is listed below:
+现在, 来仔细看看项目Makefile
+</p>
+
+<pre class="example" id="orgef40d2e">
+make程序的主要目的是自动确定需要重新编译什么程序的片段, 并发出命令来重新译编
+</pre>
+
+<p>
+下面列出了整个Makefile：
 </p>
 
 <div class="org-src-container">
@@ -295,7 +308,7 @@ $(<span style="color: #4eee94;">ARMGNU</span>)-objcopy $(<span style="color: #4e
 </div>
 
 <p>
-Now, let's inspect this file in detail:
+现在, 来详细阐述该文件：
 </p>
 
 <div class="org-src-container">
@@ -304,7 +317,7 @@ Now, let's inspect this file in detail:
 </div>
 
 <p>
-The Makefile starts with a variable definition. <span class="underline">ARMGNU</span> is a cross-compiler prefix. We need to use a <a href="https://en.wikipedia.org/wiki/Cross_compiler">cross-compiler</a> because we are compiling the source code for the arm64 architecture on an x86 machine. So instead of gcc, we will use <span class="underline">aarch64-linux-gnu-gcc</span> 
+Makefile以变量定义开头. <span class="underline">ARMGNU</span> 是交叉编译器前缀. 因为正在x86计算机上编译arm64体系结构的源代码, 我们需要 <a href="https://en.wikipedia.org/wiki/Cross_compiler">交叉编译</a>. 因此, 将使用 <span class="underline">aarch64-linux-gnu-gcc</span> 代替 gcc
 </p>
 
 <div class="org-src-container">
@@ -313,52 +326,52 @@ The Makefile starts with a variable definition. <span class="underline">ARMGNU</
 </pre>
 </div>
 
-
 <p>
-<span class="underline">COPS</span> and <span class="underline">ASMOPS</span> are options that we pass to the compiler when compiling C and assembler code, respectively. These options require a short explanation:
+<span class="underline">COPS</span> 和 <span class="underline">ASMOPS</span> 是在编译C和汇编代码时分别传递给编译器的选项.这些选项的简短说明：
 </p>
 <ul class="org-ul">
-<li><span class="underline">-Wall</span> : Show all warnings</li>
+<li><span class="underline">-Wall</span> : 显示所有警告</li>
 <li><p>
-<span class="underline">-nostdlib</span> : Don't use the C standard library
+<span class="underline">-nostdlib</span> : 不使用C的标准库
 </p>
-<pre class="example" id="orgf628b54">
-Most of the calls in the C standard library eventually interact with the operating system
+<pre class="example" id="orgb628883">
+C标准库中的大多数函数调用最终都会与操作系统交互
 
-We are writing a bare-metal program, and we don't have any underlying operating system
-
-so the C standard library is not going to work for us anyway
+我们正在编写一个裸机程序, 并且没有任何底层操作系统, 因此C标准库无论如何都无法工作
 </pre></li>
 <li><p>
-<span class="underline">-nostartfiles</span> Don't use standard startup files
+<span class="underline">-nostartfiles</span> 不要使用标准的启动文件
 </p>
-<pre class="example" id="org4035174">
-Startup files are responsible for setting an initial stack pointer, initializing static data, and jumping to the main entry point
+<pre class="example" id="orgcce8c88">
+启动文件负责设置初始堆栈指针, 初始化静态数据以及跳转到主入口点
 
-We are going to do all of this by ourselves
+这里需要我们自己完成所有这一切
 </pre></li>
 <li><p>
-<span class="underline">-ffreestanding</span> A freestanding environment is an environment in which the standard library may not exist, and program startup may not necessarily be at main
+<span class="underline">-ffreestanding</span> <span class="underline">独立环境</span> (ffreestanding)是标准库不存在的环境, 并且程序启动入口不是主要的
 </p>
-<pre class="example" id="org1bb7116">
-The option -ffreestanding directs the compiler to not assume that standard functions have their usual definition
+<pre class="example" id="orgb0e0052">
+选项-ffreestanding指示编译器不需要定义标准函数具有其通常的意义
 </pre></li>
-<li><span class="underline">-Iinclude</span> : Search for header files in the include folder</li>
+<li><span class="underline">-Iinclude</span> : 在 <span class="underline">include</span> 文件夹中搜索头文件</li>
 <li><p>
-<span class="underline">-mgeneral-regs-only</span> : Use only general-purpose registers. ARM processors also have <a href="https://developer.arm.com/technologies/neon">NEON</a> registers. We don't want the compiler to use them because they add additional complexity 
+<span class="underline">-mgeneral-regs-only</span> : 仅使用通用寄存器. ARM处理器还具有 <a href="https://developer.arm.com/technologies/neon">NEON</a> 寄存器
 </p>
-<pre class="example" id="org32bf816">
-for example, we will need to store the registers during a context switch
+<pre class="example" id="org98adbb8">
+不希望编译器使用它们, 因为它们会增加额外的复杂性
+
+例如, 因为需要在上下文切换期间存储寄存器
 </pre>
 
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #4eee94;">BUILD_DIR</span> = build
 <span style="color: #4eee94;">SRC_DIR</span> = src
 </pre>
-</div>
+</div></li>
+</ul>
 
 <p>
-<span class="underline">SRC_DIR</span> and <span class="underline">BUILD_DIR</span> are directories that contain source code and compiled object files, respectively 
+<span class="underline">SRC_DIR</span> 和 <span class="underline">BUILD_DIR</span> 是分别包含源代码和编译后Object文件的目录 
 </p>
 
 <div class="org-src-container">
@@ -370,12 +383,20 @@ rm -rf $(<span style="color: #4eee94;">BUILD_DIR</span>) *.img
 </div>
 
 <p>
-Next, we define make targets. The first two targets are pretty simple: 
+接下来, 定义make目标. 前两个参数非常简单:
 </p>
 <ul class="org-ul">
-<li>the all target is the default one, and it is executed whenever you type make without any arguments (make always uses the first target as the default). This target just redirects all work to a different target, kernel8.img</li>
-<li>The clean target is responsible for deleting all compilation artifacts and the compiled kernel image</li>
+<li><p>
+<span class="underline">all</span> 参数是 <b>默认</b> 目标, 每当输入不带任何参数的make时, 它就会执行
+</p>
+<pre class="example" id="orgdc68f36">
+make 始终使用第一个参数作为默认参数
+
+这个参数只是将所有工作重定向到另一个参数, kernel8.img
+</pre></li>
+<li><span class="underline">clean</span> 参数负责删除所有编译附加文件和已编译内核映像</li>
 </ul>
+
 
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #daa520; font-weight: bold;">$(</span><span style="color: #daa520; font-weight: bold;">BUILD_DIR</span><span style="color: #daa520; font-weight: bold;">)/%_c.o</span>: $(<span style="color: #4eee94;">SRC_DIR</span>)/%.c
@@ -388,8 +409,18 @@ $(<span style="color: #4eee94;">ARMGNU</span>)-gcc $(<span style="color: #4eee94
 </div>
 
 <p>
-The next two targets are responsible for compiling C and assembler files. If, for example, in the src directory we have <span class="underline">foo.c</span> and <span class="underline">foo.S</span> files, they will be compiled into <span class="underline">build/foo_c.o</span> and <span class="underline">build/foo_s.o</span> , respectively. <b>$&lt;</b> and <b>$@</b> are substituted at runtime with the <b>input and output filenames</b> (foo.c and foo_c.o). Before compiling C files, we also create a build directory in case it doesn't exist yet 
+接下来的两个参数负责编译C和汇编文件
 </p>
+<pre class="example" id="orgcc42af7">
+ 例如, 如果在 src 文件夹中有 foo.c 和 foo.S 文件
+
+他们将会分别被编译为 build/foo_c.o 和 build/foo_s.o
+</pre>
+
+<p>
+<span class="underline">$&lt;</span> 和 <span class="underline">$@</span> 在运行时将被替换成 <b>输入</b> 文件名和 <b>输出</b> 文件名 (foo.c and foo_c.o). 在编译C文件之前, 还创建了一个 <span class="underline">build</span> 目录, 以防该目录不存在 
+</p>
+
 
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #4eee94;">C_FILES</span> = $(<span style="color: #4eee94;">wildcard</span> $(<span style="color: #4eee94;">SRC_DIR</span>)/*.c)
@@ -399,8 +430,9 @@ The next two targets are responsible for compiling C and assembler files. If, fo
 </pre>
 </div>
 
+
 <p>
-Here we are building an array of all object files (OBJ_FILES) created from the concatenation of both C and assembler source files (see <a href="https://www.gnu.org/software/make/manual/html_node/Substitution-Refs.html">Substitution References</a>).
+在这里, 正在构建一个由C和汇编源文件的串联创建的目标文件 <span class="underline">OBJ_FILES</span> 的数组
 </p>
 
 <div class="org-src-container">
@@ -410,7 +442,7 @@ Here we are building an array of all object files (OBJ_FILES) created from the c
 </div>
 
 <p>
-The next two lines are a little bit tricky. If you take a look at how we defined our compilation targets for both C and assembler source files, you will notice that we used the <span class="underline">-MMD</span> parameter. This parameter instructs the gcc compiler to create a dependency file for each generated object file. A dependency file defines all of the dependencies for a particular source file. These dependencies usually contain a list of all included headers. We need to include all of the generated dependency files so that make knows what exactly to recompile in case a header changes 
+接下来的两行有些棘手. 如果看一下如何为C和汇编源文件定义编译目标, 会注意到我们使用了 <span class="underline">-MMD</span> 参数. 这个参数指示gcc编译器为每个生成的目标文件创建一个 <b>依赖文件</b> 。依赖性文件定义了特定源文件的所有依赖性. 这些依赖项通常包含所有包含的头文件的列表. 需要包括所有生成的依赖文件, 以便在头文件更改时知道要重新编译的内容
 </p>
 
 <div class="org-src-container">
@@ -419,7 +451,7 @@ The next two lines are a little bit tricky. If you take a look at how we defined
 </div>
 
 <p>
-We use the <span class="underline">OBJ_FILES</span> array to build the <span class="underline">kernel8.elf</span> file. We use the linker script <span class="underline">src/linker.ld</span> to define the <b>basic layout of the resulting executable image</b> 
+使用链接器脚本 <span class="underline">src /linker.ld</span> 定义生成的 <b>可执行映像的基本布局</b> 
 </p>
 
 <div class="org-src-container">
@@ -428,38 +460,40 @@ We use the <span class="underline">OBJ_FILES</span> array to build the <span cla
 </div>
 
 <p>
-kernel8.elf is in the <a href="https://en.wikipedia.org/wiki/Executable_and_Linkable_Format">ELF</a> format
+<span class="underline">kernel8.elf</span> 遵循 <a href="https://en.wikipedia.org/wiki/Executable_and_Linkable_Format">ELF</a> 格式
 </p>
 
-<pre class="example" id="orgabe8ca6">
-The problem is that ELF files are designed to be executed by an operating system
+<pre class="example" id="orge7a37f9">
+问题是ELF文件设计为由操作系统执行
 </pre>
 
 <p>
-To write a bare-metal program, we need to extract all executable and data sections from the ELF file and put them into the kernel8.img image. The trailing <span class="underline">8</span> denotes ARMv8 which is a 64-bit architecture. This filename tells the firmware to <b>boot</b> the processor into <span class="underline">64-bit</span> mode. You can also boot the CPU in the 64-bit mode by using <span class="underline">arm_control=0x200</span> flag in the config.txt file
+要编写裸机程序, 需要从ELF文件中提取所有可执行文件和数据段, 然后将它们放入 kernel8.img 中
 </p>
+<pre class="example" id="orgef85d3a">
+尾部的 8 表示ARMv8, 它是64位体系结构. 该文件名告诉固件将处理器引导到64位模式
 
-<pre class="example" id="org2204040">
-The RPi OS previously used this method, and you can still find it in some of the exercise answers
+也可以使用config.txt文件中的arm_control = 0x200标志以64位模式引导CPU
 
-However, arm_control flag is undocumented and it is preferable to use kernel8.img naming convention instead
-</pre></li>
-</ul>
+RPi OS以前使用此方法, 仍然可以在一些练习答案中找到它. 然而, arm_control标志没有文档, 最好使用kernel8.img命名约定
+</pre>
 </div>
 </div>
-<div id="outline-container-org7cc1d32" class="outline-2">
-<h2 id="org7cc1d32">The linker script</h2>
-<div class="outline-text-2" id="text-org7cc1d32">
+
+<div id="outline-container-org431a8f2" class="outline-2">
+<h2 id="org431a8f2">链接器脚本</h2>
+<div class="outline-text-2" id="text-org431a8f2">
 <p>
-The primary purpose of the linker script is to describe how the sections in the input object files ( <span class="underline">c.o</span> and <span class="underline">s.o</span> ) should be mapped into the output file ( <span class="underline">.elf</span> )
+链接描述文件的主要目的是描述如何将输入目标文件 <span class="underline">(_c.o和_s.o)</span> 中的 <span class="underline">段</span> <b>映射</b> 到 <span class="underline">输出文件(.elf)</span> 中
 </p>
 
-<pre class="example" id="orgc96de87">
-More information about linker scripts can be found: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
+
+<pre class="example" id="org64c748a">
+这里可以找到有关链接描述文件的更多信息: https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts
 </pre>
 
 <p>
-Now let's take a look at the RPi OS linker script:
+现在看一下RPi OS链接器脚本:
 </p>
 
 <div class="org-src-container">
@@ -479,45 +513,47 @@ Now let's take a look at the RPi OS linker script:
 
 <ol class="org-ol">
 <li><p>
-After startup, the Raspberry Pi loads <span class="underline">kernel8.img</span> into memory and starts execution from the beginning of the file. That's why the <span class="underline">.text.boot section</span> must be first
+启动后, Raspberry Pi将 <span class="underline">kernel8.img</span> 加载到内存中, 并从文件开头开始执行
 </p>
-<pre class="example" id="org0baa33a">
-we are going to put the OS startup code inside this section
+<pre class="example" id="org4b56667">
+这就是为什么.text.boot部分必须放在第一的原因
+
+也因此操作系统引导代码将被放到这里
 </pre></li>
-<li>The <span class="underline">.text</span> , <span class="underline">.rodata</span> , and <span class="underline">.data</span> sections contain <b>kernel-compiled</b> <span class="underline">instructions</span> , <span class="underline">read-only data</span> , and <span class="underline">normal data</span></li>
-<li>The <span class="underline">.bss</span> section contains data that should be initialized to 0:
+<li><span class="underline">.text</span>,  <span class="underline">.rodata</span> , 和 <span class="underline">.data</span> 部分分别包含内核编译的 <span class="underline">代码段</span> ,  <span class="underline">只读数据段</span> , 和 <span class="underline">一般数据段</span></li>
+<li><span class="underline">.bss</span> 部分包含 应 <b>初始化</b> 为 <span class="underline">0</span> 的数据
 <ul class="org-ul">
 <li><p>
-By putting such data in a separate section, the compiler can save some space in the ELF binary
+通过将此类数据放在单独的段中, 编译器可以在ELF二进制文件中节省一些空间
 </p>
-<pre class="example" id="org3e64d4b">
-only the section size is stored in the ELF header, but the section itself is omitted
+<pre class="example" id="orge77a667">
+只有段大小存储在ELF标头中, 但段本身被省略
 </pre></li>
 <li><p>
-After loading the image into memory, we must initialize the .bss section to 0
+将img加载到内存后, 必须手动将 <span class="underline">.bss</span> 部分初始化为0; 
 </p>
-<pre class="example" id="org480e6e8">
-that's why we need to record the start and end of the section
+<pre class="example" id="orgb3a9dbe">
+这就是为什么需要记录本段的开始和结束
 
-hence the bss_begin and bss_end symbols
+也就是bss_begin和bss_end符号
 </pre></li>
 <li><p>
-align the section so that it starts at an address that is a <span class="underline">multiple</span> of 8
+对齐该段, 使其以 <span class="underline">8</span> 的倍数开头的地址开始
 </p>
-<pre class="example" id="orgd5659f2">
-If the section is not aligned, it would be more difficult to use the str instruction to store 0 at the beginning of the bss section
+<pre class="example" id="orgc1fee6d">
+如果该部分未对齐, 使用str指令在bss节的开头存储0会更加困难
 
-because the str instruction can be used only with 8-byte-aligned addresses
+因为str指令只能与8字节对齐的地址一起使用
 </pre></li>
 </ul></li>
 </ol>
 </div>
 </div>
-<div id="outline-container-orgce842b2" class="outline-2">
-<h2 id="orgce842b2">Booting the kernel</h2>
-<div class="outline-text-2" id="text-orgce842b2">
+<div id="outline-container-org5191b46" class="outline-2">
+<h2 id="org5191b46">引导内核</h2>
+<div class="outline-text-2" id="text-org5191b46">
 <p>
-Now it is time to take a look at the <span class="underline">boot.S</span> file. This file contains the kernel startup code:
+现在是时候看看 <span class="underline">boot.S</span> 文件了. 此文件包含内核启动代码：
 </p>
 
 <div class="org-src-container">
@@ -547,7 +583,7 @@ Now it is time to take a look at the <span class="underline">boot.S</span> file.
 </div>
 
 <p>
-Let's review this file in detail:
+让我们详细查看该文件：
 </p>
 
 <div class="org-src-container">
@@ -555,9 +591,8 @@ Let's review this file in detail:
 </pre>
 </div>
 
-
 <p>
-First, we specify that everything defined in boot.S should go in the <span class="underline">.text.boot</span> section. Previously, we saw that this section is placed at the beginning of the kernel image by the linker script. So when the kernel is started, execution begins at the <span class="underline">start</span> function: 
+首先, 指定在boot.S中的所有内容都应在 <span class="underline">.text.boot</span> 部分中. 前面已经看到, 该节通过链接描述文件放置在内核映像的开头。因此, 当内核启动时, 执行从 <span class="underline">start</span> 函数开始：
 </p>
 
 <div class="org-src-container">
@@ -571,17 +606,16 @@ First, we specify that everything defined in boot.S should go in the <span class
 </div>
 
 <p>
-The first thing this function does is check the processor ID. The Raspberry Pi 3 has four core processors, and after the device is powered on, each core begins to execute the same code
+这个函数做的第一件事就是检查 <span class="underline">processor id</span> . Raspberry Pi 3 有四个核心, 设备开启之后, 每个核心处理相同的代码
 </p>
 
-<pre class="example" id="org8b25322">
-However, we don't want to work with four cores
 
-we want to work only with the first one and put all of the other cores in an endless loop
+<pre class="example" id="orgb81ce2b">
+然而, 现在不需要四个核心都工作; 希望只是用第一个核心并且将其他核心放到尾部的无穷循环中
 </pre>
 
 <p>
-This is exactly what the start function is responsible for. It gets the processor ID from the <a href="http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0500g/BABHBJCI.html">mpidr_el1</a> system register. If the current process ID is 0, then execution is transferred to the master function:
+这就是 <b>_start</b> 函数的做的事情. 从 <a href="http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0500g/BABHBJCI.html">mpidr_el1</a> 系统寄存器获取 processor ID. 如果当前 process ID 是 0, 之后执行跳转到 <span class="underline">master</span> 函数:
 </p>
 
 <div class="org-src-container">
@@ -593,17 +627,16 @@ This is exactly what the start function is responsible for. It gets the processo
 </pre>
 </div>
 
-
 <p>
-Here, we clean the <span class="underline">.bss</span> section by calling <span class="underline">memzero</span> 
+在这里, 通过调用 <span class="underline">memzero</span> 来清理 <span class="underline">.bss段</span> 
 </p>
 
-<pre class="example" id="orgdd3b9b0">
-We will define this function memzero later
+<pre class="example" id="org303a431">
+稍后将定义 memzero 函数
 
-In ARMv8 architecture, by convention, the first seven arguments are passed to the called function via registers x0 ~ x6
+在ARMv8架构中, 按照惯例, 前七个参数通过寄存器 x0 – x6 传递给调用的函数
 
-The memzero function accepts only two arguments: the start address (bss_begin) and the size of the section needed to be cleaned (bss_end - bss_begin) 
+memzero 函数仅接受两个参数: 起始地址 (bss_begin) 以及需要清理的部分的大小 (bss_end - bss_begin) 
 </pre>
 
 <div class="org-src-container">
@@ -613,64 +646,60 @@ The memzero function accepts only two arguments: the start address (bss_begin) a
 </div>
 
 <p>
-After cleaning the .bss section, we <b>initialize</b> the <span class="underline">stack pointer</span> and pass <b>execution</b> to the <span class="underline">kernel_main</span> function. The Raspberry Pi loads the kernel at address <span class="underline">0</span> 
+清理 <span class="underline">.bss段</span> 后, 接着 <b>初始化</b> <span class="underline">堆栈指针</span> 并将 <span class="underline">执行</span> <b>传递</b> 给 <span class="underline">kernel_main</span> 函数
 </p>
 
-<pre class="example" id="org0e8a9b2">
-that's why the initial stack pointer can be set to any location high enough so that stack will not override the kernel image when it grows sufficiently large
+<pre class="example" id="org10af326">
+Raspberry Pi在地址0加载内核，这就是为什么可以将初始堆栈指针设置到足够高的任何位置的原因
+
+即使当堆栈映像变得足够大时, 堆栈不会覆盖内核映像
 </pre>
 
 <p>
-<span class="underline">LOW_MEMORY</span> is defined in <span class="underline">mm.h</span> and is equal to <span class="underline">4MB</span> 
+<span class="underline">LOW_MEMORY</span> 在 <span class="underline">mm.h</span> 中定义等于 <b>4MB</b> 
 </p>
 
-<pre class="example" id="org0e161fc">
-Our kernel's stack won't grow very large and the image itself is tiny
-
-so 4MB is more than enough for us
+<pre class="example" id="orgbd9bc61">
+我们的内核堆栈不会变得很大, 并且img本身很小, 因此4MB已经绰绰有余
 </pre>
 </div>
+
 <div id="outline-container-orgcdea281" class="outline-3">
 <h3 id="orgcdea281">assembler instructions</h3>
 <div class="outline-text-3" id="text-orgcdea281">
 <p>
-For those of you who are not familiar with ARM assembler syntax, let me quickly summarize the instructions that we have used:
+对于那些不熟悉ARM汇编器语法的人, 快速总结一下已经使用的指令：
 </p>
-<ul class="org-ul">
-<li><b>mrs</b> : Load value from a system register to one of the general purpose registers x0 ~ x30</li>
-<li><p>
-<b>and</b> : Perform the logical AND operation
-</p>
-<pre class="example" id="org2558e6b">
-We use this command to strip the last byte from the value we obtain from the mpidr_el1 register
-</pre></li>
-<li><b>cbz</b> : Compare the result of the previously executed operation to <span class="underline">0</span> and <b>jump</b> (or branch in ARM terminology) to the provided label if the comparison yields <span class="underline">true</span></li>
-<li><b>b</b> : Perform an unconditional branch to some label</li>
-<li><p>
-<b>adr</b> : Load a label's relative address into the target register
-</p>
-<pre class="example" id="org6a64daf">
-In this case, we want pointers to the start and end of the .bss region
-</pre></li>
-<li><b>sub</b> : Subtract values from two registers</li>
-<li><p>
-<b>bl</b> : perform an unconditional branch and store the <b>return address</b> in <span class="underline">x30</span> (the link register)
-</p>
-<pre class="example" id="orgd4996bd">
-Branch With a link:
 
-When the subroutine is finished, use the ret instruction to jump back to the return address
+<ul class="org-ul">
+<li><b>mrs</b> : 将值从系统寄存器加载到通用寄存器 <span class="underline">x0</span> – <span class="underline">x30</span></li>
+<li><p>
+<b>and</b> : 执行逻辑与运算
+</p>
+<pre class="example" id="org4aa0a85">
+使用此命令从 mpidr_el1 寄存器中将获得的值剥离最后一个字节
 </pre></li>
-<li><b>mov</b> : Move a value between registers or from a constant to a register</li>
+<li><b>cbz</b> : 比较之前执行的操作的结果, 并且如果比较结果为真, 就跳转 (在ARM术语中也叫做 <span class="underline">branch</span>) 到提供的标签</li>
+<li><b>b</b> : 无条件跳转到某个标签(branch)</li>
+<li><p>
+<b>adr</b> : 将标签的相对地址加载到目标寄存器中
+</p>
+<pre class="example" id="org6e4a882">
+在这种情况下, 需要指向.bss区域开始和结束的指针
+</pre></li>
+<li><b>sub</b> : 从两个寄存器取值互减.</li>
+<li><b>bl</b> : 执行无条件分支并将返回地址存储在 <span class="underline">x30</span> 中(链接寄存器). 子程序完成后, 使用ret指令跳回到调用人地址.</li>
+<li><b>mov</b> : 在寄存器之间移动一个值 或者 从常量移动到寄存器</li>
 </ul>
 </div>
 </div>
 </div>
-<div id="outline-container-org3f9fd33" class="outline-2">
-<h2 id="org3f9fd33">The kernel_main function</h2>
-<div class="outline-text-2" id="text-org3f9fd33">
+
+<div id="outline-container-org8e0458c" class="outline-2">
+<h2 id="org8e0458c">kernel_main 函数</h2>
+<div class="outline-text-2" id="text-org8e0458c">
 <p>
-We have seen that the boot code eventually passes control to the <span class="underline">kernel_main</span> function. Let's take a look at it:
+已经看到引导代码最终将控制权传递给了 <span class="underline">kernel_main</span> 函数：
 </p>
 
 <div class="org-src-container">
@@ -689,100 +718,101 @@ We have seen that the boot code eventually passes control to the <span class="un
 </div>
 
 <p>
-This function is one of the simplest in the kernel. It works with the <span class="underline">Mini UART</span> device to print to screen and read user input. The kernel just prints Hello, world! and then enters an infinite loop that reads characters from the user and sends them back to the screen
+此函数是内核中最简单的函数之一. 它与 <span class="underline">Mini UART</span> 设备 打印到屏幕并读取用户输入. 内核只是打印 Hello, world! 然后进入无限循环, 此循环从用户读取字符并将其发送回屏幕
 </p>
 </div>
+
+
 <div id="outline-container-orgd26d045" class="outline-3">
 <h3 id="orgd26d045">Raspberry Pi devices</h3>
 <div class="outline-text-3" id="text-orgd26d045">
 <p>
-Now we are going to dig into something specific to the Raspberry Pi
+现在, 将深入研究Raspberry Pi的特定功能
 </p>
 
-<pre class="example" id="org652d36c">
-Before we begin, I recommend that you download the BCM2837 ARM Peripherals manual
+
+<pre class="example" id="org0fdac6a">
+开始之前, 建议下载BCM2837 ARM Peripherals manual
 </pre>
 
 <p>
-<span class="underline">BCM2837</span> is a board that is used by the Raspberry Pi 3 Models B, and B+
+<span class="underline">BCM2837</span> 是 Raspberry Pi 3 Model B 和 B+ 使用的芯片
 </p>
 
-<pre class="example" id="org603e1b7">
-Sometime in our discussion, I will also mention BCM2835 and BCM2836 - those are names of the board used in older versions of the Raspberry Pi
+<pre class="example" id="org5567e3a">
+在讨论中, 有时还将提到 BCM2835 和 BCM2836 - 这些是旧版Raspberry Pi中使用的芯片的名称
 </pre>
 
 <p>
-Before we proceed to the implementation details, I want to share some basic concepts on how to work with <b>memory-mapped</b> devices. BCM2837 is a simple <a href="https://en.wikipedia.org/wiki/System_on_a_chip">SOC (System on a chip)</a> board. In such a board, access to all devices is performed via <b>memory-mapped</b> <span class="underline">registers</span> . The Raspberry Pi 3 reserves the memory above address <span class="underline">0x3F000000</span> for <b>devices</b> . To activate or configure a particular device, you need to write some data in one of the device's registers. A device register is just a <span class="underline">32-bit</span> region of memory. The meaning of each bit in each device register is described in the BCM2837 ARM Peripherals manual
+在进行到细节之前, 想分享一些有关如何使用 <span class="underline">内存映射设备</span> 的基本概念. BCM2837 是一个简单的 <a href="https://en.wikipedia.org/wiki/System_on_a_chip">SOC (System on a chip 系统)</a> 芯片. 在这样的芯片上, 通过映射到内存的寄存器访问设备. Raspberry Pi 3 保留比 <span class="underline">0x3F000000</span> 高位的地址用于 <b>设备</b> . 去启用或者配置一个特定设备, 需要写入到设备的一个寄存器中一些数据. 一个设备的寄存器在内存中占据 <span class="underline">32位</span> 。 BCM2837 ARM Peripherals 手册中描述了寄存器中每一位的作用
 </p>
 
-<pre class="example" id="org4955dc2">
-Take a look at section 1.2.3 ARM physical addresses in the manual and the surrounding documentation for more context on why we use 0x3F000000 as a base address
+<pre class="example" id="org24e1f51">
+在手册中看一下 1.2.3节 ARM 的物理地址和有关更多为什么用 0x3F000000 作为基地址的背景信息
 
-even though 0x7E000000 is used throughout the manual
+即使在整个手册中使用  0x7E000000 
 </pre>
 
 <p>
-From the kernel_main function, you can guess that we are going to work with a Mini UART device. UART stands for <a href="https://en.wikipedia.org/wiki/Universal_asynchronous_receiver-transmitter">Universal asynchronous receiver-transmitter</a> (通用异步接收器). This device is capable of converting values stored in one of its memory mapped registers to a sequence of high and low voltages. This sequence is passed to your computer via the <span class="underline">TTL-to-serial</span> cable and is interpreted by your terminal emulator 
+从 kernel_main 函数, 可以想到将使用 Mini UART设备. UART代表  <a href="https://en.wikipedia.org/wiki/Universal_asynchronous_receiver-transmitter">Universal asynchronous receiver-transmitter</a> （通用异步收发器）。该设备能够将存储在其存储器映射寄存器之一中的值转换为 <span class="underline">高电压</span> 和 <span class="underline">低电压</span> <b>序列</b> . 该序列通过 <span class="underline">TTL转串口电缆</span> 传递到计算机, 并由 <span class="underline">终端仿真器</span> <b>解释</b> 
 </p>
 
-<pre class="example" id="orgf00a8c0">
-We are going to use the Mini UART to facilitate communication with our Raspberry Pi
+<pre class="example" id="org83916ca">
+我们将使用Mini UART来促进与Raspberry Pi的通信
 
-If you want to see the specification of the Mini UART registers, please go to page 8 of the BCM2837 ARM Peripherals manual
+如果要查看Mini UART寄存器的规范, 请阅读 BCM2837 ARM Peripherals手册
 </pre>
 
 <p>
-A Raspberry Pi has two UARTs:  <span class="underline">Mini UART</span> and <span class="underline">PL011 UART</span>
+Raspberry Pi具有两个UART： <span class="underline">MINI UART</span> 和 <span class="underline">PL011 UART</span> 
 </p>
 
-<pre class="example" id="orgabe8df6">
-There is, however, an optional exercise that shows how to work with PL011 UART
+<pre class="example" id="org420062e">
+在本教程中, 我们将仅使用第一个教程, 因为它更简单
 
-You can refer to the official documentation if you want to find out more about Raspberry Pi UARTs and learn the difference between them
+但是, 有一个可选的exercise显示了如何使用PL011 UART
 </pre>
 </div>
 <div id="outline-container-orgbd761a1" class="outline-4">
 <h4 id="orgbd761a1">GPIO</h4>
 <div class="outline-text-4" id="text-orgbd761a1">
 <p>
-Another device that you need to familiarize yourself with is the <b>GPIO</b> <a href="https://en.wikipedia.org/wiki/General-purpose_input/output">General-purpose input/output</a> . GPIOs are responsible for controlling GPIO pins. You should be able to easily recognize them in the image below:
+需要熟悉的另一个设备是 <b>GPIO</b>  <a href="https://en.wikipedia.org/wiki/General-purpose_input/output">General-purpose input/output</a> （通用输入/输出）。GPIO负责控制GPIO引脚. 应该能够在下图中轻松识别它们：
 </p>
 
 
-<div id="orgc81633e" class="figure">
+<div id="org6b1088e" class="figure">
 <p><img src="../pic/gpio-pins.jpg" alt="gpio-pins.jpg" width="70%" />
 </p>
 </div>
 
 <p>
-The GPIO can be used to configure the behavior of different GPIO pins. For example, to be able to use the Mini UART, we need to activate <span class="underline">pins 14</span> and <span class="underline">15</span> and set them up to use this device. The image below illustrates how numbers are assigned to the GPIO pins:
+GPIO可用于配置不同GPIO引脚的行为. 例如, 为了能够使用Mini UART, 需要 <b>激活</b> <span class="underline">引脚14</span> 和 <span class="underline">15</span> 并将其设置为使用此设备。下图说明了如何将数字分配给GPIO引脚：
 </p>
 
-
-<div id="org68db9cd" class="figure">
-<p><img src="../pic/gpio-numbers.png" alt="gpio-numbers.png" width="70%" />
+<div id="org51f4fdc" class="figure">
+<p><img src="../pic/gpio-numbers.png " alt="gpio-numbers.png " width="70%" />
 </p>
 </div>
 </div>
 </div>
 </div>
-<div id="outline-container-orgda891db" class="outline-3">
-<h3 id="orgda891db">Mini UART initialization</h3>
-<div class="outline-text-3" id="text-orgda891db">
+<div id="outline-container-org9f761b7" class="outline-3">
+<h3 id="org9f761b7">初始化 Mini UART</h3>
+<div class="outline-text-3" id="text-org9f761b7">
 <p>
-Now let's take a look at how mini UART is initialized. This code is defined in <span class="underline">mini_uart.c</span> : 
+现在看一下如何初始化 MINI UART。该代码在 <span class="underline">mini_uart.c</span> :
 </p>
-
 <div class="org-src-container">
 <pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">uart_init</span> ( <span style="color: #98f5ff;">void</span> )
 {
     <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">selector</span>;
 
     selector = get32(GPFSEL1);
-    selector &amp;= ~(7&lt;&lt;12);                   <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">clean gpio14</span>
-    selector |= 2&lt;&lt;12;                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">set alt5 for gpio14</span>
-    selector &amp;= ~(7&lt;&lt;15);                   <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">clean gpio15</span>
-    selector |= 2&lt;&lt;15;                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">set alt5 for gpio 15</span>
+    selector &amp;= ~(7&lt;&lt;12);                   <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#25226; gpio14 &#28165;&#38500;</span>
+    selector |= 2&lt;&lt;12;                      <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#25226; gpio14 &#35774;&#32622;&#20026; &#27169;&#24335;5 (alt5) </span>
+                                selector &amp;= ~(7&lt;&lt;15);                   <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#25226; gpio15 &#28165;&#38500;</span>
+    selector |= 2&lt;&lt;15;                      <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#25226; gpio15 &#35774;&#32622;&#20026; &#27169;&#24335;5 (alt5)</span>
     put32(GPFSEL1,selector);
 
     put32(GPPUD,0);
@@ -791,65 +821,61 @@ Now let's take a look at how mini UART is initialized. This code is defined in <
     delay(150);
     put32(GPPUDCLK0,0);
 
-    put32(AUX_ENABLES,1);                   <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Enable mini uart (this also enables access to its registers)</span>
-    put32(AUX_MU_CNTL_REG,0);               <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Disable auto flow control and disable receiver and transmitter (for now)</span>
-    put32(AUX_MU_IER_REG,0);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Disable receive and transmit interrupts</span>
-    put32(AUX_MU_LCR_REG,3);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Enable 8 bit mode</span>
-    put32(AUX_MU_MCR_REG,0);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Set RTS line to be always high</span>
-    put32(AUX_MU_BAUD_REG,270);             <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Set baud rate to 115200</span>
+    put32(AUX_ENABLES,1);                   <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#21551;&#21160; mini uart (&#21516;&#26102;&#20801;&#35768;&#20889;&#20837;&#23427;&#30340;&#23492;&#23384;&#22120;) </span>
+                               put32(AUX_MU_CNTL_REG,0);               <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#31105;&#29992;&#33258;&#21160;&#27969;&#25511;, &#25509;&#25910;&#22120;&#20197;&#21450;&#21457;&#23556;&#22120; (&#36825;&#26159;&#26242;&#26102;&#30340;) </span>
+                                                          put32(AUX_MU_IER_REG,0);                <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#31105;&#29992;&#25509;&#21463;&#21644;&#21457;&#36865;&#20013;&#26029;</span>
+    put32(AUX_MU_LCR_REG,3);                <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#21551;&#29992; 8bit &#27169;&#24335;</span>
+    put32(AUX_MU_MCR_REG,0);                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#25226; RTS line &#35774;&#32622;&#20026;&#27704;&#36828;&#39640;&#30005;&#24179;</span>
+    put32(AUX_MU_BAUD_REG,270);             <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#35774;&#32622;&#27604;&#29305;&#29575;&#20026; 115200</span>
 
-    put32(AUX_MU_CNTL_REG,3);               <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Finally, enable transmitter and receiver</span>
+    put32(AUX_MU_CNTL_REG,3);               <span style="color: #5f9ea0; font-style: italic;">//   </span><span style="color: #5f9ea0; font-style: italic;">&#26368;&#21518;, &#21551;&#29992;&#21457;&#23556;&#22120;&#21644;&#25509;&#25910;&#22120;</span>
 }
 </pre>
 </div>
 
 <p>
-Here, we use the two functions <span class="underline">put32</span> and <span class="underline">get32</span> . Those functions are very simple; they allow us to read and write some data to and from a 32-bit register
+在这里, 我们使用两个函数 <span class="underline">put32</span> 和 <span class="underline">get32</span> . 这些功能非常简单; 它们允许在32位寄存器中读写数据
 </p>
+<pre class="example" id="orgf61651e">
+这两个函 utils.S 中实现
 
-<pre class="example" id="org43279a0">
-You can take a look at how they are implemented in utils.S
-
-uart_init is one of the most complex and important functions in this lesson, and we will continue to examine it in the next three sections
+uart_init 是本课中最复杂, 最重要的功能之一, 在接下来的三个小节里继续进行研究
 </pre>
 </div>
-<div id="outline-container-orgaa73207" class="outline-4">
-<h4 id="orgaa73207">GPIO alternative function selection</h4>
-<div class="outline-text-4" id="text-orgaa73207">
+<div id="outline-container-orgd515f33" class="outline-4">
+<h4 id="orgd515f33">GPIO 功能选择</h4>
+<div class="outline-text-4" id="text-orgd515f33">
 <p>
-First, we need to <b>activate</b> the <span class="underline">GPIO pins</span> . Most of the pins can be used with different devices, so before using a particular pin, we need to select the pin's alternative function. An alternative function is just a number from 0 to 5 that can be set for each pin and configures which device is connected to the pin. You can see the list of all available GPIO alternative functions in the image below:
+首先, 需要 <b>激活</b> <span class="underline">GPIO引脚</span> . 大多数引脚可以与不同的设备一起使用, 所以在使用特定的引脚之前, 需要设置引脚的 <span class="underline">替代功能</span> (alternative function). 替代功能可以为每个引脚设置的0到5之间的数字, 并配置将哪个设备连接到该引脚。在下图中可以看到所有可用的GPIO替代功能的列表：
 </p>
 
-
-<div id="orgcad0ec9" class="figure">
+<div id="org6ce78a7" class="figure">
 <p><img src="../pic/alt.png" alt="alt.png" width="70%" />
 </p>
 </div>
 
 <p>
-Here you can see that pins <span class="underline">14</span> and <span class="underline">15</span> have the <span class="underline">TXD1</span> and <span class="underline">RXD1</span> alternative functions available. This means that if we select alternative function number 5 for pins 14 and 15, they will be used as a Mini UART Transmit Data pin and Mini UART Receive Data pin, respectively. The <span class="underline">GPFSEL1</span> register is used to control alternative functions for pins 10-19. The meaning of all the bits in those registers is shown in the following table: 
+在这里可以看到 引脚 <span class="underline">14</span> 和 <span class="underline">15</span> 具有 <span class="underline">TXD1</span> 和 <span class="underline">RXD1</span> 替代功能. 这意味着如果为引脚14和15选择替代功能编号 <span class="underline">5</span> , 它们将分别用作 <b>Mini UART发送数据引脚</b> 和 <b>Mini UART接收数据引脚</b> 。 <span class="underline">GPFSEL1</span> 寄存器用于控制引脚 <span class="underline">10-19</span> 的替代功能 
 </p>
 
 
-<div id="org900663a" class="figure">
+<div id="orge82e113" class="figure">
 <p><img src="../pic/gpfsel1.png" alt="gpfsel1.png" width="70%" />
 </p>
 </div>
 
-
 <p>
-So now you know everything you need to understand the following lines of code that are used to configure GPIO pins 14 and 15 to work with the Mini UART device:
+下面这些代码用于配置GPIO引脚14和15以与Mini UART器件配合使用：
 </p>
-
 <div class="org-src-container">
 <pre class="src src-c"><span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">selector</span>;
 
 selector = get32(GPFSEL1);
-selector &amp;= ~(7&lt;&lt;12);                   <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">clean gpio14</span>
-selector |= 2&lt;&lt;12;                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">set alt5 for gpio14</span>
-selector &amp;= ~(7&lt;&lt;15);                   <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">clean gpio15</span>
-selector |= 2&lt;&lt;15;                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">set alt5 for gpio 15</span>
-<span style="color: #daa520; font-weight: bold;">put32</span>(GPFSEL1, selector);
+selector &amp;= ~(7&lt;&lt;12);                   <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#23558; gpio14 &#28165;&#38500;</span>
+selector |= 2&lt;&lt;12;                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#23558; gpio14 &#35774;&#32622;&#20026; 5 (alt5)</span>
+selector &amp;= ~(7&lt;&lt;15);                   <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#23558; gpio15 &#28165;&#38500;</span>
+selector |= 2&lt;&lt;15;                      <span style="color: #5f9ea0; font-style: italic;">//  </span><span style="color: #5f9ea0; font-style: italic;">&#25226; gpio15 &#35774;&#32622;&#20026;5 (alt 5) </span>
+    <span style="color: #daa520; font-weight: bold;">put32</span>(GPFSEL1, selector);
 </pre>
 </div>
 </div>
@@ -858,39 +884,44 @@ selector |= 2&lt;&lt;15;                      <span style="color: #5f9ea0; font-
 <div id="outline-container-orge6cc327" class="outline-4">
 <h4 id="orge6cc327">GPIO pull-up/down</h4>
 <div class="outline-text-4" id="text-orge6cc327">
-<pre class="example" id="orgca1a810">
-When you work with Raspberry Pi GPIO pins, you will often encounter terms such as pull-up/pull-down
+<pre class="example" id="orgbfad0e9">
+当使用Raspberry Pi GPIO引脚时, 经常会遇到诸如上拉/下拉等术语. 这些概念的详细解释在 https://grantwinney.com/using-pullup-and-pulldown-resistors-on-the-raspberry-pi/ 这篇 文章中.
 
-For those who are too lazy to read the whole article, I will briefly explain the pull-up/pull-down concept
-</pre>
-<p>
-If you use a particular pin as input and don't connect anything to this pin, you will not be able to identify whether the value of the pin is 1 or 0. In fact, the device will report random values. The pull-up/pull-down mechanism allows you to overcome this issue. If you set the pin to the pull-up state and nothing is connected to it, it will report 1 all the time (for the pull-down state, the value will always be 0). In our case, we need neither the <span class="underline">pull-up</span> nor the <span class="underline">pull-down</span> state, because both the 14 and 15 pins are going to be connected all the time. The pin state is preserved even after a reboot, so before using any pin, we always have to initialize its state. There are three available states: pull-up, pull-down, and <b>neither</b> (to remove the current pull-up or pull-down state), and we need the third one.
-</p>
-
-<p>
-Switching between pin states is not a very simple procedure because it requires physically toggling a switch on the electric circuit. This process involves the <span class="underline">GPPUD</span> and <span class="underline">GPPUDCLK</span> registers and is described on page 101 of the BCM2837 ARM Peripherals manual. I copied the description here:
-</p>
-
-<pre class="example" id="org12cd809">
-The GPIO Pull-up/down Clock Registers control the actuation of internal pull-downs on
-the respective GPIO pins. These registers must be used in conjunction with the GPPUD
-register to effect GPIO Pull-up/down changes. The following sequence of events is
-required:
-1. Write to GPPUD to set the required control signal (i.e. Pull-up or Pull-Down or neither
-to remove the current Pull-up/down)
-2. Wait 150 cycles – this provides the required set-up time for the control signal
-3. Write to GPPUDCLK0/1 to clock the control signal into the GPIO pads you wish to
-modify – NOTE only the pads which receive a clock will be modified, all others will
-retain their previous state.
-4. Wait 150 cycles – this provides the required hold time for the control signal
-5. Write to GPPUD to remove the control signal
-6. Write to GPPUDCLK0/1 to remove the clock
+对于那些懒于阅读整篇文章的人, 简要解释上拉/下拉概念
 </pre>
 
 <p>
-This procedure describes how we can remove both the pull-up and pull-down states from a pin, which is what we are doing for pins 14 and 15 in the following code:
+如果使用特定的引脚作为输入, 并且不将该引脚连接任何东西, 则将无法识别该引脚的值是1还是0. 实际上, 设备将报告为随机值.  <span class="underline">上拉</span> / <span class="underline">下拉</span> 机制可解决此问题. 如果将引脚设置为上拉状态, 但没有任何连接, 则引脚将始终报告 <span class="underline">1</span> (对于下拉状态, 该值始终为0)
 </p>
 
+<pre class="example" id="org06148d7">
+就我们而言, 既不需要上拉状态也不需要下拉状态, 因为 14 和 15 引脚将一直保持连接状态
+
+即使重新启动后, 引脚状态也会保留, 因此在使用任何引脚之前, 总是必须初始化其状态
+
+有三种可用状态: 上拉, 下拉和两者都不显示(以删除当前的上拉或下拉状态), 这里我们需要第三个
+</pre>
+
+<p>
+引脚状态之间的切换不是一个非常简单的过程, 因为它需要物理上触发电路上的一个开关. 该过程涉及 <span class="underline">GPPUD</span> 和 <span class="underline">GPPUDCLK</span> 寄存器。
+在 BCM2837 ARM Peripherals 手册的第101页中进行了描述如果通过 GPIO上/下时钟寄存器 控制 相应GPIO引脚 上下拉的设置. 这些寄存器必须与GPPUD结合使用 寄存器以影响GPIO上拉/下拉更改
+</p>
+
+
+<pre class="example" id="org00907d9">
+需要以下事件顺序：
+
+1. 写入GPPUD以设置所需的控制信号(即上拉或下拉, 或都不设置以消除当前的上拉/下拉)
+2. 等待150个周期：这为控制信号提供了所需的建立时间
+3. 写入 GPPUDCLK0/1 以将控制信号输入您要修改的GPIO引脚：注意只有接收时钟的引脚会被修改, 所有其他将保持以前的状态.
+4. 等待150个循环： 这为控制信号提供了所需的保持时间
+5. 写入GPPUD以删除控制信号
+6. 写入 GPPUDCLK0/1 以删除时钟
+</pre>
+
+<p>
+此过程描述了如何从引脚上移除上拉和下拉状态。在下面的代码中, 对引脚14和15进行操作：
+</p>
 <div class="org-src-container">
 <pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(GPPUD, 0);
 delay(150);
@@ -902,77 +933,84 @@ delay(150);
 </div>
 </div>
 
-<div id="outline-container-org72f81eb" class="outline-4">
-<h4 id="org72f81eb">Initializing the Mini UART</h4>
-<div class="outline-text-4" id="text-org72f81eb">
+<div id="outline-container-org8e27924" class="outline-4">
+<h4 id="org8e27924">初始化Mini UART</h4>
+<div class="outline-text-4" id="text-org8e27924">
 <p>
-Now our Mini UART is connected to the GPIO pins, and the pins are configured. The rest of the uart_init function is dedicated to Mini UART initialization.
+现在 Mini UART已连接到GPIO引脚, 并且已配置了这些引脚. uart_init函数的其余部分专用于Mini UART初始化
 </p>
 
-<div class="org-src-container">
-<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_ENABLES, 1);                   <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Enable mini uart (this also enables access to its registers)</span>
-<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_CNTL_REG, 0);               <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Disable auto flow control and disable receiver and transmitter (for now)</span>
-<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_IER_REG, 0);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Disable receive and transmit interrupts</span>
-<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_LCR_REG, 3);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Enable 8 bit mode</span>
-<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_MCR_REG, 0);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Set RTS line to be always high</span>
-<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_BAUD_REG, 270);             <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Set baud rate to 115200</span>
 
-<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_CNTL_REG, 3);               <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Finally, enable transmitter and receiver</span>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_ENABLES,1);                   <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#21551;&#21160; mini uart (&#21516;&#26102;&#20801;&#35768;&#20889;&#20837;&#23427;&#30340;&#23492;&#23384;&#22120;) </span>
+<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_CNTL_REG,0);               <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#31105;&#29992;&#33258;&#21160;&#27969;&#25511;, &#25509;&#25910;&#22120;&#20197;&#21450;&#21457;&#23556;&#22120; (&#36825;&#26159;&#26242;&#26102;&#30340;) </span>
+<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_IER_REG,0);                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#31105;&#29992;&#25509;&#21463;&#21644;&#21457;&#36865;&#20013;&#26029;</span>
+<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_LCR_REG,3);                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#21551;&#29992; 8bit &#27169;&#24335;</span>
+<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_MCR_REG,0);                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#25226; RTS line &#35774;&#32622;&#20026;&#27704;&#36828;&#39640;&#30005;&#24179;</span>
+<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_BAUD_REG,270);             <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#35774;&#32622;&#27604;&#29305;&#29575;&#20026; 115200</span>
+<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_IIR_REG,6);                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Clear FIFO</span>
+
+<span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_CNTL_REG,3);               <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#26368;&#21518;, &#21551;&#29992;&#21457;&#23556;&#22120;&#21644;&#25509;&#25910;&#22120;</span>
 </pre>
 </div>
 
 <p>
-Let's examine this code snippet line by line.
+逐行检查此代码段:
 </p>
 
 <div class="org-src-container">
-<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_ENABLES,1);                   <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Enable mini uart (this also enables access to its registers)</span>
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_ENABLES,1);                   <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#21551;&#21160; mini uart (&#21516;&#26102;&#20801;&#35768;&#20889;&#20837;&#23427;&#30340;&#23492;&#23384;&#22120;)</span>
 </pre>
 </div>
 
 <p>
-This line enables the Mini UART. We must do this in the beginning, because this also enables access to all the other Mini UART registers
+这行启动了 Mini UART. 必须在一开始就这样做, 因为这样才可以访问所有其他 Mini UART 寄存器
 </p>
 
 <div class="org-src-container">
-<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_CNTL_REG,0);               <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Disable auto flow control and disable receiver and transmitter (for now)</span>
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_CNTL_REG,0);               <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#31105;&#29992;&#33258;&#21160;&#27969;&#25511;, &#25509;&#25910;&#22120;&#20197;&#21450;&#21457;&#23556;&#22120; (&#36825;&#26159;&#26242;&#26102;&#30340;)</span>
 </pre>
 </div>
 
 <p>
-Here we disable the receiver and transmitter before the configuration is finished. We also permanently disable auto-flow control because it requires us to use additional GPIO pins, and the TTL-to-serial cable doesn't support it
+在这里, 在配置完成之前禁用接收器和发送器
 </p>
 
+<pre class="example" id="org663c620">
+接下来将永久禁用自动流控制, 因为它需要使用其他GPIO引脚, 而TTL转串口电缆不支持
+</pre>
+
 <div class="org-src-container">
-<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_IER_REG,0);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Disable receive and transmit interrupts</span>
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_IER_REG,0);                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#31105;&#29992;&#25509;&#21463;&#21644;&#21457;&#36865;&#20013;&#26029;</span>
 </pre>
 </div>
 
 <p>
-It is possible to configure the Mini UART to generate a processor interrupt each time new data is available
+可以配置Mini UART, 以在每次有新数据可用时产生处理器中断
 </p>
 
-<pre class="example" id="org5270b89">
-We are going to start working with interrupts in lesson 3, so for now, we will just disable this feature
+<pre class="example" id="org476ebb5">
+将在以后中开始处理中断, 所以现在禁用此功能
 </pre>
 
 <div class="org-src-container">
-<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_LCR_REG,3);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Enable 8 bit mode</span>
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_LCR_REG,3);                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#21551;&#29992; 8bit &#27169;&#24335;</span>
 </pre>
 </div>
 
 <p>
-Mini UART can support either 7- or 8-bit operations. This is because an ASCII character is 7 bits for the standard set and 8 bits for the extended. We are going to use 8-bit mode.
+MINI UART可以支持7位或8位操作. 这是因为ASCII字符对于标准集是7位, 扩展集是8位。这里使用8位模式
 </p>
 
 <div class="org-src-container">
-<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_MCR_REG,0);                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Set RTS line to be always high</span>
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_MCR_REG,0);                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#25226; RTS line &#35774;&#32622;&#20026;&#27704;&#36828;&#39640;&#30005;&#24179;</span>
 </pre>
 </div>
 
 <p>
-The RTS line is used in the flow control and we don't need it. Set it to be high all the time.
+RTS line 用于流量控制, 不需要它. 始终将其设置为高.
 </p>
+
 
 <div class="org-src-container">
 <pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_BAUD_REG,270);             <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Set baud rate to 115200</span>
@@ -980,35 +1018,35 @@ The RTS line is used in the flow control and we don't need it. Set it to be high
 </div>
 
 <p>
-The baud rate is the rate at which information is transferred in a communication channel. “115200 baud” means that the serial port is capable of transferring a maximum of <span class="underline">115200</span> bits per second. The baud rate of your Raspberry Pi mini UART device should be the same as <b>the baud rate in your terminal emulator</b> . The Mini UART calculates baud rate according to the following equation:
+波特率是在通信信道中传输信息的速率： <span class="underline">115200</span> 表示该串行端口每秒最多可传输115200位。Raspberry Pi 的 MINI UART设备的波特率应与终端仿真器中的波特率相同。Mini UART根据以下公式计算波特率:
 </p>
-
-<pre class="example" id="org603760d">
+<pre class="example" id="org0d77285">
 baudrate = system_clock_freq / (8 * ( baudrate_reg + 1 ))
-
-The system_clock_freq is 250 MHz, so we can easily calculate the value of baudrate_reg as 270
 </pre>
+
+<p>
+system_clock_freq是 250 MHz, 这样就可以轻松计算出 baudrate_reg 应为 <span class="underline">270</span> 
+</p>
 
 
 <div class="org-src-container">
-<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_CNTL_REG,3);               <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">Finally, enable transmitter and receiver</span>
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">put32</span>(AUX_MU_CNTL_REG,3);               <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#26368;&#21518;, &#21551;&#29992;&#21457;&#23556;&#22120;&#21644;&#25509;&#25910;&#22120;</span>
 </pre>
 </div>
 
 <p>
-After this line is executed, the Mini UART is ready for work!
+执行完此行后, Mini UART准备就绪！
 </p>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org9ff1731" class="outline-3">
-<h3 id="org9ff1731">Sending data using the Mini UART</h3>
-<div class="outline-text-3" id="text-org9ff1731">
+<div id="outline-container-orgfa63a8a" class="outline-3">
+<h3 id="orgfa63a8a">使用Mini UART</h3>
+<div class="outline-text-3" id="text-orgfa63a8a">
 <p>
-After the Mini UART is ready, we can try to use it to send and receive some data. To do this, we can use the following two functions:
+Mini UART准备好后, 可以尝试使用它来发送和接收一些数据. 为此, 实现了以下两个函数：
 </p>
-
 
 <div class="org-src-container">
 <pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">uart_send</span> ( <span style="color: #98f5ff;">char</span> <span style="color: #4eee94;">c</span> )
@@ -1032,22 +1070,20 @@ After the Mini UART is ready, we can try to use it to send and receive some data
 </div>
 
 <p>
-Both of the functions:
+这两个函数：
 </p>
 <ol class="org-ol">
-<li>start with an <span class="underline">infinite loop</span>, the purpose of which is to verify whether the device is <b>ready</b> to transmit or receive data, We are using the <span class="underline">AUX_MU_LSR_REG</span> register to do this:
+<li>都以无限循环开始, 其目的是验证设备是否已准备好发送或接收数据. 使用 <span class="underline">AUX_MU_LSR_REG</span> 寄存器来执行此操作
 <ul class="org-ul">
-<li>Bit zero, if set to 1, indicates that the data is ready, this means that we can read from the UART</li>
-<li>Bit five, if set to 1, tells us that the transmitter is empty, meaning that we can write to the UART</li>
+<li>第 <span class="underline">零</span> 位, 如果设置为 <span class="underline">1</span> , 表示数据已 <b>准备就绪</b> ; 这意味着我们可以从 MINI UART中 <b>读取</b></li>
+<li>第 <span class="underline">五</span> 位, 如果设置为 <span class="underline">1</span> , 表示发射器是 <b>空闲</b> 的, 这意味着我们可以 <b>写入</b> MINI UART</li>
 </ul></li>
-<li><p>
-we use <span class="underline">AUX_MU_IO_REG</span> to either store the value of the transmitted character or read the value of the received character 
-</p>
+<li>使用 <span class="underline">AUX_MU_IO_REG</span> 来 <b>存储</b> 已发送字符的值或 <b>读取</b> 已接收字符的值</li>
+</ol>
 
 <p>
-We also have a very simple function that is capable of sending strings instead of characters:
+还有一个非常简单的功能, 能够发送字符串而不是字符：
 </p>
-
 <div class="org-src-container">
 <pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">uart_send_string</span>(<span style="color: #98f5ff;">char</span>* <span style="color: #4eee94;">str</span>)
 {
@@ -1057,29 +1093,24 @@ We also have a very simple function that is capable of sending strings instead o
 }
 </pre>
 </div>
-
-<p>
-This function just iterates over all characters in a string and sends them one by one 
-</p></li>
-</ol>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org407de89" class="outline-2">
-<h2 id="org407de89">Raspberry Pi config</h2>
-<div class="outline-text-2" id="text-org407de89">
+<div id="outline-container-orgab03da8" class="outline-2">
+<h2 id="orgab03da8">Raspberry Pi 配置</h2>
+<div class="outline-text-2" id="text-orgab03da8">
 <p>
-The Raspberry Pi startup sequence is the following:
+Raspberry Pi的启动顺序如下(简化):
 </p>
 <ol class="org-ol">
-<li>The device is powered on</li>
-<li>The GPU starts up and reads the <span class="underline">config.txt</span> file from the boot partition. This file contains some configuration parameters that the GPU uses to further adjust the startup sequence</li>
-<li><span class="underline">kernel8.img</span> is loaded into memory and executed</li>
+<li>设备上电</li>
+<li>GPU启动并从启动分区读取 <span class="underline">config.txt</span> 文件. 该文件包含一些配置参数, GPU使用这些参数进一步调整启动顺序</li>
+<li><span class="underline">kernel8.img</span> 被加载到内存中并执行</li>
 </ol>
 
 <p>
-To be able to run our simple OS, the config.txt file should be the following:
+为了能够运行我们的简单操作系统, config.txt文件应为以下文件:
 </p>
 <div class="org-src-container">
 <pre class="src src-sh"><span style="color: #4eee94;">kernel_old</span>=1
@@ -1088,63 +1119,73 @@ To be able to run our simple OS, the config.txt file should be the following:
 </div>
 
 <ul class="org-ul">
-<li>kernel_old=1: specifies that the kernel image should be loaded at address 0</li>
-<li>disable_commandline_tags: instructs the GPU to not pass any command line arguments to the booted image</li>
+<li>kernel_old=1: 内核将被加载到内存地址0</li>
+<li>disable_commandline_tags: gpu不会传递任何参数给加载的内核</li>
 </ul>
 </div>
 </div>
 
-<div id="outline-container-org6cee46d" class="outline-2">
-<h2 id="org6cee46d">Testing the kernel</h2>
-<div class="outline-text-2" id="text-org6cee46d">
+<div id="outline-container-org6f55ed9" class="outline-2">
+<h2 id="org6f55ed9">内核测试</h2>
+<div class="outline-text-2" id="text-org6f55ed9">
+<pre class="example" id="orgb06d8be">
+现在已经遍历了所有源代码, 是时候来看一下它的工作了
+</pre>
 <p>
-Now that we have gone through all of the source code, it is time to see it work. To build and test the kernel you need to do the following:
+要构建和测试内核, 需要执行以下操作：
 </p>
 <ol class="org-ol">
-<li>Execute <span class="underline">./build.sh</span> or ./build.bat from src/lesson01 in order to build the kernel</li>
+<li>执行 <span class="underline">./build.sh</span> 或者 <span class="underline">./build.bat</span> 从 src/lesson01 去构建内核</li>
 <li><p>
-Copy the generated kernel8.img file to the boot partition of your Raspberry Pi flash card and delete kernel7.img as well as any other kernel*.img files that may be present on your SD card
+将生成的 <span class="underline">kernel8.img</span> 文件 <b>复制</b> 到 Raspberry Pi 闪存卡的 <span class="underline">boot 分区</span> 和 <b>删除</b> <span class="underline">kernel7.img</span>
 </p>
-<pre class="example" id="org1e40f59">
-Make sure you left all other files in the boot partition untouched
+<pre class="example" id="orgb86d974">
+请保留启动分区中的所有其他文件
 </pre></li>
-<li>Modify the <span class="underline">config.txt</span> file as described in the previous section</li>
-<li>Connect the <span class="underline">USB-to-TTL serial cable</span> as described in the Prerequisites</li>
-<li>Power on your Raspberry Pi</li>
-<li>Open your terminal emulator. You should be able to see the <span class="underline">Hello, world!</span> message there</li>
+<li>如上一节所述修改 <span class="underline">config.txt</span> 文件</li>
+<li>连接 <span class="underline">USB至TTL</span> 串行电缆</li>
+<li>给 Raspberry Pi 供电</li>
+<li>打开终端模拟器. 应该可以在那里看到 Hello, world！ 消息</li>
 </ol>
+
+<pre class="example" id="org99c5ff5">
+请注意, 上述步骤顺序假定 SD卡上已安装Raspbian
+
+</pre>
 
 <p>
-Note that the sequence of steps described above asumes that you have Raspbian installed on your SD card. It is also posible to run the RPi OS using an empty SD card:
+当然也可以使用空的SD卡运行RPi OS
 </p>
 <ol class="org-ol">
-<li>Prepare your SD card:
+<li>准备 SD卡:
 <ul class="org-ul">
-<li>Use an MBR partition table</li>
+<li>使用 MBR分区表</li>
 <li><p>
-Format the boot partition as FAT32
+将 boot 分区格式化为 FAT32
 </p>
-<pre class="example" id="org4c562a7">
-The card should be formatted exactly in the same way as it is required to install Raspbian
+<pre class="example" id="orgc594d1d">
+该卡的格式应与安装Raspbian所需的格式完全相同
 
-Check HOW TO FORMAT AN SD CARD AS FAT section in the official documentation for more information
+可以查看 HOW TO FORMAT AN SD CARD AS FAT 部分在 official documenation 官方文档 来获取更多信息
 </pre></li>
 </ul></li>
-<li>Copy the following files to the card:
+<li>将以下文件复制到卡中：
 <ul class="org-ul">
-<li><span class="underline">bootcode.bin</span> This is the GPU bootloader, it contains the <span class="underline">GPU code</span> to <b>start</b> the GPU and <b>load</b> the GPU firmware</li>
-<li><span class="underline">start.elf</span> This is the <span class="underline">GPU firmware</span> . It reads config.txt and <b>enables</b> the GPU to load and run ARM specific user code from kernel8.img</li>
+<li><span class="underline">bootcode.bin</span> : 这是 <span class="underline">GPU引导程序</span> , 它包含用于 <b>启动</b> GPU和 <b>加载</b> GPU固件的GPU代码</li>
+<li><span class="underline">start.elf</span> 这是 <span class="underline">GPU固件</span> . 它 <b>读取</b> <span class="underline">config.txt</span> , 并使GPU从 <span class="underline">kernel8.img</span> 加载并运行ARM特定的用户代码</li>
 </ul></li>
-<li>Copy kernel8.img and config.txt files</li>
-<li>Connect the USB-to-TTL serial cable</li>
-<li>Power on your Raspberry Pi</li>
-<li>Use your terminal emulator to connect to the RPi OS</li>
+<li>复制 <span class="underline">kernel8.img</span> 和 <span class="underline">config.txt</span> 文件</li>
+<li>连接 <span class="underline">USB至TTL</span> 串行电缆</li>
+<li>给 Raspberry Pi 供电</li>
+<li>使用终端仿真器连接到RPi OS</li>
 </ol>
 
-<pre class="example" id="org53d30a6">
-Unfortunately, all Raspberry Pi firmware files are closed-sourced and undocumented
+<pre class="example" id="org6e8ffdb">
+不幸的是, 所有Raspberry Pi固件文件都是闭源的没有文档
 
-For more information about the Raspberry Pi startup sequence, you can refer to some unofficial sources, like this StackExchange question or this Github repository
+有关Raspberry Pi启动顺序的更多信息, 可以参考一些非官方的资料, 比如
+(https://raspberrypi.stackexchange.com/questions/10442/what-is-the-boot-sequence) StackExchange 问​​题
+(https://github.com/DieterReuter/workshop-raspberrypi-64bit-os/blob/master/part1-bootloader.md) 这个 Github 仓库
 </pre>
 
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
@@ -1157,8 +1198,8 @@ For more information about the Raspberry Pi startup sequence, you can refer to s
 </colgroup>
 <tbody>
 <tr>
-<td class="org-left"><a href="linux.html">Next: Linux project structure</a></td>
-<td class="org-left"><a href="initialization.html">Home: Kernel Initialization</a></td>
+<td class="org-left"><a href="linux.html">Next: Linux 项目结构</a></td>
+<td class="org-left"><a href="initialization.html">Home: 内核初始化</a></td>
 </tr>
 </tbody>
 </table>
