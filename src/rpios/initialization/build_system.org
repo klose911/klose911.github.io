@@ -1,74 +1,70 @@
-#+TITLE: Kernel build system
+#+TITLE: 内核构建系统
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_HOME: ./initialization.html
 #+HTML_LINK_UP: ./linux.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
 
 #+begin_example
-  After we examined Linux kernel structure, it worth spending some time investigating how we can build and run it
+  Linux也使用make实用程序来构建内核, 尽管Linux makefile要复杂得多
 #+end_example
-Linux also uses _make_ utility to build the kernel, though Linux Makefile is much more complicated. Before we will take a look at the makefile, let's learn some important concepts about Linux build system, which is called _kbuild_
-* A few essential kbuild concepts
+在看makefile之前, 先学习一些有关Linux构建系统的重要概念 _Kbuild_ 
+* 一些基本的kbuild概念
 
-Build process can be customized by using kbuild variables. Those variables are defined in [[https://github.com/torvalds/linux/tree/v4.14/arch/arm64/Kconfig][Kconfig]] files.
-+ Here you can define the variables themselves and their default values
-  + Variables can have different types, including string, boolean and integer
-+ In a Kconfig file you can also define dependencies between variables
+可以使用kbuild中的变量自定义构建过程。这些变量在 [[https://github.com/torvalds/linux/tree/v4.14/arch/arm64/Kconfig][Kconfig]] 文件中定义
++ 在这里, 可以定义变量本身及其默认值
+  + 变量可以具有不同的类型, 包括字符串, 布尔值和整数
++ 在Kconfig文件中, 还可以定义变量之间的依赖关系
   #+begin_example
-     for example, you can say that if variable X is selected then variable Y will be selected implicitly
+    例如, 如果选择了变量X, 则可以隐式选择变量Y
 
-    you can take a look at arm64 Kconfig file. This file defines all variables, specific for arm64 architecture
+    也可以看一下 arm64 Kconfig文件. 该文件定义了所有变量, 特定于arm64体系结构
   #+end_example
-+ Kconfig functionality is not part of the standard make and is implemented in the Linux makefile
-+ Variables, defined in Kconfig are exposed to the kernel source code as well as to the nested makefiles
-+ Variable values can be set during kernel configuration step
++ Kconfig功能不是标准make的一部分, 而是在Linux makefile中实现的
++ 在 Kconfig 中定义的变量在 _内核源代码_ 以及 _嵌套的makefile_ 中都 *可见*  
++ 可以在内核配置的步骤中设置变量值
   #+begin_example
-    for example, if you type make menuconfig a console GUI will be shown
+    例如, 如果键入make menuconfig, 则会显示一个控制台GUI
 
-    It allows you to customize values for all kernel variables and stores the values in .config
+    它允许自定义所有内核变量的值并将这些值存储在 .config中 
 
-    Use make help command to view all possible options to configure the kernel
+    help 命令以查看所有可能的选项来配置内核
   #+end_example
 
-Linux uses *recursive* build. This means that each subfolder of the Linux kernel can define it's own Makefile and Kconfig. Most of the nested Makefiles are very simple and just define what object files need to be compiled. Usually, such definitions have the following format:
-
+Linux使用递归构建：这意味着Linux内核的每个子文件夹都可以定义它自己的Makefile和Kconfig. 大多数嵌套Makefile文件都非常简单, 只是定义文件需要编译什么对象
 #+begin_src makefile
   obj-$(SOME_CONFIG_VARIABLE) += some_file.o
 #+end_src
 
-This definition means that _some_file.c_ will be compiled and linked to the kernel only if _SOME_CONFIG_VARIABLE_ is *set* . If you want to compile and link a file unconditionally, you need to change the previous definition to look like this 
+这意味着 _some_file.c_ 只会在 *设置* _SOME_CONFIG_VARIABLE_ 的情况下编译并链接到内核. 如果要无条件编译和链接文件, 则需要更改以前的定义, 如下所示.
 
 #+begin_src makefile
   obj-y += some_file.o
 #+end_src
 
-Before we move forward, you need to understand the structure of a basic make _rule_ and be comfortable with make _terminology_ . Common rule structure is illustrated in the following diagram:
+在继续前进之前, 需要了解基本make规则的结构并熟悉make术语。下图说明了通用规则 _结构_ ：
 #+begin_src makefile
   targets : prerequisites
   recipe
   …
 #+end_src
-+ _targets_ : are file names, separated by spaces. Targets are *generated* after the rule is executed. Usually, there is only one target per rule
-+ _prerequisites_ : are files that make trackes to see whether it needs to *update* the targets
-+ _recipe_ is a *bash* script. Make calls it when some of the prerequisites have been updated. The recipe is responsible for *generating* the targets.
++ _targets_ : 文件名, 用 _空格_ 分隔，执行规则后将生成 *目标* 文件。通常, 每个规则只有一个目标
++ _prerequisites_ : make _跟踪_ 的文件, 以查看是否需要 *更新* 目标文件
++ _recipe_ :  一个bash脚本，在某些prerequisites更新后进行调用。recipe负责 *生成* 目标文件
 
   #+begin_example
-    Both targets and prerequisites can include wildcards (%). When wildcards are used the recipe is executed for each of the matched prerequisites separately
+    targets 和 Prerequsites 都可以包含通配符(％)
 
-    In this case, you can use $< and $@ variables to refer to the prerequisite and the target inside the recipe 
+    使用通配符时, 将分别对每个已匹配的prerequisites执行recipe，可以使用$< 和 $@变量来引用 recipe中的 prerequisites 和 targets
   #+end_example
 
-_make_ is very good in detecting whether any of the prerequisites have been changed and updating only targets that need to be rebuilt
+  _make_ 可以很好地检测是否已更改任何prerequisites, 并且仅更新需要重建的目标文件. 但是, 如果recipe是动态更新的, 则 make 将无法检测到此更改
 #+begin_example
-    However, if a recipe is dynamically updated, make is unable to detect this change
+  一个很好的例子是, 当更改一些配置变量时, 这会导致在recipe中添加一个附加选项
 
-    One good example is when you change some configuration variable, which results in appending an additional option to the recipe
-
-    By default, in this case, make will not recompile previously generated object files, because their prerequisites haven't been changed, only the recipe have been updated
+  默认情况下, make将不会重新编译以前生成的目标文件, 因为它们的prerequisites没有改变, 只是recipe已更新
 #+end_example
 
-
-To overcome this behavior Linux introduces [[https://github.com/torvalds/linux/blob/v4.14/scripts/Kbuild.include#L264][if_changed]] function. To see how it works let's consider the following example:
+为了解决此问题, Linux引入了 [[https://github.com/torvalds/linux/blob/v4.14/scripts/Kbuild.include#L264][if_changed]]  函数。要查看其工作原理, 请考虑以下示例：
 #+begin_src makefile 
   cmd_compile = gcc $(flags) -o $@ $<
 
@@ -76,23 +72,22 @@ To overcome this behavior Linux introduces [[https://github.com/torvalds/linux/b
   $(call if_changed,compile)
 #+end_src
 
-Here for each .c file we build corresponding .o file by calling if_changed function with the argument compile. _if_changed_ then looks for _cmd_compile_ variable (it adds cmd_ prefix to the first argument) and checks whether this variable has been updated since the last execution, or any of the prerequisites has been changed:
-+ If yes: cmd_compile command is executed and object file is regenerated
+在这里对于每个.c文件, 通过使用带有compile参数的if_changed函数来构建相应的.o文件。if_changed查找 _cmd_compile_ 变量(在第一个参数后添加cmd_前缀), 并检查此变量自上次执行以来是否已更新, 或者任何prerequisites已更改：
++ 如果是, 则执行 cmd_compile 命令并重新生成目标文件
 
-Our sample rule has 2 prerequisites: source .c file and _FORCE_
-+ FORCE is a special prerequisite that forces the recipe to be called each time when make command is called
+上面示例中的规则有两个prerequisites源 _.c文件_ 和 _FORCE_ 
++ FORCE 是一个特殊的prerequisites, 它强制每次调用 make 命令时都调用recipe
   #+begin_example
-      Without it, the recipe would be called only if .c file was changed
+    没有FORCE, 只有在 .c 文件被更改的情况下才会调用 recipe 
   #+end_example
-* Building the kernel
+* 构建内核
+现在, 当我们了解了有关Linux构建系统的一些重要概念时, 尝试弄清楚在键入make命令后到底发生了什么。这个过程非常复杂, 并且包含很多细节, 将跳过其中的大多数细节. 主要目标是回答2个问题：
+1. 源文件如何精确地编译为目标文件？
+2. 目标文件如何链接到OS映像中？
 
-Now, that we learned some important concepts about the Linux build system, let's try to figure out what exactly is going on after you type make command. This process is very complicated and includes a lot of details, most of which we will skip. Our goal will be to answer 2 questions.
-1. How exactly are source files compiled into object files?
-2. How are object files linked into the OS image?
-
-We are going to tackle the second question first.
-** Link stage
-As you might see from the output of _make help_ command, the default target, which is responsible for building the kernel, is called [[https://github.com/torvalds/linux/blob/v4.14/Makefile#L1004][vmlinux]] and it looks like this:
+首先来解决第二个问题
+** 链接阶段
+从make help命令的输出中看到, 负责构建内核的默认目标称为 [[https://github.com/torvalds/linux/blob/v4.14/Makefile#L1004][vmlinux]] 并且看起来像这样
 
 #+begin_src makefile 
   cmd_link-vmlinux =                                                 \
@@ -103,40 +98,49 @@ As you might see from the output of _make help_ command, the default target, whi
   +$(call if_changed,link-vmlinux)
 #+end_src
 
-This target uses already familiar to us _if_changed_ function. Whenever some of the prerequsities are updated _cmd_link-vmlinux_ command is executed. This command executes [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh][scripts/link-vmlinux.sh]] script
+这个目标使用了已经熟悉的 if_changed 函数。每当某些先决条件被更新时, 就执行 cmd_link-vmlinux 命令。 此命令执行 [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh][scripts/link-vmlinux.sh]] 脚本
 
 #+begin_example
-  Note usage of $< automatic variable in the cmd_link-vmlinux command
+  注意 $< 为 cmd_link-vmlinux 命令中的自动变量
 
-  It also executes architecture specific postlink script, but we are not very interested in it
+  它还执行特定于体系结构的 postlink脚本, 但我们对此并不十分感兴趣
 #+end_example
 
-When _scripts/link-vmlinux.sh_ is executed it assumes that all required object files are already built and their locations are stored in 3 variables:
+执行 scripts /link-vmlinux.sh 时, 它假定所有必需的目标文件均已构建并且它们的位置存储在3个变量中：
 + _KBUILD_VMLINUX_INIT_
 + _KBUILD_VMLINUX_MAIN_
 + _KBUILD_VMLINUX_LIBS_
 
-_link-vmlinux.sh_ script first creates thin archive from all available object files. thin archive is a special object that contains references to a set of *object files* as well as their combined *symbol table* . This is done inside [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L56][archive_builtin]] function. In order to create thin archive this function uses [[https://sourceware.org/binutils/docs/binutils/ar.html][ar]] utility. Generated thin archive is stored as _built-in.o_ file and has the format that is understandable by the linker, so it can be used as any other normal object file
+_link-vmlinux.sh_ 脚本首先从所有可用的目标文件里创建 thin archive。thin archive 是一个特殊的对象, 其中包含对一组 *目标文件* 及其组合 *符号表* 的引用. 这是在 [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L56][archive_builtin]] 函数内部完成的。使用 [[https://sourceware.org/binutils/docs/binutils/ar.html][ar]] 工具来创建thin archive。 产生的 thin archive 被储存在 _built-in.o_ 文件中并具有链接器可以理解的格式, 因此它可以用作任何其他普通目标文件
 
-Next [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L69][modpost_link]] is called. This function calls _linker_ and *generates* _vmlinux.o_ object file
+
+接下来 [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L69][modpost_link]] 被调用. 该函数调用 _链接器_ 并 *生成* _vmlinux.o_ 目标文件
 #+begin_example
-  We need this object file to perform Section mismatch analysis
+  需要这个vmlinux.o 目标文件来执行断面失配分析
 
-  This analysis is performed by the modpost program
+  该分析由 modpost 程序组成
 #+end_example
 
-Next _kernel symbol table_ is generated. It contains information about all functions and global variables as well as their location in the vmlinux binary. The main work is done inside [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L146][kallsyms]] function:
-1. This function first uses [[https://sourceware.org/binutils/docs/binutils/nm.html][nm]] to extract all symbols from vmlinux binary
-2. Then it uses [[https://github.com/torvalds/linux/blob/v4.14/scripts/kallsyms.c][scripts/kallsyms]] utility to generate a special assembler file containing all symbols in a special format, understandable by the Linux kernel
-3. Next, this assembler file is compiled and linked together with the original binary. Information from the kernel symbol table is used to generate _/proc/kallsyms_ file at runtime
+接下来生成 _内核符号表_ . 它包含有关所有 _函数_ 和 _全局变量_ 的信息, 以及它们在vmlinux二进制文件中的位置. 主要工作在 [[https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L146][kallsyms]]  函数内部完成。该函数： 
+1. 首先使用 [[https://sourceware.org/binutils/docs/binutils/nm.html][nm]] 从 vmlinux 二进制文件中提取所有符号
+2. 然后使用  [[https://github.com/torvalds/linux/blob/v4.14/scripts/kallsyms.c][scripts/kallsyms]] 脚本生成一个特殊的汇编器文件, 其中包含所有特殊的符号（可以被Linux内核理解的格式） 
+3. 接着将编译此汇编器文件并将其与原始二进制文件链接在一起。来自内核符号表的信息用于在运行时生成 _/proc/kallsyms_ 文件
    #+begin_example
-     This process is repeated several times because after the final link addresses of some symbols can be changed
+     因为某些符号的最终链接地址可能会被修改多次, 所以此过程也需要重复了多次
    #+end_example
 
-Finally _vmlinux_ binary is ready and _System.map_ is build. System.map contains the same information as _/proc/kallsyms_ but this is *static* file and unlike /proc/kallsyms it is not generated at runtime. System.map is mostly used to *resolve* _addresses_ to _symbol names_ during [[https://en.wikipedia.org/wiki/Linux_kernel_oops][kernel oops]]. The same *nm* utility is used to build System.map 
-** Build stage
-Now let's take one step backward and examine how source code files are compiled into object files. As you might remember one of the prerequisites of the vmlinux target is _$(vmlinux-deps)_ variable. Let me now copy a few relevant lines from the main Linux makefile to demonstrate how this variable is built
+Finally _vmlinux_ binary is ready and _System.map_ is build. System.map contains the same information as _/proc/kallsyms_ but this is *static* file and unlike /proc/kallsyms it is not generated at runtime. System.map is mostly used to *resolve* _addresses_ to _symbol names_ during [[https://en.wikipedia.org/wiki/Linux_kernel_oops][kernel oops]]. The same *nm* utility is used to build System.map
 
+最后, _vmlinux_ 二进制文件已经准备好, 并且 _System.map_ 已经构建
+
+#+begin_example
+  System.map 包含与 /proc/kallsyms 相同的信息, 但这是 静态 文件与 /proc/kallsyms 的不同, 它不是在运行时生成的
+#+end_example
+
+System.map主要用于在 [[https://en.wikipedia.org/wiki/Linux_kernel_oops][kernel oops]] 期间将 _地址_ *解析* 为 _符号名称_ 。相同的 [[https://sourceware.org/binutils/docs/binutils/nm.html][nm]] 程序用于构建System.map
+
+** 编译阶段
+现在向后退一步, 检查源代码文件如何编译为目标文件. 可能还记得, vmlinux目标的先决条件之一是 _$(vmlinux-deps)_ 变量. 现在, 从Linux 主makefile 中复制一些相关的行, 以演示如何构建此变量：
 #+begin_src makefile 
   init-y        := init/
   drivers-y    := drivers/ sound/ firmware/
@@ -159,16 +163,14 @@ Now let's take one step backward and examine how source code files are compiled 
   vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_INIT) $(KBUILD_VMLINUX_MAIN) $(KBUILD_VMLINUX_LIBS)
 #+end_src
 
-It all starts with variables like _init-y_ , _core-y_ , etc., which combined contains all subfolders of the Linux kernel that contains buildable source code. Then _built-in.o_ is appended to all the subfolder names
-
+所有这些都以变量 _init-y_ , _core-y_ 等开头. 它们组合在一起, 包含Linux内核的所有子文件夹, 这些子文件夹包含可构建的源代码. 然后, 在所有子文件夹名称后附加 _built-in.o_ 
 #+begin_example
-  for example, drivers/ becomes drivers/built-in.o. vmlinux-deps then just aggregates all resulting values
+  例如, drivers/ 成为 drivers/built-in.o. 然后, vmlinux-deps会汇总所有结果值
 
-  This explains how vmlinux eventually becomes dependent on all built-in.o files
+  这解释了vmlinux最终如何依赖于所有build-in.o文件
 #+end_example
 
-Next question is how all built-in.o objects are created? Once again, let me copy all relevant lines and explain how it all works:
-
+下一个问题是如何创建所有 built-in.o 对象？再一次, 复制所有相关的行, 并说明其工作原理：
 #+begin_src makefile 
   $(sort $(vmlinux-deps)): $(vmlinux-dirs) ;
 
@@ -183,19 +185,20 @@ Next question is how all built-in.o objects are created? Once again, let me copy
 
 #+end_src
 
-The first line tells us that _vmlinux-deps_ depends on _vmlinux-dirs_ . Next, we can see that _vmlinux-dirs_ is a variable that contains all direct root subfolders without / character at the end. And the most important line here is the recipe to build $(vmlinux-dirs) target. After substitution of all variables, this recipe will look like the following
+
+第一行说明 _vmlinux-deps_ 依赖于 _vmlinux-dirs_ . 接下来, 可以看到 vmlinux-dirs 是一个 *变量* , 它包含所有直接的根子文件夹, 末尾没有 _/_ 字符。最重要的一行是构建 _$(vmlinux-dirs)_ 目标的方法. 替换所有变量后, 此配方如下所示
 
 #+begin_src sh 
   make -f scripts/Makefile.build obj=drivers
 #+end_src
 
-This line just calls another makefile [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build][scripts/Makefile.build]] and passes obj variable, which contains a folder to be compiled
+这行仅调用另一个makefile [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build][scripts/Makefile.build]] 并传递 obj变量, 该变量包含要编译的文件夹
 
 #+begin_example
-  we use drivers folder as an example, but this rule will be executed for all root subfolders
+  这里以drivers文件夹为例, 但是将对所有根子文件夹执行此规则
 #+end_example
 
-Next logical step is to take a look at _scripts/Makefile.build_ . The first important thing that happens after it is executed is that all variables from Makefile or Kbuild files, defined in the *current directory* , are included. By current directory I mean the _directory_ *referenced* by the _obj_ variable. The inclusion is done in the [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L43-L45][following 3 lines]] 
+接下来的逻辑步骤是执行 _scripts/Makefile.build_ 。第一件事是 *定义* 包括当前目录中定义的Makefile或Kbuild文件中的所有变量. 当前目录是指 _obj变量引用的目录_ 。包含在以下 [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L43-L45][下面三行]] ：
 
 #+begin_src makefile 
   kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
@@ -203,15 +206,14 @@ Next logical step is to take a look at _scripts/Makefile.build_ . The first impo
   include $(kbuild-file)
 #+end_src
 
-Nested makefiles are mostly responsible for initializing variables like obj-y:
-+ obj-y variable should contain list of all source code files, located in the current directory
-+ Another important variable that is initialized by the nested makefiles is _subdir-y_ . This variable contains a list of all subfolders that need to be visited *before* the source code in the curent directory can be built
+嵌套的makefile主要负责初始化诸如 _obj-y_ 之类的变量：
++ obj-y变量应包含位于当前目录中的所有源代码文件的列表
++ 初始化的另一个重要变量是 _subdir-y_ ：此变量包含在构建curent目录中的源代码之前需要访问的所有子文件夹的列表
   #+begin_example
-    subdir-y is used to implement recursive descending into subfolders
+    subdir-y用于实现递归到最终的子文件夹
   #+end_example
 
-When _make_ is called without specifying the target (as it is in the case when scripts/Makefile.build is executed) it uses the first target. The first target for scripts/Makefile.build is called *__build* and it can be found here Let's take a look at it
-
+在不指定目标的情况下调用 make 时(例如在执行 scripts/Makefile.build 的情况下), 它将使用第一个目标。scripts /Makefile.build 的第一个目标称为 *__build* 
 #+begin_src makefile
   __build: $(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y)) \
   $(if $(KBUILD_MODULES),$(obj-m) $(modorder-target)) \
@@ -219,33 +221,31 @@ When _make_ is called without specifying the target (as it is in the case when s
   @:
 #+end_src
 
-As you can see *__build* target doesn't have a receipt, but it depends on a bunch of other targets. We are only interested in *$(builtin-target)*
+, __build 目标没有receipe, 只取决于其他目标. 只对 _$(builtin-target)_ 感兴趣
 
 #+begin_example
-   it is responsible for creating built-in.o file, and $(subdir-ym)
+  ${builtin-target} 负责创建 built-in.o文件 和 $(subdir-ym)
 #+end_example
 
-Let's take a look at _subdir-ym_ : it is responsible for descending into nested directories. This variable is just a concatenation of _subdir-y_ and _subdir-m_ variables
+而 _${subdir-ym)_ ：负责继续进入到字目录，此变量初始化 _subdir-y_ 和 _subdir-m_ 个变量
 
 #+begin_example
-  subdir-m variable is similar to subdir-y, but it defines subfolders need to be included in a separate kernel module
+  subdir-m 变量类似于 subdir-y, 但它定义了子文件夹需要包含在单独的kernel模块中
 
-  We skip the discussion of modules, for now, to keep focused
+  现在跳过讨论模块, 以保持专注
 #+end_example
 
-subdir-ym target should look familiar to you:
-
+subdir-ym 应该看起来很熟悉：
 #+begin_src makefile 
   $(subdir-ym):
   $(Q)$(MAKE) $(build)=$@
 #+end_src
 
 #+begin_example
-This target just triggers execution of the scripts/Makefile.build in one of the nested subfolders
+  这个目标只是触发嵌套子文件夹中的 scripts/Makefile.build 的执行
 #+end_example
 
-Now it is time to examine the [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467][builtin-target]] target. Once again I am copying only relevant lines here:
-
+现在是时候观察 [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467][builtin-target]] 了，再次在这里只复制相关行：
 #+begin_src makefile 
   cmd_make_builtin = rm -f $@; $(AR) rcSTP$(KBUILD_ARFLAGS)
   cmd_make_empty_builtin = rm -f $@; $(AR) rcSTP$(KBUILD_ARFLAGS)
@@ -259,11 +259,16 @@ Now it is time to examine the [[https://github.com/torvalds/linux/blob/v4.14/scr
   $(call if_changed,link_o_target)
 #+end_src
 
-This target depends on _$(obj-y)_ target and obj-y is a list of all object files that need to be built in the current folder. After those files become ready _cmd_link_o_target_ command is executed:
-+ In case if obj-y variable is *empty* _cmd_make_empty_builtin_ is called, which just creates an empty built-in.o
-+ Otherwise, _cmd_make_builtin_ command is executed; it uses familiar to us _ar_ tool to create _built-in.o_ thin archive
+该目标取决于 _$(obj-y)_ 目标, 而obj-y是需要在当前文件夹中构建的所有目标文件的列表。这些文件准备就绪后, 将执行 _cmd_link_o_target_ 命令：
++ 如果 _obj-y_ 变量为 *空* , 则调用 _cmd_make_empty_builtin_ , 直到创建一个空的 _built-in.o_ 
++ 否则, 执行 _cmd_make_builtin_ 命令；它使用熟悉的 _ar_ 工具创建 _built-in.o_ thin archive 
 
-Finally we got to the point where we need to compile something. You remember that our last unexplored dependency is _$(obj-y)_ and obj-y is just a list of object files. The target that compiles all object files from corresponding .c files is defined [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467][here]]. Let's examine all lines, needed to understand this target.
+最终到了需要编译一些东西的地步
+#+begin_example
+  最后一个没有查看过的依赖项是 $(obj-y) ，但是 不幸的是 obj-y 只是一份目标文件列表
+#+end_example
+
+因此在 [[https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467][这里]] 定义了如何从相应的 .c 文件编译对应的二进制文件. 来看下对应的所有行：
 
 #+begin_src makefile 
   cmd_cc_o_c = $(CC) $(c_flags) -c -o $@ $<
@@ -281,13 +286,14 @@ Finally we got to the point where we need to compile something. You remember tha
   $(call if_changed_rule,cc_o_c)
 #+end_src
 
-Inside it's recipe this target calls _rule_cc_o_c_ . This rule is responsible for a lot of things, like:
-+ checking the source code for some common errors _cmd_checksrc_
-+ enabling versioning for exported module symbols _cmd_modversions_c_
-+ using [[https://github.com/torvalds/linux/tree/v4.14/tools/objtool][objtool]] to validate some aspects of generated object files
-+ constructing a list of calls to mcount function so that [[https://github.com/torvalds/linux/blob/v4.14/Documentation/trace/ftrace.txt][ftrace]] can find them quickly
+在此 recipe 内部, 此 target 称为 _rule_cc_o_c_ 。 这个规则负责很多事情：
++ 检查源代码中的一些常见错误 _cmd_checksrc_
++ 为导出的模块符号启用版本控制  _cmd_modversions_c_
++ 使用  [[https://github.com/torvalds/linux/tree/v4.14/tools/objtool][objtool]] 验证生成的二进制目标文件
++ 构建对mcount函数的调用列表以便  [[https://github.com/torvalds/linux/blob/v4.14/Documentation/trace/ftrace.txt][ftrace]] 可以很快找到他们
++ ....
 
-But most importantly it calls *cmd_cc_o_c* command that actually compiles all .c files to object files
+但是最重​​要的是, 它调用 _cmd_cc_o_c_ 命令, 实际上是该命令将所有.c文件编译为二进制文件
 
 #+ATTR_HTML: :border 1 :rules all :frame boader
-| [[file:startup.org][Next: Startup sequence]] | [[file:linux.org][Previous: Project Structure]] | [[file:initialization.org][Home: Kernel Initialization]] |
+| [[file:startup.org][Next: 引导流程]] | [[file:linux.org][Previous: 项目结构]] | [[file:initialization.org][Home: 内核初始化]] |

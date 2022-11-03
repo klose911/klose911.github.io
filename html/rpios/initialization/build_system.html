@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Kernel build system</title>
+<title>内核构建系统</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -200,71 +200,70 @@
  |
  <a accesskey="H" href="./initialization.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">Kernel build system</h1>
+<h1 class="title">内核构建系统</h1>
 <div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org43b0c62">A few essential kbuild concepts</a></li>
-<li><a href="#org89e8946">Building the kernel</a>
+<li><a href="#org18cf4a0">一些基本的kbuild概念</a></li>
+<li><a href="#orgb0f0286">构建内核</a>
 <ul>
-<li><a href="#orgf02ccdd">Link stage</a></li>
-<li><a href="#orgb654287">Build stage</a></li>
+<li><a href="#org128b77f">链接阶段</a></li>
+<li><a href="#org50d5352">编译阶段</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org4977c05">
-After we examined Linux kernel structure, it worth spending some time investigating how we can build and run it
+<pre class="example" id="org585e662">
+Linux也使用make实用程序来构建内核, 尽管Linux makefile要复杂得多
 </pre>
 <p>
-Linux also uses <span class="underline">make</span> utility to build the kernel, though Linux Makefile is much more complicated. Before we will take a look at the makefile, let's learn some important concepts about Linux build system, which is called <span class="underline">kbuild</span>
+在看makefile之前, 先学习一些有关Linux构建系统的重要概念 <span class="underline">Kbuild</span> 
 </p>
-<div id="outline-container-org43b0c62" class="outline-2">
-<h2 id="org43b0c62">A few essential kbuild concepts</h2>
-<div class="outline-text-2" id="text-org43b0c62">
+<div id="outline-container-org18cf4a0" class="outline-2">
+<h2 id="org18cf4a0">一些基本的kbuild概念</h2>
+<div class="outline-text-2" id="text-org18cf4a0">
 <p>
-Build process can be customized by using kbuild variables. Those variables are defined in <a href="https://github.com/torvalds/linux/tree/v4.14/arch/arm64/Kconfig">Kconfig</a> files.
+可以使用kbuild中的变量自定义构建过程。这些变量在 <a href="https://github.com/torvalds/linux/tree/v4.14/arch/arm64/Kconfig">Kconfig</a> 文件中定义
 </p>
 <ul class="org-ul">
-<li>Here you can define the variables themselves and their default values
+<li>在这里, 可以定义变量本身及其默认值
 <ul class="org-ul">
-<li>Variables can have different types, including string, boolean and integer</li>
+<li>变量可以具有不同的类型, 包括字符串, 布尔值和整数</li>
 </ul></li>
 <li><p>
-In a Kconfig file you can also define dependencies between variables
+在Kconfig文件中, 还可以定义变量之间的依赖关系
 </p>
-<pre class="example" id="orgf7d815b">
- for example, you can say that if variable X is selected then variable Y will be selected implicitly
+<pre class="example" id="org3708286">
+例如, 如果选择了变量X, 则可以隐式选择变量Y
 
-you can take a look at arm64 Kconfig file. This file defines all variables, specific for arm64 architecture
+也可以看一下 arm64 Kconfig文件. 该文件定义了所有变量, 特定于arm64体系结构
 </pre></li>
-<li>Kconfig functionality is not part of the standard make and is implemented in the Linux makefile</li>
-<li>Variables, defined in Kconfig are exposed to the kernel source code as well as to the nested makefiles</li>
+<li>Kconfig功能不是标准make的一部分, 而是在Linux makefile中实现的</li>
+<li>在 Kconfig 中定义的变量在 <span class="underline">内核源代码</span> 以及 <span class="underline">嵌套的makefile</span> 中都 <b>可见</b></li>
 <li><p>
-Variable values can be set during kernel configuration step
+可以在内核配置的步骤中设置变量值
 </p>
-<pre class="example" id="orgd459552">
-for example, if you type make menuconfig a console GUI will be shown
+<pre class="example" id="org4232906">
+例如, 如果键入make menuconfig, 则会显示一个控制台GUI
 
-It allows you to customize values for all kernel variables and stores the values in .config
+它允许自定义所有内核变量的值并将这些值存储在 .config中 
 
-Use make help command to view all possible options to configure the kernel
+help 命令以查看所有可能的选项来配置内核
 </pre></li>
 </ul>
 
 <p>
-Linux uses <b>recursive</b> build. This means that each subfolder of the Linux kernel can define it's own Makefile and Kconfig. Most of the nested Makefiles are very simple and just define what object files need to be compiled. Usually, such definitions have the following format:
+Linux使用递归构建：这意味着Linux内核的每个子文件夹都可以定义它自己的Makefile和Kconfig. 大多数嵌套Makefile文件都非常简单, 只是定义文件需要编译什么对象
 </p>
-
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #4eee94;">obj-$(</span><span style="color: #4eee94;">SOME_CONFIG_VARIABLE</span><span style="color: #4eee94;">)</span> += some_file.o
 </pre>
 </div>
 
 <p>
-This definition means that <span class="underline">some_file.c</span> will be compiled and linked to the kernel only if <span class="underline">SOME_CONFIG_VARIABLE</span> is <b>set</b> . If you want to compile and link a file unconditionally, you need to change the previous definition to look like this 
+这意味着 <span class="underline">some_file.c</span> 只会在 <b>设置</b> <span class="underline">SOME_CONFIG_VARIABLE</span> 的情况下编译并链接到内核. 如果要无条件编译和链接文件, 则需要更改以前的定义, 如下所示.
 </p>
 
 <div class="org-src-container">
@@ -273,7 +272,7 @@ This definition means that <span class="underline">some_file.c</span> will be co
 </div>
 
 <p>
-Before we move forward, you need to understand the structure of a basic make <span class="underline">rule</span> and be comfortable with make <span class="underline">terminology</span> . Common rule structure is illustrated in the following diagram:
+在继续前进之前, 需要了解基本make规则的结构并熟悉make术语。下图说明了通用规则 <span class="underline">结构</span> ：
 </p>
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #daa520; font-weight: bold;">targets</span> : prerequisites
@@ -282,33 +281,30 @@ recipe
 </pre>
 </div>
 <ul class="org-ul">
-<li><span class="underline">targets</span> : are file names, separated by spaces. Targets are <b>generated</b> after the rule is executed. Usually, there is only one target per rule</li>
-<li><span class="underline">prerequisites</span> : are files that make trackes to see whether it needs to <b>update</b> the targets</li>
+<li><span class="underline">targets</span> : 文件名, 用 <span class="underline">空格</span> 分隔，执行规则后将生成 <b>目标</b> 文件。通常, 每个规则只有一个目标</li>
+<li><span class="underline">prerequisites</span> : make <span class="underline">跟踪</span> 的文件, 以查看是否需要 <b>更新</b> 目标文件</li>
 <li><p>
-<span class="underline">recipe</span> is a <b>bash</b> script. Make calls it when some of the prerequisites have been updated. The recipe is responsible for <b>generating</b> the targets.
+<span class="underline">recipe</span> :  一个bash脚本，在某些prerequisites更新后进行调用。recipe负责 <b>生成</b> 目标文件
 </p>
 
-<pre class="example" id="org3b63881">
-Both targets and prerequisites can include wildcards (%). When wildcards are used the recipe is executed for each of the matched prerequisites separately
+<pre class="example" id="orgd7768dc">
+targets 和 Prerequsites 都可以包含通配符(％)
 
-In this case, you can use $&lt; and $@ variables to refer to the prerequisite and the target inside the recipe 
-</pre></li>
-</ul>
-
-<p>
-<span class="underline">make</span> is very good in detecting whether any of the prerequisites have been changed and updating only targets that need to be rebuilt
-</p>
-<pre class="example" id="org59dacce">
-However, if a recipe is dynamically updated, make is unable to detect this change
-
-One good example is when you change some configuration variable, which results in appending an additional option to the recipe
-
-By default, in this case, make will not recompile previously generated object files, because their prerequisites haven't been changed, only the recipe have been updated
+使用通配符时, 将分别对每个已匹配的prerequisites执行recipe，可以使用$&lt; 和 $@变量来引用 recipe中的 prerequisites 和 targets
 </pre>
 
+<p>
+<span class="underline">make</span> 可以很好地检测是否已更改任何prerequisites, 并且仅更新需要重建的目标文件. 但是, 如果recipe是动态更新的, 则 make 将无法检测到此更改
+</p></li>
+</ul>
+<pre class="example" id="org8d88982">
+一个很好的例子是, 当更改一些配置变量时, 这会导致在recipe中添加一个附加选项
+
+默认情况下, make将不会重新编译以前生成的目标文件, 因为它们的prerequisites没有改变, 只是recipe已更新
+</pre>
 
 <p>
-To overcome this behavior Linux introduces <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Kbuild.include#L264">if_changed</a> function. To see how it works let's consider the following example:
+为了解决此问题, Linux引入了 <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Kbuild.include#L264">if_changed</a>  函数。要查看其工作原理, 请考虑以下示例：
 </p>
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #4eee94;">cmd_compile</span> = gcc $(<span style="color: #4eee94;">flags</span>) -o <span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span> $<span style="color: #ffd700;">&lt;</span>
@@ -319,45 +315,45 @@ $(<span style="color: #4eee94;">call</span> if_changed,compile)
 </div>
 
 <p>
-Here for each .c file we build corresponding .o file by calling if_changed function with the argument compile. <span class="underline">if_changed</span> then looks for <span class="underline">cmd_compile</span> variable (it adds cmd_ prefix to the first argument) and checks whether this variable has been updated since the last execution, or any of the prerequisites has been changed:
+在这里对于每个.c文件, 通过使用带有compile参数的if_changed函数来构建相应的.o文件。if_changed查找 <span class="underline">cmd_compile</span> 变量(在第一个参数后添加cmd_前缀), 并检查此变量自上次执行以来是否已更新, 或者任何prerequisites已更改：
 </p>
 <ul class="org-ul">
-<li>If yes: cmd_compile command is executed and object file is regenerated</li>
+<li>如果是, 则执行 cmd_compile 命令并重新生成目标文件</li>
 </ul>
 
 <p>
-Our sample rule has 2 prerequisites: source .c file and <span class="underline">FORCE</span>
+上面示例中的规则有两个prerequisites源 <span class="underline">.c文件</span> 和 <span class="underline">FORCE</span> 
 </p>
 <ul class="org-ul">
 <li><p>
-FORCE is a special prerequisite that forces the recipe to be called each time when make command is called
+FORCE 是一个特殊的prerequisites, 它强制每次调用 make 命令时都调用recipe
 </p>
-<pre class="example" id="org9e95074">
-Without it, the recipe would be called only if .c file was changed
+<pre class="example" id="org0395b84">
+没有FORCE, 只有在 .c 文件被更改的情况下才会调用 recipe 
 </pre></li>
 </ul>
 </div>
 </div>
-<div id="outline-container-org89e8946" class="outline-2">
-<h2 id="org89e8946">Building the kernel</h2>
-<div class="outline-text-2" id="text-org89e8946">
+<div id="outline-container-orgb0f0286" class="outline-2">
+<h2 id="orgb0f0286">构建内核</h2>
+<div class="outline-text-2" id="text-orgb0f0286">
 <p>
-Now, that we learned some important concepts about the Linux build system, let's try to figure out what exactly is going on after you type make command. This process is very complicated and includes a lot of details, most of which we will skip. Our goal will be to answer 2 questions.
+现在, 当我们了解了有关Linux构建系统的一些重要概念时, 尝试弄清楚在键入make命令后到底发生了什么。这个过程非常复杂, 并且包含很多细节, 将跳过其中的大多数细节. 主要目标是回答2个问题：
 </p>
 <ol class="org-ol">
-<li>How exactly are source files compiled into object files?</li>
-<li>How are object files linked into the OS image?</li>
+<li>源文件如何精确地编译为目标文件？</li>
+<li>目标文件如何链接到OS映像中？</li>
 </ol>
 
 <p>
-We are going to tackle the second question first.
+首先来解决第二个问题
 </p>
 </div>
-<div id="outline-container-orgf02ccdd" class="outline-3">
-<h3 id="orgf02ccdd">Link stage</h3>
-<div class="outline-text-3" id="text-orgf02ccdd">
+<div id="outline-container-org128b77f" class="outline-3">
+<h3 id="org128b77f">链接阶段</h3>
+<div class="outline-text-3" id="text-org128b77f">
 <p>
-As you might see from the output of <span class="underline">make help</span> command, the default target, which is responsible for building the kernel, is called <a href="https://github.com/torvalds/linux/blob/v4.14/Makefile#L1004">vmlinux</a> and it looks like this:
+从make help命令的输出中看到, 负责构建内核的默认目标称为 <a href="https://github.com/torvalds/linux/blob/v4.14/Makefile#L1004">vmlinux</a> 并且看起来像这样
 </p>
 
 <div class="org-src-container">
@@ -371,17 +367,17 @@ $(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">ARCH_P
 </div>
 
 <p>
-This target uses already familiar to us <span class="underline">if_changed</span> function. Whenever some of the prerequsities are updated <span class="underline">cmd_link-vmlinux</span> command is executed. This command executes <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh">scripts/link-vmlinux.sh</a> script
+这个目标使用了已经熟悉的 if_changed 函数。每当某些先决条件被更新时, 就执行 cmd_link-vmlinux 命令。 此命令执行 <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh">scripts/link-vmlinux.sh</a> 脚本
 </p>
 
-<pre class="example" id="orgd4123af">
-Note usage of $&lt; automatic variable in the cmd_link-vmlinux command
+<pre class="example" id="org47d2c64">
+注意 $&lt; 为 cmd_link-vmlinux 命令中的自动变量
 
-It also executes architecture specific postlink script, but we are not very interested in it
+它还执行特定于体系结构的 postlink脚本, 但我们对此并不十分感兴趣
 </pre>
 
 <p>
-When <span class="underline">scripts/link-vmlinux.sh</span> is executed it assumes that all required object files are already built and their locations are stored in 3 variables:
+执行 scripts /link-vmlinux.sh 时, 它假定所有必需的目标文件均已构建并且它们的位置存储在3个变量中：
 </p>
 <ul class="org-ul">
 <li><span class="underline">KBUILD_VMLINUX_INIT</span></li>
@@ -390,44 +386,57 @@ When <span class="underline">scripts/link-vmlinux.sh</span> is executed it assum
 </ul>
 
 <p>
-<span class="underline">link-vmlinux.sh</span> script first creates thin archive from all available object files. thin archive is a special object that contains references to a set of <b>object files</b> as well as their combined <b>symbol table</b> . This is done inside <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L56">archive_builtin</a> function. In order to create thin archive this function uses <a href="https://sourceware.org/binutils/docs/binutils/ar.html">ar</a> utility. Generated thin archive is stored as <span class="underline">built-in.o</span> file and has the format that is understandable by the linker, so it can be used as any other normal object file
+<span class="underline">link-vmlinux.sh</span> 脚本首先从所有可用的目标文件里创建 thin archive。thin archive 是一个特殊的对象, 其中包含对一组 <b>目标文件</b> 及其组合 <b>符号表</b> 的引用. 这是在 <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L56">archive_builtin</a> 函数内部完成的。使用 <a href="https://sourceware.org/binutils/docs/binutils/ar.html">ar</a> 工具来创建thin archive。 产生的 thin archive 被储存在 <span class="underline">built-in.o</span> 文件中并具有链接器可以理解的格式, 因此它可以用作任何其他普通目标文件
 </p>
+
 
 <p>
-Next <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L69">modpost_link</a> is called. This function calls <span class="underline">linker</span> and <b>generates</b> <span class="underline">vmlinux.o</span> object file
+接下来 <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L69">modpost_link</a> 被调用. 该函数调用 <span class="underline">链接器</span> 并 <b>生成</b> <span class="underline">vmlinux.o</span> 目标文件
 </p>
-<pre class="example" id="org1260f19">
-We need this object file to perform Section mismatch analysis
+<pre class="example" id="org891080a">
+需要这个vmlinux.o 目标文件来执行断面失配分析
 
-This analysis is performed by the modpost program
+该分析由 modpost 程序组成
 </pre>
 
 <p>
-Next <span class="underline">kernel symbol table</span> is generated. It contains information about all functions and global variables as well as their location in the vmlinux binary. The main work is done inside <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L146">kallsyms</a> function:
+接下来生成 <span class="underline">内核符号表</span> . 它包含有关所有 <span class="underline">函数</span> 和 <span class="underline">全局变量</span> 的信息, 以及它们在vmlinux二进制文件中的位置. 主要工作在 <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/link-vmlinux.sh#L146">kallsyms</a>  函数内部完成。该函数： 
 </p>
 <ol class="org-ol">
-<li>This function first uses <a href="https://sourceware.org/binutils/docs/binutils/nm.html">nm</a> to extract all symbols from vmlinux binary</li>
-<li>Then it uses <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/kallsyms.c">scripts/kallsyms</a> utility to generate a special assembler file containing all symbols in a special format, understandable by the Linux kernel</li>
+<li>首先使用 <a href="https://sourceware.org/binutils/docs/binutils/nm.html">nm</a> 从 vmlinux 二进制文件中提取所有符号</li>
+<li>然后使用  <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/kallsyms.c">scripts/kallsyms</a> 脚本生成一个特殊的汇编器文件, 其中包含所有特殊的符号（可以被Linux内核理解的格式）</li>
 <li><p>
-Next, this assembler file is compiled and linked together with the original binary. Information from the kernel symbol table is used to generate <span class="underline">/proc/kallsyms</span> file at runtime
+接着将编译此汇编器文件并将其与原始二进制文件链接在一起。来自内核符号表的信息用于在运行时生成 <span class="underline">/proc/kallsyms</span> 文件
 </p>
-<pre class="example" id="org9fe2615">
-This process is repeated several times because after the final link addresses of some symbols can be changed
+<pre class="example" id="orgde0c354">
+因为某些符号的最终链接地址可能会被修改多次, 所以此过程也需要重复了多次
 </pre></li>
 </ol>
 
 <p>
-Finally <span class="underline">vmlinux</span> binary is ready and <span class="underline">System.map</span> is build. System.map contains the same information as <span class="underline">/proc/kallsyms</span> but this is <b>static</b> file and unlike /proc/kallsyms it is not generated at runtime. System.map is mostly used to <b>resolve</b> <span class="underline">addresses</span> to <span class="underline">symbol names</span> during <a href="https://en.wikipedia.org/wiki/Linux_kernel_oops">kernel oops</a>. The same <b>nm</b> utility is used to build System.map 
-</p>
-</div>
-</div>
-<div id="outline-container-orgb654287" class="outline-3">
-<h3 id="orgb654287">Build stage</h3>
-<div class="outline-text-3" id="text-orgb654287">
-<p>
-Now let's take one step backward and examine how source code files are compiled into object files. As you might remember one of the prerequisites of the vmlinux target is <span class="underline">$(vmlinux-deps)</span> variable. Let me now copy a few relevant lines from the main Linux makefile to demonstrate how this variable is built
+Finally <span class="underline">vmlinux</span> binary is ready and <span class="underline">System.map</span> is build. System.map contains the same information as <span class="underline">/proc/kallsyms</span> but this is <b>static</b> file and unlike /proc/kallsyms it is not generated at runtime. System.map is mostly used to <b>resolve</b> <span class="underline">addresses</span> to <span class="underline">symbol names</span> during <a href="https://en.wikipedia.org/wiki/Linux_kernel_oops">kernel oops</a>. The same <b>nm</b> utility is used to build System.map
 </p>
 
+<p>
+最后, <span class="underline">vmlinux</span> 二进制文件已经准备好, 并且 <span class="underline">System.map</span> 已经构建
+</p>
+
+<pre class="example" id="org4e38d77">
+System.map 包含与 /proc/kallsyms 相同的信息, 但这是 静态 文件与 /proc/kallsyms 的不同, 它不是在运行时生成的
+</pre>
+
+<p>
+System.map主要用于在 <a href="https://en.wikipedia.org/wiki/Linux_kernel_oops">kernel oops</a> 期间将 <span class="underline">地址</span> <b>解析</b> 为 <span class="underline">符号名称</span> 。相同的 <a href="https://sourceware.org/binutils/docs/binutils/nm.html">nm</a> 程序用于构建System.map
+</p>
+</div>
+</div>
+
+<div id="outline-container-org50d5352" class="outline-3">
+<h3 id="org50d5352">编译阶段</h3>
+<div class="outline-text-3" id="text-org50d5352">
+<p>
+现在向后退一步, 检查源代码文件如何编译为目标文件. 可能还记得, vmlinux目标的先决条件之一是 <span class="underline">$(vmlinux-deps)</span> 变量. 现在, 从Linux 主makefile 中复制一些相关的行, 以演示如何构建此变量：
+</p>
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #4eee94;">init-y</span>        := init/
 <span style="color: #4eee94;">drivers-y</span>    := drivers/ sound/ firmware/
@@ -452,19 +461,17 @@ export <span style="color: #4eee94;">KBUILD_LDS</span>          := arch/$(<span 
 </div>
 
 <p>
-It all starts with variables like <span class="underline">init-y</span> , <span class="underline">core-y</span> , etc., which combined contains all subfolders of the Linux kernel that contains buildable source code. Then <span class="underline">built-in.o</span> is appended to all the subfolder names
+所有这些都以变量 <span class="underline">init-y</span> , <span class="underline">core-y</span> 等开头. 它们组合在一起, 包含Linux内核的所有子文件夹, 这些子文件夹包含可构建的源代码. 然后, 在所有子文件夹名称后附加 <span class="underline">built-in.o</span> 
 </p>
+<pre class="example" id="orgdbbfbc2">
+例如, drivers/ 成为 drivers/built-in.o. 然后, vmlinux-deps会汇总所有结果值
 
-<pre class="example" id="orgcff5ab7">
-for example, drivers/ becomes drivers/built-in.o. vmlinux-deps then just aggregates all resulting values
-
-This explains how vmlinux eventually becomes dependent on all built-in.o files
+这解释了vmlinux最终如何依赖于所有build-in.o文件
 </pre>
 
 <p>
-Next question is how all built-in.o objects are created? Once again, let me copy all relevant lines and explain how it all works:
+下一个问题是如何创建所有 built-in.o 对象？再一次, 复制所有相关的行, 并说明其工作原理：
 </p>
-
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #daa520; font-weight: bold;">$(</span><span style="color: #daa520; font-weight: bold;">sort</span><span style="color: #daa520; font-weight: bold;"> $(</span><span style="color: #daa520; font-weight: bold;">vmlinux-deps</span><span style="color: #daa520; font-weight: bold;">))</span>: $(<span style="color: #4eee94;">vmlinux-dirs</span>) ;
 
@@ -480,8 +487,9 @@ $(<span style="color: #4eee94;">Q</span>)$(<span style="color: #4eee94;">MAKE</s
 </pre>
 </div>
 
+
 <p>
-The first line tells us that <span class="underline">vmlinux-deps</span> depends on <span class="underline">vmlinux-dirs</span> . Next, we can see that <span class="underline">vmlinux-dirs</span> is a variable that contains all direct root subfolders without / character at the end. And the most important line here is the recipe to build $(vmlinux-dirs) target. After substitution of all variables, this recipe will look like the following
+第一行说明 <span class="underline">vmlinux-deps</span> 依赖于 <span class="underline">vmlinux-dirs</span> . 接下来, 可以看到 vmlinux-dirs 是一个 <b>变量</b> , 它包含所有直接的根子文件夹, 末尾没有 <span class="underline">/</span> 字符。最重要的一行是构建 <span class="underline">$(vmlinux-dirs)</span> 目标的方法. 替换所有变量后, 此配方如下所示
 </p>
 
 <div class="org-src-container">
@@ -490,15 +498,15 @@ The first line tells us that <span class="underline">vmlinux-deps</span> depends
 </div>
 
 <p>
-This line just calls another makefile <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build">scripts/Makefile.build</a> and passes obj variable, which contains a folder to be compiled
+这行仅调用另一个makefile <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build">scripts/Makefile.build</a> 并传递 obj变量, 该变量包含要编译的文件夹
 </p>
 
-<pre class="example" id="org048454c">
-we use drivers folder as an example, but this rule will be executed for all root subfolders
+<pre class="example" id="org290bae8">
+这里以drivers文件夹为例, 但是将对所有根子文件夹执行此规则
 </pre>
 
 <p>
-Next logical step is to take a look at <span class="underline">scripts/Makefile.build</span> . The first important thing that happens after it is executed is that all variables from Makefile or Kbuild files, defined in the <b>current directory</b> , are included. By current directory I mean the <span class="underline">directory</span> <b>referenced</b> by the <span class="underline">obj</span> variable. The inclusion is done in the <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L43-L45">following 3 lines</a> 
+接下来的逻辑步骤是执行 <span class="underline">scripts/Makefile.build</span> 。第一件事是 <b>定义</b> 包括当前目录中定义的Makefile或Kbuild文件中的所有变量. 当前目录是指 <span class="underline">obj变量引用的目录</span> 。包含在以下 <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L43-L45">下面三行</a> ：
 </p>
 
 <div class="org-src-container">
@@ -509,22 +517,21 @@ Next logical step is to take a look at <span class="underline">scripts/Makefile.
 </div>
 
 <p>
-Nested makefiles are mostly responsible for initializing variables like obj-y:
+嵌套的makefile主要负责初始化诸如 <span class="underline">obj-y</span> 之类的变量：
 </p>
 <ul class="org-ul">
-<li>obj-y variable should contain list of all source code files, located in the current directory</li>
+<li>obj-y变量应包含位于当前目录中的所有源代码文件的列表</li>
 <li><p>
-Another important variable that is initialized by the nested makefiles is <span class="underline">subdir-y</span> . This variable contains a list of all subfolders that need to be visited <b>before</b> the source code in the curent directory can be built
+初始化的另一个重要变量是 <span class="underline">subdir-y</span> ：此变量包含在构建curent目录中的源代码之前需要访问的所有子文件夹的列表
 </p>
-<pre class="example" id="org3fd7594">
-subdir-y is used to implement recursive descending into subfolders
+<pre class="example" id="orgc79e505">
+subdir-y用于实现递归到最终的子文件夹
 </pre></li>
 </ul>
 
 <p>
-When <span class="underline">make</span> is called without specifying the target (as it is in the case when scripts/Makefile.build is executed) it uses the first target. The first target for scripts/Makefile.build is called <b>__build</b> and it can be found here Let's take a look at it
+在不指定目标的情况下调用 make 时(例如在执行 scripts/Makefile.build 的情况下), 它将使用第一个目标。scripts /Makefile.build 的第一个目标称为 <b>__build</b> 
 </p>
-
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #daa520; font-weight: bold;">__build</span>: $(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">KBUILD_BUILTIN</span>),$(<span style="color: #4eee94;">builtin-target</span>) $(<span style="color: #4eee94;">lib-target</span>) $(<span style="color: #4eee94;">extra-y</span>)) \
 $(<span style="color: #4eee94;">if</span> $(<span style="color: #4eee94;">KBUILD_MODULES</span>),$(<span style="color: #4eee94;">obj-m</span>) $(<span style="color: #4eee94;">modorder-target</span>)) \
@@ -534,41 +541,39 @@ $(<span style="color: #4eee94;">subdir-ym</span>) $(<span style="color: #4eee94;
 </div>
 
 <p>
-As you can see <b>__build</b> target doesn't have a receipt, but it depends on a bunch of other targets. We are only interested in <b>$(builtin-target)</b>
+, <span class="underline">_build 目标没有receipe, 只取决于其他目标. 只对 _$(builtin-target)</span> 感兴趣
 </p>
 
-<pre class="example" id="orgee23bb1">
-it is responsible for creating built-in.o file, and $(subdir-ym)
+<pre class="example" id="org20ed7fa">
+${builtin-target} 负责创建 built-in.o文件 和 $(subdir-ym)
 </pre>
 
 <p>
-Let's take a look at <span class="underline">subdir-ym</span> : it is responsible for descending into nested directories. This variable is just a concatenation of <span class="underline">subdir-y</span> and <span class="underline">subdir-m</span> variables
+而 <span class="underline">${subdir-ym)</span> ：负责继续进入到字目录，此变量初始化 <span class="underline">subdir-y</span> 和 <span class="underline">subdir-m</span> 个变量
 </p>
 
-<pre class="example" id="orga3f521e">
-subdir-m variable is similar to subdir-y, but it defines subfolders need to be included in a separate kernel module
+<pre class="example" id="orgf8bbb0e">
+subdir-m 变量类似于 subdir-y, 但它定义了子文件夹需要包含在单独的kernel模块中
 
-We skip the discussion of modules, for now, to keep focused
+现在跳过讨论模块, 以保持专注
 </pre>
 
 <p>
-subdir-ym target should look familiar to you:
+subdir-ym 应该看起来很熟悉：
 </p>
-
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #daa520; font-weight: bold;">$(</span><span style="color: #daa520; font-weight: bold;">subdir-ym</span><span style="color: #daa520; font-weight: bold;">)</span>:
 $(<span style="color: #4eee94;">Q</span>)$(<span style="color: #4eee94;">MAKE</span>) $(<span style="color: #4eee94;">build</span>)=<span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span>
 </pre>
 </div>
 
-<pre class="example" id="orgef815d4">
-This target just triggers execution of the scripts/Makefile.build in one of the nested subfolders
+<pre class="example" id="orgb1cf65e">
+这个目标只是触发嵌套子文件夹中的 scripts/Makefile.build 的执行
 </pre>
 
 <p>
-Now it is time to examine the <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467">builtin-target</a> target. Once again I am copying only relevant lines here:
+现在是时候观察 <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467">builtin-target</a> 了，再次在这里只复制相关行：
 </p>
-
 <div class="org-src-container">
 <pre class="src src-makefile"><span style="color: #4eee94;">cmd_make_builtin</span> = rm -f <span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span>; $(<span style="color: #4eee94;">AR</span>) rcSTP$(<span style="color: #4eee94;">KBUILD_ARFLAGS</span>)
 <span style="color: #4eee94;">cmd_make_empty_builtin</span> = rm -f <span style="color: #daa520; font-weight: bold;">$</span><span style="color: #ffd700; font-weight: bold;">@</span>; $(<span style="color: #4eee94;">AR</span>) rcSTP$(<span style="color: #4eee94;">KBUILD_ARFLAGS</span>)
@@ -584,15 +589,22 @@ $(<span style="color: #4eee94;">call</span> if_changed,link_o_target)
 </div>
 
 <p>
-This target depends on <span class="underline">$(obj-y)</span> target and obj-y is a list of all object files that need to be built in the current folder. After those files become ready <span class="underline">cmd_link_o_target</span> command is executed:
+该目标取决于 <span class="underline">$(obj-y)</span> 目标, 而obj-y是需要在当前文件夹中构建的所有目标文件的列表。这些文件准备就绪后, 将执行 <span class="underline">cmd_link_o_target</span> 命令：
 </p>
 <ul class="org-ul">
-<li>In case if obj-y variable is <b>empty</b> <span class="underline">cmd_make_empty_builtin</span> is called, which just creates an empty built-in.o</li>
-<li>Otherwise, <span class="underline">cmd_make_builtin</span> command is executed; it uses familiar to us <span class="underline">ar</span> tool to create <span class="underline">built-in.o</span> thin archive</li>
+<li>如果 <span class="underline">obj-y</span> 变量为 <b>空</b> , 则调用 <span class="underline">cmd_make_empty_builtin</span> , 直到创建一个空的 <span class="underline">built-in.o</span></li>
+<li>否则, 执行 <span class="underline">cmd_make_builtin</span> 命令；它使用熟悉的 <span class="underline">ar</span> 工具创建 <span class="underline">built-in.o</span> thin archive</li>
 </ul>
 
 <p>
-Finally we got to the point where we need to compile something. You remember that our last unexplored dependency is <span class="underline">$(obj-y)</span> and obj-y is just a list of object files. The target that compiles all object files from corresponding .c files is defined <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467">here</a>. Let's examine all lines, needed to understand this target.
+最终到了需要编译一些东西的地步
+</p>
+<pre class="example" id="orgadacbd8">
+最后一个没有查看过的依赖项是 $(obj-y) ，但是 不幸的是 obj-y 只是一份目标文件列表
+</pre>
+
+<p>
+因此在 <a href="https://github.com/torvalds/linux/blob/v4.14/scripts/Makefile.build#L467">这里</a> 定义了如何从相应的 .c 文件编译对应的二进制文件. 来看下对应的所有行：
 </p>
 
 <div class="org-src-container">
@@ -613,17 +625,18 @@ $(<span style="color: #4eee94;">call</span> if_changed_rule,cc_o_c)
 </div>
 
 <p>
-Inside it's recipe this target calls <span class="underline">rule_cc_o_c</span> . This rule is responsible for a lot of things, like:
+在此 recipe 内部, 此 target 称为 <span class="underline">rule_cc_o_c</span> 。 这个规则负责很多事情：
 </p>
 <ul class="org-ul">
-<li>checking the source code for some common errors <span class="underline">cmd_checksrc</span></li>
-<li>enabling versioning for exported module symbols <span class="underline">cmd_modversions_c</span></li>
-<li>using <a href="https://github.com/torvalds/linux/tree/v4.14/tools/objtool">objtool</a> to validate some aspects of generated object files</li>
-<li>constructing a list of calls to mcount function so that <a href="https://github.com/torvalds/linux/blob/v4.14/Documentation/trace/ftrace.txt">ftrace</a> can find them quickly</li>
+<li>检查源代码中的一些常见错误 <span class="underline">cmd_checksrc</span></li>
+<li>为导出的模块符号启用版本控制  <span class="underline">cmd_modversions_c</span></li>
+<li>使用  <a href="https://github.com/torvalds/linux/tree/v4.14/tools/objtool">objtool</a> 验证生成的二进制目标文件</li>
+<li>构建对mcount函数的调用列表以便  <a href="https://github.com/torvalds/linux/blob/v4.14/Documentation/trace/ftrace.txt">ftrace</a> 可以很快找到他们</li>
+<li>&#x2026;.</li>
 </ul>
 
 <p>
-But most importantly it calls <b>cmd_cc_o_c</b> command that actually compiles all .c files to object files
+但是最重​​要的是, 它调用 <span class="underline">cmd_cc_o_c</span> 命令, 实际上是该命令将所有.c文件编译为二进制文件
 </p>
 
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
@@ -638,9 +651,9 @@ But most importantly it calls <b>cmd_cc_o_c</b> command that actually compiles a
 </colgroup>
 <tbody>
 <tr>
-<td class="org-left"><a href="startup.html">Next: Startup sequence</a></td>
-<td class="org-left"><a href="linux.html">Previous: Project Structure</a></td>
-<td class="org-left"><a href="initialization.html">Home: Kernel Initialization</a></td>
+<td class="org-left"><a href="startup.html">Next: 引导流程</a></td>
+<td class="org-left"><a href="linux.html">Previous: 项目结构</a></td>
+<td class="org-left"><a href="initialization.html">Home: 内核初始化</a></td>
 </tr>
 </tbody>
 </table>
