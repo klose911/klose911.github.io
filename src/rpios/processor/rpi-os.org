@@ -1,5 +1,290 @@
-#+TITLE: Processor Initialization of Rpi Os
+#+TITLE: 处理器初始化
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_HOME: ./processor.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
 
+在这一章将与ARM处理器更加紧密地工作. 它具有一些可由操作系统使用的基本功能。第一个这样的功能称为 异常级别 (Eception Levels) 
+* 特权级别
+每个支持ARM.v8体系结构的ARM处理器都有 _4_ 个 异常级别. 可以将异常级别(简称 _EL_ )视为处理器的 *执行模式* , 在不同的执行模式下只有一部分操作和寄存器中可用. 最低的EL是 _0_ . 当处理器在该级别上运行时, 它通常仅使用 *通用* 寄存器 _X0-X30_ 和 *栈指针* 寄存器 _SP_ . EL0 还允许使用 _STR_ 和 _LDR_ 命令从内存中加载和存储数据, 以及用户程序通常使用的其他一些指令
+
+操作系统为了实现 *进程隔离* , 会去负责 _异常级别_ 的处理，用户进程不应能够访问其他进程的数据
+
+#+begin_example
+  为了实现这种行为, 操作系统始终在EL0上运行每个用户进程
+
+  在此异常级别上运行时, 进程只能使用它自己的虚拟内存, 并且不能访问任何会更改虚拟内存设置的指令
+
+  因此, 为了做到进程隔离, 操作系统需要为每个进程准备独立的虚拟内存映射, 而且在将处理器执行到用户进程之前, 需要将处理器转入EL0 级别
+#+end_example
+
+操作系统本身通常在 _EL1_ 上运行
+
+#+begin_example
+  在此异常级别运行时, 处理器可以访问允许配置虚拟内存设置的寄存器以及某些系统寄存器
+
+  Raspberry Pi OS 也将使用 EL1
+#+end_example
+
+不会大量使用异常级别2和3, 这里只想简要地描述它们, 以便了解为什么需要它们：
++ EL2 用于使用虚拟机程序的场景
+  #+begin_example
+    在这种情况下, 主机操作系统在EL2上运行, 而访客操作系统只能使用 EL1
+
+    这允许主机OS以隔离用户进程类似的方式来隔离访客OS
+  #+end_example
++ EL3 用于从 ARM 安全世界 到 不安全世界 的过渡
+  #+begin_example
+    存在这种抽象是为了给运行在两个不同的 世界 中的软件提供完全的硬件隔离
+
+    来自 不安全世界 的应用程序绝不能访问或修改属于 安全世界 的信息(指令和数据), 并且这种限制是在硬件级别上强制执行的
+  #+end_example
+* 调试内核
+要做的下一件事是弄清楚当前正在使用的异常级别
+#+begin_example
+  当尝试执行此操作时, 发现内核只能在屏幕上打印一些常量字符串，但是需要的是类似 printf 的函数
+
+  使用 printf 可以轻松显示不同寄存器和变量的值，这样的功能对于内核开发是必不可少的
+
+  因为没有任何其他调试器可用, printf 就成为搞清楚程序内部正在发生什么的唯一手段
+#+end_example
+
+
+对于 RPi OS, 决定不重新发明轮子, 而是使用现有的一种 [[http://www.sparetimelabs.com/tinyprintf/tinyprintf.php][printf]] 的实现
+
+#+begin_example
+  该函数主要由字符串操作组成, 从内核开发人员的角度来看不是很有趣
+
+  使用的这个实现很小, 并且没有外部依赖关系, 因此可以轻松地将其集成到内核中
+
+  唯一要做的就是定义可以将单个字符发送到屏幕的putc函数
+#+end_example
+
+此函数在 _mini_uart.c_ 定义, 它只是使用了已经存在的 _uart_send_ 函数. 同样, 需要初始化 printf 库并指定 _putc_ 函数的位置. 这是在 _kernel.c_ 中完成的 
+* 查找当前的异常级别
+#+begin_example
+  现在, 有了 printf 函数以后, 就可以完成第一个任务：确定操作系统在哪个异常级别启动
+#+end_example
+
+一个获取当前异常界别的函数在 _utils.S_ 中定义：
+
+#+begin_src asm 
+	  .globl get_el
+
+  get_el:
+	  mrs x0, CurrentEL
+	  lsr x0, x0, #2
+	  ret
+#+end_src
+
+1. 使用 _mrs_ 指令将 _CurrentEL_ 系统寄存器中的值读入 _x0_ 寄存器中
+2. 将这个值向 *右移* _2_ 位
+   #+begin_example
+     因为CurrentEL寄存器中的前2位是保留位, 并且始终为0
+   #+end_example
+3. 在寄存器 _x0_ 中, 有一个整数, 表示当前的异常界别
+
+现在剩下的唯一事情就是显示此值, 例如 _kerner.c_ :
+
+#+begin_src c 
+  int el = get_el();
+  printf("Exception level: %d \r\n", el);
+#+end_src
+
+#+begin_example
+  如果自己做此实验, 在屏幕上应该能看到 Exception level：3
+#+end_example
+* 更改当前的异常级别
+在 ARM 体系结构中, 如果没有已经在更高级别上运行的代码的协助, 当前程序是无法自己增加异常级别
+
+#+begin_example
+  这是合理的：如果没有这个限制, 则任何程序都可以更改当前的 EL , 然后去访问其他程序的数据
+#+end_example
+
+所以只有当发生了异常时, 才能更改当前的 EL
+#+begin_example
+  如果程序执行某些非法指令（例如, 尝试访问不存在的内存地址、试图除以0）, 则可能会发生这种情况
+
+  应用程序也可以执行 svc 指令来故意产生异常
+
+  硬件生成的中断也被视为特殊类型的异常
+#+end_example
+
+每当生成异常时, 都会触发以下操作：
+#+begin_example
+  在描述中, 假设异常是在 ELn 处处理的, 而 n 可能是 1、2或3 
+#+end_example
+1. _当前指令的地址_ 保存在 *ELR_ELn* 寄存器中 _Exception link register_
+2. _当前处理器状态_ 存储在 *SPSR_ELn* 寄存器中 _Saved Program Status Register_
+3. _异常处理程序_ 将 *运行* 并执行所需的任何工作
+4. _异常处理程序_ 调用 *eret* 指令. 该指令从 _SPSR_ELn_ *恢复* _处理器状态_ , 并从存储在 _ELR_ELn_ 寄存器中的地址开始 *恢复* _执行_
+   
+#+begin_example
+  在实践中, 该过程要复杂一些, 因为异常处理程序还需要存储所有通用寄存器的状态, 然后将其还原回去
+
+  但是这将在以后详细讨论该过程，现在, 只需要大致了解该过程, 并记住ELR_ELn和SPSR_ELn寄存器的含义即可
+#+end_example
+
+重要的是： 异常处理程序没有义务返回到产生异常时候的相同位置. *ELR_ELn 和 SPSR_ELn 都是可写的* 
+
+#+begin_example
+  如果需要, 异常处理程序可以对其进行修改
+
+  当尝试在代码中从 EL3 切换到 EL1 时, 将利用这种技术来发挥优势
+#+end_example
+* 切换到EL1
+#+begin_example
+  严格来说, 操作系统不是必须切换到EL1, 但是EL1是很自然的选择, 因为该级别具有执行所有常见 OS 任务的正确权限集
+
+  看看切换异常级别是如何工作的, 这也是一个有趣的练习
+#+end_example
+先看一下boot.S：
+
+#+begin_src asm 
+  master:
+	  ldr    x0, =SCTLR_VALUE_MMU_DISABLED
+	  msr    sctlr_el1, x0        
+
+	  ldr    x0, =HCR_VALUE
+	  msr    hcr_el2, x0
+
+	  ldr    x0, =SCR_VALUE
+	  msr    scr_el3, x0
+
+	  ldr    x0, =SPSR_VALUE
+	  msr    spsr_el3, x0
+
+	  adr    x0, el1_entry        
+	  msr    elr_el3, x0
+
+	  eret        
+#+end_src
+
+代码主要是配置一些系统寄存器组成. 现在将逐一检查这些寄存器。为此, 首先需要下载 [[https://developer.arm.com/docs/ddi0487/ca/arm-architecture-reference-manual-armv8-for-armv8-a-architecture-profile][AArch64-Reference-Manual]] 。该本文档包含 ARM.v8 体系结构的详细规范
+** SCTLR_EL1: 系统控制寄存器 (EL1)
+
+#+begin_src asm 
+	  ldr    x0, =SCTLR_VALUE_MMU_DISABLED
+	  msr    sctlr_el1, x0  
+#+end_src
+
+在这里, 先设置 _sctlr_el1_ 系统寄存器的值. sctlr_el1 负责在 EL1 上运行时配置处理器的不同参数
+
+#+begin_example
+  例如：它控制是否启用缓存以及最重要的是是否打开 MMU (Memory Mapping Unit: 内存映射单元)
+
+  可以从所有高于或等于 EL1 的异常级别访问 sctlr_el1 寄存器 (也可以从 _el1 后缀中推断出这一点) 
+#+end_example
+
+_SCTLR_VALUE_MMU_DISABLED_ 是一个常量, 定义在 _sysregs.h_ 中。该值的各个位的定义如下：
++ sctlr_el1 寄存器描述中的某些位被标记为 _RES1_ (Reserve). 这些保留位是供将来使用的, 应将其初始化为1
+  #+begin_src c 
+    #define SCTLR_RESERVED (3 << 28)|(3 << 22)|(1 << 20)|(1 << 11) 
+  #+end_src
++ 异常的字节序：该字段控制在 EL1 处进行内存数据访问的顺序
+  #+begin_src c 
+    #define SCTLR_EE_LITTLE_ENDIAN (0 << 25) 
+  #+end_src
+  #+begin_example
+    我们将配置 处理器 仅在 little-endian 下工作
+  #+end_example
++ 与上一字段类似, 但此字段控制 _EL0_ 而不是 EL1处 的 数据访问的字节序
+  #+begin_src c
+    #define SCTLR_EOE_LITTLE_ENDIAN (0 << 24) 
+  #+end_src
++ 禁用指令缓存
+  #+begin_src c 
+    #define SCTLR_I_CACHE_DISABLED (0 << 12) 
+  #+end_src
+  #+begin_example
+    为了简单起见, 将禁用所有缓存
+  #+end_example
++ 禁用数据缓存
+  #+begin_src c 
+    #define SCTLR_D_CACHE_DISABLED (0 << 2) 
+  #+end_src
++ 禁用MMU
+  #+begin_src c 
+    #define SCTLR_MMU_DISABLED (0 << 0) 
+  #+end_src
+  #+begin_example
+    以后将准备页表并开始使用虚拟内存
+  #+end_example
+** HCR_EL2: 系统管理程序配置寄存器 (EL2)
+#+begin_src asm 
+	  ldr    x0, =HCR_VALUE
+	  msr    hcr_el2, x0
+#+end_src
+
+#+begin_example
+  这里不会实现自己的hypervisor
+
+#+end_example
+但在其他设置中, 它依然控制着EL1的执行状态. 执行状态必须是 *AArch64* 而不是AArch32。此配置在 _sysregs.h_ 
+** SCR_EL3: 安全配置寄存器 (EL3)
+
+#+begin_src asm 
+	  ldr    x0, =SCR_VALUE
+	  msr    scr_el3, x0
+#+end_src
+
+该寄存器负责配置安全设置
+
+#+begin_example
+  例如, 它控制所有较低级别是在 安全 状态还是 非安全 状态下执行
+#+end_example
+
+它还控制 EL2 的执行状态，设置EL2将在AArch64处执行，所有更低的异常级别都是 *不安全* 的
+** SPSR_EL3: 储存程序状态寄存器 (EL3)
+#+begin_src asm 
+	  ldr    x0, =SPSR_VALUE
+	  msr    spsr_el3, x0
+#+end_src
+
+_spsr_el3_ 包含处理器状态, 在执行 eret 指令后将恢复该状态。处理器状态包括以下信息：
++ *Condition Flags*  这些标志位包含了之前执行的操作的信息：
+  + N标志：结果是负数
+  + A标志：零
+  + C标志：无符号溢出
+  + V标志：有符号溢出(V标志)
+    #+begin_example
+      这些标志的值可以在条件分支指令中使用
+
+      例如, 仅当上一次比较操作的结果等于0时, b.eq指令才会跳转到所提供的标签
+
+      处理器通过测试Z标志是否设置为1来进行检查
+    #+end_example
++ *Interrupt disable bits* 这些位允许 _启用_ / _禁用_ 不同类型的中断
++ *其他信息* ： 处理异常后, 完全恢复处理器执行状态所需的一些其他信息
+
+通常, 当 EL3 发生异常时, 会自动保存spsr_el3. 但是该寄存器是可写的, 因此利用这一事实并手动准备处理器的状态. 在sysregs.h 准备了SPSR_VALUE, 并初始化了以下域：
++ 将EL更改为EL1后, 所有类型的中断都将被屏蔽(或禁用)
+  #+begin_src c 
+    #define SPSR_MASK_ALL (7 << 6) 
+  #+end_src
++ 在EL1, 可以使用自己专用的栈指针, 也可以使用EL0栈指针。 _EL1h_ 模式意味着正在使用 *EL1 的专用栈指针* 
+  #+begin_src c 
+    #define SPSR_EL1h (5 << 0) 
+  #+end_src
+  #+begin_example
+    这条语句实际上就是启用了EL1的异常级别
+  #+end_example
+** ELR_EL3: 异常链接寄存器 (EL3)
+#+begin_src asm 
+	  adr    x0, el1_entry        
+	  msr    elr_el3, x0
+
+	  eret        
+#+end_src
+
+_elr_el3_ 存储的是返回地址, 在执行 _eret_ 指令后, 将返回该地址
+
+#+begin_example
+  在这里, 将此地址设置为 el1_entry 标签的位置
+#+end_example
+* 结论
+
+#+begin_example
+  差不多了：当进入 el1_entry 函数时, 执行应该已经处于EL1模式
+#+end_example
+
+| [[file:linux.org][Next: Linux实现]] | [[file:processor.org][Home: 处理器]] |
