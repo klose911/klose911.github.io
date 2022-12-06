@@ -201,11 +201,557 @@
  <a accesskey="H" href="./processor.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">Linux 实现</h1>
-<pre class="example" id="org6d68eda">
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org3f7d1b9">preserve_boot_args</a></li>
+<li><a href="#org16c12c4">el2_setup</a></li>
+<li><a href="#orgdddbb37">EL1 级别的处理器初始化</a></li>
+<li><a href="#orgb13ad76">结论</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org2ae22f4">
 上次在 stext 函数哪里停止了对 Linux 内核的探索，这个函数是 arm64体系结构源码的起点
 
 这次，我们将更深入一点
 </pre>
+
+
+<p>
+可能会发现有些无聊, 因为它主要讨论了不同的ARM系统寄存器及其在Linux内核中的用法. 但是仍然它非常重要, 原因如下：
+</p>
+<ol class="org-ol">
+<li><p>
+有必要了解硬件提供给软件的接口
+</p>
+<pre class="example" id="org5d2d49f">
+只需了解此接口, 就可以在许多情况下解构如何实现特定的内核功能以及软件和硬件如何协作以实现此功能
+</pre></li>
+<li><p>
+系统寄存器中的不同选项通常与启用/禁用各种硬件功能有关
+</p>
+<pre class="example" id="orga39d8ad">
+如果了解ARM处理器使用了那些系统寄存器, 那么就已经知道它支持哪种功能
+</pre></li>
+</ol>
+
+<p>
+好的, 现在来继续对 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/head.S#L116">stext</a> 函数的研究 
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">ENTRY</span>(stext)
+<span style="color: #daa520; font-weight: bold;">bl</span>    <span style="color: #00bfff; font-weight: bold;">preserve</span>_boot_args
+<span style="color: #daa520; font-weight: bold;">bl</span>    <span style="color: #00bfff; font-weight: bold;">el2</span>_setup            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Drop to EL1, w0=cpu_boot_mode</span>
+<span style="color: #daa520; font-weight: bold;">adrp</span>    <span style="color: #00bfff; font-weight: bold;">x23</span>, __PHYS_OFFSET
+<span style="color: #daa520; font-weight: bold;">and</span>    <span style="color: #00bfff; font-weight: bold;">x23</span>, x23, MIN_KIMG_ALIGN - 1    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">KASLR offset, defaults to 0</span>
+<span style="color: #daa520; font-weight: bold;">bl</span>    <span style="color: #00bfff; font-weight: bold;">set</span>_cpu_boot_mode_flag
+<span style="color: #daa520; font-weight: bold;">bl</span>    __create_page_tables
+<span style="color: #5f9ea0; font-style: italic;">/*</span>
+<span style="color: #5f9ea0; font-style: italic;">* The following calls CPU setup code, see arch/arm64/mm/proc.S for</span>
+<span style="color: #5f9ea0; font-style: italic;">* details.</span>
+<span style="color: #5f9ea0; font-style: italic;">* On return, the CPU will be ready for the MMU to be turned on and</span>
+<span style="color: #5f9ea0; font-style: italic;">* the TCR will have been set.</span>
+<span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #daa520; font-weight: bold;">bl</span>    __cpu_setup            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">initialise processor</span>
+<span style="color: #daa520; font-weight: bold;">b</span>    __primary_switch
+<span style="color: #daa520; font-weight: bold;">ENDPROC</span>(stext)
+</pre>
+</div>
+<div id="outline-container-org3f7d1b9" class="outline-2">
+<h2 id="org3f7d1b9">preserve_boot_args</h2>
+<div class="outline-text-2" id="text-org3f7d1b9">
+<p>
+<a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/head.S#L136">preserve_boot_args</a> 函数负责 <b>保存</b> 由 <span class="underline">引导加载程序</span> 传递给 <span class="underline">内核</span> 的参数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">preserve_boot_args</span>:
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x21, x0                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">x21=FDT</span>
+
+        <span style="color: #00bfff; font-weight: bold;">adr_l</span>    x0, boot_args            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">record the contents of</span>
+        <span style="color: #00bfff; font-weight: bold;">stp</span>    x21, x1, [x0]            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">x0 .. x3 at kernel entry</span>
+        <span style="color: #00bfff; font-weight: bold;">stp</span>    x2, x3, [x0, #16]
+
+        <span style="color: #00bfff; font-weight: bold;">dmb</span>    sy                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">needed before dc ivac with</span>
+        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">MMU off</span>
+
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x1, #0x20            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">4 x 8 bytes</span>
+        <span style="color: #00bfff; font-weight: bold;">b</span>    __inval_dcache_area        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">tail call</span>
+        <span style="color: #00bfff; font-weight: bold;">ENDPROC</span>(preserve_boot_args)
+</pre>
+</div>
+
+<p>
+根据 <a href="https://github.com/torvalds/linux/blob/v4.14/Documentation/arm64/booting.txt#L150">kernel boot protocol</a> 参数被通过 <span class="underline">x0-x3</span> 寄存器传递给内核：
+</p>
+<ul class="org-ul">
+<li>x0: 包含系统RAM中 <span class="underline">设备树Blob</span> (.dtb)的 <span class="underline">物理地址</span></li>
+<li>x1 - x3: 保留供将来使用</li>
+</ul>
+
+<p>
+该函数正在做的是将 x0-x3 寄存器的内容复制到 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/setup.c#L93">boot_args</a> 数组接着 <b>清除</b> 数据缓存里的相应缓存
+</p>
+
+<pre class="example" id="org3effaae">
+维护多处理器系统中的高速缓存本身就是一个大话题, 我们忽略它
+</pre>
+</div>
+</div>
+<div id="outline-container-org16c12c4" class="outline-2">
+<h2 id="org16c12c4">el2_setup</h2>
+<div class="outline-text-2" id="text-org16c12c4">
+<p>
+根据 <a href="https://github.com/torvalds/linux/blob/v4.14/Documentation/arm64/booting.txt#L159">arm64boot protocol</a>, 内核可以在EL1或EL2中引导. 在第二种情况下, 内核可以访问虚拟化扩展, 并且可以充当主机操作系统. 如果有幸可以在EL2中启动, <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/head.S#L386">el2_setup</a> 函数被调用. 它负责配置不同的参数(只能在EL2上访问), 并放到EL1上. 现在, 这个功能分成几个小部分, 并逐一解释：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">SPsel</span>, #1            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">We want to use SP_EL{1,2}</span>
+</pre>
+</div>
+
+<p>
+专用堆栈指针将同时用于EL1和EL2. 另一个选择是重用EL0的堆栈指针：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">mrs</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, CurrentEL
+<span style="color: #daa520; font-weight: bold;">cmp</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, #CurrentEL_EL2
+<span style="color: #daa520; font-weight: bold;">b</span>.eq    1f
+</pre>
+</div>
+
+<p>
+只有当前EL为 EL2，并且处于标签 1 的 分支时, 否则无法继续进行 EL2 设置
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">mrs</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, sctlr_el1
+<span style="color: #daa520; font-weight: bold;">CPU_BE</span>(    orr    x0, x0, #(3 &lt;&lt; 24)    )    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Set the EE and E0E bits for EL1</span>
+<span style="color: #daa520; font-weight: bold;">CPU_LE</span>(    bic    x0, x0, #(3 &lt;&lt; 24)    )    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Clear the EE and E0E bits for EL1</span>
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">sctlr</span>_el1, x0
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">w0</span>, #BOOT_CPU_MODE_EL1        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">This cpu booted in EL1</span>
+<span style="color: #daa520; font-weight: bold;">isb</span>
+<span style="color: #daa520; font-weight: bold;">ret</span>
+</pre>
+</div>
+
+<p>
+如果发生这种情况, 将在 EL1执行, sctlr_el1 寄存器已更新, 以便CPU可以根据 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/Kconfig#L612">CPU_BIG_ENDIAN</a> 的配置项自己选择在 little-endian 模式或 big-endian 模式下工作。然后退出 el2_setup 函数并返回 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/include/asm/virt.h#L55">BOOT_CPU_MODE_EL1</a> 常量
+</p>
+
+<pre class="example" id="orgb6f2964">
+根据 ARM64函数调用约定 返回值应放在x0寄存器中
+
+这里为w0. 可以将 w0 寄存器视为 x0 的前32位
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">1</span>:    <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, sctlr_el2
+        <span style="color: #00bfff; font-weight: bold;">CPU_BE</span>(    orr    x0, x0, #(1 &lt;&lt; 25)    )    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Set the EE bit for EL2</span>
+        <span style="color: #00bfff; font-weight: bold;">CPU_LE</span>(    bic    x0, x0, #(1 &lt;&lt; 25)    )    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Clear the EE bit for EL2</span>
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    sctlr_el2, x0
+</pre>
+</div>
+
+<p>
+如果是在EL2中启动的, 实际上也为EL2做相同的设置
+</p>
+
+<pre class="example" id="org68578e0">
+请注意, 这次使用的是sctlr_el2寄存器, 而不是sctlr_el1
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #ffd700;">#ifdef</span> <span style="color: #4eee94;">CONFIG_ARM64_VHE</span>
+<span style="color: #5f9ea0; font-style: italic;">/*</span>
+<span style="color: #5f9ea0; font-style: italic;">* Check for VHE being present. For the rest of the EL2 setup,</span>
+<span style="color: #5f9ea0; font-style: italic;">* x2 being non-zero indicates that we do have VHE, and that the</span>
+<span style="color: #5f9ea0; font-style: italic;">* kernel is intended to run at EL2.</span>
+<span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #daa520; font-weight: bold;">mrs</span>    <span style="color: #00bfff; font-weight: bold;">x2</span>, id_aa64mmfr1_el1
+<span style="color: #daa520; font-weight: bold;">ubfx</span>    <span style="color: #00bfff; font-weight: bold;">x2</span>, x2, #8, #4
+<span style="color: #ffd700;">#else</span>
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x2</span>, xzr
+<span style="color: #ffd700;">#endif</span>
+</pre>
+</div>
+
+<p>
+如果 <a href="https://developer.arm.com/products/architecture/a-profile/docs/100942/latest/aarch64-virtualization">虚拟主机扩展 (VHE)</a> 已经通过 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/Kconfig#L926">ARM64_VHE</a> 配置变量生效, 并且主机支持它们, 则将 x2 更新为非零值
+</p>
+
+<pre class="example" id="org88ff6a7">
+x2 接下来将在同一函数中被用来检查是否启用了VHE
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">mov</span>    x0, #HCR_RW            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">64-bit EL1</span>
+        <span style="color: #00bfff; font-weight: bold;">cbz</span>    x2, set_hcr
+        <span style="color: #00bfff; font-weight: bold;">orr</span>    x0, x0, #HCR_TGE        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Enable Host Extensions</span>
+        <span style="color: #00bfff; font-weight: bold;">orr</span>    x0, x0, #HCR_E2H
+<span style="color: #daa520; font-weight: bold;">set_hcr</span>:
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    hcr_el2, x0
+        <span style="color: #00bfff; font-weight: bold;">isb</span>
+</pre>
+</div>
+
+<p>
+接下来设置 hcr_el2 寄存器
+</p>
+
+<pre class="example" id="orgf740189">
+这和RPIOS中使用相同的寄存器为 EL1 设置 64位执行模式
+</pre>
+
+<p>
+同样, 如果 x2！= 0, 这意味着 VHE 可用并且 内核被配置为使用它, 因此 hcr_el2也被用来启用VHE
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #5f9ea0; font-style: italic;">/*</span>
+<span style="color: #5f9ea0; font-style: italic;">        * Allow Non-secure EL1 and EL0 to access physical timer and counter.</span>
+<span style="color: #5f9ea0; font-style: italic;">        * This is not necessary for VHE, since the host kernel runs in EL2,</span>
+<span style="color: #5f9ea0; font-style: italic;">        * and EL0 accesses are configured in the later stage of boot process.</span>
+<span style="color: #5f9ea0; font-style: italic;">        * Note that when HCR_EL2.E2H == 1, CNTHCTL_EL2 has the same bit layout</span>
+<span style="color: #5f9ea0; font-style: italic;">        * as CNTKCTL_EL1, and CNTKCTL_EL1 accessing instructions are redefined</span>
+<span style="color: #5f9ea0; font-style: italic;">        * to access CNTHCTL_EL2. This allows the kernel designed to run at EL1</span>
+<span style="color: #5f9ea0; font-style: italic;">        * to transparently mess with the EL0 bits via CNTKCTL_EL1 access in</span>
+<span style="color: #5f9ea0; font-style: italic;">        * EL2.</span>
+<span style="color: #5f9ea0; font-style: italic;">        */</span>
+        <span style="color: #00bfff; font-weight: bold;">cbnz</span>    x2, 1f
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, cnthctl_el2
+        <span style="color: #00bfff; font-weight: bold;">orr</span>    x0, x0, #3            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Enable EL1 physical timers</span>
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    cnthctl_el2, x0
+<span style="color: #daa520; font-weight: bold;">1</span>:
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    cntvoff_el2, xzr        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Clear virtual offset</span>
+</pre>
+</div>
+
+<p>
+这段代码在上面的注释中得到了很好的解释
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        #ifdef CONFIG_ARM_GIC_V3
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">GICv3 system register access</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, id_aa64pfr0_el1
+        <span style="color: #00bfff; font-weight: bold;">ubfx</span>    x0, x0, #24, #4
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>    x0, #1
+        <span style="color: #00bfff; font-weight: bold;">b.ne</span>    3f
+
+        <span style="color: #00bfff; font-weight: bold;">mrs_s</span>    x0, SYS_ICC_SRE_EL2
+        <span style="color: #00bfff; font-weight: bold;">orr</span>    x0, x0, #ICC_SRE_EL2_SRE    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Set ICC_SRE_EL2.SRE==1</span>
+        <span style="color: #00bfff; font-weight: bold;">orr</span>    x0, x0, #ICC_SRE_EL2_ENABLE    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Set ICC_SRE_EL2.Enable==1</span>
+        <span style="color: #00bfff; font-weight: bold;">msr_s</span>    SYS_ICC_SRE_EL2, x0
+        <span style="color: #00bfff; font-weight: bold;">isb</span>                    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Make sure SRE is now set</span>
+        <span style="color: #00bfff; font-weight: bold;">mrs_s</span>    x0, SYS_ICC_SRE_EL2        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Read SRE back,</span>
+        <span style="color: #00bfff; font-weight: bold;">tbz</span>    x0, #0, 3f            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">and check that it sticks</span>
+        <span style="color: #00bfff; font-weight: bold;">msr_s</span>    SYS_ICH_HCR_EL2, xzr        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Reset ICC_HCR_EL2 to defaults</span>
+
+<span style="color: #daa520; font-weight: bold;">3</span>:
+        #endif
+</pre>
+</div>
+
+<p>
+这段代码只有当 GICv3可用并启用时, 才执行下一个代码段。GIC(Generic Interrupt Controller)代表 <span class="underline">通用中断控制器</span>
+</p>
+
+<pre class="example" id="orgbb3fdec">
+GIC规范的v3版本中增加了一些功能, 这些功能在虚拟化环境中特别有用
+
+例如, 使用GICv3, 就有可能使用 LPI(本地特定的外围设备中断)
+
+此类中断通过消息总线进行路由, 其配置保存在内存里的特殊表中
+</pre>
+
+<p>
+上面的代码负责启用 <span class="underline">SRE</span> (System Register Interface 系统寄存器接口)
+</p>
+
+<pre class="example" id="org8064647">
+必须先执行此步骤, 然后才能使用 ICC_*_ELn 寄存器 并使用 GICv3 功能
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Populate ID registers.</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+<span style="color: #daa520; font-weight: bold;">mrs</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, midr_el1
+<span style="color: #daa520; font-weight: bold;">mrs</span>    <span style="color: #00bfff; font-weight: bold;">x1</span>, mpidr_el1
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">vpidr</span>_el2, x0
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">vmpidr</span>_el2, x1
+</pre>
+</div>
+
+<p>
+<span class="underline">midr_el1</span> 和 <span class="underline">mpidr_el1</span> 是 <b>标识寄存器组</b> 中的只读寄存器. 它们提供了有关 <span class="underline">处理器制造商</span> ,  <span class="underline">处理器体系结构名称</span> ,  <span class="underline">内核数量</span> 以及其他一些信息的各种信息。这里, 使用从 midr_el1 和 mpidr_el1 获取的值 <b>填充</b> <span class="underline">vpidr_el2</span> 和 <span class="underline">vmpidr_el2</span>
+</p>
+
+<pre class="example" id="orgfb6ca4c">
+因此无论尝试从EL1还是更高级别的异常级别访问它, 此信息都是相同的
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #ffd700;">#ifdef</span> <span style="color: #4eee94;">CONFIG_COMPAT</span>
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">hstr</span>_el2, xzr            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Disable CP15 traps to EL2</span>
+<span style="color: #ffd700;">#endif</span>
+</pre>
+</div>
+
+<p>
+当处理器以32位模式执行时, 存在 <span class="underline">协处理器</span> 的概念. 协处理器可用于访问通常在64位模式下通过系统寄存器访问的信息
+</p>
+
+<pre class="example" id="orgc77afc9">
+官方文档可以了解那些内容可以被协处理器中访问
+</pre>
+
+<p>
+msr hstr_el2, xzr 指令允许从较低的异常级别时候使用协处理器
+</p>
+
+<pre class="example" id="orgd4107fc">
+仅当启用兼容模式时才有意义
+
+在这种模式下, 内核可以在64位内核之上运行32位用户应用程序
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">EL2 debug</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x1, id_aa64dfr0_el1        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check ID_AA64DFR0_EL1 PMUVer</span>
+        <span style="color: #00bfff; font-weight: bold;">sbfx</span>    x0, x1, #8, #4
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>    x0, #1
+        <span style="color: #00bfff; font-weight: bold;">b.lt</span>    4f                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Skip if no PMU present</span>
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, pmcr_el0            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Disable debug access traps</span>
+        <span style="color: #00bfff; font-weight: bold;">ubfx</span>    x0, x0, #11, #5            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">to EL2 and allow access to</span>
+<span style="color: #daa520; font-weight: bold;">4</span>:
+        <span style="color: #00bfff; font-weight: bold;">csel</span>    x3, xzr, x0, lt            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">all PMU counters from EL1</span>
+
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Statistical profiling</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">ubfx</span>    x0, x1, #32, #4            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Check ID_AA64DFR0_EL1 PMSVer</span>
+        <span style="color: #00bfff; font-weight: bold;">cbz</span>    x0, 6f                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Skip if SPE not present</span>
+        <span style="color: #00bfff; font-weight: bold;">cbnz</span>    x2, 5f                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">VHE?</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x1, #(MDCR_EL2_E2PB_MASK &lt;&lt; MDCR_EL2_E2PB_SHIFT)
+        <span style="color: #00bfff; font-weight: bold;">orr</span>    x3, x3, x1            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">If we don't have VHE, then</span>
+        <span style="color: #00bfff; font-weight: bold;">b</span>    6f                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">use EL1&amp;0 translation.</span>
+<span style="color: #daa520; font-weight: bold;">5</span>:                        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">For VHE, use EL2 translation</span>
+        <span style="color: #00bfff; font-weight: bold;">orr</span>    x3, x3, #MDCR_EL2_TPMS        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">and disable access from EL1</span>
+<span style="color: #daa520; font-weight: bold;">6</span>:
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    mdcr_el2, x3            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Configure debug traps</span>
+</pre>
+</div>
+
+<p>
+这段代码负责配置 <span class="underline">mdcr_el2</span> (Monitor Debug Configuration Register (EL2))，该寄存器负责设置与虚拟化扩展相关的调试陷阱门（一种中断类型）
+</p>
+
+<pre class="example" id="org1e564dd">
+这里不解释此代码块的详细信息, 因为调试和跟踪在讨论范围之外
+
+如果对细节感兴趣, 建议阅读 AArch64-Reference-Manual 第2810页 关于 mdcr_el2 寄存器的描述
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Stage-2 translation</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">vttbr</span>_el2, xzr
+</pre>
+</div>
+
+<p>
+当操作系统启用 hypervisor 时, 应为其虚拟的操作系统提供完全的内存隔离。虚拟内存二次转换正是用于此目的：每个虚拟的 OS 都认为它拥有所有系统内存, 尽管实际上每个内存访问都是通过2次转换映射到物理内存的。 <span class="underline">vttbr_el2</span> 存放2次转换后的翻译表的 <b>基地址</b> 。但当前, 虚拟内存二次转换暂时被禁用, 所以 vttbr_el2 应该设置为 0
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">cbz</span>    <span style="color: #00bfff; font-weight: bold;">x2</span>, install_el2_stub
+
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">w0</span>, #BOOT_CPU_MODE_EL2        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">This CPU booted in EL2</span>
+<span style="color: #daa520; font-weight: bold;">isb</span>
+<span style="color: #daa520; font-weight: bold;">ret</span>
+</pre>
+</div>
+
+<p>
+首先将 <span class="underline">x2</span> 与 <span class="underline">0</span> 进行比较, 以检查是否启用了VHE：
+</p>
+<ul class="org-ul">
+<li>如果是, 则跳转至 install_el2_stub 标签</li>
+<li><p>
+反之记录 处理器以 EL2 模式启动并退出 el2_setup 函数
+</p>
+<pre class="example" id="org01b18c1">
+在后一种情况下, 处理器将继续以EL2模式运行, 并且将完全不使用EL1
+</pre></li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">install_el2_stub</span>:
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">sctlr_el1</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x0, #0x0800            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Set/clear RES{1,0} bits</span>
+        <span style="color: #00bfff; font-weight: bold;">CPU_BE</span>(    movk    x0, #0x33d0, lsl #16    )    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Set EE and E0E on BE systems</span>
+        <span style="color: #00bfff; font-weight: bold;">CPU_LE</span>(    movk    x0, #0x30d0, lsl #16    )    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Clear EE and E0E on LE systems</span>
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    sctlr_el1, x0
+</pre>
+</div>
+
+<p>
+如果代码运行达到这里, 则意味着不需要VHE, 并且将很快切换到EL1, 因此需要在此处开始进行的EL1初始化
+</p>
+
+<pre class="example" id="orge14fbff">
+这段代码段负责 "sctlr_el1"(系统控制寄存器)的初始化
+
+RPi OS 已经做了类似的工作
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Coprocessor traps.</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, #0x33ff
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">cptr</span>_el2, x0            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Disable copro. traps to EL2</span>
+</pre>
+</div>
+
+<p>
+该代码允许EL1访问 <span class="underline">cpacr_el1</span> 寄存器, 从而控制对 <span class="underline">追踪(Trace)</span> ,  <span class="underline">浮点</span> 和 <span class="underline">高级SIMD</span> 功能的访问
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Hypervisor stub</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+<span style="color: #daa520; font-weight: bold;">adr_l</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, __hyp_stub_vectors
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">vbar</span>_el2, x0
+</pre>
+</div>
+
+<pre class="example" id="org1e8c061">
+尽管某些功能需要它, 但现在不打算使用EL2
+
+例如, 需要它来实现 kexec 系统调用, 该调用使您能够从当前运行的内核加载并引导到另一个内核
+</pre>
+
+
+<p>
+<a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/hyp-stub.S#L33">_hyp_stub_vectors</a> 包含 <span class="underline">EL2</span> 所有 <b>异常处理</b> 程序的地址
+</p>
+
+<pre class="example" id="org0c8e4c2">
+在详细讨论中断和异常处理之后, 将在下一章中为EL1实现异常处理功能
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">spsr</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, #(PSR_F_BIT | PSR_I_BIT | PSR_A_BIT | PSR_D_BIT |\
+<span style="color: #daa520; font-weight: bold;">PSR_MODE_EL1h</span>)
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">spsr</span>_el2, x0
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">elr</span>_el2, lr
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">w0</span>, #BOOT_CPU_MODE_EL2        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">This CPU booted in EL2</span>
+<span style="color: #daa520; font-weight: bold;">eret</span>
+</pre>
+</div>
+
+<p>
+最后, 需要在 EL1 处初始化处理器状态并切换异常级别
+</p>
+
+<pre class="example" id="org013e45f">
+已经为 RPi OS 实现过类似的功能
+</pre>
+
+<p>
+唯一的新东西是如何初始化 <span class="underline">elr_el2</span> : <span class="underline">lr</span> <b>链接寄存器</b> 是 <span class="underline">x30</span> 的别名。每当执行 bl(Branch Link)指令时, x30 都会自动填充当前指令的地址。这实际通常也被 ret 指令使用, 也是它能知道确切返回的位置
+</p>
+
+<pre class="example" id="org01ee5c2">
+这里 lr 指向 https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/head.S#L119
+
+通过这种方式, 来设置切换到 EL1 后要恢复执行的地方
+</pre>
+</div>
+</div>
+<div id="outline-container-orgdddbb37" class="outline-2">
+<h2 id="orgdddbb37">EL1 级别的处理器初始化</h2>
+<div class="outline-text-2" id="text-orgdddbb37">
+<p>
+现在回到 stext 函数. 接下来的几行并不是很重要, 但是为了完整起见, 仍然解释一下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">adrp</span>    <span style="color: #00bfff; font-weight: bold;">x23</span>, __PHYS_OFFSET
+<span style="color: #daa520; font-weight: bold;">and</span>    <span style="color: #00bfff; font-weight: bold;">x23</span>, x23, MIN_KIMG_ALIGN - 1    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">KASLR offset, defaults to 0</span>
+</pre>
+</div>
+
+<p>
+KASLR (Kernel address space layout randomization), 是一种允许将内核放置在内存中随机地址处的技术
+</p>
+
+<pre class="example" id="org800fa20">
+仅出于安全原因才需要这样做
+
+有关更多信息, 可以阅读https://lwn.net/Articles/569635/
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">bl</span>    <span style="color: #00bfff; font-weight: bold;">set</span>_cpu_boot_mode_flag
+</pre>
+</div>
+
+<p>
+将CPU引导模式保存到 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/include/asm/virt.h#L74">__boot_cpu_mode</a> 变量
+</p>
+
+<pre class="example" id="orgdfe37f9">
+执行此操作的代码与之前探讨的 preserve_boot_args 函数非常相似
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">bl</span>    __create_page_tables
+<span style="color: #daa520; font-weight: bold;">bl</span>    __cpu_setup            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">initialise processor</span>
+<span style="color: #daa520; font-weight: bold;">b</span>    __primary_switch
+</pre>
+</div>
+
+<p>
+最后3个功能非常重要, 但是它们都与 <span class="underline">虚拟内存管理</span> 有关。现在只想简短地描述一下其中的含义：
+</p>
+<ul class="org-ul">
+<li><b>__create_page_tables</b>: 顾名思义, 它负责 <b>创建</b> <span class="underline">页表</span></li>
+<li><b>__cpu_setup</b>:  初始化各种处理器设置, 主要针对 <span class="underline">虚拟内存</span> <b>管理</b></li>
+<li><p>
+<b>__primary_switch</b>: 启用 <span class="underline">MMU</span> 并 <b>跳</b> 至 <a href="https://github.com/torvalds/linux/blob/v4.14/init/main.c#L509">start_kernel</a> 函数
+</p>
+<pre class="example" id="org6cfb5c7">
+这是与体系结构无关的起点
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgb13ad76" class="outline-2">
+<h2 id="orgb13ad76">结论</h2>
+<div class="outline-text-2" id="text-orgb13ad76">
+<pre class="example" id="org80695e2">
+在本章中, 简要讨论了引导Linux内核时如何初始化处理器
+
+在下一章中, 将继续与ARM处理器紧密合作, 并研究任何OS的重要主题：中断处理
+</pre>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="rpi-os.html">Previous: 处理器初始化</a></td>
+<td class="org-left"><a href="processor.html">Home: 处理器</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
