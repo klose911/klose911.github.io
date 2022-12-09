@@ -201,6 +201,575 @@
  <a accesskey="H" href="./interrupt.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">中断</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org6650899">中断与异常</a></li>
+<li><a href="#org70476a1">异常处理向量表</a></li>
+<li><a href="#orgfdbe529">保存和恢复寄存器状态</a></li>
+<li><a href="#orgb4c865b">设置向量表</a></li>
+<li><a href="#orgfb36290">屏蔽/取消屏蔽中断</a></li>
+<li><a href="#org9cea1a4">配置中断控制器</a></li>
+<li><a href="#org93ad57e">通用IRQ处理程序</a></li>
+<li><a href="#orgceda258">计时器初始化</a></li>
+<li><a href="#orgc934bf7">处理计时器中断</a></li>
+<li><a href="#org0130b7b">结论</a></li>
+</ul>
+</div>
+</div>
+<p>
+有一种设备在操作系统开发中特别有用： <span class="underline">系统计时器</span> 。它是一种可以配置为以 <span class="underline">某个预定频率</span> 定期 <b>中断</b> <span class="underline">处理器工作</span> 的设备
+</p>
+
+<pre class="example" id="org57e4d32">
+进程调度是使用计时器的一种特殊应用，调度程序需要测量每个进程执行了多长时间, 并使用此信息选择要运行的下一个进程，而此测量基于计时器中断
+
+在下一章中, 将详细讨论进程调度, 但是现在, 任务是初始化系统计时器并实现计时器的中断处理程序
+</pre>
+<div id="outline-container-org6650899" class="outline-2">
+<h2 id="org6650899">中断与异常</h2>
+<div class="outline-text-2" id="text-org6650899">
+<p>
+在ARM.v8体系结构中, 中断是一种异常（更笼统的术语）。 异常有4种：
+</p>
+<ul class="org-ul">
+<li><p>
+<b>同步异常</b>: 这种类型的异常总是由当前执行的指令引起
+</p>
+<pre class="example" id="org6f5a2a6">
+例如, 可以使用 str 指令将一些数据存储在不存在的内存位置。在这种情况下, 将生成同步异常
+</pre>
+<ul class="org-ul">
+<li><p>
+同步异常也可以用于生成 <span class="underline">软件中断</span> 。软件中断是由 <span class="underline">svc</span> 指令有意产生的同步异常
+</p>
+<pre class="example" id="org9874e04">
+未来将使用该技术来实现系统调用
+</pre></li>
+</ul></li>
+<li><b>IRQ(中断请求)</b>: 这些是正常的中断。它们始终是 <span class="underline">异步</span> 的, 这意味着它们与当前执行的指令无关
+<ul class="org-ul">
+<li>与同步异常相反, 它们始终不是由处理器本身生成的, 而是由 <span class="underline">外部硬件</span> 生成的</li>
+</ul></li>
+<li>*FIQ(快速中断请求)*： 这种类型的异常称为“快速中断”
+<ul class="org-ul">
+<li>仅出于 <b>优先处理</b> 异常的目的而存在. 可以将某些中断配置为“正常”, 将其他中断配置为“快速”</li>
+<li><p>
+快速中断将首先发出 <span class="underline">信号</span> , 并将由单独的异常处理程序处理
+</p>
+<pre class="example" id="org2c4ef88">
+Linux不使用快速中断, 我们也不会这样做
+</pre></li>
+</ul></li>
+<li><p>
+<b>SError(系统错误)</b>: 像IRQ和FIQ一样, SError异常是 <span class="underline">异步</span> 的, 由 <span class="underline">外部硬件</span> 生成
+</p>
+<ul class="org-ul">
+<li>与 IRQ 和 FIQ 不同, SError 始终表示某种错误情况</li>
+</ul>
+<pre class="example" id="orgc38ff06">
+可以在 https://community.arm.com/processors/f/discussions/3205/re-what-is-serror-detailed-explanation-is-required 找到一个示例来说明何时可以使用SError产生中断 
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org70476a1" class="outline-2">
+<h2 id="org70476a1">异常处理向量表</h2>
+<div class="outline-text-2" id="text-org70476a1">
+<p>
+每个异常类型都需要有自己的处理程序。另外, 每个不同的 <span class="underline">执行状态</span> (异常生成的时候)应该定义单独的处理程序。从异常处理的角度来看, 有4种执行状态很有趣。如果在EL1工作, 则这些状态可以定义如下：
+</p>
+<ol class="org-ol">
+<li><p>
+<b>EL1t</b>: 与 <span class="underline">EL0</span> <b>共享</b> <span class="underline">堆栈指针</span> 时, EL1发生异常
+</p>
+<pre class="example" id="orgd383a74">
+当 SPSel 寄存器的值为 0 时, 就会发生这种情况
+</pre></li>
+<li><p>
+<b>EL1h</b>: 为 <span class="underline">EL1</span> 分配了 <b>专用</b> <span class="underline">堆栈指针</span> 时, EL1发生了异常
+</p>
+<pre class="example" id="orgb5276d4">
+这意味着 SPSel 拥有值 1, 这是当前正在使用的模式
+</pre></li>
+<li><b>EL0_64</b>: 以 <span class="underline">64位</span> 模式执行的 <span class="underline">EL0</span> 产生异常</li>
+<li><b>EL0_32</b>: 以 <span class="underline">32位</span> 模式执行的 <span class="underline">EL0</span> 产生异常</li>
+</ol>
+
+<p>
+总共, 需要定义16个异常处理程序(4个异常级别乘以4个执行状态)。一个 <b>保存</b> 所有 <span class="underline">异常处理程序地址</span> 的特殊数据结构被称为 <span class="underline">exception vector table</span> 或 <span class="underline">vector table</span>
+</p>
+
+<pre class="example" id="orgeda448f">
+向量表的结构在 AArch64-Reference-Manual 第1876页上的 表D1-7向量与向量表基址的向量偏移量 中定义
+</pre>
+
+<p>
+可以把向量表视为异常向量的数组, 其中每个异常向量(或处理程序)是负责 <b>处理</b> <span class="underline">特定异常</span> 的 <span class="underline">连续指令序列</span> . 因此, 对于来自 <a href="https://developer.arm.com/docs/ddi0487/ca/arm-architecture-reference-manual-armv8-for-armv8-a-architecture-profile">AArch64-参考手册</a> 的 表D1-7, 每个异常向量最多可以占用 <span class="underline">0x80 字节</span>
+</p>
+
+<pre class="example" id="orgaf13caf">
+这容量虽然不多, 但是没有人阻止从异常向量跳转到其他内存位置
+
+接下来通过一个示例, 所有这些都将更加清晰
+</pre>
+
+<p>
+与异常处理相关的所有内容都在 <span class="underline">entry.S</span> 中进行了定义。第一个有用的宏称为 <span class="underline">ventry</span> , 它用于 <b>创建</b> 向量表中的 <span class="underline">条目</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.macro</span>    ventry    label
+<span style="color: #00bfff; font-weight: bold;">.align</span>    7
+<span style="color: #daa520; font-weight: bold;">b</span>    \label
+<span style="color: #00bfff; font-weight: bold;">.endm</span>
+</pre>
+</div>
+
+<p>
+从命名中可以推断出, 不会在异常向量内部处理异常, 而是跳转到为宏提供的 <b>标签</b> , 它是 <span class="underline">label</span> 参数
+</p>
+<ul class="org-ul">
+<li>注意：需要 <span class="underline">.align 7</span> 指令, 因为所有异常向量都应位于彼此偏移的 <span class="underline">0x80</span> 字节上</li>
+</ul>
+
+
+<p>
+接下来定义向量表, 它由16个条目组成：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #5f9ea0; font-style: italic;">/*</span>
+<span style="color: #5f9ea0; font-style: italic;">        * Exception vectors.</span>
+<span style="color: #5f9ea0; font-style: italic;">        */</span>
+        <span style="color: #00bfff; font-weight: bold;">.align</span>  11
+        <span style="color: #00bfff; font-weight: bold;">.globl</span> vectors 
+<span style="color: #daa520; font-weight: bold;">vectors</span>:
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  sync_invalid_el1t                       <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Synchronous EL1t</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  irq_invalid_el1t                        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">IRQ EL1t</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  fiq_invalid_el1t                        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">FIQ EL1t</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  error_invalid_el1t                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Error EL1t</span>
+
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  sync_invalid_el1h                       <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Synchronous EL1h</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  el1_irq                                 <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">IRQ EL1h</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  fiq_invalid_el1h                        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">FIQ EL1h</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  error_invalid_el1h                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Error EL1h</span>
+
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  sync_invalid_el0_64                     <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Synchronous 64-bit EL0</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  irq_invalid_el0_64                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">IRQ 64-bit EL0</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  fiq_invalid_el0_64                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">FIQ 64-bit EL0</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  error_invalid_el0_64                    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Error 64-bit EL0</span>
+
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  sync_invalid_el0_32                     <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Synchronous 32-bit EL0</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  irq_invalid_el0_32                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">IRQ 32-bit EL0</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  fiq_invalid_el0_32                      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">FIQ 32-bit EL0</span>
+        <span style="color: #00bfff; font-weight: bold;">ventry</span>  error_invalid_el0_32                    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Error 32-bit EL0</span>
+</pre>
+</div>
+
+<pre class="example" id="org3d1e35a">
+现在, 我们只对处理来自 EL1h 的 IRQ 感兴趣, 但是仍然需要定义所有16个处理程序
+
+这不是因为某些硬件要求, 而是因为希望看到有意义的错误消息, 以防出现问题
+</pre>
+
+<p>
+所有不应该在正常流程中执行的处理程序都具有 <span class="underline">invalid</span> 的后缀, 并使用 <span class="underline">handle_invalid_entry宏</span> 。来看看如何定义此宏：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.macro</span> handle_invalid_entry type
+<span style="color: #daa520; font-weight: bold;">kernel_entry</span>
+<span style="color: #daa520; font-weight: bold;">mov</span>     <span style="color: #00bfff; font-weight: bold;">x0</span>, #\type
+<span style="color: #daa520; font-weight: bold;">mrs</span>     <span style="color: #00bfff; font-weight: bold;">x1</span>, esr_el1
+<span style="color: #daa520; font-weight: bold;">mrs</span>     <span style="color: #00bfff; font-weight: bold;">x2</span>, elr_el1
+<span style="color: #daa520; font-weight: bold;">bl</span>      <span style="color: #00bfff; font-weight: bold;">show</span>_invalid_entry_message
+<span style="color: #daa520; font-weight: bold;">b</span>       <span style="color: #00bfff; font-weight: bold;">err</span>_hang
+<span style="color: #00bfff; font-weight: bold;">.endm</span>
+</pre>
+</div>
+
+<ol class="org-ol">
+<li><p>
+第一行中, 可以看到使用了另一个宏： <span class="underline">kernel_entry</span>
+</p>
+<pre class="example" id="org615a744">
+下一小节将讨论
+</pre></li>
+<li>然后调用 <span class="underline">show_invalid_entry_message</span> 并为其准备3个参数
+<ul class="org-ul">
+<li>第一个参数： 表示 <span class="underline">异常类型</span> ，它准确地告诉我们执行了哪个异常处理程序</li>
+<li><p>
+第二个参数： 最重要的参数, 称为 <span class="underline">ESR</span> (Exception Syndrome Register), 该参数取自 <b>esr_el1</b> 寄存器
+</p>
+<pre class="example" id="org00b65b6">
+该寄存器在 AArch64-Reference-Manual 的第2431页中进行了描述，包含有关导致异常的原因的详细信息
+</pre></li>
+<li><p>
+第三个参数：它的值取自我们熟悉的 <b>elr_el1</b> 寄存器, 其中包含 <span class="underline">生成异常时</span> 已 <span class="underline">执行的</span> <b>指令的地址</b>
+</p>
+<pre class="example" id="orga771363">
+主要在同步异常的情况下很重要，这是导致异常的指令
+</pre></li>
+</ul></li>
+<li>在 <span class="underline">show_invalid_entry_message</span> 函数将所有这些信息打印到屏幕之后, 将处理器置于 <span class="underline">无限循环</span> 中, 因为无能为力了</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgfdbe529" class="outline-2">
+<h2 id="orgfdbe529">保存和恢复寄存器状态</h2>
+<div class="outline-text-2" id="text-orgfdbe529">
+<p>
+异常处理程序完成执行后, 希望所有通用寄存器具有与生成异常之前相同的值
+</p>
+
+<pre class="example" id="org9221c47">
+如果不实现这种功能, 则与当前正在执行的代码无关的中断可能会无法预测地影响该代码的行为
+
+这就是为什么在生成异常后要做的第一件事就是 “保存” 处理器状态
+</pre>
+
+<p>
+这是在 <span class="underline">kernel_entry宏</span> 中完成的
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.macro</span>  kernel_entry
+<span style="color: #daa520; font-weight: bold;">sub</span>     <span style="color: #00bfff; font-weight: bold;">sp</span>, sp, #S_FRAME_SIZE
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x0</span>, x1, [sp, #16 * 0]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x2</span>, x3, [sp, #16 * 1]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x4</span>, x5, [sp, #16 * 2]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x6</span>, x7, [sp, #16 * 3]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x8</span>, x9, [sp, #16 * 4]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x10</span>, x11, [sp, #16 * 5]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x12</span>, x13, [sp, #16 * 6]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x14</span>, x15, [sp, #16 * 7]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x16</span>, x17, [sp, #16 * 8]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x18</span>, x19, [sp, #16 * 9]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x20</span>, x21, [sp, #16 * 10]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x22</span>, x23, [sp, #16 * 11]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x24</span>, x25, [sp, #16 * 12]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x26</span>, x27, [sp, #16 * 13]
+<span style="color: #daa520; font-weight: bold;">stp</span>     <span style="color: #00bfff; font-weight: bold;">x28</span>, x29, [sp, #16 * 14]
+<span style="color: #daa520; font-weight: bold;">str</span>     <span style="color: #00bfff; font-weight: bold;">x30</span>, [sp, #16 * 15] 
+<span style="color: #00bfff; font-weight: bold;">.endm</span>
+</pre>
+</div>
+
+<p>
+这个宏非常简单：它只将寄存器 <span class="underline">x0-x30</span> <b>存储</b> 到 <span class="underline">堆栈</span> 中
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.macro</span>  kernel_exit
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x0</span>, x1, [sp, #16 * 0]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x2</span>, x3, [sp, #16 * 1]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x4</span>, x5, [sp, #16 * 2]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x6</span>, x7, [sp, #16 * 3]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x8</span>, x9, [sp, #16 * 4]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x10</span>, x11, [sp, #16 * 5]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x12</span>, x13, [sp, #16 * 6]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x14</span>, x15, [sp, #16 * 7]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x16</span>, x17, [sp, #16 * 8]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x18</span>, x19, [sp, #16 * 9]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x20</span>, x21, [sp, #16 * 10]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x22</span>, x23, [sp, #16 * 11]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x24</span>, x25, [sp, #16 * 12]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x26</span>, x27, [sp, #16 * 13]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x28</span>, x29, [sp, #16 * 14]
+<span style="color: #daa520; font-weight: bold;">ldr</span>     <span style="color: #00bfff; font-weight: bold;">x30</span>, [sp, #16 * 15] 
+<span style="color: #daa520; font-weight: bold;">add</span>     <span style="color: #00bfff; font-weight: bold;">sp</span>, sp, #S_FRAME_SIZE           
+<span style="color: #daa520; font-weight: bold;">eret</span>
+<span style="color: #00bfff; font-weight: bold;">.endm</span>
+</pre>
+</div>
+<p>
+还有一个相应的宏 <span class="underline">kernel_exit</span> , 在异常处理程序完成执行：
+</p>
+<ol class="org-ol">
+<li>通过把x0-x30寄存器的值压出栈来恢复处理器状态</li>
+<li>执行 eret 指令, 返回到正常的执行流程</li>
+</ol>
+
+<pre class="example" id="orgc3e41a8">
+顺便说一句, 通用寄存器并不是执行异常处理程序之前唯一需要保存的内容, 但是对于现在的简单内核而言, 这已经足够了
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb4c865b" class="outline-2">
+<h2 id="orgb4c865b">设置向量表</h2>
+<div class="outline-text-2" id="text-orgb4c865b">
+<pre class="example" id="orgf76e71a">
+现在准备好了向量表, 但是处理器并不知道它的位置, 因此无法使用它
+</pre>
+<p>
+为了能够处理异常, 必须将 <span class="underline">vbar_el1</span> (向量基址寄存器) <b>设置</b> 为 <span class="underline">向量表地址</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">.globl</span> irq_vector_init
+<span style="color: #daa520; font-weight: bold;">irq_vector_init</span>:
+        <span style="color: #00bfff; font-weight: bold;">adr</span>    x0, vectors        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">load VBAR_EL1 with virtual</span>
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    vbar_el1, x0        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">vector table address</span>
+        <span style="color: #00bfff; font-weight: bold;">ret</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgfb36290" class="outline-2">
+<h2 id="orgfb36290">屏蔽/取消屏蔽中断</h2>
+<div class="outline-text-2" id="text-orgfb36290">
+<p>
+需要做的另一件事是 <span class="underline">取消屏蔽</span> 所有类型的中断
+</p>
+
+<pre class="example" id="orgde6811a">
+这里解释一下“取消屏蔽”中断的含义：有时特定的代码段绝不能被异步中断拦截
+
+想象一下, 例如, 如果在 kernel_entry宏 的中间发生中断, 会发生什么？ 在这种情况下, 处理器状态将被覆盖并丢失
+
+这就是为什么每当执行异常处理程序时, 处理器都会自动禁用所有类型的中断。这称为“遮罩”, 如果需要, 也可以手动完成
+</pre>
+
+<p>
+许多人错误地认为必须在异常处理程序的整个过程中屏蔽中断。但这是不正确的：在 <span class="underline">保存处理器状态后</span> <b>取消屏蔽</b> <span class="underline">中断</span> 是完全合法的
+</p>
+
+<pre class="example" id="org2f57df2">
+因此嵌套的中断也是合法的。虽然现在不打算这样做, 但是这是要记住的重要信息
+</pre>
+
+<p>
+以下两个函数负责屏蔽和取消屏蔽中断：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">.globl</span> enable_irq
+<span style="color: #daa520; font-weight: bold;">enable_irq</span>:
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    daifclr, #2
+        <span style="color: #00bfff; font-weight: bold;">ret</span>
+
+        <span style="color: #00bfff; font-weight: bold;">.globl</span> disable_irq
+<span style="color: #daa520; font-weight: bold;">disable_irq</span>:
+        <span style="color: #00bfff; font-weight: bold;">msr</span>    daifset, #2
+        <span style="color: #00bfff; font-weight: bold;">ret</span>
+</pre>
+</div>
+
+<p>
+ARM处理器状态有 <span class="underline">4</span> 位, 负责保持不同类型中断的 <b>屏蔽</b> 状态. 这些位定义如下.
+</p>
+<ul class="org-ul">
+<li><p>
+<b>D</b>: 屏蔽 <span class="underline">调试异常</span>
+</p>
+<pre class="example" id="orga8a507c">
+这些是同步异常的一种特殊类型, 显然不可能屏蔽所有同步异常, 但是使用单独的标志可以屏蔽调试异常很方便
+</pre></li>
+<li><p>
+<b>A</b> : 屏蔽 <span class="underline">SErrors</span>
+</p>
+<pre class="example" id="org5795a8d">
+之所以称为 A, 是因为有时将 SErrors 称为 异步中止(Aysnchronize Abort)
+</pre></li>
+<li><b>I</b>: 屏蔽 <span class="underline">IRQs</span></li>
+<li><b>F</b>: 屏蔽 <span class="underline">FIQs</span></li>
+</ul>
+
+<p>
+因此负责更改中断屏蔽状态的寄存器称为 <span class="underline">daifclr</span> 和 <span class="underline">daifset</span> : 这些寄存器在处理器状态下 <b>设置</b> 和 <b>清除</b> <span class="underline">中断屏蔽状态位</span> 
+</p>
+
+<p>
+现在只想设置并清除 <b>第二个</b> <span class="underline">I</span> 位，所以用常量值 <span class="underline">2</span> 
+</p>
+</div>
+</div>
+
+<div id="outline-container-org9cea1a4" class="outline-2">
+<h2 id="org9cea1a4">配置中断控制器</h2>
+<div class="outline-text-2" id="text-org9cea1a4">
+<p>
+<span class="underline">设备</span> 通常不直接 <b>中断</b> <span class="underline">处理器</span> ：相反, 它们依靠 <span class="underline">中断控制器</span> 来完成工作。中断控制器可用于 <b>启用</b> / <b>禁用</b> 硬件发送的 <span class="underline">中断</span>
+</p>
+
+<pre class="example" id="org252fa77">
+还可以使用中断控制器来确定哪个设备产生了中断
+
+Raspberry PI具有自己的中断控制器, 该控制器在 BCM2837 ARM 外设手册 的第109页上进行了描述
+</pre>
+
+<p>
+Raspberry Pi中断控制器具有 <span class="underline">3</span> 个寄存器, 用于保存所有类型的中断的启用/禁用状态：
+</p>
+<ul class="org-ul">
+<li>ENABLE_IRQS_1 寄存器：对应于中断 0 ~ 31, 通过寄存器内的不同位置的值来启用或禁用这些中断</li>
+<li>ENABLE_IRQS_2 寄存器: 对应于 32 ~ 63 号中断</li>
+<li><p>
+ENABLE_BASIC_IRQS 寄存器： 控制一些常见中断以及ARM本地中断
+</p>
+<pre class="example" id="org27372d1">
+下一章将讨论ARM本地中断
+</pre></li>
+</ul>
+
+<p>
+目前, 仅对 <span class="underline">计时器中断</span> 感兴趣, 可以使用 ENABLE_IRQS_1 寄存器：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">enable_interrupt_controller</span>()
+{
+    put32(ENABLE_IRQS_1, SYSTEM_TIMER_IRQ_1);
+}
+</pre>
+</div>
+
+<pre class="example" id="org925e634">
+《外围设备手册》有很多错误, 其中之一：外围设备中断表(在手册第113页上进行了说明) 应在 0-3 行包含4个来自系统定时器的中断
+
+从逆向工程Linux源代码并阅读其他一些资源, 能够弄清楚该计时器中断0和2被保留并由GPU使用, 中断1和3可以用于任何其他目的。因此, 这是启用系统计时器IRQ编号1的功能
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org93ad57e" class="outline-2">
+<h2 id="org93ad57e">通用IRQ处理程序</h2>
+<div class="outline-text-2" id="text-org93ad57e">
+<p>
+从前面的讨论中, 应该了解, 我们只有一个异常处理程序, 负责处理所有的 IRQ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">handle_irq</span>(<span style="color: #98f5ff;">void</span>)
+{
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">irq</span> = get32(IRQ_PENDING_1);
+    <span style="color: #00bfff; font-weight: bold;">switch</span> (irq) {
+        <span style="color: #00bfff; font-weight: bold;">case</span> (SYSTEM_TIMER_IRQ_1):
+        handle_timer_irq();
+        <span style="color: #00bfff; font-weight: bold;">break</span>;
+    <span style="color: #00bfff; font-weight: bold;">default</span>:
+        printf(<span style="color: #deb887;">"Unknown pending irq: %x\r\n"</span>, irq);
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="orge55d77d">
+在处理程序中, 需要一种方法来确定哪个设备负责产生中断
+</pre>
+<p>
+中断控制器可以帮助完成此工作：它具有 <span class="underline">IRQ_PENDING_1</span> 寄存器, 该寄存器保存中断0-31的中断状态。使用该寄存器, 可以检查当前中断是由计时器还是由其他设备产生的, 并调用设备特定的中断处理程序
+</p>
+
+<pre class="example" id="orgedea4c9">
+注意：多个中断可以同时挂起。这就是每个设备特定的中断处理程序必须确认已完成对中断的处理的原因, 只有在IRQ_PENDING_1中的该中断挂起位被清除后, 该原因才会被清除
+
+由于相同的原因, 对于准备投入生产的OS, 可能希望在中断处理程序中把切换开关的逻辑包装在一个循环里：这样, 将能够在单个处理程序执行期间处理多个中断
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgceda258" class="outline-2">
+<h2 id="orgceda258">计时器初始化</h2>
+<div class="outline-text-2" id="text-orgceda258">
+<p>
+Raspberry Pi系统计时器是一个非常简单的设备。它具有一个计数器, 该计数器在每个时钟滴答之后将其值增加1。它还具有连接到中断控制器的4条中断线(因此它可以生成4个不同的中断)和4个相应的比较寄存器。当计数器的值等于存储在比较寄存器之一中的值时, 将触发相应的中断
+</p>
+
+<pre class="example" id="orgcc204b4">
+这就是为什么在能够使用系统定时器中断之前, 需要使用一个非零值初始化比较寄存器之一, 该值越大，则越晚生成中断
+</pre>
+
+<p>
+这是在 <span class="underline">timer_init</span> 函数中完成的：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">const</span> <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">interval</span> = 200000;
+<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">curVal</span> = 0;
+
+<span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">timer_init</span> ( <span style="color: #98f5ff;">void</span> )
+{
+    curVal = get32(TIMER_CLO);
+    curVal += interval;
+    put32(TIMER_C1, curVal);
+}
+</pre>
+</div>
+
+<ol class="org-ol">
+<li>读取当前计数器值</li>
+<li>增加当前计数器值</li>
+<li>为中断编号1设置比较寄存器的值</li>
+</ol>
+
+<pre class="example" id="orge700bd3">
+通过操作 interval 值, 可以调整第一次定时器中断的产生时间 
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgc934bf7" class="outline-2">
+<h2 id="orgc934bf7">处理计时器中断</h2>
+<div class="outline-text-2" id="text-orgc934bf7">
+<p>
+最后, 来到了计时器中断处理程序。实际上很简单：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">handle_timer_irq</span>( <span style="color: #98f5ff;">void</span> ) 
+{
+    curVal += interval;
+    put32(TIMER_C1, curVal);
+    put32(TIMER_CS, TIMER_CS_M1);
+    printf(<span style="color: #deb887;">"Timer interrupt received\n\r"</span>);
+}
+</pre>
+</div>
+
+<ol class="org-ol">
+<li>更新比较寄存器, 以便在相同的时间间隔后产生下一个中断</li>
+<li><p>
+通过将 <span class="underline">1</span> 写入 <span class="underline">TIMER_CS 寄存器</span> 来 <b>确认</b> 中断
+</p>
+<pre class="example" id="orgb120577">
+在文档里 TIMER_CS 中被称为 “计时器控制/状态” 寄存器
+
+该寄存器的位[0：3]可用于确认来自4条可用中断线之一的中断
+</pre></li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-org0130b7b" class="outline-2">
+<h2 id="org0130b7b">结论</h2>
+<div class="outline-text-2" id="text-org0130b7b">
+<pre class="example" id="orgfae904e">
+最后需要看的 kernel_main 函数, 其中协调了所有先前讨论的代码
+
+编译并运行示例后, 应在中断发生后输出 "Timer interrupt received" 
+
+请尝试自己动手做, 不要忘记仔细检查代码并进行试验
+</pre>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="linux.html">Next：Linux实现</a></td>
+<td class="org-left"><a href="interrupt.html">Home：中断</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
