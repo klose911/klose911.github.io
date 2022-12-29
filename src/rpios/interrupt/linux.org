@@ -18,6 +18,458 @@
 	  msr    vbar_el1, x8            // vector table address
 #+end_src
 
+从这段代码中, 可以推断出 _向量表_ 被称为 _vector_ , 应该能够轻松找到 [[https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/entry.S#L367][定义]]
+
+#+begin_src asm 
+	  /*
+	  ,* Exception vectors.
+	  ,*/
+	  .pushsection ".entry.text", "ax"
+
+	  .align    11
+	  ENTRY(vectors)
+	  kernel_ventry    el1_sync_invalid        // Synchronous EL1t
+	  kernel_ventry    el1_irq_invalid            // IRQ EL1t
+	  kernel_ventry    el1_fiq_invalid            // FIQ EL1t
+	  kernel_ventry    el1_error_invalid        // Error EL1t
+
+	  kernel_ventry    el1_sync            // Synchronous EL1h
+	  kernel_ventry    el1_irq                // IRQ EL1h
+	  kernel_ventry    el1_fiq_invalid            // FIQ EL1h
+	  kernel_ventry    el1_error_invalid        // Error EL1h
+
+	  kernel_ventry    el0_sync            // Synchronous 64-bit EL0
+	  kernel_ventry    el0_irq                // IRQ 64-bit EL0
+	  kernel_ventry    el0_fiq_invalid            // FIQ 64-bit EL0
+	  kernel_ventry    el0_error_invalid        // Error 64-bit EL0
+
+	  #ifdef CONFIG_COMPAT
+	  kernel_ventry    el0_sync_compat            // Synchronous 32-bit EL0
+	  kernel_ventry    el0_irq_compat            // IRQ 32-bit EL0
+	  kernel_ventry    el0_fiq_invalid_compat        // FIQ 32-bit EL0
+	  kernel_ventry    el0_error_invalid_compat    // Error 32-bit EL0
+	  #else
+	  kernel_ventry    el0_sync_invalid        // Synchronous 32-bit EL0
+	  kernel_ventry    el0_irq_invalid            // IRQ 32-bit EL0
+	  kernel_ventry    el0_fiq_invalid            // FIQ 32-bit EL0
+	  kernel_ventry    el0_error_invalid        // Error 32-bit EL0
+	  #endif
+	  END(vectors)
+#+end_src
+
+#+begin_example
+  kernel_ventry宏与ventry在RPi OS中也有定义
+
+  不过, 一个区别是 kernel_ventry 还负责检查是否发生了内核堆栈溢出
+
+  如果设置了CONFIG_VMAP_STACK, 则启用此功能, 它是内核功能的一部分, 称为虚拟映射内核堆栈
+#+end_example
+
+** kernel_entry
+kernel_entry宏 在 Linux 里要复杂得多：
+
+#+begin_src asm 
+	  .macro	kernel_entry, el, regsize = 64
+	  .if	\regsize == 32
+	  mov	w0, w0				// zero upper 32 bits of x0
+	  .endif
+	  stp	x0, x1, [sp, #16 * 0]
+	  stp	x2, x3, [sp, #16 * 1]
+	  stp	x4, x5, [sp, #16 * 2]
+	  stp	x6, x7, [sp, #16 * 3]
+	  stp	x8, x9, [sp, #16 * 4]
+	  stp	x10, x11, [sp, #16 * 5]
+	  stp	x12, x13, [sp, #16 * 6]
+	  stp	x14, x15, [sp, #16 * 7]
+	  stp	x16, x17, [sp, #16 * 8]
+	  stp	x18, x19, [sp, #16 * 9]
+	  stp	x20, x21, [sp, #16 * 10]
+	  stp	x22, x23, [sp, #16 * 11]
+	  stp	x24, x25, [sp, #16 * 12]
+	  stp	x26, x27, [sp, #16 * 13]
+	  stp	x28, x29, [sp, #16 * 14]
+
+	  .if	\el == 0
+	  mrs	x21, sp_el0
+	  ldr_this_cpu	tsk, __entry_task, x20	// Ensure MDSCR_EL1.SS is clear,
+	  ldr	x19, [tsk, #TSK_TI_FLAGS]	// since we can unmask debug
+	  disable_step_tsk x19, x20		// exceptions when scheduling.
+
+	  mov	x29, xzr			// fp pointed to user-space
+	  .else
+	  add	x21, sp, #S_FRAME_SIZE
+	  get_thread_info tsk
+	  /* Save the task's original addr_limit and set USER_DS (TASK_SIZE_64) */
+	  ldr	x20, [tsk, #TSK_TI_ADDR_LIMIT]
+	  str	x20, [sp, #S_ORIG_ADDR_LIMIT]
+	  mov	x20, #TASK_SIZE_64
+	  str	x20, [tsk, #TSK_TI_ADDR_LIMIT]
+	  /* No need to reset PSTATE.UAO, hardware's already set it to 0 for us */
+	  .endif /* \el == 0 */
+	  mrs	x22, elr_el1
+	  mrs	x23, spsr_el1
+	  stp	lr, x21, [sp, #S_LR]
+
+	  /*
+	  ,* In order to be able to dump the contents of struct pt_regs at the
+	  ,* time the exception was taken (in case we attempt to walk the call
+	  ,* stack later), chain it together with the stack frames.
+	  ,*/
+	  .if \el == 0
+	  stp	xzr, xzr, [sp, #S_STACKFRAME]
+	  .else
+	  stp	x29, x22, [sp, #S_STACKFRAME]
+	  .endif
+	  add	x29, sp, #S_STACKFRAME
+
+	  #ifdef CONFIG_ARM64_SW_TTBR0_PAN
+	  /*
+	  ,* Set the TTBR0 PAN bit in SPSR. When the exception is taken from
+	  ,* EL0, there is no need to check the state of TTBR0_EL1 since
+	  ,* accesses are always enabled.
+	  ,* Note that the meaning of this bit differs from the ARMv8.1 PAN
+	  ,* feature as all TTBR0_EL1 accesses are disabled, not just those to
+	  ,* user mappings.
+	  ,*/
+	  alternative_if ARM64_HAS_PAN
+	  b	1f				// skip TTBR0 PAN
+	  alternative_else_nop_endif
+
+	  .if	\el != 0
+	  mrs	x21, ttbr0_el1
+	  tst	x21, #0xffff << 48		// Check for the reserved ASID
+	  orr	x23, x23, #PSR_PAN_BIT		// Set the emulated PAN in the saved SPSR
+	  b.eq	1f				// TTBR0 access already disabled
+	  and	x23, x23, #~PSR_PAN_BIT		// Clear the emulated PAN in the saved SPSR
+	  .endif
+
+	  __uaccess_ttbr0_disable x21
+  1:
+	  #endif
+
+	  stp	x22, x23, [sp, #S_PC]
+
+	  /* Not in a syscall by default (el0_svc overwrites for real syscall) */
+	  .if	\el == 0
+	  mov	w21, #NO_SYSCALL
+	  str	w21, [sp, #S_SYSCALLNO]
+	  .endif
+
+	  /*
+	  ,* Set sp_el0 to current thread_info.
+	  ,*/
+	  .if	\el == 0
+	  msr	sp_el0, tsk
+	  .endif
+
+	  /*
+	  ,* Registers that may be useful after this macro is invoked:
+	  ,*
+	  ,* x21 - aborted SP
+	  ,* x22 - aborted PC
+	  ,* x23 - aborted PSTATE
+	  ,*/
+	  .endm
+#+end_src
+
+现在来详细研究这个宏
+#+begin_src asm 
+	  .macro    kernel_entry, el, regsize = 64
+#+end_src
+
+该宏接受2个参数： _el_ 和 _regsize_ :
++ el 可以是 0 或 1, 具体取决于是否在EL0或EL1上生成了异常
++ 如果来自32位EL0, 则 regsize 为32, 否则为64
+
+#+begin_src asm 
+	  .if    \regsize == 32
+	  mov    w0, w0                // zero upper 32 bits of x0
+	  .endif
+#+end_src
+
+在32位模式下, 使用32位通用寄存器(w0而不是x0)。w0在结构上映射到x0的下部
+
+#+begin_example
+  上面代码通过向自身写入w0来将x0寄存器的高32位清零
+#+end_example
+
+#+begin_src asm 
+	  stp    x0, x1, [sp, #16 * 0]
+	  stp    x2, x3, [sp, #16 * 1]
+	  stp    x4, x5, [sp, #16 * 2]
+	  stp    x6, x7, [sp, #16 * 3]
+	  stp    x8, x9, [sp, #16 * 4]
+	  stp    x10, x11, [sp, #16 * 5]
+	  stp    x12, x13, [sp, #16 * 6]
+	  stp    x14, x15, [sp, #16 * 7]
+	  stp    x16, x17, [sp, #16 * 8]
+	  stp    x18, x19, [sp, #16 * 9]
+	  stp    x20, x21, [sp, #16 * 10]
+	  stp    x22, x23, [sp, #16 * 11]
+	  stp    x24, x25, [sp, #16 * 12]
+	  stp    x26, x27, [sp, #16 * 13]
+	  stp    x28, x29, [sp, #16 * 14]
+#+end_src
+
+将所有通用寄存器保存在堆栈中
+
+#+begin_example
+  请注意：在 kernel_ventry 中已经对堆栈指针进行了调整, 以适应所有需要被存储
+
+  保存寄存器的顺序很重要, 因为在Linux中有一种特殊的结构pt_regs, 用于稍后在异常处理程序中访问保存的寄存器
+
+  该结构不仅包含通用寄存器, 还包含其他一些信息, 这些信息大多数稍后会在kernel_entry宏中填充
+#+end_example
+
+#+begin_src asm 
+	  .if    \el == 0
+	  mrs    x21, sp_el0
+#+end_src
+
+_x21_ 现在包含被异常的堆栈指针
+
+#+begin_example
+  请注意, Linux中的一个进程对于用户和内核模式分别使用不同的堆栈
+
+  在用户模式下, 可以使用 sp_el0 寄存器来计算异常产生时的堆栈指针值
+
+  这行非常重要, 因为需要在上下文切换期间交换堆栈指针
+#+end_example
+
+#+begin_src asm 
+	  ldr_this_cpu    tsk, __entry_task, x20    // Ensure MDSCR_EL1.SS is clear,
+	  ldr    x19, [tsk, #TSK_TI_FLAGS]    // since we can unmask debug
+	  disable_step_tsk x19, x20        // exceptions when scheduling.
+#+end_src
+_MDSCR_EL1.SS_ 位负责启用 *软件步骤异常* ：如果该位 _置1_ 并且调试异常未屏蔽, 则在执行任何指令后都会生成异常
+#+begin_example
+  这是调试器通常使用的
+#+end_example
+
+从用户模式获取异常时, 需要首先检查 [[https://github.com/torvalds/linux/blob/v4.14/arch/arm64/include/asm/thread_info.h#L93][TIF_SINGLESTEP]] 标志为当前任务设置. 如果是, 则表明任务正在调试器下执行, 必须将 MDSCR_EL1.SS位清零
+
+#+begin_example
+  在Linux中, 每个进程或线程(稍后都会将它们称为“任务”)都有一个 task_struct 与其关联，该结构包含有关任务的所有元数据信息
+
+  在arm64体系结构上task_struct中被放入另一个称为thread_info, 所以可以通过指向task_struct的指针来获取指向thread_info的指针
+
+  thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访问
+#+end_example
+
+#+begin_src asm 
+	  mov    x29, xzr            // fp pointed to user-space
+#+end_src
+
+尽管 _x29_ 是通用寄存器, 但通常具有特殊含义，它用作 *frame pointer* 。编译函数时, 通常：
+
+1. 在堆栈中存储旧的帧指针和链接寄存器值，x30被称为链接寄存器, 它包含一个由ret指令使用的“返回地址”
+2. 然后分配一个新的堆栈帧, 以便它可以包含函数的所有局部变量, 并且帧指针寄存器设置为指向帧的底部
+
+每当函数需要访问某些局部变量时, 它仅向帧指针添加硬编码的偏移量
+
+#+begin_example
+  现在想象一下发生了一个错误, 需要生成一个堆栈跟踪：
+
+  可以使用当前帧指针在堆栈中查找所有局部变量, 并且可以使用链接寄存器来确定调用者的确切位置
+
+  接下来, 利用以下事实：旧的帧指针和链接寄存器的值始终保存在堆栈帧的开头, 而我们可以从那里读取它们。一旦获取了调用者的帧指针之后, 现在反过来也可以访问调用者所有的局部变量
+
+  不断递归地重复此过程, 直到到达堆栈顶部为止, 这称为“堆栈展开”。事实上 ptrace 系统调用就是使用了类似的算法
+#+end_example
+
+现在, 回到 kernel_entry 宏, 就很清楚为什么在从EL0中获取异常后需要清除x29寄存器。这是因为在Linux中, 每个任务在用户和内核模式下都使用不同的堆栈, 因此拥有通用堆栈跟踪没有任何意义
+
+#+begin_src asm 
+	  .else
+	  add    x21, sp, #S_FRAME_SIZE
+#+end_src
+
+在 else子句中, 这意味着仅当处理从EL1提取的异常时, 在这种情况下, 将重用旧堆栈, 所以将 _原始sp值_ *保存* 在 _x21寄存器_ 中, 以备后用 
+
+#+begin_src asm 
+	  /* Save the task's original addr_limit and set USER_DS (TASK_SIZE_64) */
+	  ldr    x20, [tsk, #TSK_TI_ADDR_LIMIT]
+	  str    x20, [sp, #S_ORIG_ADDR_LIMIT]
+	  mov    x20, #TASK_SIZE_64
+	  str    x20, [tsk, #TSK_TI_ADDR_LIMIT]
+#+end_src
+
+任务的 _内存地址限制_ 指定了可以使用的最大虚拟内存地址：
++ 当用户进程以32位模式运行时, 此限制为 2^32
++ 对于64位内核, 它可以更大, 通常为2^48
+
+如果碰巧从32位EL1中获取了异常, 则需要将此限制更改为 _TASK_SIZE_64_ 。此外, 还需要保存原始限制, 因为需要先还原该限制, 然后才能将执行返回到用户模式
+
+#+begin_src asm 
+	  mrs    x22, elr_el1
+	  mrs    x23, spsr_el1
+#+end_src
+
+在开始处理异常之前, 必须先将 _elr_el1_ 和 _spsr_el1_ 保存在堆栈中
+
+#+begin_example
+  尚未在RPI OS中完成此操作, 因为到目前为止, 始终返回到发生异常的位置
+
+  但是, 如果需要在处理异常时进行上下文切换, 就需要执行这些操作
+#+end_example
+
+#+begin_src asm 
+	  stp    lr, x21, [sp, #S_LR]
+#+end_src
+
+把 _链接寄存器_ 和 _帧指针寄存器_ 保存在堆栈中
+
+#+begin_example
+  已经知道, 根据是从EL0还是从EL1提取异常, 帧指针的计算方式有所不同, 并且该计算的结果已存储在x21寄存器中
+#+end_example
+
+#+begin_src asm 
+	  /*
+	  ,* In order to be able to dump the contents of struct pt_regs at the
+	  ,* time the exception was taken (in case we attempt to walk the call
+	  ,* stack later), chain it together with the stack frames.
+	  ,*/
+	  .if \el == 0
+	  stp    xzr, xzr, [sp, #S_STACKFRAME]
+	  .else
+	  stp    x29, x22, [sp, #S_STACKFRAME]
+	  .endif
+	  add    x29, sp, #S_STACKFRAME
+#+end_src
+
+这里填充了 _pt_regs_ 结构的 *stackframe 属性*
+
+#+begin_example
+  stackframe 属性还包含链接寄存器和帧指针, 尽管这里使用的是 elr_el1 的值(现在位于 x22 中) 而不是 lr
+
+  stackframe 一般只用于 堆栈回溯 
+#+end_example
+
+#+begin_src asm 
+	  #ifdef CONFIG_ARM64_SW_TTBR0_PAN
+	  alternative_if ARM64_HAS_PAN
+	  b    1f                // skip TTBR0 PAN
+	  alternative_else_nop_endif
+
+	  .if    \el != 0
+	  mrs    x21, ttbr0_el1
+	  tst    x21, #0xffff << 48        // Check for the reserved ASID
+	  orr    x23, x23, #PSR_PAN_BIT        // Set the emulated PAN in the saved SPSR
+	  b.eq    1f                // TTBR0 access already disabled
+	  and    x23, x23, #~PSR_PAN_BIT        // Clear the emulated PAN in the saved SPSR
+	  .endif
+
+	  __uaccess_ttbr0_disable x21
+  1:
+	  #endif
+#+end_src
+
+_CONFIG_ARM64_SW_TTBR0_PAN_ 参数禁止内核直接访问用户空间内存
+
+#+begin_example
+  跳过对此工作原理的详细说明, 因为此类安全功能对于讨论而言已超出范围
+#+end_example
+
+#+begin_src asm 
+	  stp    x22, x23, [sp, #S_PC]
+#+end_src
+
+这里, _elr_el1_ (x22) 和 _spsr_el1_ (x23) 被保存在堆栈中 
+
+#+begin_src asm 
+	  /* Not in a syscall by default (el0_svc overwrites for real syscall) */
+	  .if    \el == 0
+	  mov    w21, #NO_SYSCALL
+	  str    w21, [sp, #S_SYSCALLNO]
+	  .endif
+#+end_src
+
+pt_regs结构体有一个field, 指示当前异常是否为 _系统调用_ (syscall)
+
+#+begin_src asm 
+	  /*
+	  ,* Set sp_el0 to current thread_info.
+	  ,*/
+	  .if    \el == 0
+	  msr    sp_el0, tsk
+	  .endif
+#+end_src
+
+在内核模式下执行任务时, 不需要 _sp_el0_
+
+#+begin_example
+  .其值先前已保存在堆栈中, 因此可以在kernel_exit宏中轻松恢复
+#+end_example
+
+从现在开始, sp_el0将用于持有 *指向* _当前task_struct_ 的 _指针_ 
+
+** el1_irq 
+接下来要研究的是负责处理从EL1提取的IRQ的处理程序。在向量表中, 可以轻松地发现该处理程序称为 _el1_irq_ 并在 [[https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/entry.S#L562][此处]] 定义：
+
+#+begin_src asm 
+  el1_irq:
+	  kernel_entry 1
+	  enable_dbg
+	  #ifdef CONFIG_TRACE_IRQFLAGS
+	  bl    trace_hardirqs_off
+	  #endif
+
+	  irq_handler
+
+	  #ifdef CONFIG_PREEMPT
+	  ldr    w24, [tsk, #TSK_TI_PREEMPT]    // get preempt count
+	  cbnz    w24, 1f                // preempt count != 0
+	  ldr    x0, [tsk, #TSK_TI_FLAGS]    // get flags
+	  tbz    x0, #TIF_NEED_RESCHED, 1f    // needs rescheduling?
+	  bl    el1_preempt
+  1:
+	  #endif
+	  #ifdef CONFIG_TRACE_IRQFLAGS
+	  bl    trace_hardirqs_on
+	  #endif
+	  kernel_exit 1
+	  ENDPROC(el1_irq)
+#+end_src
+
+在此函数内部执行以下操作：
+1. 调用 _kernel_entry_ 和 _kernel_exit_ 宏来保存和恢复处理器状态：
+   + 第一个参数指示异常来自EL1
+2. 调用 _enable_dbg宏_ 可以 *取消屏蔽* _调试中断_
+   #+begin_example
+     此时, 这样做是安全的, 因为已经保存了处理器状态, 即使在中断处理程序的中间发生了调试异常, 也可以正确处理它
+   #+end_example
+3. _#ifdef CONFIG_TRACE_IRQFLAGS_ 块中的代码负责 *跟踪* _中断_ . 它记录2个事件：中断开始和结束
+4. _#ifdef CONFIG_PREEMPT_ 中的代码 *阻止访问* _当前任务标志_ , 以检查是否需要调用调度程序
+5. _irq_handler_ : 这是执行实际中断处理的地方 
+
+irq_handler 是一个宏, 定义如下.
+
+#+begin_src asm 
+	  .macro    irq_handler
+	  ldr_l    x1, handle_arch_irq
+	  mov    x0, sp
+	  irq_stack_entry
+	  blr    x1
+	  irq_stack_exit
+	  .endm
+#+end_src
+
+irq_handler执行 _handle_arch_irq_ 函数，该函数通过特殊的堆栈( _irq堆栈_ )执行
+
+#+begin_example
+  为什么有必要切换到其他堆栈？ 例如, 在RPI OS中, 没有这样做
+
+  但是如果不这么做, 将使用当前任务堆栈来处理中断, 而且永远无法确定当前任务堆栈中还有多少空间可以留给中断处理程序
+#+end_example
+
+接下来, 需要查看 handle_arch_irq。虽然他看起来像一个变量，而不是一个函数，实际上他是一个函数指针，并在 [[https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/irq.c#L46][set_handle_irq]] 函数中设置
+
+** 小结
+#+begin_example
+  至今为止已经研究了低级中断处理代码, 并从向量表一直跟踪到 handle_arch_irq ，这就是中断离开体系结构特定代码并开始由驱动程序代码处理的关键所在
+
+  下一个目标是通过驱动程序代码来追踪计时器中断
+#+end_example
 
 * 中断控制器
 
