@@ -212,7 +212,14 @@
 <li><a href="#orgf6111c0">小结</a></li>
 </ul>
 </li>
-<li><a href="#org7107abb">中断控制器</a></li>
+<li><a href="#org7107abb">中断控制器</a>
+<ul>
+<li><a href="#org9f8221a">使用设备树查找所需的设备和驱动程序</a></li>
+<li><a href="#org5579e12">本地与全局中断控制器</a></li>
+<li><a href="#org578790e">本地中断控制器</a></li>
+<li><a href="#org57d933d">通用中断控制器</a></li>
+</ul>
+</li>
 <li><a href="#org3a536e2">计时器</a></li>
 </ul>
 </div>
@@ -221,7 +228,7 @@
 <div id="outline-container-orga3acfc6" class="outline-2">
 <h2 id="orga3acfc6">底层异常处理</h2>
 <div class="outline-text-2" id="text-orga3acfc6">
-<pre class="example" id="orgff1e8f0">
+<pre class="example" id="orgd642b1e">
 如何在庞大的Linux内核源代码, 找到负责中断处理的代码？
 
 这里提出一个想法，向量表的基地址应存储在vbar_el1 寄存器中, 因此, 如果搜索 vbar_el1, 则应该能够弄清楚向量表的初始化位置
@@ -279,7 +286,7 @@
 </pre>
 </div>
 
-<pre class="example" id="org4810be4">
+<pre class="example" id="org09fd5d4">
 kernel_ventry宏与ventry在RPi OS中也有定义
 
 不过, 一个区别是 kernel_ventry 还负责检查是否发生了内核堆栈溢出
@@ -427,7 +434,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 在32位模式下, 使用32位通用寄存器(w0而不是x0)。w0在结构上映射到x0的下部
 </p>
 
-<pre class="example" id="org93fd417">
+<pre class="example" id="org6a1bf36">
 上面代码通过向自身写入w0来将x0寄存器的高32位清零
 </pre>
 
@@ -454,7 +461,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 将所有通用寄存器保存在堆栈中
 </p>
 
-<pre class="example" id="orgd767291">
+<pre class="example" id="org6e31d7b">
 请注意：在 kernel_ventry 中已经对堆栈指针进行了调整, 以适应所有需要被存储
 
 保存寄存器的顺序很重要, 因为在Linux中有一种特殊的结构pt_regs, 用于稍后在异常处理程序中访问保存的寄存器
@@ -472,7 +479,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 <span class="underline">x21</span> 现在包含被异常的堆栈指针
 </p>
 
-<pre class="example" id="org4a3b9d6">
+<pre class="example" id="org75b260d">
 请注意, Linux中的一个进程对于用户和内核模式分别使用不同的堆栈
 
 在用户模式下, 可以使用 sp_el0 寄存器来计算异常产生时的堆栈指针值
@@ -489,7 +496,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 <p>
 <span class="underline">MDSCR_EL1.SS</span> 位负责启用 <b>软件步骤异常</b> ：如果该位 <span class="underline">置1</span> 并且调试异常未屏蔽, 则在执行任何指令后都会生成异常
 </p>
-<pre class="example" id="org6cf6b0f">
+<pre class="example" id="orgb4fca9b">
 这是调试器通常使用的
 </pre>
 
@@ -497,7 +504,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 从用户模式获取异常时, 需要首先检查 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/include/asm/thread_info.h#L93">TIF_SINGLESTEP</a> 标志为当前任务设置. 如果是, 则表明任务正在调试器下执行, 必须将 MDSCR_EL1.SS位清零
 </p>
 
-<pre class="example" id="org5698cf8">
+<pre class="example" id="org4b6c13d">
 在Linux中, 每个进程或线程(稍后都会将它们称为“任务”)都有一个 task_struct 与其关联，该结构包含有关任务的所有元数据信息
 
 在arm64体系结构上task_struct中被放入另一个称为thread_info, 所以可以通过指向task_struct的指针来获取指向thread_info的指针
@@ -523,7 +530,7 @@ thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访�
 每当函数需要访问某些局部变量时, 它仅向帧指针添加硬编码的偏移量
 </p>
 
-<pre class="example" id="orga6013f1">
+<pre class="example" id="org4094ab9">
 现在想象一下发生了一个错误, 需要生成一个堆栈跟踪：
 
 可以使用当前帧指针在堆栈中查找所有局部变量, 并且可以使用链接寄存器来确定调用者的确切位置
@@ -578,7 +585,7 @@ thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访�
 在开始处理异常之前, 必须先将 <span class="underline">elr_el1</span> 和 <span class="underline">spsr_el1</span> 保存在堆栈中
 </p>
 
-<pre class="example" id="orgc97c920">
+<pre class="example" id="org60b438d">
 尚未在RPI OS中完成此操作, 因为到目前为止, 始终返回到发生异常的位置
 
 但是, 如果需要在处理异常时进行上下文切换, 就需要执行这些操作
@@ -593,7 +600,7 @@ thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访�
 把 <span class="underline">链接寄存器</span> 和 <span class="underline">帧指针寄存器</span> 保存在堆栈中
 </p>
 
-<pre class="example" id="org58d5dad">
+<pre class="example" id="org4abfd09">
 已经知道, 根据是从EL0还是从EL1提取异常, 帧指针的计算方式有所不同, 并且该计算的结果已存储在x21寄存器中
 </pre>
 
@@ -616,7 +623,7 @@ thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访�
 这里填充了 <span class="underline">pt_regs</span> 结构的 <b>stackframe 属性</b>
 </p>
 
-<pre class="example" id="org51b8bb9">
+<pre class="example" id="org2dcc105">
 stackframe 属性还包含链接寄存器和帧指针, 尽管这里使用的是 elr_el1 的值(现在位于 x22 中) 而不是 lr
 
 stackframe 一般只用于 堆栈回溯 
@@ -646,7 +653,7 @@ stackframe 一般只用于 堆栈回溯
 <span class="underline">CONFIG_ARM64_SW_TTBR0_PAN</span> 参数禁止内核直接访问用户空间内存
 </p>
 
-<pre class="example" id="orgc269b66">
+<pre class="example" id="org7d094b7">
 跳过对此工作原理的详细说明, 因为此类安全功能对于讨论而言已超出范围
 </pre>
 
@@ -686,7 +693,7 @@ pt_regs结构体有一个field, 指示当前异常是否为 <span class="underli
 在内核模式下执行任务时, 不需要 <span class="underline">sp_el0</span>
 </p>
 
-<pre class="example" id="org7f10eb6">
+<pre class="example" id="orgedc195e">
 .其值先前已保存在堆栈中, 因此可以在kernel_exit宏中轻松恢复
 </pre>
 
@@ -740,7 +747,7 @@ pt_regs结构体有一个field, 指示当前异常是否为 <span class="underli
 <li><p>
 调用 <span class="underline">enable_dbg宏</span> 可以 <b>取消屏蔽</b> <span class="underline">调试中断</span>
 </p>
-<pre class="example" id="org009927e">
+<pre class="example" id="org56c1184">
 此时, 这样做是安全的, 因为已经保存了处理器状态, 即使在中断处理程序的中间发生了调试异常, 也可以正确处理它
 </pre></li>
 <li><span class="underline">#ifdef CONFIG_TRACE_IRQFLAGS</span> 块中的代码负责 <b>跟踪</b> <span class="underline">中断</span> . 它记录2个事件：中断开始和结束</li>
@@ -767,7 +774,7 @@ irq_handler 是一个宏, 定义如下.
 irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函数通过特殊的堆栈( <span class="underline">irq堆栈</span> )执行
 </p>
 
-<pre class="example" id="orgf3b7cc8">
+<pre class="example" id="orgbb73d4e">
 为什么有必要切换到其他堆栈？ 例如, 在RPI OS中, 没有这样做
 
 但是如果不这么做, 将使用当前任务堆栈来处理中断, 而且永远无法确定当前任务堆栈中还有多少空间可以留给中断处理程序
@@ -782,7 +789,7 @@ irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函
 <div id="outline-container-orgf6111c0" class="outline-3">
 <h3 id="orgf6111c0">小结</h3>
 <div class="outline-text-3" id="text-orgf6111c0">
-<pre class="example" id="org4b8db22">
+<pre class="example" id="org3a2bc56">
 至今为止已经研究了低级中断处理代码, 并从向量表一直跟踪到 handle_arch_irq ，这就是中断离开体系结构特定代码并开始由驱动程序代码处理的关键所在
 
 下一个目标是通过驱动程序代码来追踪计时器中断
@@ -793,6 +800,578 @@ irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函
 
 <div id="outline-container-org7107abb" class="outline-2">
 <h2 id="org7107abb">中断控制器</h2>
+<div class="outline-text-2" id="text-org7107abb">
+<pre class="example" id="org33e571a">
+接下来将大量讨论Linux驱动程序以及它们如何处理中断
+</pre>
+
+<p>
+先从驱动程序初始化代码开始, 然后看看 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/irq.c#L44">handle_arch_irq</a> 函数 
+</p>
+</div>
+
+<div id="outline-container-org9f8221a" class="outline-3">
+<h3 id="org9f8221a">使用设备树查找所需的设备和驱动程序</h3>
+<div class="outline-text-3" id="text-org9f8221a">
+<pre class="example" id="org575fe2b">
+在RPi OS中实现中断时, 一直在使用2种设备：系统定时器和中断控制器
+
+现在, 我们的目标是了解相同设备在Linux中的工作方式
+
+需要做的第一件事是找到负责使用提到的设备的驱动程序
+</pre>
+
+<p>
+为了找到所需的驱动程序, 可以使用 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dots/bcm2837-rpi-3-b.dts">bcm2837-rpi-3-b.dts</a> 设备树文件：这是特定于Raspberry Pi 3 Model B的顶级设备树文件, 它包含其他更常见的设备树文件, 这些文件在不同版本的Raspberry Pi之间共享. 如果遵循包含的链并搜索 timer 和 interrupt-controller , 则可以找到4个设备：
+</p>
+<ul class="org-ul">
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L11">本地中断控制器</a></li>
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L20">本地计时器</a></li>
+<li>全局中断控制器. 它被定义在 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L109">这里</a></li>
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L57">系统计时器</a></li>
+</ul>
+
+<pre class="example" id="org5a6fb73">
+为什么有4个设备而不是2个？
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org5579e12" class="outline-3">
+<h3 id="org5579e12">本地与全局中断控制器</h3>
+<div class="outline-text-3" id="text-org5579e12">
+<pre class="example" id="orgfea0213">
+考虑多处理器系统中的中断处理时, 应该问自己几个问题：
+
+哪个内核应负责处理特定的中断？
+
+发生中断时, 是全部4个内核都中断了, 还是只有一个？
+
+是否可以将特定的中断路由到特定的内核？
+
+可能想知道的另一个问题是, 如果一个处理器需要向其传递一些信息, 该处理器如何通知另一个处理器？
+</pre>
+
+<p>
+<span class="underline">本地中断控制器</span> 是可以帮助回答所有这些问题的设备，它负责以下任务：
+</p>
+<ul class="org-ul">
+<li>配置哪个内核应该接收特定的中断</li>
+<li>在内核之间发送中断. 这样的中断称为 <span class="underline">mailboxs</span> , 并允许内核相互通信</li>
+<li><p>
+处理来自本地计时器和性能监视器中断(PMU)的中断
+</p>
+
+<pre class="example" id="org790d6f9">
+BCM2836 ARM本地外围设备 手册中记录了本地中断控制器以及本地计时器的行为.
+
+为什么我们在系统中需要两个独立的计时器？使用本地计时器的主要用例是当要配置所有4个内核以同时接收计时器中断时。如果使用系统定时器, 则只能将中断路由到单个内核.
+
+使用RPi OS时, 既不使用本地中断控制器也不使用本地计时器：这是因为默认情况下, 本地中断控制器的配置方式是将所有外部中断都发送到第一个内核, 这正是我们所需要的. 所以没有使用本地计时器, 而是使用了系统计时器
+</pre></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org578790e" class="outline-3">
+<h3 id="org578790e">本地中断控制器</h3>
+<div class="outline-text-3" id="text-org578790e">
+<pre class="example" id="org2a33664">
+根据 [[https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L75][bcm2837.dtsi]] 全局中断控制器是本地中断控制器的子类型。 因此, 从本地控制器开始探索 
+</pre>
+
+<p>
+如果需要找到适用于特定设备的驱动程序, 则应使用 <span class="underline">compatible</span> 属性。搜索该属性的值, 可以轻松地找到一个与RPi本地中断控制器兼容的<a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L315">驱动程序</a> 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #daa520; font-weight: bold;">IRQCHIP_DECLARE</span>(bcm2836_arm_irqchip_l1_intc, <span style="color: #deb887;">"brcm,bcm2836-l1-intc"</span>,
+                bcm2836_arm_irqchip_l1_intc_of_init);
+</pre>
+</div>
+
+<p>
+内核遍历设备树中的所有设备定义, 并且针对每个定义, 它使用 compatible 属性寻找匹配的驱动程序。如果找到驱动程序, 则调用其初始化函数。在设备注册过程中提供了初始化函数, 在本例中, 此函数是 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L280">bcm2836_arm_irqchip_l1_intc_of_init</a>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">__init</span> bcm2836_arm_irqchip_l1_intc_of_init(<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">device_node</span> *<span style="color: #4eee94;">node</span>,
+                              <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">device_node</span> *<span style="color: #4eee94;">parent</span>)
+{
+    intc.base = of_iomap(node, 0);
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!intc.base) {
+        panic(<span style="color: #deb887;">"%pOF: unable to map local interrupt registers\n"</span>, node);
+    }
+
+    bcm2835_init_local_timer_frequency();
+
+    intc.domain = irq_domain_add_linear(node, LAST_IRQ + 1,
+                        &amp;bcm2836_arm_irqchip_intc_ops,
+                        <span style="color: #ffd700;">NULL</span>);
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!intc.domain)
+        panic(<span style="color: #deb887;">"%pOF: unable to create IRQ domain\n"</span>, node);
+
+    bcm2836_arm_irqchip_register_irq(LOCAL_IRQ_CNTPSIRQ,
+                     &amp;bcm2836_arm_irqchip_timer);
+    bcm2836_arm_irqchip_register_irq(LOCAL_IRQ_CNTPNSIRQ,
+                     &amp;bcm2836_arm_irqchip_timer);
+    bcm2836_arm_irqchip_register_irq(LOCAL_IRQ_CNTHPIRQ,
+                     &amp;bcm2836_arm_irqchip_timer);
+    bcm2836_arm_irqchip_register_irq(LOCAL_IRQ_CNTVIRQ,
+                     &amp;bcm2836_arm_irqchip_timer);
+    bcm2836_arm_irqchip_register_irq(LOCAL_IRQ_GPU_FAST,
+                     &amp;bcm2836_arm_irqchip_gpu);
+    bcm2836_arm_irqchip_register_irq(LOCAL_IRQ_PMU_FAST,
+                     &amp;bcm2836_arm_irqchip_pmu);
+
+    bcm2836_arm_irqchip_smp_init();
+
+    set_handle_irq(bcm2836_arm_irqchip_handle_irq);
+    <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+}
+</pre>
+</div>
+<p>
+初始化函数采用2个参数：_node_ 和 <span class="underline">parent</span> , 它们都是类型 <span class="underline">struct device_node</span>
+</p>
+<ul class="org-ul">
+<li>node: 设备树中的当前节点, 在本例中, 它指向 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L11">这里</a></li>
+<li><p>
+parent: 备树层次结构中的父节点, 对于本地中断控制器, 它指向 soc 元素
+</p>
+<pre class="example" id="orgbbd21e1">
+soc 是最简单的总线, 可以直接映射所有设备寄存器到主内存
+</pre></li>
+</ul>
+
+<p>
+节点可用于从当前设备树节点读取各种属性
+</p>
+<pre class="example" id="org3fafe91">
+例如, 函数 bcm2836_arm_irqchip_l1_intc_of_init 的第一行从 reg 读取设备基址属性
+
+但是, 此过程要复杂得多, 因为执行此功能时, 已启用MMU, 并且在能够访问物理内存的某个区域之前, 必须将该区域映射到某个虚拟地址
+</pre>
+
+<p>
+这正是 <span class="underline">of_iomap</span> 函数的作用: 它 <b>读取</b> 提供的节点的 <span class="underline">reg</span> 属性, 并将由reg属性描述的 <span class="underline">整个内存区域</span> <b>映射</b> 到 <span class="underline">某个虚拟内存区域</span> 
+</p>
+
+<p>
+接下来调用 <span class="underline">bcm2835_init_local_timer_frequency</span> 函数来初始化本地计时器的频率
+</p>
+
+<pre class="example" id="orgdab070e">
+此函数没有特别说明：它仅使用某些寄存器, 如BCM2836 ARM本地外围设备手册中所述, 以初始化本地计时器.
+</pre>
+
+<p>
+下一行需要一些解释：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">intc.domain = irq_domain_add_linear(node, LAST_IRQ + 1,
+                    &amp;bcm2836_arm_irqchip_intc_ops,
+                    <span style="color: #ffd700;">NULL</span>);
+</pre>
+</div>
+
+<pre class="example" id="orgfea11b5">
+Linux为每个中断分配一个唯一的整数, 可以将此数字视为唯一的中断ID，每次想对中断执行操作时都会使用此ID(例如, 分配处理程序或分配哪个CPU应该处理它)
+
+每个中断还具有一个硬件中断号. 这通常是一个数字, 告诉触发了哪个中断线。BCM2837 ARM外设手册 的外设中断表位于第113页：以将此表中的索引视为硬件中断号
+
+显然 需要某种机制将Linux irq号映射到硬件irq号, 反之亦然
+
+如果只有一个中断控制器, 则可以使用一对一的映射, 但是通常情况下, 需要使用更复杂的机制
+</pre>
+
+<p>
+在Linux中 <span class="underline">struct irq_domain</span> 实现了这种映射。每个中断控制器驱动程序应创建自己的irq域, 并注册该域可以处理的所有中断。注册函数返回Linux irq号, 该编号以后将用于处理中断
+</p>
+
+<p>
+接下来的6行负责向irq域注册每个受支持的中断：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">bcm2836_arm_irqchip_register_irq</span>(LOCAL_IRQ_CNTPSIRQ,
+                 &amp;bcm2836_arm_irqchip_timer);
+<span style="color: #daa520; font-weight: bold;">bcm2836_arm_irqchip_register_irq</span>(LOCAL_IRQ_CNTPNSIRQ,
+                 &amp;bcm2836_arm_irqchip_timer);
+<span style="color: #daa520; font-weight: bold;">bcm2836_arm_irqchip_register_irq</span>(LOCAL_IRQ_CNTHPIRQ,
+                 &amp;bcm2836_arm_irqchip_timer);
+<span style="color: #daa520; font-weight: bold;">bcm2836_arm_irqchip_register_irq</span>(LOCAL_IRQ_CNTVIRQ,
+                 &amp;bcm2836_arm_irqchip_timer);
+<span style="color: #daa520; font-weight: bold;">bcm2836_arm_irqchip_register_irq</span>(LOCAL_IRQ_GPU_FAST,
+                 &amp;bcm2836_arm_irqchip_gpu);
+<span style="color: #daa520; font-weight: bold;">bcm2836_arm_irqchip_register_irq</span>(LOCAL_IRQ_PMU_FAST,
+                 &amp;bcm2836_arm_irqchip_pmu);
+</pre>
+</div>
+
+<p>
+根据BCM2836 ARM本地外设 本地中断控制器处理10种不同的中断:
+</p>
+<ul class="org-ul">
+<li>0-3是本地计时器的中断</li>
+<li>4-7是邮箱中断, 用于进程间通信</li>
+<li>8对应于全局中断控制器生成的所有中断</li>
+<li>中断9是性能监视器中断</li>
+</ul>
+
+<p>
+<a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L67">这里</a> 会看到驱动程序定义了一组常量, 每个常量都包含 <span class="underline">硬件irq号</span> 
+</p>
+
+<pre class="example" id="org77cd0e4">
+上面的注册代码注册所有中断, 但邮箱中断除外, 邮箱中断是单独注册的
+</pre>
+
+<p>
+为了更好地了解注册来看看 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L154">bcm2836_arm_irqchip_register_irq</a> 函数
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">bcm2836_arm_irqchip_register_irq</span>(<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">hwirq</span>, <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">irq_chip</span> *<span style="color: #4eee94;">chip</span>)
+{
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">irq</span> = irq_create_mapping(intc.domain, hwirq);
+
+    irq_set_percpu_devid(irq);
+    irq_set_chip_and_handler(irq, chip, handle_percpu_devid_irq);
+    irq_set_status_flags(irq, IRQ_NOAUTOEN);
+}
+</pre>
+</div>
+
+<ol class="org-ol">
+<li>执行实际的中断注册. <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdomain.c#L632">irq_create_mapping</a> 将硬件中断号作为输入并返回 Linux irq号</li>
+<li><p>
+<a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdesc.c#L849">irq_set_percpu_devid</a> 将中断配置为 <b>当前CPU</b> , 因此只能在当前处理器上处理本地中断
+</p>
+<pre class="example" id="org1c2113e">
+因为现在讨论的所有中断都是本地中断, 因此所有中断只能在当前CPU上处理
+</pre></li>
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L608">irq_set_chip_and_handler</a>, 顾名思义, 设置irq芯片和irq处理程序
+<ul class="org-ul">
+<li><p>
+Irq芯片是一种特殊的结构, 需要由驱动程序创建, 该结构具有用于 <span class="underline">屏蔽</span> 和 <span class="underline">取消屏蔽</span> 特定中断的方法
+</p>
+<pre class="example" id="org895789e">
+正在查看的驱动程序现在定义了3种不同的irq芯片: timer 芯片, PMU 芯片 和 GPU 芯片
+
+它控制由外部外围设备生成的所有中断
+</pre></li>
+<li><p>
+处理程序是负责处理中断的功能. 在这种情况下, 处理程序设置为通用 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L859">handle_percpu_devid_irq</a> 函数
+</p>
+<pre class="example" id="org3e26685">
+稍后, 该处理程序将由全局中断控制器驱动程序重写
+</pre></li>
+</ul></li>
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L652">irq_set_status_flags</a> 在这种特殊情况下, 设置一个标志, 指示应手动启用当前中断, 并且默认情况下不应启用</li>
+</ol>
+
+<p>
+现在回到 bcm2836_arm_irqchip_l1_intc_of_init 函数, 只剩下两个调用. 第一个是 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L243">bcm2836_arm_irqchip_smp_init</a>  在此启用了邮箱中断, 从而允许处理器内核相互通信
+</p>
+
+<p>
+最后一个函数调用非常重要：这是将 <span class="underline">低级异常处理代码</span> <b>连接</b> 到 <span class="underline">驱动程序</span> 的地方
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">set_handle_irq</span>(bcm2836_arm_irqchip_handle_irq);
+</pre>
+</div>
+
+<p>
+<a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/irq.c#L46">set_handle_irq</a> 是在特定于体系结构的代码中定义的, 从上面的行中可以了解到 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L164">bcm2836_arm_irqchip_handle_irq</a> 将由低级异常代码调用：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span>
+<span style="color: #daa520; font-weight: bold;">__exception_irq_entry</span> bcm2836_arm_irqchip_handle_irq(<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">pt_regs</span> *<span style="color: #4eee94;">regs</span>)
+{
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">cpu</span> = smp_processor_id();
+    <span style="color: #98f5ff;">u32</span> <span style="color: #4eee94;">stat</span>;
+
+    stat = readl_relaxed(intc.base + LOCAL_IRQ_PENDING0 + 4 * cpu);
+    <span style="color: #00bfff; font-weight: bold;">if</span> (stat &amp; BIT(LOCAL_IRQ_MAILBOX0)) {
+<span style="color: #ffd700;">#ifdef</span> CONFIG_SMP
+        <span style="color: #98f5ff;">void</span> <span style="color: #4eee94;">__iomem</span> *mailbox0 = (intc.base +
+                      LOCAL_MAILBOX0_CLR0 + 16 * cpu);
+        <span style="color: #98f5ff;">u32</span> <span style="color: #4eee94;">mbox_val</span> = readl(mailbox0);
+        <span style="color: #98f5ff;">u32</span> <span style="color: #4eee94;">ipi</span> = ffs(mbox_val) - 1;
+
+        writel(1 &lt;&lt; ipi, mailbox0);
+        handle_IPI(ipi, regs);
+<span style="color: #ffd700;">#endif</span>
+    } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (stat) {
+        <span style="color: #98f5ff;">u32</span> <span style="color: #4eee94;">hwirq</span> = ffs(stat) - 1;
+
+        handle_domain_irq(intc.domain, hwirq, regs);
+    }
+}
+</pre>
+</div>
+
+<p>
+该函数读取 <span class="underline">LOCAL_IRQ_PENDING</span> 寄存器, 以找出当前正在处理的中断
+</p>
+
+<pre class="example" id="org1592a24">
+有4个 LOCAL_IRQ_PENDING 寄存器, 每个寄存器对应于其自己的处理器内核, 这就是为什么使用当前处理器索引来选择正确的寄存器的原因
+</pre>
+
+<p>
+邮箱中断和所有其他中断在if语句的2个不同子句中处理
+</p>
+
+<pre class="example" id="org39a63c0">
+多处理器系统的不同内核之间的交互超出了当前的讨论范围, 因此跳过邮箱中断处理部分
+</pre>
+
+<p>
+现在, 仅剩下以下两行没有解释：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">u32</span> <span style="color: #4eee94;">hwirq</span> = ffs(stat) - 1;
+
+              <span style="color: #daa520; font-weight: bold;">handle_domain_irq</span>(intc.domain, hwirq, regs);
+</pre>
+</div>
+
+<p>
+这是将中断传递给下一个处理程序的地方：
+</p>
+<ol class="org-ol">
+<li>首先计算硬件irq数，<a href="https://github.com/torvalds/linux/blob/v4.14/include/asm-generic/bitops/ffs.h#L13">ffs</a> (Find first bit set) 函数用于执行此操作</li>
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdesc.c#L622">handle_domain_irq</a> 函数被调用：
+<ul class="org-ul">
+<li>此函数使用irq域将硬件irq号码转换为Linux irq号码</li>
+<li>检查irq配置 (它存储在 <a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdesc.h#L55">irq_desc</a> 结构)</li>
+<li><p>
+调用一个中断处理程序
+</p>
+<pre class="example" id="orgca333bf">
+已经看到处理程序设置为 handle_percpu_devid_irq，但是, 此处理程序稍后将被子中断控制器覆盖。现在, 来检查一下这是如何发生的
+</pre></li>
+</ul></li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-org57d933d" class="outline-3">
+<h3 id="org57d933d">通用中断控制器</h3>
+<div class="outline-text-3" id="text-org57d933d">
+<pre class="example" id="orgf006eb6">
+已经看到了如何使用设备树和compatible属性来查找与某个设备相对应的驱动程序, 因此将跳过这一部分, 直接跳转到通用中断控制器驱动程序源代码
+</pre>
+<p>
+可以在找到它在 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c">irq-bcm2835.c</a> 文件。和往常一样, 将从初始化功能开始探索，这个函数是 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L141">armctrl_of_init</a> :
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">__init</span> armctrl_of_init(<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">device_node</span> *<span style="color: #4eee94;">node</span>,
+                  <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">device_node</span> *<span style="color: #4eee94;">parent</span>,
+                  <span style="color: #98f5ff;">bool</span> <span style="color: #4eee94;">is_2836</span>)
+{
+    <span style="color: #98f5ff;">void</span> <span style="color: #4eee94;">__iomem</span> *base;
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">irq</span>, <span style="color: #4eee94;">b</span>, <span style="color: #4eee94;">i</span>;
+
+    base = of_iomap(node, 0);
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!base)
+        panic(<span style="color: #deb887;">"%pOF: unable to map IC registers\n"</span>, node);
+
+    intc.domain = irq_domain_add_linear(node, MAKE_HWIRQ(NR_BANKS, 0),
+                        &amp;armctrl_ops, <span style="color: #ffd700;">NULL</span>);
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!intc.domain)
+        panic(<span style="color: #deb887;">"%pOF: unable to create IRQ domain\n"</span>, node);
+
+    <span style="color: #00bfff; font-weight: bold;">for</span> (b = 0; b &lt; NR_BANKS; b++) {
+        intc.pending[b] = base + reg_pending[b];
+        intc.enable[b] = base + reg_enable[b];
+        intc.disable[b] = base + reg_disable[b];
+
+        <span style="color: #00bfff; font-weight: bold;">for</span> (i = 0; i &lt; bank_irqs[b]; i++) {
+            irq = irq_create_mapping(intc.domain, MAKE_HWIRQ(b, i));
+            BUG_ON(irq &lt;= 0);
+            irq_set_chip_and_handler(irq, &amp;armctrl_chip,
+                         handle_level_irq);
+            irq_set_probe(irq);
+        }
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">if</span> (is_2836) {
+        <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">parent_irq</span> = irq_of_parse_and_map(node, 0);
+
+        <span style="color: #00bfff; font-weight: bold;">if</span> (!parent_irq) {
+            panic(<span style="color: #deb887;">"%pOF: unable to get parent interrupt.\n"</span>,
+                  node);
+        }
+        irq_set_chained_handler(parent_irq, bcm2836_chained_handle_irq);
+    } <span style="color: #00bfff; font-weight: bold;">else</span> {
+        set_handle_irq(bcm2835_handle_irq);
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+}
+</pre>
+</div>
+
+<p>
+现在, 更详细地研究此函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #4eee94;">__iomem</span> *base;
+<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">irq</span>, <span style="color: #4eee94;">b</span>, <span style="color: #4eee94;">i</span>;
+
+base = of_iomap(node, 0);
+<span style="color: #00bfff; font-weight: bold;">if</span> (!base)
+    panic(<span style="color: #deb887;">"%pOF: unable to map IC registers\n"</span>, node);
+
+intc.domain = irq_domain_add_linear(node, MAKE_HWIRQ(NR_BANKS, 0),
+                    &amp;armctrl_ops, <span style="color: #ffd700;">NULL</span>);
+<span style="color: #00bfff; font-weight: bold;">if</span> (!intc.domain)
+    panic(<span style="color: #deb887;">"%pOF: unable to create IRQ domain\n"</span>, node);
+
+</pre>
+</div>
+
+<p>
+此函数从读取设备基地址并初始化irq域的代码开始
+</p>
+<pre class="example" id="org92678fd">
+应该已经熟悉此部分, 因为在本地irq控制器驱动程序中看到过类似的代码
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">for</span> (b = 0; b &lt; NR_BANKS; b++) {
+    intc.pending[b] = base + reg_pending[b];
+    intc.enable[b] = base + reg_enable[b];
+    intc.disable[b] = base + reg_disable[b];
+</pre>
+</div>
+<p>
+接下来, 有一个循环遍历所有irq库。中断控制器具有3个irq bank, 由3个寄存器控制：
+</p>
+<ul class="org-ul">
+<li>ENABLE_IRQS_1</li>
+<li>ENABLE_IRQS_2</li>
+<li>ENABLE_BASIC_IRQS</li>
+</ul>
+
+<p>
+每个 Bank 都有其自己的 <span class="underline">启用</span> ,  <span class="underline">禁用</span> 和 <span class="underline">挂起</span> 寄存器：
+</p>
+<ul class="org-ul">
+<li>启用和禁用寄存器可用于启用或禁用属于特定存储区的单个中断</li>
+<li>待处理寄存器用于确定正在等待处理的中断</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">for</span> (i = 0; i &lt; bank_irqs[b]; i++) {
+    irq = irq_create_mapping(intc.domain, MAKE_HWIRQ(b, i));
+    BUG_ON(irq &lt;= 0);
+    irq_set_chip_and_handler(irq, &amp;armctrl_chip,
+                 handle_level_irq);
+    irq_set_probe(irq);
+}
+</pre>
+</div>
+<p>
+接下来, 有一个嵌套循环, 负责注册每个受支持的中断并设置irq芯片和处理程序.
+</p>
+<ul class="org-ul">
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L57">MAKE_HWIRQ</a> 宏用于计算硬件irq号. 它是根据bank index和irq index 计算</li>
+<li><p>
+<a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L603">handle_level_irq</a> 是同一级别类型的通用的中断处理程序
+</p>
+<pre class="example" id="orgd3d5b8d">
+此类中断将中断线设置为“高”, 直到确认该中断为止
+
+另外还有边缘类型中断以不同的方式工作
+</pre></li>
+<li><p>
+<a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L667">irq_set_probe</a> 函数清除 <a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L64">IRQ_NOPROBE</a> 中断标志, 有效地禁用中断自动探测
+</p>
+<pre class="example" id="org6dc5691">
+中断自动探测是允许不同的驱动程序发现其设备连接到哪条中断线的过程
+
+Raspberry Pi不需要此功能, 因为此信息被编码在设备树中, 但是, 对于某些设备, 这可能很有用
+</pre></li>
+</ul>
+
+<p>
+下一段代码对于BCM2836和BCM2835中断控制器的是不同的
+</p>
+
+<pre class="example" id="org5318d84">
+BCM2836 对应于RPi模型2和3, BCM2835 对应于RPi模型1 
+</pre>
+
+<p>
+如果正在处理BCM2836, 则执行以下代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">parent_irq</span> = irq_of_parse_and_map(node, 0);
+
+<span style="color: #00bfff; font-weight: bold;">if</span> (!parent_irq) {
+    panic(<span style="color: #deb887;">"%pOF: unable to get parent interrupt.\n"</span>,
+          node);
+}
+
+<span style="color: #daa520; font-weight: bold;">irq_set_chained_handler</span>(parent_irq, bcm2836_chained_handle_irq);
+</pre>
+</div>
+
+<p>
+设备树表明本地中断控制器是全局中断控制器的父级. 同时全局中断控制器已连接到本地控制器的中断线8, 这意味着父irq是硬件irq 8
+</p>
+
+<pre class="example" id="org24d9bf8">
+这2个属性允许Linux内核找出父中断号(这是Linux中断号, 而不是硬件号)
+</pre>
+
+<p>
+最后 <a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L636">irq_set_chained_handler</a> 函数将 父irq的处理程序替换为 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L246">bcm2836_chained_handle_irq</a> 函数。而 bcm2836_chained_handle_irq 很简单：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">bcm2836_chained_handle_irq</span>(<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">irq_desc</span> *<span style="color: #4eee94;">desc</span>)
+{
+    <span style="color: #98f5ff;">u32</span> <span style="color: #4eee94;">hwirq</span>;
+
+    <span style="color: #00bfff; font-weight: bold;">while</span> ((hwirq = get_next_armctrl_hwirq()) != ~0)
+        generic_handle_irq(irq_linear_revmap(intc.domain, hwirq));
+}
+</pre>
+</div>
+
+<ol class="org-ol">
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L217">get_next_armctrl_hwirq</a> 使用所有3个暂挂寄存器来确定触发了哪个中断</li>
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdomain.h#L377">irq_linear_revmap</a> 使用irq域将硬件irq号码转换为Linux irq号码</li>
+<li><a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdesc.h#L156">generic_handle_irq</a> 执行irq处理程序
+<ul class="org-ul">
+<li>在初始化中设置了Irq处理程序 它指向 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L603">handle_level_irq</a></li>
+<li><p>
+最终执行与中断相关的所有irq动作 (这实际上是在 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/handle.c#L135">这里</a> 完成的
+</p>
+<pre class="example" id="org3b293fc">
+然而, 所有支持的中断的irq操作列表为空
+
+对处理某些中断感兴趣的驱动程序应在列表中相应的条目中添加合适的内容
+
+接下来将以系统计时器为例来了解如何完成此操作
+</pre></li>
+</ul></li>
+</ol>
+</div>
+</div>
 </div>
 
 <div id="outline-container-org3a536e2" class="outline-2">
