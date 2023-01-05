@@ -234,7 +234,7 @@
 <div id="outline-container-orga3acfc6" class="outline-2">
 <h2 id="orga3acfc6">底层异常处理</h2>
 <div class="outline-text-2" id="text-orga3acfc6">
-<pre class="example" id="org8e751d2">
+<pre class="example" id="org98b5565">
 如何在庞大的Linux内核源代码, 找到负责中断处理的代码？
 
 这里提出一个想法，向量表的基地址应存储在vbar_el1 寄存器中, 因此, 如果搜索 vbar_el1, 则应该能够弄清楚向量表的初始化位置
@@ -292,7 +292,7 @@
 </pre>
 </div>
 
-<pre class="example" id="orgc1fd079">
+<pre class="example" id="orgb117589">
 kernel_ventry宏与ventry在RPi OS中也有定义
 
 不过, 一个区别是 kernel_ventry 还负责检查是否发生了内核堆栈溢出
@@ -440,7 +440,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 在32位模式下, 使用32位通用寄存器(w0而不是x0)。w0在结构上映射到x0的下部
 </p>
 
-<pre class="example" id="orgd05b04d">
+<pre class="example" id="org8cb87a6">
 上面代码通过向自身写入w0来将x0寄存器的高32位清零
 </pre>
 
@@ -467,7 +467,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 将所有通用寄存器保存在堆栈中
 </p>
 
-<pre class="example" id="orgdd68b7a">
+<pre class="example" id="org25ee945">
 请注意：在 kernel_ventry 中已经对堆栈指针进行了调整, 以适应所有需要被存储
 
 保存寄存器的顺序很重要, 因为在Linux中有一种特殊的结构pt_regs, 用于稍后在异常处理程序中访问保存的寄存器
@@ -485,7 +485,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 <span class="underline">x21</span> 现在包含被异常的堆栈指针
 </p>
 
-<pre class="example" id="org4c3669f">
+<pre class="example" id="org937d938">
 请注意, Linux中的一个进程对于用户和内核模式分别使用不同的堆栈
 
 在用户模式下, 可以使用 sp_el0 寄存器来计算异常产生时的堆栈指针值
@@ -502,7 +502,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 <p>
 <span class="underline">MDSCR_EL1.SS</span> 位负责启用 <b>软件步骤异常</b> ：如果该位 <span class="underline">置1</span> 并且调试异常未屏蔽, 则在执行任何指令后都会生成异常
 </p>
-<pre class="example" id="org5f231bf">
+<pre class="example" id="org8e20c5f">
 这是调试器通常使用的
 </pre>
 
@@ -510,7 +510,7 @@ kernel_entry宏 在 Linux 里要复杂得多：
 从用户模式获取异常时, 需要首先检查 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm64/include/asm/thread_info.h#L93">TIF_SINGLESTEP</a> 标志为当前任务设置. 如果是, 则表明任务正在调试器下执行, 必须将 MDSCR_EL1.SS位清零
 </p>
 
-<pre class="example" id="org0d0c43c">
+<pre class="example" id="org1dbb584">
 在Linux中, 每个进程或线程(稍后都会将它们称为“任务”)都有一个 task_struct 与其关联，该结构包含有关任务的所有元数据信息
 
 在arm64体系结构上task_struct中被放入另一个称为thread_info, 所以可以通过指向task_struct的指针来获取指向thread_info的指针
@@ -536,7 +536,7 @@ thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访�
 每当函数需要访问某些局部变量时, 它仅向帧指针添加硬编码的偏移量
 </p>
 
-<pre class="example" id="orgdf04fbf">
+<pre class="example" id="orge2fe5e7">
 现在想象一下发生了一个错误, 需要生成一个堆栈跟踪：
 
 可以使用当前帧指针在堆栈中查找所有局部变量, 并且可以使用链接寄存器来确定调用者的确切位置
@@ -591,7 +591,7 @@ thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访�
 在开始处理异常之前, 必须先将 <span class="underline">elr_el1</span> 和 <span class="underline">spsr_el1</span> 保存在堆栈中
 </p>
 
-<pre class="example" id="orgdf41dbc">
+<pre class="example" id="org915ef0f">
 尚未在RPI OS中完成此操作, 因为到目前为止, 始终返回到发生异常的位置
 
 但是, 如果需要在处理异常时进行上下文切换, 就需要执行这些操作
@@ -606,7 +606,7 @@ thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访�
 把 <span class="underline">链接寄存器</span> 和 <span class="underline">帧指针寄存器</span> 保存在堆栈中
 </p>
 
-<pre class="example" id="org6390dec">
+<pre class="example" id="orgd8a97a9">
 已经知道, 根据是从EL0还是从EL1提取异常, 帧指针的计算方式有所不同, 并且该计算的结果已存储在x21寄存器中
 </pre>
 
@@ -629,7 +629,7 @@ thread_info 存储了很多底层值和标志位，这些会被 entry.S 所访�
 这里填充了 <span class="underline">pt_regs</span> 结构的 <b>stackframe 属性</b>
 </p>
 
-<pre class="example" id="org130a9d5">
+<pre class="example" id="orgce318ed">
 stackframe 属性还包含链接寄存器和帧指针, 尽管这里使用的是 elr_el1 的值(现在位于 x22 中) 而不是 lr
 
 stackframe 一般只用于 堆栈回溯 
@@ -659,7 +659,7 @@ stackframe 一般只用于 堆栈回溯
 <span class="underline">CONFIG_ARM64_SW_TTBR0_PAN</span> 参数禁止内核直接访问用户空间内存
 </p>
 
-<pre class="example" id="org53fa214">
+<pre class="example" id="org26928ac">
 跳过对此工作原理的详细说明, 因为此类安全功能对于讨论而言已超出范围
 </pre>
 
@@ -699,7 +699,7 @@ pt_regs结构体有一个field, 指示当前异常是否为 <span class="underli
 在内核模式下执行任务时, 不需要 <span class="underline">sp_el0</span>
 </p>
 
-<pre class="example" id="org675ed60">
+<pre class="example" id="org4ba5038">
 .其值先前已保存在堆栈中, 因此可以在kernel_exit宏中轻松恢复
 </pre>
 
@@ -753,7 +753,7 @@ pt_regs结构体有一个field, 指示当前异常是否为 <span class="underli
 <li><p>
 调用 <span class="underline">enable_dbg宏</span> 可以 <b>取消屏蔽</b> <span class="underline">调试中断</span>
 </p>
-<pre class="example" id="org540692f">
+<pre class="example" id="orge962769">
 此时, 这样做是安全的, 因为已经保存了处理器状态, 即使在中断处理程序的中间发生了调试异常, 也可以正确处理它
 </pre></li>
 <li><span class="underline">#ifdef CONFIG_TRACE_IRQFLAGS</span> 块中的代码负责 <b>跟踪</b> <span class="underline">中断</span> . 它记录2个事件：中断开始和结束</li>
@@ -780,7 +780,7 @@ irq_handler 是一个宏, 定义如下.
 irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函数通过特殊的堆栈( <span class="underline">irq堆栈</span> )执行
 </p>
 
-<pre class="example" id="org8465010">
+<pre class="example" id="orga6c278c">
 为什么有必要切换到其他堆栈？ 例如, 在RPI OS中, 没有这样做
 
 但是如果不这么做, 将使用当前任务堆栈来处理中断, 而且永远无法确定当前任务堆栈中还有多少空间可以留给中断处理程序
@@ -795,7 +795,7 @@ irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函
 <div id="outline-container-orgf6111c0" class="outline-3">
 <h3 id="orgf6111c0">小结</h3>
 <div class="outline-text-3" id="text-orgf6111c0">
-<pre class="example" id="orgdc6b80f">
+<pre class="example" id="org2be316b">
 至今为止已经研究了低级中断处理代码, 并从向量表一直跟踪到 handle_arch_irq ，这就是中断离开体系结构特定代码并开始由驱动程序代码处理的关键所在
 
 下一个目标是通过驱动程序代码来追踪计时器中断
@@ -807,7 +807,7 @@ irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函
 <div id="outline-container-org7107abb" class="outline-2">
 <h2 id="org7107abb">中断控制器</h2>
 <div class="outline-text-2" id="text-org7107abb">
-<pre class="example" id="orgbf50c9b">
+<pre class="example" id="orgec14113">
 接下来将大量讨论Linux驱动程序以及它们如何处理中断
 </pre>
 
@@ -819,7 +819,7 @@ irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函
 <div id="outline-container-org9f8221a" class="outline-3">
 <h3 id="org9f8221a">使用设备树查找所需的设备和驱动程序</h3>
 <div class="outline-text-3" id="text-org9f8221a">
-<pre class="example" id="org9a53675">
+<pre class="example" id="org73122f8">
 在RPi OS中实现中断时, 一直在使用2种设备：系统定时器和中断控制器
 
 现在, 我们的目标是了解相同设备在Linux中的工作方式
@@ -837,7 +837,7 @@ irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函
 <li><a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L57">系统计时器</a></li>
 </ul>
 
-<pre class="example" id="orgb4ccb77">
+<pre class="example" id="orgd18c4a0">
 为什么有4个设备而不是2个？
 </pre>
 </div>
@@ -846,7 +846,7 @@ irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函
 <div id="outline-container-org5579e12" class="outline-3">
 <h3 id="org5579e12">本地与全局中断控制器</h3>
 <div class="outline-text-3" id="text-org5579e12">
-<pre class="example" id="orgaed70c1">
+<pre class="example" id="orgb0a6ebb">
 考虑多处理器系统中的中断处理时, 应该问自己几个问题：
 
 哪个内核应负责处理特定的中断？
@@ -868,7 +868,7 @@ irq_handler执行 <span class="underline">handle_arch_irq</span> 函数，该函
 处理来自本地计时器和性能监视器中断(PMU)的中断
 </p>
 
-<pre class="example" id="org3f74515">
+<pre class="example" id="orgd6ed1ca">
 BCM2836 ARM本地外围设备 手册中记录了本地中断控制器以及本地计时器的行为.
 
 为什么我们在系统中需要两个独立的计时器？使用本地计时器的主要用例是当要配置所有4个内核以同时接收计时器中断时。如果使用系统定时器, 则只能将中断路由到单个内核.
@@ -882,7 +882,7 @@ BCM2836 ARM本地外围设备 手册中记录了本地中断控制器以及本�
 <div id="outline-container-org578790e" class="outline-3">
 <h3 id="org578790e">本地中断控制器</h3>
 <div class="outline-text-3" id="text-org578790e">
-<pre class="example" id="org428085d">
+<pre class="example" id="org33cdab8">
 根据 [[https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L75][bcm2837.dtsi]] 全局中断控制器是本地中断控制器的子类型。 因此, 从本地控制器开始探索 
 </pre>
 
@@ -945,7 +945,7 @@ BCM2836 ARM本地外围设备 手册中记录了本地中断控制器以及本�
 <li><p>
 parent: 备树层次结构中的父节点, 对于本地中断控制器, 它指向 soc 元素
 </p>
-<pre class="example" id="orgb0f829c">
+<pre class="example" id="org223609a">
 soc 是最简单的总线, 可以直接映射所有设备寄存器到主内存
 </pre></li>
 </ul>
@@ -953,7 +953,7 @@ soc 是最简单的总线, 可以直接映射所有设备寄存器到主内存
 <p>
 节点可用于从当前设备树节点读取各种属性
 </p>
-<pre class="example" id="org4ee654e">
+<pre class="example" id="orgfef3e1f">
 例如, 函数 bcm2836_arm_irqchip_l1_intc_of_init 的第一行从 reg 读取设备基址属性
 
 但是, 此过程要复杂得多, 因为执行此功能时, 已启用MMU, 并且在能够访问物理内存的某个区域之前, 必须将该区域映射到某个虚拟地址
@@ -967,7 +967,7 @@ soc 是最简单的总线, 可以直接映射所有设备寄存器到主内存
 接下来调用 <span class="underline">bcm2835_init_local_timer_frequency</span> 函数来初始化本地计时器的频率
 </p>
 
-<pre class="example" id="org7f6cb37">
+<pre class="example" id="org5f101bf">
 此函数没有特别说明：它仅使用某些寄存器, 如BCM2836 ARM本地外围设备手册中所述, 以初始化本地计时器.
 </pre>
 
@@ -982,7 +982,7 @@ soc 是最简单的总线, 可以直接映射所有设备寄存器到主内存
 </pre>
 </div>
 
-<pre class="example" id="org13ef426">
+<pre class="example" id="org9b8b86a">
 Linux为每个中断分配一个唯一的整数, 可以将此数字视为唯一的中断ID，每次想对中断执行操作时都会使用此ID(例如, 分配处理程序或分配哪个CPU应该处理它)
 
 每个中断还具有一个硬件中断号. 这通常是一个数字, 告诉触发了哪个中断线。BCM2837 ARM外设手册 的外设中断表位于第113页：以将此表中的索引视为硬件中断号
@@ -1030,7 +1030,7 @@ Linux为每个中断分配一个唯一的整数, 可以将此数字视为唯一�
 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L67">这里</a> 会看到驱动程序定义了一组常量, 每个常量都包含 <span class="underline">硬件irq号</span> 
 </p>
 
-<pre class="example" id="org06553cb">
+<pre class="example" id="orgeb02993">
 上面的注册代码注册所有中断, 但邮箱中断除外, 邮箱中断是单独注册的
 </pre>
 
@@ -1055,7 +1055,7 @@ Linux为每个中断分配一个唯一的整数, 可以将此数字视为唯一�
 <li><p>
 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdesc.c#L849">irq_set_percpu_devid</a> 将中断配置为 <b>当前CPU</b> , 因此只能在当前处理器上处理本地中断
 </p>
-<pre class="example" id="org68d83af">
+<pre class="example" id="org5117f0b">
 因为现在讨论的所有中断都是本地中断, 因此所有中断只能在当前CPU上处理
 </pre></li>
 <li><a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L608">irq_set_chip_and_handler</a>, 顾名思义, 设置irq芯片和irq处理程序
@@ -1063,7 +1063,7 @@ Linux为每个中断分配一个唯一的整数, 可以将此数字视为唯一�
 <li><p>
 Irq芯片是一种特殊的结构, 需要由驱动程序创建, 该结构具有用于 <span class="underline">屏蔽</span> 和 <span class="underline">取消屏蔽</span> 特定中断的方法
 </p>
-<pre class="example" id="orgf89a730">
+<pre class="example" id="orgf87916b">
 正在查看的驱动程序现在定义了3种不同的irq芯片: timer 芯片, PMU 芯片 和 GPU 芯片
 
 它控制由外部外围设备生成的所有中断
@@ -1071,7 +1071,7 @@ Irq芯片是一种特殊的结构, 需要由驱动程序创建, 该结构具有�
 <li><p>
 处理程序是负责处理中断的功能. 在这种情况下, 处理程序设置为通用 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L859">handle_percpu_devid_irq</a> 函数
 </p>
-<pre class="example" id="org87f6d69">
+<pre class="example" id="org4709726">
 稍后, 该处理程序将由全局中断控制器驱动程序重写
 </pre></li>
 </ul></li>
@@ -1126,7 +1126,7 @@ Irq芯片是一种特殊的结构, 需要由驱动程序创建, 该结构具有�
 该函数读取 <span class="underline">LOCAL_IRQ_PENDING</span> 寄存器, 以找出当前正在处理的中断
 </p>
 
-<pre class="example" id="orgd06a7a5">
+<pre class="example" id="org11c05f0">
 有4个 LOCAL_IRQ_PENDING 寄存器, 每个寄存器对应于其自己的处理器内核, 这就是为什么使用当前处理器索引来选择正确的寄存器的原因
 </pre>
 
@@ -1134,7 +1134,7 @@ Irq芯片是一种特殊的结构, 需要由驱动程序创建, 该结构具有�
 邮箱中断和所有其他中断在if语句的2个不同子句中处理
 </p>
 
-<pre class="example" id="org39d5d7f">
+<pre class="example" id="org7190ff4">
 多处理器系统的不同内核之间的交互超出了当前的讨论范围, 因此跳过邮箱中断处理部分
 </pre>
 
@@ -1161,7 +1161,7 @@ Irq芯片是一种特殊的结构, 需要由驱动程序创建, 该结构具有�
 <li><p>
 调用一个中断处理程序
 </p>
-<pre class="example" id="org914583e">
+<pre class="example" id="org25022d6">
 已经看到处理程序设置为 handle_percpu_devid_irq，但是, 此处理程序稍后将被子中断控制器覆盖。现在, 来检查一下这是如何发生的
 </pre></li>
 </ul></li>
@@ -1172,7 +1172,7 @@ Irq芯片是一种特殊的结构, 需要由驱动程序创建, 该结构具有�
 <div id="outline-container-org57d933d" class="outline-3">
 <h3 id="org57d933d">通用中断控制器</h3>
 <div class="outline-text-3" id="text-org57d933d">
-<pre class="example" id="org11c29a7">
+<pre class="example" id="org8345ccd">
 已经看到了如何使用设备树和compatible属性来查找与某个设备相对应的驱动程序, 因此将跳过这一部分, 直接跳转到通用中断控制器驱动程序源代码
 </pre>
 <p>
@@ -1250,7 +1250,7 @@ intc.domain = irq_domain_add_linear(node, MAKE_HWIRQ(NR_BANKS, 0),
 <p>
 此函数从读取设备基地址并初始化irq域的代码开始
 </p>
-<pre class="example" id="org3b06ad5">
+<pre class="example" id="org8ed9fe1">
 应该已经熟悉此部分, 因为在本地irq控制器驱动程序中看到过类似的代码
 </pre>
 
@@ -1296,7 +1296,7 @@ intc.domain = irq_domain_add_linear(node, MAKE_HWIRQ(NR_BANKS, 0),
 <li><p>
 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L603">handle_level_irq</a> 是同一级别类型的通用的中断处理程序
 </p>
-<pre class="example" id="org734ae07">
+<pre class="example" id="orgcbd9060">
 此类中断将中断线设置为“高”, 直到确认该中断为止
 
 另外还有边缘类型中断以不同的方式工作
@@ -1304,7 +1304,7 @@ intc.domain = irq_domain_add_linear(node, MAKE_HWIRQ(NR_BANKS, 0),
 <li><p>
 <a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L667">irq_set_probe</a> 函数清除 <a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L64">IRQ_NOPROBE</a> 中断标志, 有效地禁用中断自动探测
 </p>
-<pre class="example" id="orga14ac8f">
+<pre class="example" id="orgdfd2d57">
 中断自动探测是允许不同的驱动程序发现其设备连接到哪条中断线的过程
 
 Raspberry Pi不需要此功能, 因为此信息被编码在设备树中, 但是, 对于某些设备, 这可能很有用
@@ -1315,7 +1315,7 @@ Raspberry Pi不需要此功能, 因为此信息被编码在设备树中, 但是,
 下一段代码对于BCM2836和BCM2835中断控制器的是不同的
 </p>
 
-<pre class="example" id="org481f396">
+<pre class="example" id="org277a615">
 BCM2836 对应于RPi模型2和3, BCM2835 对应于RPi模型1 
 </pre>
 
@@ -1339,7 +1339,7 @@ BCM2836 对应于RPi模型2和3, BCM2835 对应于RPi模型1
 设备树表明本地中断控制器是全局中断控制器的父级. 同时全局中断控制器已连接到本地控制器的中断线8, 这意味着父irq是硬件irq 8
 </p>
 
-<pre class="example" id="orgef16b81">
+<pre class="example" id="org36381e4">
 这2个属性允许Linux内核找出父中断号(这是Linux中断号, 而不是硬件号)
 </pre>
 
@@ -1367,7 +1367,7 @@ BCM2836 对应于RPi模型2和3, BCM2835 对应于RPi模型1
 <li><p>
 最终执行与中断相关的所有irq动作 (这实际上是在 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/irq/handle.c#L135">这里</a> 完成的
 </p>
-<pre class="example" id="orga49d844">
+<pre class="example" id="org49c2f98">
 然而, 所有支持的中断的irq操作列表为空
 
 对处理某些中断感兴趣的驱动程序应在列表中相应的条目中添加合适的内容
@@ -1383,7 +1383,7 @@ BCM2836 对应于RPi模型2和3, BCM2835 对应于RPi模型1
 <div id="outline-container-org3a536e2" class="outline-2">
 <h2 id="org3a536e2">计时器</h2>
 <div class="outline-text-2" id="text-org3a536e2">
-<pre class="example" id="orge37b477">
+<pre class="example" id="org03a56fd">
 前面已经阅读了关于全局中断控制器的代码, 这使得从计时器中断, 追踪到 bcm2836_chained_handle_irq 函数
 </pre>
 <p>
@@ -1393,7 +1393,7 @@ BCM2836 对应于RPi模型2和3, BCM2835 对应于RPi模型1
 <li><p>
 <b>Clock sources</b> : 每次需要确切地确定现在是几点, 都在使用此框架
 </p>
-<pre class="example" id="org4ab5deb">
+<pre class="example" id="org39e079a">
 通常, Clock Sources 被实现为原子 n位 计数器, 该计数器从 0 计数到 2^(n-1), 然后回绕到0并重新开始
 
 时钟源还提供了将计数器转换为纳秒级值的方法
@@ -1402,12 +1402,12 @@ BCM2836 对应于RPi模型2和3, BCM2835 对应于RPi模型1
 <li><p>
 <b>sched_clock()</b> : 此函数返回从系统启动以来的纳秒数。通常通过直接读取定时器的寄存器来实现
 </p>
-<pre class="example" id="org1543f85">
+<pre class="example" id="orgbfd8dae">
 因为此函数频繁被调用, 所以必须针对性能进行优化
 </pre></li>
 </ol>
 
-<pre class="example" id="org4ac5387">
+<pre class="example" id="org9b35742">
 接下来将了解如何使用系统定时器来实现时钟源, 时钟事件和 sched_clock 等功能
 </pre>
 </div>
@@ -1415,7 +1415,7 @@ BCM2836 对应于RPi模型2和3, BCM2835 对应于RPi模型1
 <div id="outline-container-org9eb41ef" class="outline-3">
 <h3 id="org9eb41ef">BCM2835 系统计时器</h3>
 <div class="outline-text-3" id="text-org9eb41ef">
-<pre class="example" id="org0f70243">
+<pre class="example" id="orgd95e74f">
 像往常一样, 通过在设备树中找到其位置来开始探索特定设备
 </pre>
 <p>
@@ -1559,7 +1559,7 @@ system_clock = base + REG_COUNTER_LO;
 <li><p>
 第二个参数：计时器的计数器的位数，用于计算计数器将回滚为0的时间
 </p>
-<pre class="example" id="org7d9eae3">
+<pre class="example" id="org631c96d">
 在这里是32位
 </pre></li>
 <li>最后一个参数指定计时器频率: 它用于将计时器计数器的值转换为纳秒。计时器频率在设备树中的以下位置定义 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L65">这里</a></li>
@@ -1603,7 +1603,7 @@ system_clock = base + REG_COUNTER_LO;
 <p>
 这段代码用于查找Linux IRQ号码：对应于计时器中断3（被硬编码成 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L108">DEFAULT_TIMER</a>）
 </p>
-<pre class="example" id="org21f6fee">
+<pre class="example" id="org825cbf8">
 Raspberry Pi系统计时器具有4组独立的计时器寄存器, 这里使用第三个
 </pre>
 
@@ -1611,7 +1611,7 @@ Raspberry Pi系统计时器具有4组独立的计时器寄存器, 这里使用�
 如果回到设备树, 可以找到 <a href="https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L60">interrupts</a> 属性。此属性描述设备支持的所有中断, 以及这些中断如何映射到中断控制器线路。它是一个数组, 其中每个项代表一个中断。项目的格式特定于中断控制器
 </p>
 
-<pre class="example" id="orgab04b1e">
+<pre class="example" id="orgebb6c27">
 在例子中, 每个项目由2个数字组成：第一个指定一个中断 bank 号, 第二个指定一个bank内部的中断号
 </pre>
 
@@ -1656,7 +1656,7 @@ timer-&gt;evt.cpumask = cpumask_of(0);
 接着 <a href="https://github.com/torvalds/linux/blob/v4.14/include/linux/clockchips.h#L100">clock_event_device</a> 属性 被初始化。这里最重要的是 <span class="underline">set_next_event</span> , 它指向 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L57">bcm2835_time_set_next_event</a> 函数
 </p>
 
-<pre class="example" id="orged78873">
+<pre class="example" id="org4f5a18d">
 时钟事件框架调用此函数来调度下一个中断
 </pre>
 
@@ -1664,7 +1664,7 @@ timer-&gt;evt.cpumask = cpumask_of(0);
 bcm2835_time_set_next_event 很简单：它更新比较寄存器, 以便在需要的时间间隔后安排中断
 </p>
 
-<pre class="example" id="org2dd55d5">
+<pre class="example" id="org13b40ea">
 这类似于在 RPi OS 的实现
 </pre>
 
@@ -1679,7 +1679,7 @@ timer-&gt;act.handler = bcm2835_time_interrupt;
 接下来, irq action 属性被初始化. 这里最重要的属性是 <span class="underline">handler</span> , 它指向 <a href="https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L67">bcm2835_time_interrupt</a> 这是在触发中断后调用的函数
 </p>
 
-<pre class="example" id="org2677cfe">
+<pre class="example" id="org957c068">
 如果看一看, 会发现它会将所有工作重定向到由时钟事件框架注册的事件处理程序
 
 我们最后将会检查此事件处理程序
@@ -1711,7 +1711,7 @@ timer-&gt;act.handler = bcm2835_time_interrupt;
 <li>后2个参数仅在 <b>单次</b> 计时器模式下使用, 与当前的讨论无关</li>
 </ul>
 
-<pre class="example" id="orgbcc4d1d">
+<pre class="example" id="org96696cb">
 现在, 已经跟踪到 bcm2835_time_interrupt 函数为止, 但是仍然没有找到完成实际工作的地方
 
 在下一部分中, 将更深入地研究并发现中断进入时钟事件框架后如何处理
@@ -1733,7 +1733,7 @@ timer-&gt;act.handler = bcm2835_time_interrupt;
 </pre>
 </div>
 
-<pre class="example" id="org84b7df0">
+<pre class="example" id="orgb921859">
 现在目标是弄清楚设置了 event_handler 以及调用后会发生什么
 </pre>
 
@@ -1752,7 +1752,7 @@ timer-&gt;act.handler = bcm2835_time_interrupt;
 <li><a href="https://github.com/torvalds/linux/blob/v4.14/kernel/time/tick-broadcast.c#L432">tick_set_periodic_handler</a> 终于到达了分配处理程序的地方！</li>
 </ol>
 
-<pre class="example" id="orgdec836b">
+<pre class="example" id="org1602f11">
 如果看一下调用链中的最后一个函数, 会发现Linux使用不同的处理程序, 具体取决于是否启用了广播
 
 Tick广播用于唤醒空闲的CPU, 这里将忽略它, 而专注于更通用的滴答处理程序
@@ -1793,7 +1793,7 @@ Tick广播用于唤醒空闲的CPU, 这里将忽略它, 而专注于更通用的
 <li><p>
 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/time/timekeeping.c#L2200">do_timer</a> 被调用, 负责设置 <span class="underline">jiffies</span> ，
 </p>
-<pre class="example" id="org70294be">
+<pre class="example" id="org80bee69">
 jiffies是自上次系统重新启动以来的滴答声
 
 jiffies 在不需要纳秒精度的情况下, 可以与 sched_clock函数相同的方式使用
@@ -1801,7 +1801,7 @@ jiffies 在不需要纳秒精度的情况下, 可以与 sched_clock函数相同�
 <li><p>
 <a href="https://github.com/torvalds/linux/blob/v4.14/kernel/time/timer.c#L1583">update_process_times</a> 被调用。这里, 当前执行的进程有机会进行需要定期执行的所有工作
 </p>
-<pre class="example" id="orgfecbb7c">
+<pre class="example" id="orgee0ebc7">
 例如, 运行本地进程计时器, 或者最重要的是, 将滴答事件通知调度程序
 </pre></li>
 </ol>
@@ -1812,7 +1812,7 @@ jiffies 在不需要纳秒精度的情况下, 可以与 sched_clock函数相同�
 <div id="outline-container-org8917642" class="outline-2">
 <h2 id="org8917642">结论</h2>
 <div class="outline-text-2" id="text-org8917642">
-<pre class="example" id="org9a284d3">
+<pre class="example" id="org2205c89">
 虽然定时器中断的代码非常漫长, 但我们也一直从头追踪到尾
 
 最重要的事情之一是, 我们终于到达了调度程序的调用位置
@@ -1831,7 +1831,7 @@ jiffies 在不需要纳秒精度的情况下, 可以与 sched_clock函数相同�
 <tbody>
 <tr>
 <td class="org-left"><a href="rpi-os.html">Previous：中断</a></td>
-<td class="org-left"><a href="interrupt.html">Home：中断</a></td>
+<td class="org-left"><a href="interrupt.html">Home：中断处理</a></td>
 </tr>
 </tbody>
 </table>
