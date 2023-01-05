@@ -906,4 +906,340 @@ _本地中断控制器_ 是可以帮助回答所有这些问题的设备，它�
      #+end_example
   
 * 计时器
+#+begin_example
+  前面已经阅读了关于全局中断控制器的代码, 这使得从计时器中断, 追踪到 bcm2836_chained_handle_irq 函数
+#+end_example
+下一步自然是查看计时器驱动程序如何处理此中断。但是, 在之前, 需要熟悉一些与计时器功能相关的重要概念。所有这些都在 [[https://github.com/torvalds/linux/blob/v4.14/Documentation/timers/timekeeping.txt][official kernel documentation]], 其中一些重要的概念：
+1. *Clock sources* : 每次需要确切地确定现在是几点, 都在使用此框架
+   #+begin_example
+     通常, Clock Sources 被实现为原子 n位 计数器, 该计数器从 0 计数到 2^(n-1), 然后回绕到0并重新开始
 
+     时钟源还提供了将计数器转换为纳秒级值的方法
+   #+end_example
+2. *Clock events* :引入此抽象是为了允许任何人订阅计时器中断。时钟事件框架被设计成：将下一个事件的时间作为输入, 并以此为基础计算 _计时器_ *硬件寄存器* 的 _适当值_ 
+3. *sched_clock()* : 此函数返回从系统启动以来的纳秒数。通常通过直接读取定时器的寄存器来实现
+   #+begin_example
+     因为此函数频繁被调用, 所以必须针对性能进行优化
+   #+end_example
+   
+#+begin_example
+  接下来将了解如何使用系统定时器来实现时钟源, 时钟事件和 sched_clock 等功能
+#+end_example
+
+** BCM2835 系统计时器
+#+begin_example
+像往常一样, 通过在设备树中找到其位置来开始探索特定设备
+#+end_example
+系统计时器节点的定义在[[https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L57][这里]]，接下来, 需要使用 compatible 属性来找出相应驱动程序的位置. 可以找到驱动程序在 [[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c][这里]]
+
+首先来看下 [[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L42][bcm2835_timer]] 结构体：
+
+#+begin_src c 
+  struct bcm2835_timer {
+	  void __iomem *control;
+	  void __iomem *compare;
+	  int match_mask;
+	  struct clock_event_device evt;
+	  struct irqaction act;
+  };
+#+end_src
+
+该结构包含驱动程序运行所需的所有状态：
++ _control_ 和 _compare_ 字段保存相应的 *内存映射* _寄存器_ 的地址
++ _match_mask_ 用于确定将使用的 _4_ 个 _可用定时器中断_ 中的哪一个
++ _evt_  字段包含传递给时钟的结构 *事件框架*
++ _act_ 是一个irqaction(本质上是一个函数指针), 用于将当前 _驱动程序_ 与 _中断控制器_ *连接*
+
+接下来, 将看一下 [[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L83][bcm2835_timer_init]], 它是驱动程序初始化函数。虽然它很长, 但并不是很难：
+
+#+begin_src c 
+  static int __init bcm2835_timer_init(struct device_node *node)
+  {
+	  void __iomem *base;
+	  u32 freq;
+	  int irq, ret;
+	  struct bcm2835_timer *timer;
+
+	  base = of_iomap(node, 0);
+	  if (!base) {
+		  pr_err("Can't remap registers\n");
+		  return -ENXIO;
+	  }
+
+	  ret = of_property_read_u32(node, "clock-frequency", &freq);
+	  if (ret) {
+		  pr_err("Can't read clock-frequency\n");
+		  goto err_iounmap;
+	  }
+
+	  system_clock = base + REG_COUNTER_LO;
+	  sched_clock_register(bcm2835_sched_read, 32, freq);
+
+	  clocksource_mmio_init(base + REG_COUNTER_LO, node->name,
+				freq, 300, 32, clocksource_mmio_readl_up);
+
+	  irq = irq_of_parse_and_map(node, DEFAULT_TIMER);
+	  if (irq <= 0) {
+		  pr_err("Can't parse IRQ\n");
+		  ret = -EINVAL;
+		  goto err_iounmap;
+	  }
+
+	  timer = kzalloc(sizeof(*timer), GFP_KERNEL);
+	  if (!timer) {
+		  ret = -ENOMEM;
+		  goto err_iounmap;
+	  }
+
+	  timer->control = base + REG_CONTROL;
+	  timer->compare = base + REG_COMPARE(DEFAULT_TIMER);
+	  timer->match_mask = BIT(DEFAULT_TIMER);
+	  timer->evt.name = node->name;
+	  timer->evt.rating = 300;
+	  timer->evt.features = CLOCK_EVT_FEAT_ONESHOT;
+	  timer->evt.set_next_event = bcm2835_time_set_next_event;
+	  timer->evt.cpumask = cpumask_of(0);
+	  timer->act.name = node->name;
+	  timer->act.flags = IRQF_TIMER | IRQF_SHARED;
+	  timer->act.dev_id = timer;
+	  timer->act.handler = bcm2835_time_interrupt;
+
+	  ret = setup_irq(irq, &timer->act);
+	  if (ret) {
+		  pr_err("Can't set up timer IRQ\n");
+		  goto err_iounmap;
+	  }
+
+	  clockevents_config_and_register(&timer->evt, freq, 0xf, 0xffffffff);
+
+	  pr_info("bcm2835: system timer (irq = %d)\n", irq);
+
+	  return 0;
+
+  err_iounmap:
+	  iounmap(base);
+	  return ret;
+  }
+#+end_src
+
+现在仔细检查下这个函数：
+
+#+begin_src c 
+  base = of_iomap(node, 0);
+  if (!base) {
+	  pr_err("Can't remap registers\n");
+	  return -ENXIO;
+  }
+#+end_src
+
+它从映射内存寄存器开始并获得寄存器基地址
+
+#+begin_src c 
+  ret = of_property_read_u32(node, "clock-frequency", &freq);
+  if (ret) {
+	  pr_err("Can't read clock-frequency\n");
+	  goto err_iounmap;
+  }
+
+  system_clock = base + REG_COUNTER_LO;
+  sched_clock_register(bcm2835_sched_read, 32, freq);
+#+end_src
+
+接下来, 初始化 _sched_clock_ 子系统，sched_clock每次执行时都需要计时器的计数器寄存器 :
++ [[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L52][bcm2835_sched_read]] 作为第一个参数传递来协助完成此任务
++ 第二个参数：计时器的计数器的位数，用于计算计数器将回滚为0的时间
+  #+begin_example
+    在这里是32位
+  #+end_example
++ 最后一个参数指定计时器频率: 它用于将计时器计数器的值转换为纳秒。计时器频率在设备树中的以下位置定义 [[https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L65][这里]]
+
+
+#+begin_src c 
+  clocksource_mmio_init(base + REG_COUNTER_LO, node->name,
+			freq, 300, 32, clocksource_mmio_readl_up);
+#+end_src
+
+下一行初始化时钟源框架。[[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/mmio.c#L52][clocksource_mmio_init]] 根据内存映射寄存器初始化一个简单的时钟源。在某些方面, 时钟源框架复制了 sched_clock 的功能, 并且需要访问相同的3个基本参数：
++ 计时器计数器寄存器的位置
++ 计数器中的有效位数
++ 计时器频率
+
+另外3个参数包括：
++ 时钟源的名称
++ Rating：用于对时钟源设备进行rate
++ 可以读取定时器计数器寄存器的函数 
+
+#+begin_src c 
+  irq = irq_of_parse_and_map(node, DEFAULT_TIMER);
+  if (irq <= 0) {
+	  pr_err("Can't parse IRQ\n");
+	  ret = -EINVAL;
+	  goto err_iounmap;
+  }
+#+end_src
+
+这段代码用于查找Linux IRQ号码：对应于计时器中断3（被硬编码成 [[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L108][DEFAULT_TIMER]]）
+#+begin_example
+  Raspberry Pi系统计时器具有4组独立的计时器寄存器, 这里使用第三个
+#+end_example
+
+如果回到设备树, 可以找到 [[https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L60][interrupts]] 属性。此属性描述设备支持的所有中断, 以及这些中断如何映射到中断控制器线路。它是一个数组, 其中每个项代表一个中断。项目的格式特定于中断控制器
+
+#+begin_example
+  在例子中, 每个项目由2个数字组成：第一个指定一个中断 bank 号, 第二个指定一个bank内部的中断号
+#+end_example
+
+[[https://github.com/torvalds/linux/blob/v4.14/drivers/of/irq.c#L41][irq_of_parse_and_map]] 读取 interrupts 属性, 然后它使用第二个参数来查找感兴趣的中断, 并为请求的中断返回Linux irq号
+
+#+begin_src c 
+  timer = kzalloc(sizeof(*timer), GFP_KERNEL);
+  if (!timer) {
+	  ret = -ENOMEM;
+	  goto err_iounmap;
+  }
+#+end_src
+
+在这里分配了 _bcm2835_timer_ 结构的内存
+
+#+begin_src c 
+  timer->control = base + REG_CONTROL;
+  timer->compare = base + REG_COMPARE(DEFAULT_TIMER);
+  timer->match_mask = BIT(DEFAULT_TIMER);
+#+end_src
+
+然后, 设置 control 和 compare寄存器的地址, 并将 match_mask 设置为 BIT(DEFAULT_TIMER) 常量
+
+#+begin_src c 
+  timer->evt.name = node->name;
+  timer->evt.rating = 300;
+  timer->evt.features = CLOCK_EVT_FEAT_ONESHOT;
+  timer->evt.set_next_event = bcm2835_time_set_next_event;
+  timer->evt.cpumask = cpumask_of(0);
+#+end_src
+
+接着 [[https://github.com/torvalds/linux/blob/v4.14/include/linux/clockchips.h#L100][clock_event_device]] 属性 被初始化。这里最重要的是 _set_next_event_ , 它指向 [[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L57][bcm2835_time_set_next_event]] 函数
+
+#+begin_example
+时钟事件框架调用此函数来调度下一个中断
+#+end_example
+
+bcm2835_time_set_next_event 很简单：它更新比较寄存器, 以便在需要的时间间隔后安排中断
+
+#+begin_example
+这类似于在 RPi OS 的实现
+#+end_example
+
+#+begin_src c 
+  timer->act.flags = IRQF_TIMER | IRQF_SHARED;
+  timer->act.dev_id = timer;
+  timer->act.handler = bcm2835_time_interrupt;
+#+end_src
+
+接下来, irq action 属性被初始化. 这里最重要的属性是 _handler_ , 它指向 [[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L67][bcm2835_time_interrupt]] 这是在触发中断后调用的函数
+
+#+begin_example
+  如果看一看, 会发现它会将所有工作重定向到由时钟事件框架注册的事件处理程序
+
+  我们最后将会检查此事件处理程序
+#+end_example
+
+#+begin_src c 
+  ret = setup_irq(irq, &timer->act);
+  if (ret) {
+	  pr_err("Can't set up timer IRQ\n");
+	  goto err_iounmap;
+  }
+#+end_src
+
+配置irq action后, 它将被添加到计时器中断的irq操作列表中
+
+#+begin_src c 
+  clockevents_config_and_register(&timer->evt, freq, 0xf, 0xffffffff);
+#+end_src
+
+最后, 调用初始化时钟事件框架 [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/clockevents.c#L504][clockevents_config_and_register]]
++ _evt 结构_ 和 _计时器频率_ 作为前两个参数传递
++ 后2个参数仅在 *单次* 计时器模式下使用, 与当前的讨论无关
+
+#+begin_example
+  现在, 已经跟踪到 bcm2835_time_interrupt 函数为止, 但是仍然没有找到完成实际工作的地方
+
+  在下一部分中, 将更深入地研究并发现中断进入时钟事件框架后如何处理
+#+end_example
+
+** 在时钟事件框架中如何处理中断
+前面已经看到处理计时器中断的实际工作已外包给 _时钟事件框架_ 。这是在 [[https://github.com/torvalds/linux/blob/v4.14/drivers/clocksource/bcm2835_timer.c#L74][bcm2835_time_interrupt]] 几行完成：
+
+#+begin_src c 
+  event_handler = ACCESS_ONCE(timer->evt.event_handler);
+  if (event_handler)
+	  event_handler(&timer->evt);
+#+end_src
+
+#+begin_example
+  现在目标是弄清楚设置了 event_handler 以及调用后会发生什么
+#+end_example
+
+[[https://github.com/torvalds/linux/blob/v4.14/kernel/time/clockevents.c#L504][clockevents_config_and_register]] 函数是开始探索的好地方, 因为这是配置时钟事件框架的地方, 并且, 如果遵循此函数的逻辑, 最终找到如何设置 event_handler。现在, 展示函数调用链, 这些函数调用将引导至所需的位置：
+1. [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/clockevents.c#L504][clockevents_config_and_register]] 这是最上层初始化函数
+2. [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/clockevents.c#L449][clockevents_register_device]] 在此函数中, 计时器被添加到时钟事件设备的全局列表中
+3. [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/tick-common.c#L300][tick_check_new_device]] 此函数检查当前设备是否适合用作 *滴答* 设备
+   + 如果是, 则将使用此类设备生成定期的滴答声, 内核的其余部分将使用这些滴答声来完成需要定期执行的所有工作
+4. [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/tick-common.c#L177][tick_setup_device]] 此功能启动设备配置
+5. [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/tick-common.c#L144][tick_setup_periodic]] 这是设备配置为周期性滴答的地方
+6. [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/tick-broadcast.c#L432][tick_set_periodic_handler]] 终于到达了分配处理程序的地方！
+
+#+begin_example
+  如果看一下调用链中的最后一个函数, 会发现Linux使用不同的处理程序, 具体取决于是否启用了广播
+
+  Tick广播用于唤醒空闲的CPU, 这里将忽略它, 而专注于更通用的滴答处理程序
+#+end_example
+
+一般情况下紧接着 [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/tick-common.c#L99][tick_handle_periodic]] 之后 [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/tick-common.c#L79][tick_periodic]] 函数被调用，而这正是感兴趣的部分：
+
+#+begin_src c 
+  /*
+   ,* Periodic tick
+   ,*/
+  static void tick_periodic(int cpu)
+  {
+	  if (tick_do_timer_cpu == cpu) {
+		  write_seqlock(&jiffies_lock);
+
+		  /* Keep track of the next tick event */
+		  tick_next_period = ktime_add(tick_next_period, tick_period);
+
+		  do_timer(1);
+		  write_sequnlock(&jiffies_lock);
+		  update_wall_time();
+	  }
+
+	  update_process_times(user_mode(get_irq_regs()));
+	  profile_tick(CPU_PROFILING);
+  }
+#+end_src
+
+此函数完成了一些重要的事情：
+1. _tick_next_period_ 被用于计算并安排下一个滴答事件
+2. [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/timekeeping.c#L2200][do_timer]] 被调用, 负责设置 _jiffies_ ，
+   #+begin_example
+     jiffies是自上次系统重新启动以来的滴答声
+
+     jiffies 在不需要纳秒精度的情况下, 可以与 sched_clock函数相同的方式使用
+   #+end_example
+3. [[https://github.com/torvalds/linux/blob/v4.14/kernel/time/timer.c#L1583][update_process_times]] 被调用。这里, 当前执行的进程有机会进行需要定期执行的所有工作
+   #+begin_example
+     例如, 运行本地进程计时器, 或者最重要的是, 将滴答事件通知调度程序
+   #+end_example
+   
+* 结论 
+
+#+begin_example
+  虽然定时器中断的代码非常漫长, 但我们也一直从头追踪到尾
+
+  最重要的事情之一是, 我们终于到达了调度程序的调用位置
+
+  调度程序是任何操作系统中最关键的部分之一, 它严重依赖计时器中断。因此, 接下来就该讨论其实现了
+#+end_example
+
+| [[file:rpi-os.org][Previous：中断]] | [[file:interrupt.org][Home：中断]] |
