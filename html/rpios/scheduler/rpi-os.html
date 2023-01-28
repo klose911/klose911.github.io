@@ -201,6 +201,1081 @@
  <a accesskey="H" href="./scheduler.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">调度器</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org4975be9">task_struct</a></li>
+<li><a href="#org747d40f">kernel_main 函数</a></li>
+<li><a href="#org9db8821">内存分配</a></li>
+<li><a href="#org523351f">创建一个新任务</a></li>
+<li><a href="#org41b9b1d">谁调用 schedule?</a></li>
+<li><a href="#org7c313c9">调度算法</a></li>
+<li><a href="#org74e5724">切换任务</a></li>
+<li><a href="#org9d101bb">调度与中断</a></li>
+<li><a href="#orgff3568d">在上下文切换期间跟踪系统状态</a></li>
+<li><a href="#org9f9f697">总结</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org7940bd4">
+目前为止, PRi OS已经是一个相当复杂的裸机程序, 但是说实话, 仍然不能将其称为操作系统
+</pre>
+
+<p>
+原因是它无法完成任何OS应该执行的任何核心任务。这种核心任务之一称为进程调度。通过调度器, 操作系统应该能够在不同进程之间共享CPU时间
+</p>
+
+<pre class="example" id="orgb92379b">
+其中最困难的部分是, 一个进程应该不知道调度的发生：它应该将自己视为唯一占用CPU的进程
+
+接下来，将此功能添加到RPi OS
+</pre>
+<div id="outline-container-org4975be9" class="outline-2">
+<h2 id="org4975be9">task_struct</h2>
+<div class="outline-text-2" id="text-org4975be9">
+<p>
+如果要管理流程, 应该做的第一件事就是创建一个描述流程的结构。Linux具有这样的结构, 它称为 <b>task_struct</b> (在Linux中, 线程和进程只是不同类型的任务)
+</p>
+
+<pre class="example" id="orgcee6c14">
+由于主要模仿Linux的实现, 因此将做同样的事情
+</pre>
+
+<p>
+RPi OS task_struct 如下所示：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">cpu_context</span> {
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x19</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x20</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x21</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x22</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x23</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x24</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x25</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x26</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x27</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">x28</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">fp</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">sp</span>;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">pc</span>;
+};
+
+<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> {
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">cpu_context</span> <span style="color: #4eee94;">cpu_context</span>;
+    <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">state</span>;
+    <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">counter</span>;
+    <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">priority</span>;
+    <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">preempt_count</span>;
+};
+</pre>
+</div>
+
+<p>
+该结构具有以下成员：
+</p>
+<ul class="org-ul">
+<li><p>
+<span class="underline">cpu_context</span> : 一个嵌入式结构, 其中包含正在切换的任务之间 <b>可能不同的</b> 所有 <span class="underline">寄存器</span> 的值
+</p>
+<pre class="example" id="org384735e">
+有一个合理的问题是为什么不保存所有寄存器, 而只保存寄存器 x19-x30 和 sp ？(fp 是 x29 并且 pc 是 x30)
+
+实际的上下文切换仅在任务中调用cpu_switch_to函数。因此, 从正在切换的任务的角度来看, 它仅调用cpu_switch_to函数, 并在一段时间(可能很长)后返回，该任务不会注意到在此期间发生了另一个任务
+
+根据ARM的调用约定, 寄存器 x0-x18 可以被调用的函数覆盖, 因此调用者不得假定这些寄存器的值在函数调用后仍然存在
+
+这就是为什么保存x0-x18寄存器没有意义的原因
+</pre></li>
+<li><p>
+<span class="underline">state</span> : 当前正在运行的任务的状态，对于仅在CPU上做一些工作的任务, 状态始终为 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L15">TASK_RUNNING</a>
+</p>
+<pre class="example" id="org91d2523">
+实际上, 这是RPi OS目前要支持的唯一状态。但是, 稍后将不得不添加一些其他状态
+
+例如, 等待中断的任务应移至其他状态, 因为在尚未发生所需的中断时唤醒任务是没有意义的
+</pre></li>
+<li><p>
+<span class="underline">counter</span> : 该字段用于确定当前任务已运行多长时间
+</p>
+<pre class="example" id="orga9dc6aa">
+计数器会在每个计时器滴答时减少1, 到0时便会安排另一个任务
+</pre></li>
+<li><p>
+<span class="underline">priority</span> : 安排新任务时, 将其 <span class="underline">优先级</span> 复制到 <b>计数器</b> 中
+</p>
+<pre class="example" id="org92411e6">
+通过设置任务优先级, 可以调节任务相对于其他任务获得的处理器时间
+</pre></li>
+<li><span class="underline">preempt_count</span> : 如果该字段的值为 <span class="underline">非零值</span> , 则表明当前任务正在执行一些 <b>不可中断</b> 的关键功能(例如, 它运行调度功能)。如果在此时间发生计时器滴答, 则将忽略它, 并且不会触发重新计划</li>
+</ul>
+
+
+<p>
+内核启动后, 只有一个任务正在运行：一个正在运行 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L19">kernel_main</a> 函数. 它称为 <b>初始化任务</b> 。在启用调度程序功能之前, 必须填充与初始化任务相对应的 <span class="underline">task_struct</span> . 这个被完成在 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L53">这里</a> 
+</p>
+
+<p>
+所有任务都存储在 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L7">task</a> 数组. 该阵列只有64个插槽
+</p>
+
+<pre class="example" id="orgfeff6f4">
+这是在RPi OS中可以同时执行的最大任务数
+
+对于生产就绪的OS来说, 它绝对不是最佳解决方案, 但对于我们的目标而言, 这是可以的
+</pre>
+
+<p>
+还有一个非常重要的变量称为 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L6">current</a> 总是指向 <b>当前正在执行</b> 的任务。 <span class="underline">current</span>  和 <span class="underline">task</span> 数组都初始设置为持有指向 <span class="underline">init任务</span> 的指针。还有一个全局变量称为 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L8">nr_tasks</a> : 它包含系统中当前正在运行的任务数
+</p>
+
+<pre class="example" id="orgdbce749">
+这些都是将用于实现调度程序功能的结构和全局变量
+
+在对task_struct的描述中, 已经简要提到了调度工作的一些方面, 因为如果不了解如何使用特定的task_struct字段, 就无法理解其含义
+
+现在将更详细地研究调度算法, 从 kernel_main 函数开始
+</pre>
+</div>
+</div>
+<div id="outline-container-org747d40f" class="outline-2">
+<h2 id="org747d40f">kernel_main 函数</h2>
+<div class="outline-text-2" id="text-org747d40f">
+<pre class="example" id="orgd04b06e">
+在深入探讨调度程序实现之前, 先快速展示如何证明调度程序确实有效
+
+</pre>
+
+<p>
+要了解它, 可以看一下 kernel.c 文件：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">kernel_main</span>(<span style="color: #98f5ff;">void</span>)
+{
+    uart_init();
+    init_printf(0, putc);
+    irq_vector_init();
+    timer_init();
+    enable_interrupt_controller();
+    enable_irq();
+
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">res</span> = copy_process((<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;process, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)<span style="color: #deb887;">"12345"</span>);
+    <span style="color: #00bfff; font-weight: bold;">if</span> (res != 0) {
+        printf(<span style="color: #deb887;">"error while starting process 1"</span>);
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    }
+    res = copy_process((<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;process, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)<span style="color: #deb887;">"abcde"</span>);
+    <span style="color: #00bfff; font-weight: bold;">if</span> (res != 0) {
+        printf(<span style="color: #deb887;">"error while starting process 2"</span>);
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">while</span> (1){
+        schedule();
+    }
+}
+</pre>
+</div>
+
+
+<p>
+关于此代码, 有一些重要的事情：
+</p>
+<ol class="org-ol">
+<li>新函数 <span class="underline">copy_process</span> 需要2个参数:
+<ul class="org-ul">
+<li>在新进程中执行的函数</li>
+<li>需要传递给该函数的参数</li>
+<li>分配一个新的 <b>task_struct</b> 并使其可用于调度程序</li>
+</ul></li>
+<li>另一个新函数称为 <span class="underline">schedule</span> 这是核心调度程序功能：它 <b>检查</b> 是否有 <span class="underline">新任务</span> 需要 <b>抢占</b> <span class="underline">当前任务</span> 
+<ul class="org-ul">
+<li>如果一个任务目前没有任何工作, 可以自动调用 schedule 函数</li>
+<li>计时器中断处理程序也会调用 schedule 函数</li>
+</ul></li>
+</ol>
+
+<p>
+这里两次调用copy_process, 每次传递的第一个参数都是指向 <span class="underline">process</span> 函数，这个 process 函数功能非常简单：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">process</span>(<span style="color: #98f5ff;">char</span> *<span style="color: #4eee94;">array</span>)
+{
+    <span style="color: #00bfff; font-weight: bold;">while</span> (1){
+        <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = 0; i &lt; 5; i++){
+            uart_send(array[i]);
+            delay(100000);
+        }
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="orgc039ea4">
+它只是一直在屏幕上打印数组中的字符, 这个字节数组也是做为参数传递给process
+
+第一次使用参数 12345 调用它, 第二次使用 abcde 参数
+
+如果调度程序实现正确, 应该在屏幕上看到两个线程的混合输出
+</pre>
+</div>
+</div>
+<div id="outline-container-org9db8821" class="outline-2">
+<h2 id="org9db8821">内存分配</h2>
+<div class="outline-text-2" id="text-org9db8821">
+<p>
+系统中的每个任务都应具有其 <b>专用的</b> <span class="underline">堆栈</span>
+</p>
+
+<pre class="example" id="orgb7a10a2">
+这就是为什么在创建新任务时必须有一种分配内存的方法
+</pre>
+
+<p>
+目前, 内存分配器还非常原始：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #4eee94;">mem_map</span> [ PAGING_PAGES ] = {0,};
+
+<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #daa520; font-weight: bold;">get_free_page</span>()
+{
+    <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = 0; i &lt; PAGING_PAGES; i++){
+        <span style="color: #00bfff; font-weight: bold;">if</span> (mem_map[i] == 0){
+            mem_map[i] = 1;
+            <span style="color: #00bfff; font-weight: bold;">return</span> LOW_MEMORY + i*PAGE_SIZE;
+        }
+    }
+    <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+}
+
+<span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">free_page</span>(<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">p</span>){
+    mem_map[p / PAGE_SIZE] = 0;
+}
+</pre>
+</div>
+
+<p>
+分配器只能与内存页面一起使用(每个页面的大小为 <span class="underline">4 KB</span> )。创建一个名为 <span class="underline">mem_map</span> 的全局数组, 该数组对于系统中的 <span class="underline">每个页面</span> 都 <b>保持</b> 其 <span class="underline">状态</span> ： <b>分配</b> 还是 <b>空闲</b> 。每当需要分配一个新页面时, 就循环遍历此数组并返回第一个空闲页面。此实现基于两个假设：
+</p>
+<ol class="org-ol">
+<li>系统中的内存总量，它是 <span class="underline">1 GB - 1 MB</span> (存储器的最后 1兆字节为 <span class="underline">设备寄存器</span> 保留)，此值存储在 <span class="underline">HIGH_MEMORY</span> 常量中</li>
+<li>前 <span class="underline">4 MB</span> 的内存 <b>保留</b> 给 <span class="underline">内核映像</span> 和 <span class="underline">init任务堆栈</span> ，此值存储在 <span class="underline">LOW_MEMORY</span> 常量. 所有内存分配都在此之后开始</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org523351f" class="outline-2">
+<h2 id="org523351f">创建一个新任务</h2>
+<div class="outline-text-2" id="text-org523351f">
+<p>
+新任务（进程）分配在 <span class="underline">copy_process</span> 函数实现：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">copy_process</span>(<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">fn</span>, <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">arg</span>)
+{
+    preempt_disable();
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *<span style="color: #4eee94;">p</span>;
+
+    p = (<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *) <span style="color: #daa520; font-weight: bold;">get_free_page</span>();
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!p)
+        <span style="color: #00bfff; font-weight: bold;">return</span> 1;
+    p-&gt;priority = current-&gt;priority;
+    p-&gt;state = TASK_RUNNING;
+    p-&gt;counter = p-&gt;priority;
+    p-&gt;preempt_count = 1; <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">disable preemtion until schedule_tail</span>
+
+    p-&gt;cpu_context.x19 = fn;
+    p-&gt;cpu_context.x20 = arg;
+    p-&gt;cpu_context.pc = (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)ret_from_fork;
+    p-&gt;cpu_context.sp = (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)p + THREAD_SIZE;
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">pid</span> = nr_tasks++;
+    task[pid] = p;
+    preempt_enable();
+    <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+}
+</pre>
+</div>
+
+<p>
+现在, 来详细研究它：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #daa520; font-weight: bold;">preempt_disable</span>();
+<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *<span style="color: #4eee94;">p</span>;
+</pre>
+</div>
+
+<p>
+该函数从禁用抢占和为新任务分配指针开始。抢占被禁用, 是因为不想在 copy_process 函数中间将其重新安排到其他任务
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">p = (<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *) <span style="color: #daa520; font-weight: bold;">get_free_page</span>();
+<span style="color: #00bfff; font-weight: bold;">if</span> (!p)
+    <span style="color: #00bfff; font-weight: bold;">return</span> 1;
+</pre>
+</div>
+
+<p>
+接下来, 分配一个新页面。在此页面的底部, 为新创建的任务放置 <span class="underline">task_struct</span> ，该页面的其余部分将用作 <b>任务堆栈</b>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">p-&gt;priority = current-&gt;priority;
+p-&gt;state = TASK_RUNNING;
+p-&gt;counter = p-&gt;priority;
+p-&gt;preempt_count = 1; <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">disable preemtion until schedule_tail</span>
+</pre>
+</div>
+
+<p>
+分配好task_struct之后, 可以初始化其属性：
+</p>
+<ul class="org-ul">
+<li>优先级和初始计数器是根据当前任务优先级设置</li>
+<li>状态设置为 <span class="underline">TASK_RUNNING</span> , 表示新任务已准备好开始</li>
+<li>preempt_count设置为 <span class="underline">1</span> , 这意味着在执行任务之后, 在完成一些初始化工作之前, 不应重新计划其时间</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-c">p-&gt;cpu_context.x19 = fn;
+p-&gt;cpu_context.x20 = arg;
+p-&gt;cpu_context.pc = (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)ret_from_fork;
+p-&gt;cpu_context.sp = (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)p + THREAD_SIZE;
+</pre>
+</div>
+
+<p>
+这里 cpu_context 被初始化：
+</p>
+<ul class="org-ul">
+<li>堆栈指针 sp 设置在新分配的内存页面的顶部</li>
+<li><p>
+pc 被设置为 <span class="underline">ret_from_fork</span> 函数, 现在需要看一下这个函数, 以便理解为什么其余cpu_context寄存器以它们的方式初始化
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">.globl</span> ret_from_fork
+<span style="color: #daa520; font-weight: bold;">ret_from_fork</span>:
+        <span style="color: #00bfff; font-weight: bold;">bl</span>    schedule_tail
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x0, x20
+        <span style="color: #00bfff; font-weight: bold;">blr</span>    x19         <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">should never return</span>
+</pre>
+</div>
+<p>
+ret_from_fork:
+</p>
+<ul class="org-ul">
+<li>首先调用 <span class="underline">schedule_tail</span> , 只是 <b>启用</b> 了 <span class="underline">抢占</span></li>
+<li>使用存储在 <span class="underline">x20</span> 中的 <b>参数</b> 调用存储在 <span class="underline">x19</span> 寄存器中的 <b>函数</b></li>
+<li>在调用ret_from_fork函数之前, 需要从 <span class="underline">cpu_context</span> 中 <b>恢复</b> 出 <span class="underline">x19</span> 和 <span class="underline">x20</span></li>
+</ul></li>
+</ul>
+
+<p>
+现在, 回到copy_process.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">pid</span> = nr_tasks++;
+<span style="color: #98f5ff;">task</span>[pid] = p;
+<span style="color: #daa520; font-weight: bold;">preempt_enable</span>();
+<span style="color: #00bfff; font-weight: bold;">return</span> 0;
+</pre>
+</div>
+
+<p>
+最后, copy_process 将新创建的任务添加到 <span class="underline">task 数组</span> 中, 并为当前任务 <b>启用</b> <span class="underline">抢占</span>
+</p>
+
+<pre class="example" id="orgb4f70ab">
+关于copy_process函数要了解的重要一点是, 它在完成执行后不会发生上下文切换
+
+该函数仅准备新的task_struct并将其添加到task数组中，而在调用schedule函数后才可能执行此任务 
+</pre>
+</div>
+</div>
+<div id="outline-container-org41b9b1d" class="outline-2">
+<h2 id="org41b9b1d">谁调用 schedule?</h2>
+<div class="outline-text-2" id="text-org41b9b1d">
+<p>
+在深入了解schedule 函数之前, 首先要弄清楚schedule的调用方式。有2种情况：
+</p>
+<ol class="org-ol">
+<li><p>
+当一个任务现在没有任何事情要做, 但是仍然无法终止时, 它可以自行调用schedule
+</p>
+<pre class="example" id="org54b24b4">
+就像 kernel_main 函数所做的 
+</pre></li>
+<li>schedule 也定期被  <span class="underline">时钟中断</span> 所调用</li>
+</ol>
+
+<p>
+现在来看看 timer_tick 函数, 从计时器中断中调用：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">timer_tick</span>()
+{
+    --current-&gt;counter;
+    <span style="color: #00bfff; font-weight: bold;">if</span> (current-&gt;counter&gt;0 || current-&gt;preempt_count &gt;0) {
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    }
+    current-&gt;counter=0;
+    enable_irq();
+    _schedule();
+    disable_irq();
+</pre>
+</div>
+
+<p>
+首先, 它减少了当前任务的计数器
+</p>
+<ul class="org-ul">
+<li>如果计数器大于0, 或者当前禁用了抢占功能, 则返回该函数</li>
+<li><p>
+否则调用schedule并启用中断
+</p>
+<pre class="example" id="org287ecbf">
+在中断处理程序内部, 默认情况下禁用中断
+
+接下来会去了解为什么在调度程序执行期间必须启用中断 
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org7c313c9" class="outline-2">
+<h2 id="org7c313c9">调度算法</h2>
+<div class="outline-text-2" id="text-org7c313c9">
+<p>
+最后, 看一下调度程序算法：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">_schedule</span>(<span style="color: #98f5ff;">void</span>)
+{
+    preempt_disable();
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">next</span>,<span style="color: #4eee94;">c</span>;
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> * <span style="color: #4eee94;">p</span>;
+    <span style="color: #00bfff; font-weight: bold;">while</span> (1) {
+        c = -1;
+        next = 0;
+        <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = 0; i &lt; NR_TASKS; i++){
+            p = task[i];
+            <span style="color: #00bfff; font-weight: bold;">if</span> (p &amp;&amp; p-&gt;state == TASK_RUNNING &amp;&amp; p-&gt;counter &gt; c) {
+                c = p-&gt;counter;
+                next = i;
+            }
+        }
+        <span style="color: #00bfff; font-weight: bold;">if</span> (c) {
+            <span style="color: #00bfff; font-weight: bold;">break</span>;
+        }
+        <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = 0; i &lt; NR_TASKS; i++) {
+            p = task[i];
+            <span style="color: #00bfff; font-weight: bold;">if</span> (p) {
+                p-&gt;counter = (p-&gt;counter &gt;&gt; 1) + p-&gt;priority;
+            }
+        }
+    }
+    switch_to(task[next]);
+    preempt_enable();
+}
+</pre>
+</div>
+
+<p>
+该算法的工作原理如下：
+</p>
+<ul class="org-ul">
+<li>第一个内部的for循环遍历所有任务, 并尝试以最大计数器找到处于TASK_RUNNING状态的任务：
+<ul class="org-ul">
+<li>如果找到了这样的任务, 并且其计数器大于0, 立即从外部的 while 循环中中断, 并切换到该任务</li>
+<li><p>
+如果找不到这样的任务, 则意味着当前不存在处于 TASK_RUNNING 状态的任务, 或者所有此类任务的计数器均为0
+</p>
+<pre class="example" id="orga1bf116">
+在实际的OS中, 例如, 当所有任务都在等待中断时, 就可能会发生 
+</pre>
+<ul class="org-ul">
+<li>在这种情况下, 将执行第二个嵌套的 for 循环. 对于每个任务(无论处于什么状态), 此循环都会增加其计数器。计数器增加以非常聪明的方式完成：
+<ul class="org-ul">
+<li>任务通过的第二个for 循环的迭代次数越多, 其计数器的计数就越高</li>
+<li>任务计数器永远不能超过 <span class="underline">2 *优先级</span></li>
+</ul></li>
+</ul></li>
+</ul></li>
+<li>然后重复该过程：
+<ul class="org-ul">
+<li>如果至少有一个任务处于TASK_RUNNIG状态, 则外部while循环的第二次迭代将是最后一个, 因为在第一次迭代之后, 所有计数器都已经非零</li>
+<li><p>
+但是, 如果没有 TASK_RUNNING 任务, 则该过程会反复进行, 直到某些任务变为 TASK_RUNNING 状态
+</p>
+<pre class="example" id="org0ea9b1d">
+但是, 如果在单个CPU上运行, 那么在此循环运行时如何更改任务状态？
+
+答案是, 如果某些任务正在等待中断, 则该中断可能在执行 schedule 函数时发生, 并且中断处理程序可以更改任务的状态
+
+这实际上解释了为什么在 schedule 函数执行期间必须启用中断
+</pre></li>
+</ul></li>
+</ul>
+
+<p>
+这也说明了禁用中断和禁用抢占之间的重要区别：
+</p>
+<ul class="org-ul">
+<li>schedule 会在整个运行期间禁用抢占：这样可以确保在执行原始函数的过程中不会调用嵌套的 schedule</li>
+<li>相反在 schedule 函数执行期间, 中断是可以合法发生的</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org74e5724" class="outline-2">
+<h2 id="org74e5724">切换任务</h2>
+<div class="outline-text-2" id="text-org74e5724">
+<p>
+找到具有非零计数器的 TASK_RUNNING 状态的任务后, switch_to 函数被调用：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">switch_to</span>(<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> * <span style="color: #4eee94;">next</span>)
+{
+    <span style="color: #00bfff; font-weight: bold;">if</span> (current == next)
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> * <span style="color: #4eee94;">prev</span> = current;
+    current = next;
+    <span style="color: #daa520; font-weight: bold;">cpu_switch_to</span>(prev, next);
+}
+</pre>
+</div>
+
+<p>
+在这里, 检查下一个进程是否与当前进程不同, 如果不一致, 则更新 <span class="underline">current</span> 变量。实际工作被重定向到 cpu_switch_to 函数:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.globl</span> cpu_switch_to
+
+<span style="color: #daa520; font-weight: bold;">cpu_switch_to</span>:
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x10, #THREAD_CPU_CONTEXT
+        <span style="color: #00bfff; font-weight: bold;">add</span>    x8, x0, x10
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x9, sp
+        <span style="color: #00bfff; font-weight: bold;">stp</span>    x19, x20, [x8], #16        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">store callee-saved registers</span>
+        <span style="color: #00bfff; font-weight: bold;">stp</span>    x21, x22, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">stp</span>    x23, x24, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">stp</span>    x25, x26, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">stp</span>    x27, x28, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">stp</span>    x29, x9, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">str</span>    x30, [x8]
+        <span style="color: #00bfff; font-weight: bold;">add</span>    x8, x1, x10
+        <span style="color: #00bfff; font-weight: bold;">ldp</span>    x19, x20, [x8], #16        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">restore callee-saved registers</span>
+        <span style="color: #00bfff; font-weight: bold;">ldp</span>    x21, x22, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">ldp</span>    x23, x24, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">ldp</span>    x25, x26, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">ldp</span>    x27, x28, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">ldp</span>    x29, x9, [x8], #16
+        <span style="color: #00bfff; font-weight: bold;">ldr</span>    x30, [x8]
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    sp, x9
+        <span style="color: #00bfff; font-weight: bold;">ret</span>
+</pre>
+</div>
+
+<p>
+这是实际上下文切换发生的地方。让我们逐行查看它：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x10</span>, #THREAD_CPU_CONTEXT
+<span style="color: #daa520; font-weight: bold;">add</span>    <span style="color: #00bfff; font-weight: bold;">x8</span>, x0, x10
+</pre>
+</div>
+
+<ul class="org-ul">
+<li><span class="underline">THREAD_CPU_CONTEXT</span> 常量包含task_struct中的 <span class="underline">cpu_context结构</span> 的 <span class="underline">偏移量</span></li>
+<li><span class="underline">x0</span> 包含一个指向 <span class="underline">第一个参数</span> 的 <b>指针</b> , 该指针是 <span class="underline">当前的task_struct</span></li>
+</ul>
+
+<pre class="example" id="orgeceb10b">
+在这里, 当前是指要从中切换的那个 task struct 
+
+复制的两行执行后, x8将包含指向 prev-&gt;cpu_context的指针
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x9</span>, sp
+<span style="color: #daa520; font-weight: bold;">stp</span>    <span style="color: #00bfff; font-weight: bold;">x19</span>, x20, [x8], #16        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">store callee-saved registers</span>
+<span style="color: #daa520; font-weight: bold;">stp</span>    <span style="color: #00bfff; font-weight: bold;">x21</span>, x22, [x8], #16
+<span style="color: #daa520; font-weight: bold;">stp</span>    <span style="color: #00bfff; font-weight: bold;">x23</span>, x24, [x8], #16
+<span style="color: #daa520; font-weight: bold;">stp</span>    <span style="color: #00bfff; font-weight: bold;">x25</span>, x26, [x8], #16
+<span style="color: #daa520; font-weight: bold;">stp</span>    <span style="color: #00bfff; font-weight: bold;">x27</span>, x28, [x8], #16
+<span style="color: #daa520; font-weight: bold;">stp</span>    <span style="color: #00bfff; font-weight: bold;">x29</span>, x9, [x8], #16
+<span style="color: #daa520; font-weight: bold;">str</span>    <span style="color: #00bfff; font-weight: bold;">x30</span>, [x8]
+</pre>
+</div>
+
+<p>
+接下来, prev-&gt;cpu_context结构中定义的寄存器都按照顺序存储（这些是prev进程的callee所存放在这里的：
+</p>
+<ul class="org-ul">
+<li>x30是链接寄存器, 包含函数返回地址, 存储为pc</li>
+<li>当前堆栈指针存储为sp, x29存储为fp(帧指针)</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">add</span>    <span style="color: #00bfff; font-weight: bold;">x8</span>, x1, x10
+</pre>
+</div>
+
+<p>
+因为 x1是指向下一个task_struct的指针, 因此x8将包含指向下一个cpu_context的指针 (next-&gt;cpu_context)
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">ldp</span>    <span style="color: #00bfff; font-weight: bold;">x19</span>, x20, [x8], #16        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">restore callee-saved registers</span>
+<span style="color: #daa520; font-weight: bold;">ldp</span>    <span style="color: #00bfff; font-weight: bold;">x21</span>, x22, [x8], #16
+<span style="color: #daa520; font-weight: bold;">ldp</span>    <span style="color: #00bfff; font-weight: bold;">x23</span>, x24, [x8], #16
+<span style="color: #daa520; font-weight: bold;">ldp</span>    <span style="color: #00bfff; font-weight: bold;">x25</span>, x26, [x8], #16
+<span style="color: #daa520; font-weight: bold;">ldp</span>    <span style="color: #00bfff; font-weight: bold;">x27</span>, x28, [x8], #16
+<span style="color: #daa520; font-weight: bold;">ldp</span>    <span style="color: #00bfff; font-weight: bold;">x29</span>, x9, [x8], #16
+<span style="color: #daa520; font-weight: bold;">ldr</span>    <span style="color: #00bfff; font-weight: bold;">x30</span>, [x8]
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">sp</span>, x9
+</pre>
+</div>
+
+<p>
+被调用者保存的寄存器从 next-&gt;cpu_context里恢复
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">ret</span>
+</pre>
+</div>
+
+<p>
+函数返回到 链接寄存器 <span class="underline">x30</span> 所指向的位置：
+</p>
+<ul class="org-ul">
+<li>如果是第一次切换到某个任务（进程）, 则将 <span class="underline">ret_from_fork</span> 函数</li>
+<li>其他情况下, 该位置将是先前由 cpu_switch_to 函数保存在 cpu_context 中的位置</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org9d101bb" class="outline-2">
+<h2 id="org9d101bb">调度与中断</h2>
+<div class="outline-text-2" id="text-org9d101bb">
+<pre class="example" id="org08ee90c">
+在上一章中, 定义了 kernel_entry 和 kernel_exit 宏用于保存和恢复处理器状态
+
+在引入调度程序后, 出现了一个新问题：现在完全可以合法地从一个任务进入中断, 离开中断的时候返回另外一个任务
+</pre>
+
+<p>
+然而用来从中断返回的 <span class="underline">eret</span> 指令依赖于： <span class="underline">返回地址</span> 应存储在 <b>elr_el1</b> 中,  <span class="underline">处理器状态</span> 应存储在 <b>spsr_el1</b> 寄存器中。因此, 如果要在处理中断时切换任务, 则必须将这两个寄存器与所有其他通用寄存器一起保存和恢复。这样做的代码非常简单，保存这两个寄存器：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.macro</span>  kernel_entry
+<span style="color: #daa520; font-weight: bold;">sub</span>     <span style="color: #00bfff; font-weight: bold;">sp</span>, sp, #S_FRAME_SIZE
+......
+<span style="color: #daa520; font-weight: bold;">mrs</span>     <span style="color: #00bfff; font-weight: bold;">x22</span>, elr_el1
+<span style="color: #daa520; font-weight: bold;">mrs</span>     <span style="color: #00bfff; font-weight: bold;">x23</span>, spsr_el1
+</pre>
+</div>
+
+<p>
+恢复这两个寄存器：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.macro</span>  kernel_exit
+<span style="color: #daa520; font-weight: bold;">ldr</span>     <span style="color: #00bfff; font-weight: bold;">x23</span>, [sp, #16 * 16]
+<span style="color: #daa520; font-weight: bold;">ldp</span>     <span style="color: #00bfff; font-weight: bold;">x30</span>, x22, [sp, #16 * 15] 
+
+<span style="color: #daa520; font-weight: bold;">msr</span>     <span style="color: #00bfff; font-weight: bold;">elr</span>_el1, x22                    
+<span style="color: #daa520; font-weight: bold;">msr</span>     <span style="color: #00bfff; font-weight: bold;">spsr</span>_el1, x23
+......
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgff3568d" class="outline-2">
+<h2 id="orgff3568d">在上下文切换期间跟踪系统状态</h2>
+<div class="outline-text-2" id="text-orgff3568d">
+<pre class="example" id="org816f681">
+现在已经检查了与上下文切换有关的所有源代码，但是, 该代码包含许多异步交互, 这使得很难完全了解整个系统的状态如何随时间变化
+
+接下来想描述从系统启动到第二次上下文切换之时发生的事件的顺序
+
+对于每个此类事件, 将包括一个表示事件发生时存储器状态的图表
+
+希望这种表示形式将帮助深入了解调度程序的工作方式
+</pre>
+
+<ol class="org-ol">
+<li><p>
+内核已初始化并 <span class="underline">kernel_main</span> 函数已被执行，初始堆栈配置为开始于 <span class="underline">LOW_MEMORY</span> , 这是4 MB
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------+
+           | kernel image     |
+           |------------------|
+           |                  |
+           |------------------|
+           | init task stack  |
+0x00400000 +------------------+
+           |                  |
+           |                  |
+0x3F000000 +------------------+
+           | device registers |
+0x40000000 +------------------+
+</pre>
+</div></li>
+<li><p>
+kernel_main 首次调用 <span class="underline">copy_process</span> ，分配了新的 <span class="underline">4 KB内存页面</span> , 并在该页面的底部放置了 <span class="underline">task_struct</span> . (稍后, 将在此时创建的任务称为任务1)
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------+
+           | kernel image     |
+           |------------------|
+           |                  |
+           |------------------|
+           | init task stack  |
+0x00400000 +------------------+
+           | task_struct 1    |
+           |------------------|
+           |                  |
+0x00401000 +------------------+
+           |                  |
+           |                  |
+0x3F000000 +------------------+
+           | device registers |
+0x40000000 +------------------+
+</pre>
+</div></li>
+<li><p>
+kernel_main第二次调用copy_process并且重复相同的过程. <span class="underline">任务2</span> 已创建并添加到任务列表
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------+
+           | kernel image     |
+           |------------------|
+           |                  |
+           |------------------|
+           | init task stack  |
+0x00400000 +------------------+
+           | task_struct 1    |
+           |------------------|
+           |                  |
+0x00401000 +------------------+
+           | task_struct 2    |
+           |------------------|
+           |                  |
+0x00402000 +------------------+
+           |                  |
+           |                  |
+0x3F000000 +------------------+
+           | device registers |
+0x40000000 +------------------+
+</pre>
+</div></li>
+<li>kernel_main 自动调用 <span class="underline">schedule</span> 函数并决定运行任务1</li>
+<li><span class="underline">cpu_switch_to</span> 将 <span class="underline">calee-saved的寄存器</span> 保存在位于 <span class="underline">内核映像内部的init任务 cpu_context</span> 中</li>
+<li><span class="underline">cpu_switch_to</span> 从 <span class="underline">任务1的cpu_context</span> 里恢复 callee-saved的寄存器
+<ul class="org-ul">
+<li><span class="underline">sp</span> 现在指向 <span class="underline">0x00401000</span></li>
+<li>链接寄存器 <span class="underline">x30</span> 注册到 <span class="underline">ret_from_fork</span> 函数
+<ul class="org-ul">
+<li><span class="underline">x19</span> 包含一个指向 <span class="underline">process</span> 函数</li>
+<li><span class="underline">x20</span> 一个指向字符串 12345 的指针, 该字符串位于内核映像中的某个位置</li>
+</ul></li>
+</ul></li>
+<li>cpu_switch_to 调用 <span class="underline">ret</span> 指令, 该指令跳转到 <span class="underline">ret_from_fork</span> 函数</li>
+<li><p>
+ret_from_fork 读取 x19 和 x20 寄存器, 并使用参数 12345 调用 process 函数。在process函数开始执行后, 其堆栈开始增长：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------+
+           | kernel image     |
+           |------------------|
+           |                  |
+           |------------------|
+           | init task stack  |
+0x00400000 +------------------+
+           | task_struct 1    |
+           |------------------|
+           |                  |
+           |------------------|
+           | task 1 stack     |
+0x00401000 +------------------+
+           | task_struct 2    |
+           |------------------|
+           |                  |
+0x00402000 +------------------+
+           |                  |
+           |                  |
+0x3F000000 +------------------+
+           | device registers |
+0x40000000 +------------------+
+</pre>
+</div></li>
+<li><p>
+发生计时器中断： <span class="underline">kernel_entry</span> 宏保存 <b>所有通用寄存器 + elr_el1 和 spsr_el1</b> 到 <span class="underline">任务1堆栈的底部</span>
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------------+
+           | kernel image           |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | init task stack        |
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 saved registers |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           |                        |
+0x00402000 +------------------------+
+           |                        |
+           |                        |
+0x3F000000 +------------------------+
+           | device registers       |
+0x40000000 +------------------------+
+</pre>
+</div></li>
+<li><p>
+<span class="underline">schedule</span> 被调用 并且它 <b>决定</b> 运行 <span class="underline">任务2</span> 。但是现在仍然运行任务1, 并且其堆栈 <b>继续增长</b> 到 <span class="underline">任务1保存的寄存器区域</span> 以下。在图中, 堆栈的这一部分标记为 <span class="underline">int</span> , 表示 <b>中断堆栈</b>
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------------+
+           | kernel image           |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | init task stack        |
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 stack (int)     |
+           |------------------------|
+           | task 1 saved registers |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           |                        |
+0x00402000 +------------------------+
+           |                        |
+           |                        |
+0x3F000000 +------------------------+
+           | device registers       |
+0x40000000 +------------------------+
+</pre>
+</div></li>
+<li><p>
+cpu_switch_to 运行任务2. 为此, 它执行与任务1完全相同的步骤序列。任务2开始执行, 并且堆栈不断增长
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------------+
+           | kernel image           |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | init task stack        |
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 stack (int)     |
+           |------------------------|
+           | task 1 saved registers |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 2 stack           |
+0x00402000 +------------------------+
+           |                        |
+           |                        |
+0x3F000000 +------------------------+
+           | device registers       |
+0x40000000 +------------------------+
+</pre>
+</div>
+<pre class="example" id="orgd587787">
+请注意, 此时并未从中断返回, 但这没关系, 因为现在已启用中断 (在 timer_tick 之前 schedule 被调用)
+</pre></li>
+<li><p>
+另一个定时器中断发生, kernel_entry将所有 <b>通用寄存器+elr_el1和spsr_el1</b> 保存在 <span class="underline">任务2堆栈的底部</span> 。任务2中断堆栈开始增长：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------------+
+           | kernel image           |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | init task stack        |
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 stack (int)     |
+           |------------------------|
+           | task 1 saved registers |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 2 stack (int)     |
+           |------------------------|
+           | task 2 saved registers |
+           |------------------------|
+           | task 2 stack           |
+0x00402000 +------------------------+
+           |                        |
+           |                        |
+0x3F000000 +------------------------+
+           | device registers       |
+0x40000000 +------------------------+
+</pre>
+</div></li>
+<li>schedule 被调用：它观察到所有任务的计数器都设置为0, 并将 <span class="underline">计数器</span> <b>设置</b> 为 <span class="underline">任务优先级</span></li>
+<li><p>
+schedule 选择要运行的是 init任务，这是因为现在所有任务的计数器都设置为1, 而init任务是列表中的第一个
+</p>
+<pre class="example" id="org8d04510">
+但是实际上, 此时 schedule 选择任务1或任务2是完全合法的, 因为它们的计数器值相等
+
+我们对选择任务1的情况更感兴趣, 所以现在让我们假设选择了任务1
+</pre></li>
+<li>cpu_switch_to 被调用 并从 <span class="underline">任务1的cpu_context</span> 中 <b>恢复</b> <span class="underline">callee-saved寄存器</span>
+<ul class="org-ul">
+<li><p>
+链接寄存器现在注册到 switch_to 函数的最后
+</p>
+<pre class="example" id="org4521c73">
+因为这是上次执行任务1时调用 cpu_switch_to的位置
+</pre></li>
+<li>sp 指向任务1中断堆栈的底部</li>
+</ul></li>
+<li><p>
+timer_tick 函数恢复执行, 从 disable_irq 这行开始，这禁用中断 并且最终 <span class="underline">kernel_exit</span> 被执行
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------------+
+           | kernel image           |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | init task stack        |
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 saved registers |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 2 stack (int)     |
+           |------------------------|
+           | task 2 saved registers |
+           |------------------------|
+           | task 2 stack           |
+0x00402000 +------------------------+
+           |                        |
+           |                        |
+0x3F000000 +------------------------+
+           | device registers       |
+0x40000000 +------------------------+
+</pre>
+</div>
+<pre class="example" id="org5c204fb">
+当开始 kernel_exit 时, 任务1的中断堆栈已折叠为0，因为这是中断程序需要使用的堆栈
+</pre></li>
+<li><p>
+kernel_exit 恢复所有通用寄存器以及elr_el1 和 spsr_el1
+</p>
+<ul class="org-ul">
+<li>elr_el1 现在指向 process 函数中间的某个位置</li>
+<li>sp 指向任务1堆栈的底部</li>
+</ul>
+<div class="org-src-container">
+<pre class="src src-sh">         0 +------------------------+
+           | kernel image           |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | init task stack        |
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 2 stack (int)     |
+           |------------------------|
+           | task 2 saved registers |
+           |------------------------|
+           | task 2 stack           |
+0x00402000 +------------------------+
+           |                        |
+           |                        |
+0x3F000000 +------------------------+
+           | device registers       |
+0x40000000 +------------------------+
+</pre>
+</div></li>
+<li>kernel_exit 执行 <span class="underline">eret</span> 使用的指令 elr_el1 注册以 <b>跳转</b> 回 <span class="underline">process</span> 函数，任务1恢复其正常执行</li>
+</ol>
+
+
+<pre class="example" id="orgc3e5396">
+上述步骤顺序非常重要，这是整个教程中最重要的事情之一
+</pre>
+</div>
+</div>
+<div id="outline-container-org9f9f697" class="outline-2">
+<h2 id="org9f9f697">总结</h2>
+<div class="outline-text-2" id="text-org9f9f697">
+<pre class="example" id="org44d5e75">
+现在已经完成了调度, 但是现在的内核只能管理内核线程：它们在EL1上执行, 并且可以直接访问任何内核函数或数据
+
+接下来, 将解决此问题, 并介绍系统调用和虚拟内存
+</pre>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
