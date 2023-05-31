@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>内核初始化</title>
+<title>系统调用</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -192,40 +192,115 @@
     { background-color: #ffff00; color: #000000; font-weight: bold; }
   .org-svg { width: 90%; }
 </style>
-<link rel="stylesheet" type="text/css" href="../css/main.css" />
+<link rel="stylesheet" type="text/css" href="css/main.css" />
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href=""> UP </a>
+ <a accesskey="h" href="./scheduler.html"> UP </a>
  |
- <a accesskey="H" href="../rpios.html"> HOME </a>
+ <a accesskey="H" href="./rpios.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">内核初始化</h1>
+<h1 class="title">系统调用</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org94a70a1">实现系统调用</a></li>
+<li><a href="#orgba915f8">处理同步异常</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org9dca6f4">
+我们已经为RPi OS添加了许多功能，使其看起来像一个真正的操作系统，而不仅仅是一个裸机程序
+
+RPi OS现在可以管理进程，但是在这个功能中仍然存在一个主要缺点：没有任何进程隔离。接下来我们将解决这个问题
+</pre>
+
+<p>
+首先，将所有用户进程移动到 <b>EL0</b> ，这将限制它们对特权处理器操作的访问
+</p>
+<pre class="example" id="orgc6c4f04">
+如果没有这一步，任何其他隔离技术都没有意义，因为任何用户程序都可以重写我们的安全设置，从而破坏隔离
+</pre>
+
+<p>
+如果我们限制用户程序直接访问内核函数，这会带来另外的问题
+</p>
+
+<pre class="example" id="org42105d8">
+例如，如果用户程序需要向用户打印一些内容，但又不希望它直接使用UART设备
+</pre>
+
+<p>
+相反，如果操作系统为每个程序提供一组API，那将会很好。这样的API不能简单地实现为一组函数，因为每当用户程序想调用其中一个API方法时，当前异常级别都应该提升到EL1。这种API中的单个函数都被称为 <span class="underline">系统调用</span> ，在本课程中，我们将向RPi OS添加一组系统调用 
+</p>
+
+<pre class="example" id="org5d11c2a">
+进程隔离的第三个方面还有一个问题：每个进程都应该有自己独立的内存视图。这将在下一章中解决这个问题
+</pre>
+
+<div id="outline-container-org94a70a1" class="outline-2">
+<h2 id="org94a70a1">实现系统调用</h2>
+<div class="outline-text-2" id="text-org94a70a1">
+<p>
+<b>系统调用</b>  <span class="underline">syscall</span> 背后的主要思想非常简单：每个系统调用实际上都是 <b>同步异常</b> 。如果用户程序需要执行系统调用：
+</p>
+<ol class="org-ol">
+<li>首先必须准备好所有必要的参数</li>
+<li>然后运行 <span class="underline">svc</span> 指令。这条指令会生成一个同步异常。这些异常在操作系统的EL1处理</li>
+<li>然后，操作系统验证所有参数，执行所请求的操作</li>
+<li>执行普通异常返回，以确保执行将在EL0继续（就在svc指令之后）</li>
+</ol>
+
+<p>
+RPi OS定义了四个简单的系统调用：
+</p>
 <ul class="org-ul">
-<li><a href="introduction.html">RPi OS 引导</a></li>
-<li>Linux
-<ul class="org-ul">
-<li><a href="linux.html">Linux项目结构</a></li>
-<li><a href="build_system.html">内核构建系统</a></li>
-<li><a href="startup.html">启动引导过程</a></li>
-</ul></li>
+<li><span class="underline">write</span> ：这个系统调用使用UART设备在屏幕上输出内容。它接受一个包含要打印的文本的缓冲区作为第一个参数</li>
+<li><span class="underline">clone</span> ：这个系统调用创建一个新的用户线程。新创建线程的堆栈位置作为第一个参数传递</li>
+<li><p>
+<span class="underline">malloc</span> ：这个系统调用为用户进程分配一个内存页，返回指向新分配页的指针，或者在出现错误时返回-1
+</p>
+<pre class="example" id="org836fd52">
+Linux中没有这种系统调用（我认为其他操作系统也是如此）
+
+我们需要它的唯一原因是RPi OS尚未实现虚拟内存，所有用户进程都使用物理内存。因此，每个进程都需要找出哪个内存页未被占用并可以使用
+</pre></li>
+<li><p>
+<span class="underline">exit</span> ：每个进程在执行完毕后必须调用此系统调用。它将执行所有必要的清理工作
+</p>
+
+<p>
+所有的系统调用都在 <span class="underline">sys.c</span> 文件中定义。还有一个 <span class="underline">sys_call_table</span> 函数指针数组，其中包含指向所有系统调用处理程序的指针。每个系统调用都有一个"系统调用号"，它是sys_call_table数组中的对应函数的 <b>索引</b> 。所有的系统调用号都在这里定义，它们被汇编器代码用于指定的感兴趣的系统调用。以write系统调用为例，来看一下系统调用的包装函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">.globl</span> call_sys_write
+<span style="color: #daa520; font-weight: bold;">call_sys_write</span>:
+        <span style="color: #00bfff; font-weight: bold;">mov</span> w8, #SYS_WRITE_NUMBER
+        <span style="color: #00bfff; font-weight: bold;">svc</span> #0
+        <span style="color: #00bfff; font-weight: bold;">ret</span>
+</pre>
+</div></li>
 </ul>
 
-<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<p>
+该函数非常简单：它只是将 <span class="underline">系统调用号</span> <b>存储</b> 在 <span class="underline">w8寄存器</span> 中，并通过执行 <span class="underline">svc</span> 指令生成 <span class="underline">同步异常</span> 。按照惯例，w8寄存器用于存储系统调用号：
+</p>
+<ul class="org-ul">
+<li>寄存器 x0-x7 用于存储系统调用的参数</li>
+<li>x8 用于存储系统调用号，这样一个系统调用就可以有最多8个参数</li>
+</ul>
 
+<pre class="example" id="org65e8d1f">
+这样的包装函数通常不会直接包含在内核中，更有可能在不同的语言标准库中找到它们，比如glibc
+</pre>
+</div>
+</div>
 
-<colgroup>
-<col  class="org-left" />
-
-<col  class="org-left" />
-</colgroup>
-<tbody>
-<tr>
-<td class="org-left"><a href="../processor/processor.html">Next: 进程初始化</a></td>
-<td class="org-left"><a href="../rpios.html">Home: RpiOs</a></td>
-</tr>
-</tbody>
-</table>
+<div id="outline-container-orgba915f8" class="outline-2">
+<h2 id="orgba915f8">处理同步异常</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 

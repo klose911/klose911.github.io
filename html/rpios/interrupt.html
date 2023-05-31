@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>中断</title>
+<title>中断处理</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -192,29 +192,29 @@
     { background-color: #ffff00; color: #000000; font-weight: bold; }
   .org-svg { width: 90%; }
 </style>
-<link rel="stylesheet" type="text/css" href="../css/main.css" />
+<link rel="stylesheet" type="text/css" href="css/main.css" />
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href=""> UP </a>
+ <a accesskey="h" href="./processor.html"> UP </a>
  |
- <a accesskey="H" href="./interrupt.html"> HOME </a>
+ <a accesskey="H" href="./rpios.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">中断</h1>
+<h1 class="title">中断处理</h1>
 <div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org6650899">中断与异常</a></li>
-<li><a href="#org70476a1">异常处理向量表</a></li>
-<li><a href="#orgfdbe529">保存和恢复寄存器状态</a></li>
-<li><a href="#orgb4c865b">设置向量表</a></li>
-<li><a href="#orgfb36290">屏蔽/取消屏蔽中断</a></li>
-<li><a href="#org9cea1a4">配置中断控制器</a></li>
-<li><a href="#org93ad57e">通用IRQ处理程序</a></li>
-<li><a href="#orgceda258">计时器初始化</a></li>
-<li><a href="#orgc934bf7">处理计时器中断</a></li>
-<li><a href="#org0130b7b">结论</a></li>
+<li><a href="#org1f4e351">中断与异常</a></li>
+<li><a href="#org76bd8fb">异常处理向量表</a></li>
+<li><a href="#orge204094">保存和恢复寄存器状态</a></li>
+<li><a href="#orgc4672c9">设置向量表</a></li>
+<li><a href="#org544cf68">屏蔽/取消屏蔽中断</a></li>
+<li><a href="#org189e638">配置中断控制器</a></li>
+<li><a href="#org295119f">通用IRQ处理程序</a></li>
+<li><a href="#org2bf67dd">计时器初始化</a></li>
+<li><a href="#orgc7e8193">处理计时器中断</a></li>
+<li><a href="#orga1291fb">结论</a></li>
 </ul>
 </div>
 </div>
@@ -222,14 +222,14 @@
 有一种设备在操作系统开发中特别有用： <span class="underline">系统计时器</span> 。它是一种可以配置为以 <span class="underline">某个预定频率</span> 定期 <b>中断</b> <span class="underline">处理器工作</span> 的设备
 </p>
 
-<pre class="example" id="orge31237b">
+<pre class="example" id="org36fcad7">
 进程调度是使用计时器的一种特殊应用，调度程序需要测量每个进程执行了多长时间, 并使用此信息选择要运行的下一个进程，而此测量基于计时器中断
 
 在下一章中, 将详细讨论进程调度, 但是现在, 任务是初始化系统计时器并实现计时器的中断处理程序
 </pre>
-<div id="outline-container-org6650899" class="outline-2">
-<h2 id="org6650899">中断与异常</h2>
-<div class="outline-text-2" id="text-org6650899">
+<div id="outline-container-org1f4e351" class="outline-2">
+<h2 id="org1f4e351">中断与异常</h2>
+<div class="outline-text-2" id="text-org1f4e351">
 <p>
 在ARM.v8体系结构中, 中断是一种异常（更笼统的术语）。 异常有4种：
 </p>
@@ -237,14 +237,14 @@
 <li><p>
 <b>同步异常</b>: 这种类型的异常总是由当前执行的指令引起
 </p>
-<pre class="example" id="org2a8a9ad">
+<pre class="example" id="org9a5b381">
 例如, 可以使用 str 指令将一些数据存储在不存在的内存位置。在这种情况下, 将生成同步异常
 </pre>
 <ul class="org-ul">
 <li><p>
 同步异常也可以用于生成 <span class="underline">软件中断</span> 。软件中断是由 <span class="underline">svc</span> 指令有意产生的同步异常
 </p>
-<pre class="example" id="org0339f08">
+<pre class="example" id="org07bc0b3">
 未来将使用该技术来实现系统调用
 </pre></li>
 </ul></li>
@@ -258,7 +258,7 @@
 <li><p>
 快速中断将首先发出 <span class="underline">信号</span> , 并将由单独的异常处理程序处理
 </p>
-<pre class="example" id="orgf46dacd">
+<pre class="example" id="orgbe0bbfa">
 Linux不使用快速中断, 我们也不会这样做
 </pre></li>
 </ul></li>
@@ -268,15 +268,15 @@ Linux不使用快速中断, 我们也不会这样做
 <ul class="org-ul">
 <li>与 IRQ 和 FIQ 不同, SError 始终表示某种错误情况</li>
 </ul>
-<pre class="example" id="org998b35f">
+<pre class="example" id="org5ebc2d3">
 可以在 https://community.arm.com/processors/f/discussions/3205/re-what-is-serror-detailed-explanation-is-required 找到一个示例来说明何时可以使用SError产生中断 
 </pre></li>
 </ul>
 </div>
 </div>
-<div id="outline-container-org70476a1" class="outline-2">
-<h2 id="org70476a1">异常处理向量表</h2>
-<div class="outline-text-2" id="text-org70476a1">
+<div id="outline-container-org76bd8fb" class="outline-2">
+<h2 id="org76bd8fb">异常处理向量表</h2>
+<div class="outline-text-2" id="text-org76bd8fb">
 <p>
 每个异常类型都需要有自己的处理程序。另外, 每个不同的 <span class="underline">执行状态</span> (异常生成的时候)应该定义单独的处理程序。从异常处理的角度来看, 有4种执行状态很有趣。如果在EL1工作, 则这些状态可以定义如下：
 </p>
@@ -284,13 +284,13 @@ Linux不使用快速中断, 我们也不会这样做
 <li><p>
 <b>EL1t</b>: 与 <span class="underline">EL0</span> <b>共享</b> <span class="underline">堆栈指针</span> 时, EL1发生异常
 </p>
-<pre class="example" id="orgf4c49fd">
+<pre class="example" id="orge0d8e5e">
 当 SPSel 寄存器的值为 0 时, 就会发生这种情况
 </pre></li>
 <li><p>
 <b>EL1h</b>: 为 <span class="underline">EL1</span> 分配了 <b>专用</b> <span class="underline">堆栈指针</span> 时, EL1发生了异常
 </p>
-<pre class="example" id="orgc6d7ddc">
+<pre class="example" id="orgb1693ba">
 这意味着 SPSel 拥有值 1, 这是当前正在使用的模式
 </pre></li>
 <li><b>EL0_64</b>: 以 <span class="underline">64位</span> 模式执行的 <span class="underline">EL0</span> 产生异常</li>
@@ -301,7 +301,7 @@ Linux不使用快速中断, 我们也不会这样做
 总共, 需要定义16个异常处理程序(4个异常级别乘以4个执行状态)。一个 <b>保存</b> 所有 <span class="underline">异常处理程序地址</span> 的特殊数据结构被称为 <span class="underline">exception vector table</span> 或 <span class="underline">vector table</span>
 </p>
 
-<pre class="example" id="org23fe733">
+<pre class="example" id="org6f38b87">
 向量表的结构在 AArch64-Reference-Manual 第1876页上的 表D1-7向量与向量表基址的向量偏移量 中定义
 </pre>
 
@@ -309,7 +309,7 @@ Linux不使用快速中断, 我们也不会这样做
 可以把向量表视为异常向量的数组, 其中每个异常向量(或处理程序)是负责 <b>处理</b> <span class="underline">特定异常</span> 的 <span class="underline">连续指令序列</span> . 因此, 对于来自 <a href="https://developer.arm.com/docs/ddi0487/ca/arm-architecture-reference-manual-armv8-for-armv8-a-architecture-profile">AArch64-参考手册</a> 的 表D1-7, 每个异常向量最多可以占用 <span class="underline">0x80 字节</span>
 </p>
 
-<pre class="example" id="orgf2b5b34">
+<pre class="example" id="orgc10ccaa">
 这容量虽然不多, 但是没有人阻止从异常向量跳转到其他内存位置
 
 接下来通过一个示例, 所有这些都将更加清晰
@@ -367,7 +367,7 @@ Linux不使用快速中断, 我们也不会这样做
 </pre>
 </div>
 
-<pre class="example" id="org92fd86a">
+<pre class="example" id="org75427ea">
 现在, 我们只对处理来自 EL1h 的 IRQ 感兴趣, 但是仍然需要定义所有16个处理程序
 
 这不是因为某些硬件要求, 而是因为希望看到有意义的错误消息, 以防出现问题
@@ -393,7 +393,7 @@ Linux不使用快速中断, 我们也不会这样做
 <li><p>
 第一行中, 可以看到使用了另一个宏： <span class="underline">kernel_entry</span>
 </p>
-<pre class="example" id="org0f343d1">
+<pre class="example" id="org22c7d08">
 下一小节将讨论
 </pre></li>
 <li>然后调用 <span class="underline">show_invalid_entry_message</span> 并为其准备3个参数
@@ -402,13 +402,13 @@ Linux不使用快速中断, 我们也不会这样做
 <li><p>
 第二个参数： 最重要的参数, 称为 <span class="underline">ESR</span> (Exception Syndrome Register), 该参数取自 <b>esr_el1</b> 寄存器
 </p>
-<pre class="example" id="orgf230b48">
+<pre class="example" id="org18bbc0b">
 该寄存器在 AArch64-Reference-Manual 的第2431页中进行了描述，包含有关导致异常的原因的详细信息
 </pre></li>
 <li><p>
 第三个参数：它的值取自我们熟悉的 <b>elr_el1</b> 寄存器, 其中包含 <span class="underline">生成异常时</span> 已 <span class="underline">执行的</span> <b>指令的地址</b>
 </p>
-<pre class="example" id="org9d6c8e4">
+<pre class="example" id="org32bcc4b">
 主要在同步异常的情况下很重要，这是导致异常的指令
 </pre></li>
 </ul></li>
@@ -416,14 +416,14 @@ Linux不使用快速中断, 我们也不会这样做
 </ol>
 </div>
 </div>
-<div id="outline-container-orgfdbe529" class="outline-2">
-<h2 id="orgfdbe529">保存和恢复寄存器状态</h2>
-<div class="outline-text-2" id="text-orgfdbe529">
+<div id="outline-container-orge204094" class="outline-2">
+<h2 id="orge204094">保存和恢复寄存器状态</h2>
+<div class="outline-text-2" id="text-orge204094">
 <p>
 异常处理程序完成执行后, 希望所有通用寄存器具有与生成异常之前相同的值
 </p>
 
-<pre class="example" id="org7c901bf">
+<pre class="example" id="org4ed4717">
 如果不实现这种功能, 则与当前正在执行的代码无关的中断可能会无法预测地影响该代码的行为
 
 这就是为什么在生成异常后要做的第一件事就是 “保存” 处理器状态
@@ -490,15 +490,15 @@ Linux不使用快速中断, 我们也不会这样做
 <li>执行 eret 指令, 返回到正常的执行流程</li>
 </ol>
 
-<pre class="example" id="org86fe2e2">
+<pre class="example" id="org902054a">
 顺便说一句, 通用寄存器并不是执行异常处理程序之前唯一需要保存的内容, 但是对于现在的简单内核而言, 这已经足够了
 </pre>
 </div>
 </div>
-<div id="outline-container-orgb4c865b" class="outline-2">
-<h2 id="orgb4c865b">设置向量表</h2>
-<div class="outline-text-2" id="text-orgb4c865b">
-<pre class="example" id="org6612051">
+<div id="outline-container-orgc4672c9" class="outline-2">
+<h2 id="orgc4672c9">设置向量表</h2>
+<div class="outline-text-2" id="text-orgc4672c9">
+<pre class="example" id="org6357e78">
 现在准备好了向量表, 但是处理器并不知道它的位置, 因此无法使用它
 </pre>
 <p>
@@ -516,14 +516,14 @@ Linux不使用快速中断, 我们也不会这样做
 </div>
 </div>
 
-<div id="outline-container-orgfb36290" class="outline-2">
-<h2 id="orgfb36290">屏蔽/取消屏蔽中断</h2>
-<div class="outline-text-2" id="text-orgfb36290">
+<div id="outline-container-org544cf68" class="outline-2">
+<h2 id="org544cf68">屏蔽/取消屏蔽中断</h2>
+<div class="outline-text-2" id="text-org544cf68">
 <p>
 需要做的另一件事是 <span class="underline">取消屏蔽</span> 所有类型的中断
 </p>
 
-<pre class="example" id="orgd5c3782">
+<pre class="example" id="orgd45e264">
 这里解释一下“取消屏蔽”中断的含义：有时特定的代码段绝不能被异步中断拦截
 
 想象一下, 例如, 如果在 kernel_entry宏 的中间发生中断, 会发生什么？ 在这种情况下, 处理器状态将被覆盖并丢失
@@ -535,7 +535,7 @@ Linux不使用快速中断, 我们也不会这样做
 许多人错误地认为必须在异常处理程序的整个过程中屏蔽中断。但这是不正确的：在 <span class="underline">保存处理器状态后</span> <b>取消屏蔽</b> <span class="underline">中断</span> 是完全合法的
 </p>
 
-<pre class="example" id="orgf3ce8fe">
+<pre class="example" id="org3bf01c2">
 因此嵌套的中断也是合法的。虽然现在不打算这样做, 但是这是要记住的重要信息
 </pre>
 
@@ -563,13 +563,13 @@ ARM处理器状态有 <span class="underline">4</span> 位, 负责保持不同�
 <li><p>
 <b>D</b>: 屏蔽 <span class="underline">调试异常</span>
 </p>
-<pre class="example" id="orge924228">
+<pre class="example" id="orgb2a7951">
 这些是同步异常的一种特殊类型, 显然不可能屏蔽所有同步异常, 但是使用单独的标志可以屏蔽调试异常很方便
 </pre></li>
 <li><p>
 <b>A</b> : 屏蔽 <span class="underline">SErrors</span>
 </p>
-<pre class="example" id="orgb7cf47e">
+<pre class="example" id="orgc4e739f">
 之所以称为 A, 是因为有时将 SErrors 称为 异步中止(Aysnchronize Abort)
 </pre></li>
 <li><b>I</b>: 屏蔽 <span class="underline">IRQs</span></li>
@@ -586,14 +586,14 @@ ARM处理器状态有 <span class="underline">4</span> 位, 负责保持不同�
 </div>
 </div>
 
-<div id="outline-container-org9cea1a4" class="outline-2">
-<h2 id="org9cea1a4">配置中断控制器</h2>
-<div class="outline-text-2" id="text-org9cea1a4">
+<div id="outline-container-org189e638" class="outline-2">
+<h2 id="org189e638">配置中断控制器</h2>
+<div class="outline-text-2" id="text-org189e638">
 <p>
 <span class="underline">设备</span> 通常不直接 <b>中断</b> <span class="underline">处理器</span> ：相反, 它们依靠 <span class="underline">中断控制器</span> 来完成工作。中断控制器可用于 <b>启用</b> / <b>禁用</b> 硬件发送的 <span class="underline">中断</span>
 </p>
 
-<pre class="example" id="org946b06c">
+<pre class="example" id="org813aa4f">
 还可以使用中断控制器来确定哪个设备产生了中断
 
 Raspberry PI具有自己的中断控制器, 该控制器在 BCM2837 ARM 外设手册 的第109页上进行了描述
@@ -608,7 +608,7 @@ Raspberry Pi中断控制器具有 <span class="underline">3</span> 个寄存器,
 <li><p>
 ENABLE_BASIC_IRQS 寄存器： 控制一些常见中断以及ARM本地中断
 </p>
-<pre class="example" id="orge5a0698">
+<pre class="example" id="orgc6780a2">
 下一章将讨论ARM本地中断
 </pre></li>
 </ul>
@@ -625,7 +625,7 @@ ENABLE_BASIC_IRQS 寄存器： 控制一些常见中断以及ARM本地中断
 </pre>
 </div>
 
-<pre class="example" id="org0352ded">
+<pre class="example" id="org22ab4c3">
 《外围设备手册》有很多错误, 其中之一：外围设备中断表(在手册第113页上进行了说明) 应在 0-3 行包含4个来自系统定时器的中断
 
 从逆向工程Linux源代码并阅读其他一些资源, 能够弄清楚该计时器中断0和2被保留并由GPU使用, 中断1和3可以用于任何其他目的。因此, 这是启用系统计时器IRQ编号1的功能
@@ -633,9 +633,9 @@ ENABLE_BASIC_IRQS 寄存器： 控制一些常见中断以及ARM本地中断
 </div>
 </div>
 
-<div id="outline-container-org93ad57e" class="outline-2">
-<h2 id="org93ad57e">通用IRQ处理程序</h2>
-<div class="outline-text-2" id="text-org93ad57e">
+<div id="outline-container-org295119f" class="outline-2">
+<h2 id="org295119f">通用IRQ处理程序</h2>
+<div class="outline-text-2" id="text-org295119f">
 <p>
 从前面的讨论中, 应该了解, 我们只有一个异常处理程序, 负责处理所有的 IRQ：
 </p>
@@ -655,14 +655,14 @@ ENABLE_BASIC_IRQS 寄存器： 控制一些常见中断以及ARM本地中断
 </pre>
 </div>
 
-<pre class="example" id="orgf81fe94">
+<pre class="example" id="org751b8d6">
 在处理程序中, 需要一种方法来确定哪个设备负责产生中断
 </pre>
 <p>
 中断控制器可以帮助完成此工作：它具有 <span class="underline">IRQ_PENDING_1</span> 寄存器, 该寄存器保存中断0-31的中断状态。使用该寄存器, 可以检查当前中断是由计时器还是由其他设备产生的, 并调用设备特定的中断处理程序
 </p>
 
-<pre class="example" id="org6775ca3">
+<pre class="example" id="org583a33e">
 注意：多个中断可以同时挂起。这就是每个设备特定的中断处理程序必须确认已完成对中断的处理的原因, 只有在IRQ_PENDING_1中的该中断挂起位被清除后, 该原因才会被清除
 
 由于相同的原因, 对于准备投入生产的OS, 可能希望在中断处理程序中把切换开关的逻辑包装在一个循环里：这样, 将能够在单个处理程序执行期间处理多个中断
@@ -670,14 +670,14 @@ ENABLE_BASIC_IRQS 寄存器： 控制一些常见中断以及ARM本地中断
 </div>
 </div>
 
-<div id="outline-container-orgceda258" class="outline-2">
-<h2 id="orgceda258">计时器初始化</h2>
-<div class="outline-text-2" id="text-orgceda258">
+<div id="outline-container-org2bf67dd" class="outline-2">
+<h2 id="org2bf67dd">计时器初始化</h2>
+<div class="outline-text-2" id="text-org2bf67dd">
 <p>
 Raspberry Pi系统计时器是一个非常简单的设备。它具有一个计数器, 该计数器在每个时钟滴答之后将其值增加1。它还具有连接到中断控制器的4条中断线(因此它可以生成4个不同的中断)和4个相应的比较寄存器。当计数器的值等于存储在比较寄存器之一中的值时, 将触发相应的中断
 </p>
 
-<pre class="example" id="orgc9b6e0f">
+<pre class="example" id="org7e471e2">
 这就是为什么在能够使用系统定时器中断之前, 需要使用一个非零值初始化比较寄存器之一, 该值越大，则越晚生成中断
 </pre>
 
@@ -704,15 +704,15 @@ Raspberry Pi系统计时器是一个非常简单的设备。它具有一个计�
 <li>为中断编号1设置比较寄存器的值</li>
 </ol>
 
-<pre class="example" id="org1c6c7ef">
+<pre class="example" id="orgf58c023">
 通过操作 interval 值, 可以调整第一次定时器中断的产生时间 
 </pre>
 </div>
 </div>
 
-<div id="outline-container-orgc934bf7" class="outline-2">
-<h2 id="orgc934bf7">处理计时器中断</h2>
-<div class="outline-text-2" id="text-orgc934bf7">
+<div id="outline-container-orgc7e8193" class="outline-2">
+<h2 id="orgc7e8193">处理计时器中断</h2>
+<div class="outline-text-2" id="text-orgc7e8193">
 <p>
 最后, 来到了计时器中断处理程序。实际上很简单：
 </p>
@@ -733,7 +733,7 @@ Raspberry Pi系统计时器是一个非常简单的设备。它具有一个计�
 <li><p>
 通过将 <span class="underline">1</span> 写入 <span class="underline">TIMER_CS 寄存器</span> 来 <b>确认</b> 中断
 </p>
-<pre class="example" id="org1e1076b">
+<pre class="example" id="org1dd27a9">
 在文档里 TIMER_CS 中被称为 “计时器控制/状态” 寄存器
 
 该寄存器的位[0：3]可用于确认来自4条可用中断线之一的中断
@@ -742,10 +742,10 @@ Raspberry Pi系统计时器是一个非常简单的设备。它具有一个计�
 </div>
 </div>
 
-<div id="outline-container-org0130b7b" class="outline-2">
-<h2 id="org0130b7b">结论</h2>
-<div class="outline-text-2" id="text-org0130b7b">
-<pre class="example" id="org8b00974">
+<div id="outline-container-orga1291fb" class="outline-2">
+<h2 id="orga1291fb">结论</h2>
+<div class="outline-text-2" id="text-orga1291fb">
+<pre class="example" id="org6c31ae7">
 最后需要看的 kernel_main 函数, 其中协调了所有先前讨论的代码
 
 编译并运行示例后, 应在中断发生后输出 "Timer interrupt received" 
@@ -760,11 +760,14 @@ Raspberry Pi系统计时器是一个非常简单的设备。它具有一个计�
 <col  class="org-left" />
 
 <col  class="org-left" />
+
+<col  class="org-left" />
 </colgroup>
 <tbody>
 <tr>
-<td class="org-left"><a href="linux.html">Next：Linux实现</a></td>
-<td class="org-left"><a href="interrupt.html">Home：中断处理</a></td>
+<td class="org-left"><a href="scheduler.html">Next：进程调度</a></td>
+<td class="org-left"><a href="processor.html">Previous: 处理器初始化</a></td>
+<td class="org-left"><a href="rpios.html">Home: 用树莓派学习操作系统开发</a>]</td>
 </tr>
 </tbody>
 </table>
