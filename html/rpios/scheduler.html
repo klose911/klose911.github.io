@@ -218,7 +218,7 @@
 </ul>
 </div>
 </div>
-<pre class="example" id="org8ecacd5">
+<pre class="example" id="org065cf2c">
 目前为止, PRi OS已经是一个相当复杂的裸机程序, 但是说实话, 仍然不能将其称为操作系统
 </pre>
 
@@ -226,7 +226,7 @@
 原因是它无法完成任何OS应该执行的任何核心任务。这种核心任务之一称为进程调度。通过调度器, 操作系统应该能够在不同进程之间共享CPU时间
 </p>
 
-<pre class="example" id="org0dfd00f">
+<pre class="example" id="orgc4bdd9a">
 其中最困难的部分是, 一个进程应该不知道调度的发生：它应该将自己视为唯一占用CPU的进程
 
 接下来，将此功能添加到RPi OS
@@ -238,7 +238,7 @@
 如果要管理流程, 应该做的第一件事就是创建一个描述流程的结构。Linux具有这样的结构, 它称为 <b>task_struct</b> (在Linux中, 线程和进程只是不同类型的任务)
 </p>
 
-<pre class="example" id="orgeee255f">
+<pre class="example" id="org20a87f3">
 由于主要模仿Linux的实现, 因此将做同样的事情
 </pre>
 
@@ -280,7 +280,7 @@ RPi OS task_struct 如下所示：
 <li><p>
 <span class="underline">cpu_context</span> : 一个嵌入式结构, 其中包含正在切换的任务之间 <b>可能不同的</b> 所有 <span class="underline">寄存器</span> 的值
 </p>
-<pre class="example" id="orgfa2ada2">
+<pre class="example" id="orgc40ee38">
 有一个合理的问题是为什么不保存所有寄存器, 而只保存寄存器 x19-x30 和 sp ？(fp 是 x29 并且 pc 是 x30)
 
 实际的上下文切换仅在任务中调用cpu_switch_to函数。因此, 从正在切换的任务的角度来看, 它仅调用cpu_switch_to函数, 并在一段时间(可能很长)后返回，该任务不会注意到在此期间发生了另一个任务
@@ -292,7 +292,7 @@ RPi OS task_struct 如下所示：
 <li><p>
 <span class="underline">state</span> : 当前正在运行的任务的状态，对于仅在CPU上做一些工作的任务, 状态始终为 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L15">TASK_RUNNING</a>
 </p>
-<pre class="example" id="org83d70d6">
+<pre class="example" id="org818239f">
 实际上, 这是RPi OS目前要支持的唯一状态。但是, 稍后将不得不添加一些其他状态
 
 例如, 等待中断的任务应移至其他状态, 因为在尚未发生所需的中断时唤醒任务是没有意义的
@@ -300,13 +300,13 @@ RPi OS task_struct 如下所示：
 <li><p>
 <span class="underline">counter</span> : 该字段用于确定当前任务已运行多长时间
 </p>
-<pre class="example" id="org7409d55">
+<pre class="example" id="orgb03fd77">
 计数器会在每个计时器滴答时减少1, 到0时便会安排另一个任务
 </pre></li>
 <li><p>
 <span class="underline">priority</span> : 安排新任务时, 将其 <span class="underline">优先级</span> 复制到 <b>计数器</b> 中
 </p>
-<pre class="example" id="org5659d37">
+<pre class="example" id="org494045d">
 通过设置任务优先级, 可以调节任务相对于其他任务获得的处理器时间
 </pre></li>
 <li><span class="underline">preempt_count</span> : 如果该字段的值为 <span class="underline">非零值</span> , 则表明当前任务正在执行一些 <b>不可中断</b> 的关键功能(例如, 它运行调度功能)。如果在此时间发生计时器滴答, 则将忽略它, 并且不会触发重新计划</li>
@@ -321,7 +321,7 @@ RPi OS task_struct 如下所示：
 所有任务都存储在 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L7">task</a> 数组. 该阵列只有64个插槽
 </p>
 
-<pre class="example" id="org7211a2d">
+<pre class="example" id="orgd688d43">
 这是在RPi OS中可以同时执行的最大任务数
 
 对于生产就绪的OS来说, 它绝对不是最佳解决方案, 但对于我们的目标而言, 这是可以的
@@ -331,7 +331,7 @@ RPi OS task_struct 如下所示：
 还有一个非常重要的变量称为 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L6">current</a> 总是指向 <b>当前正在执行</b> 的任务。 <span class="underline">current</span>  和 <span class="underline">task</span> 数组都初始设置为持有指向 <span class="underline">init任务</span> 的指针。还有一个全局变量称为 <a href="https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L8">nr_tasks</a> : 它包含系统中当前正在运行的任务数
 </p>
 
-<pre class="example" id="org7052e2c">
+<pre class="example" id="orgc9cec65">
 这些都是将用于实现调度程序功能的结构和全局变量
 
 在对task_struct的描述中, 已经简要提到了调度工作的一些方面, 因为如果不了解如何使用特定的task_struct字段, 就无法理解其含义
@@ -343,7 +343,7 @@ RPi OS task_struct 如下所示：
 <div id="outline-container-org745191b" class="outline-2">
 <h2 id="org745191b">kernel_main 函数</h2>
 <div class="outline-text-2" id="text-org745191b">
-<pre class="example" id="orgd994d49">
+<pre class="example" id="orgb7c687f">
 在深入探讨调度程序实现之前, 先快速展示如何证明调度程序确实有效
 
 </pre>
@@ -415,7 +415,7 @@ RPi OS task_struct 如下所示：
 </pre>
 </div>
 
-<pre class="example" id="orgd5c7ac4">
+<pre class="example" id="org7c608b4">
 它只是一直在屏幕上打印数组中的字符, 这个字节数组也是做为参数传递给process
 
 第一次使用参数 12345 调用它, 第二次使用 abcde 参数
@@ -431,7 +431,7 @@ RPi OS task_struct 如下所示：
 系统中的每个任务都应具有其 <b>专用的</b> <span class="underline">堆栈</span>
 </p>
 
-<pre class="example" id="orgc06c1d7">
+<pre class="example" id="orgacad355">
 这就是为什么在创建新任务时必须有一种分配内存的方法
 </pre>
 
@@ -594,7 +594,7 @@ ret_from_fork:
 最后, copy_process 将新创建的任务添加到 <span class="underline">task 数组</span> 中, 并为当前任务 <b>启用</b> <span class="underline">抢占</span>
 </p>
 
-<pre class="example" id="orgab495bc">
+<pre class="example" id="org419a4bb">
 关于copy_process函数要了解的重要一点是, 它在完成执行后不会发生上下文切换
 
 该函数仅准备新的task_struct并将其添加到task数组中，而在调用schedule函数后才可能执行此任务 
@@ -611,7 +611,7 @@ ret_from_fork:
 <li><p>
 当一个任务现在没有任何事情要做, 但是仍然无法终止时, 它可以自行调用schedule
 </p>
-<pre class="example" id="orgf53a32d">
+<pre class="example" id="org31e652a">
 就像 kernel_main 函数所做的 
 </pre></li>
 <li>schedule 也定期被  <span class="underline">时钟中断</span> 所调用</li>
@@ -643,7 +643,7 @@ ret_from_fork:
 <li><p>
 否则调用schedule并启用中断
 </p>
-<pre class="example" id="org8687aa1">
+<pre class="example" id="orgab9d38f">
 在中断处理程序内部, 默认情况下禁用中断
 
 接下来会去了解为什么在调度程序执行期间必须启用中断 
@@ -700,7 +700,7 @@ ret_from_fork:
 <li><p>
 如果找不到这样的任务, 则意味着当前不存在处于 TASK_RUNNING 状态的任务, 或者所有此类任务的计数器均为0
 </p>
-<pre class="example" id="orga7c476a">
+<pre class="example" id="orged0c1b6">
 在实际的OS中, 例如, 当所有任务都在等待中断时, 就可能会发生 
 </pre>
 <ul class="org-ul">
@@ -717,7 +717,7 @@ ret_from_fork:
 <li><p>
 但是, 如果没有 TASK_RUNNING 任务, 则该过程会反复进行, 直到某些任务变为 TASK_RUNNING 状态
 </p>
-<pre class="example" id="orgc7aec34">
+<pre class="example" id="org0c85c46">
 但是, 如果在单个CPU上运行, 那么在此循环运行时如何更改任务状态？
 
 答案是, 如果某些任务正在等待中断, 则该中断可能在执行 schedule 函数时发生, 并且中断处理程序可以更改任务的状态
@@ -801,7 +801,7 @@ ret_from_fork:
 <li><span class="underline">x0</span> 包含一个指向 <span class="underline">第一个参数</span> 的 <b>指针</b> , 该指针是 <span class="underline">当前的task_struct</span></li>
 </ul>
 
-<pre class="example" id="orgb65a1e1">
+<pre class="example" id="org641610d">
 在这里, 当前是指要从中切换的那个 task struct 
 
 复制的两行执行后, x8将包含指向 prev-&gt;cpu_context的指针
@@ -869,7 +869,7 @@ ret_from_fork:
 <div id="outline-container-org86b93e9" class="outline-2">
 <h2 id="org86b93e9">调度与中断</h2>
 <div class="outline-text-2" id="text-org86b93e9">
-<pre class="example" id="orgd34c9c0">
+<pre class="example" id="orga5adddc">
 在上一章中, 定义了 kernel_entry 和 kernel_exit 宏用于保存和恢复处理器状态
 
 在引入调度程序后, 出现了一个新问题：现在完全可以合法地从一个任务进入中断, 离开中断的时候返回另外一个任务
@@ -907,7 +907,7 @@ ret_from_fork:
 <div id="outline-container-org38e7c6f" class="outline-2">
 <h2 id="org38e7c6f">在上下文切换期间跟踪系统状态</h2>
 <div class="outline-text-2" id="text-org38e7c6f">
-<pre class="example" id="org1b06987">
+<pre class="example" id="org2ca07cd">
 现在已经检查了与上下文切换有关的所有源代码，但是, 该代码包含许多异步交互, 这使得很难完全了解整个系统的状态如何随时间变化
 
 接下来想描述从系统启动到第二次上下文切换之时发生的事件的顺序
@@ -1120,7 +1120,7 @@ cpu_switch_to 运行任务2. 为此, 它执行与任务1完全相同的步骤序
                0x40000000 +------------------------+
 </pre>
 </div>
-<pre class="example" id="orgb0086cb">
+<pre class="example" id="orgf31ca39">
 请注意, 此时并未从中断返回, 但这没关系, 因为现在已启用中断 (在 timer_tick 之前 schedule 被调用)
 </pre></li>
 <li><p>
@@ -1165,7 +1165,7 @@ cpu_switch_to 运行任务2. 为此, 它执行与任务1完全相同的步骤序
 <li><p>
 schedule 选择要运行的是 init任务，这是因为现在所有任务的计数器都设置为1, 而init任务是列表中的第一个
 </p>
-<pre class="example" id="orgd7b6556">
+<pre class="example" id="org154b38b">
 但是实际上, 此时 schedule 选择任务1或任务2是完全合法的, 因为它们的计数器值相等
 
 我们对选择任务1的情况更感兴趣, 所以现在让我们假设选择了任务1
@@ -1175,7 +1175,7 @@ schedule 选择要运行的是 init任务，这是因为现在所有任务的计
 <li><p>
 链接寄存器现在注册到 switch_to 函数的最后
 </p>
-<pre class="example" id="orge63af03">
+<pre class="example" id="org0f194ef">
 因为这是上次执行任务1时调用 cpu_switch_to的位置
 </pre></li>
 <li>sp 指向任务1中断堆栈的底部</li>
@@ -1216,7 +1216,7 @@ timer_tick 函数恢复执行, 从 disable_irq 这行开始，这禁用中断 �
                0x40000000 +------------------------+
 </pre>
 </div>
-<pre class="example" id="org348ed88">
+<pre class="example" id="orgbe00198">
 当开始 kernel_exit 时, 任务1的中断堆栈已折叠为0，因为这是中断程序需要使用的堆栈
 </pre></li>
 <li><p>
@@ -1261,7 +1261,7 @@ kernel_exit 恢复所有通用寄存器以及elr_el1 和 spsr_el1
 </ol>
 
 
-<pre class="example" id="orgcbe1d24">
+<pre class="example" id="orgd0d8820">
 上述步骤顺序非常重要，这是整个教程中最重要的事情之一
 </pre>
 </div>
@@ -1269,7 +1269,7 @@ kernel_exit 恢复所有通用寄存器以及elr_el1 和 spsr_el1
 <div id="outline-container-orgd3931f9" class="outline-2">
 <h2 id="orgd3931f9">总结</h2>
 <div class="outline-text-2" id="text-orgd3931f9">
-<pre class="example" id="org05fc4d1">
+<pre class="example" id="org29ab52b">
 现在已经完成了调度, 但是现在的内核只能管理内核线程：它们在EL1上执行, 并且可以直接访问任何内核函数或数据
 
 接下来, 将解决此问题, 并介绍系统调用和虚拟内存
@@ -1289,7 +1289,7 @@ kernel_exit 恢复所有通用寄存器以及elr_el1 和 spsr_el1
 <tr>
 <td class="org-left"><a href="system_call.html">Next: 系统调用</a></td>
 <td class="org-left"><a href="interrupt.html">Previous: 中断处理</a></td>
-<td class="org-left"><a href="rpios.html">Home: 用树莓派学习操作系统开发</a>]</td>
+<td class="org-left"><a href="rpios.html">Home: 用树莓派学习操作系统开发</a></td>
 </tr>
 </tbody>
 </table>

@@ -64,3 +64,327 @@ RPi OS定义了四个简单的系统调用：
 #+end_example
 
 * 处理同步异常
+生成同步异常后，会调用在异常表中注册的处理程序：
+
+#+begin_src asm 
+  el0_sync:
+	  kernel_entry 0
+	  mrs	x25, esr_el1				// read the syndrome register
+	  lsr	x24, x25, #ESR_ELx_EC_SHIFT		// exception class
+	  cmp	x24, #ESR_ELx_EC_SVC64			// SVC in 64-bit state
+	  b.eq	el0_svc
+	  handle_invalid_entry 0, SYNC_ERROR
+#+end_src
+
+首先，像所有异常处理程序一样，调用了 _kernel_entry_ 宏。然后检查 _esr_el1_ （异常综合寄存器）。该寄存器在偏移 _ESR_ELx_EC_SHIFT位处_ 包含 *异常类* 字段。如果异常类等于 _ESR_ELx_EC_SVC64_ ，这意味着当前异常是由svc指令引起的，即它是一个系统调用。在这种情况下，跳转到 _el0_svc标签_ ，反之则打印出错信息
+
+#+begin_src asm 
+	  sc_nr   .req    x25                  // number of system calls
+	  scno    .req    x26                  // syscall number
+	  stbl    .req    x27                  // syscall table pointer
+
+  el0_svc:
+	  adr    stbl, sys_call_table      // load syscall table pointer
+	  uxtw   scno, w8                  // syscall number in w8
+	  mov    sc_nr, #__NR_syscalls
+	  bl     enable_irq
+	  cmp    scno, sc_nr               // check upper syscall limit
+	  b.hs   ni_sys
+
+	  ldr    x16, [stbl, scno, lsl #3] // address in the syscall table
+	  blr    x16                       // call sys_* routine
+	  b      ret_from_syscall
+  ni_sys:
+	  handle_invalid_entry 0, SYSCALL_ERROR
+#+end_src
+
+el0_svc:
+1. 将 _syscall表的地址_ 加载到 _stbl寄存器_ （它只是 *x27* 寄存器的 _别名_ ）中
+2. 将 _syscall号_ 加载到 _scno变量_ 中
+3. 启用中断
+4. 将syscall号与系统中的总syscall数进行比较：
+   + 如果大于或等于，则显示错误消息
+   + 如果syscall号在所需范围内，它将作为syscall表数组中的索引，以获取指向syscall处理程序的指针
+5. 执行处理程序
+6. 在处理程序完成后调用 _ret_from_syscall_ 
+
+#+begin_example
+  注意：这里不触碰寄存器x0-x7 。它们会透明地传递给处理程序
+#+end_example
+
+#+begin_src asm 
+  ret_from_syscall:
+	  bl    disable_irq
+	  str   x0, [sp, #S_X0]             // returned x0
+	  kernel_exit 0
+#+end_src
+ret_from_syscall：
+1. 禁用中断
+2. 将x0寄存器的值保存在堆栈上
+   + 这是必需的，因为kernel_exit将从保存的值中恢复所有通用寄存器，但是x0现在包含了syscall处理程序的返回值，而我们希望将此值传递给用户代码
+3. 调用kernel_exit，它返回到用户代码 
+
+* EL0 和 EL1跳转
+如果仔细阅读之前的课程，可能会注意到 _kernel_entry_ 和 _kernel_exit_ 宏发生了变化：现在它们都接受了一个额外的参数。该参数指示异常来自哪个 *异常级别* 。传递异常的起源级别是为了正确保存/恢复堆栈指针。以下是kernel_entry和kernel_exit宏的两个相关部分：
+
+#+begin_src asm 
+	  .if    \el == 0
+	  mrs    x21, sp_el0
+	  .else
+	  add    x21, sp, #S_FRAME_SIZE
+	  .endif /* \el == 0 */
+#+end_src
+
+#+begin_src asm 
+	  .if    \el == 0
+	  msr    sp_el0, x21
+	  .endif /* \el == 0 */
+#+end_src
+
+在EL0和EL1中，分别使用了两个不同的堆栈指针，这就是为什么在从EL0接收异常后， _堆栈指针_ 会被 *覆盖* 的原因：
++ 原始的堆栈指针可以在 _sp_el0寄存器_ 中找到
++ 在接收异常 _之前_ 和 _之后_ ，必须 *存储* 和 *恢复* 该寄存器的值（即使在异常处理程序中没有操作sp_el0，如果不这样做，在上下文切换后，sp寄存器中将得到错误的值）
+
+#+begin_example
+  可能还会问，为什么在从EL1接收异常时不恢复sp寄存器的值？
+
+  那是因为在异常处理程序中重用了同一个内核堆栈。即使在异常处理过程中发生了上下文切换，在kernel_exit时，sp已经被cpu_switch_to函数切换了
+
+  顺便说一下，在Linux中的行为是不同的，因为Linux为中断处理程序使用了不同的堆栈
+#+end_example
+值得注意的是，不需要在 _eret指令_ 之前显式指定返回到哪个异常级别。这是因为这个信息被编码在 _spsr_el1寄存器_ 中，所以总是 *返回* 到 _异常发生的级别_
+
+* 让进程在用户模式运行
+在进行任何系统调用之前，显然需要在用户模式下运行一个任务。创建新的用户任务有两种可能性：
++ 要么将内核线程转移到用户模式
++ 要么用户任务可以通过 fork 来创建新的用户任务
+
+#+begin_example
+  这里将探讨第一种可能性
+#+end_example
+
+实际执行任务的函数称为 _move_to_user_mode_ ，但在查看它之前，让我们先检查一下该函数的使用情况。为了做到这一点，先打开 _kernel.c文件_ ：
+
+#+begin_src c 
+  int res = copy_process(PF_KTHREAD, (unsigned long)&kernel_process, 0, 0);
+  if (res < 0) {
+	  printf("error while starting kernel process");
+	  return;
+  }
+#+end_src
+
+首先，在 _kernel_main_ 函数中，创建了一个新的内核线程。这与上一课相同的方式进行操作。在调度程序运行新创建的任务后，将以 *内核* 模式执行 _kernel_process函数_ 
+
+#+begin_src c 
+  void kernel_process(){
+	  printf("Kernel process started. EL %d\r\n", get_el());
+	  int err = move_to_user_mode((unsigned long)&user_process);
+	  if (err < 0){
+		  printf("Error while moving process to user mode\n\r");
+	  }
+  }
+#+end_src
+
+_kernel_process函数_ 随后打印状态消息，并调用 _move_to_user_mode函数_ ，将 _user_process的指针_ 作为第一个参数传递。现在来看看move_to_user_mode函数在做什么：
+
+#+begin_src c 
+  int move_to_user_mode(unsigned long pc)
+  {
+	  struct pt_regs *regs = task_pt_regs(current);
+	  memzero((unsigned long)regs, sizeof(*regs));
+	  regs->pc = pc;
+	  regs->pstate = PSR_MODE_EL0t;
+	  unsigned long stack = get_free_page(); //allocate new user stack
+	  if (!stack) {
+		  return -1;
+	  }
+	  regs->sp = stack + PAGE_SIZE;
+	  current->stack = stack;
+	  return 0;
+  }
+#+end_src
+
+#+begin_example
+  在之前的课程中，我们讨论了fork进程，并且已经看到在新创建的任务的栈顶保留了一个 pt_regs 属性
+
+  这是我们第一次使用这个区域：我们将手动准备的处理器状态保存在其中
+
+  这个状态的结构与kernel_exit宏所期望的完全相同，并且由pt_regs结构描述
+#+end_example
+
+在move_to_user_mode函数中，初始化了pt_regs结构的以下字段：
++ _pc_ ：它现在指向需要在 *用户模式* 下 _执行的函数_ 。kernel_exit将pc复制到 _elr_el1寄存器_ ，确保在执行完异常返回后将返回到pc地址
++ _pstate_ ：该字段将由kernel_exit复制到 _spsr_el1寄存器_ ，并在异常返回完成后成为处理器状态
+  + pstate字段复制的 _PSR_MODE_EL0t常量_ 是以这样一种方式准备的，即异常返回将在 _EL0级别_ 进行
+    #+begin_example
+      这在前面从EL3到EL1时切换时已经使用过同样的技巧
+    #+end_example
++ _stack_ ：move_to_user_mode为用户栈 *分配* 了一个 _新的页面_ ，并将 _sp字段_ 设置为指向该 _页面的顶部_
+
+_task_pt_regs函数_ 用于 *计算* _pt_regs域的位置_ 。由于初始化了当前的内核线程，可以确定在它完成后， _sp_ 将指向 _pt_regs域的前面_ 。这发生在调用ret_from_fork函数之间
+
+#+begin_src asm 
+	  .globl ret_from_fork
+  ret_from_fork:
+	  bl    schedule_tail
+	  cbz   x19, ret_to_user            // not a kernel thread
+	  mov   x0, x20
+	  blr   x19
+  ret_to_user:
+	  bl disable_irq
+	  kernel_exit 0
+#+end_src
+
+_ret_from_fork函数_ 现在也已经更新。在内核线程完成后，执行将转到 _ret_to_user标签_ 处，这里禁用中断并执行正常的异常返回，并使用之前准备好的 *处理器状态* 
+
+* 创建用户进程
+现在回到kernel.c文件。正如在前面所看到的，当 _kernel_process_ 完成后，将在用户模式下执行 _user_process_ 函数。该函数两次调用 *clone系统调用* ，以便在两个并行线程中执行user_process1函数。clone系统调用要求传递一个 _新用户栈的位置_ ，并且还需要调用 _malloc系统调用_ 以 *分配*  _两个新的内存页面_ 。现在看一下clone系统调用的封装函数是什么样子：
+
+#+begin_src asm 
+	  .globl call_sys_clone
+  call_sys_clone:
+	  /* Save args for the child.  */
+	  mov    x10, x0                    /*fn*/
+	  mov    x11, x1                    /*arg*/
+	  mov    x12, x2                    /*stack*/
+
+	  /* Do the system call.  */
+	  mov    x0, x2                     /* stack  */
+	  mov    x8, #SYS_CLONE_NUMBER
+	  svc    0x0
+
+	  cmp    x0, #0
+	  beq    thread_start
+	  ret
+
+  thread_start:
+	  mov    x29, 0
+
+	  /* Pick the function arg and execute.  */
+	  mov    x0, x11
+	  blr    x10
+
+	  /* We are done, pass the return value through x0.  */
+	  mov    x8, #SYS_EXIT_NUMBER
+	  svc    0x0
+#+end_src
+
+在clone系统调用封装函数的设计中，试图模拟glibc库中相应函数的行为。该函数执行以下操作：
+1. 保存寄存器 x0 - x3，这些寄存器包含系统调用的参数，稍后将被系统调用处理程序覆盖
+2. 调用系统调用处理程序
+3. 检查系统调用处理程序的返回值：如果返回值为0，则表示我们正在新创建的线程内执行。在这种情况下，执行跳转到thread_start标签
+4. 如果返回值为非零，则它是新任务的进程标识符（PID）。这意味着在系统调用结束后我们立即返回，并且正在原始线程中执行。在这种情况下，直接返回给调用者
+5. 调用作为第一个参数传递的函数，在新线程中执行
+6. 函数执行完成后，执行退出系统调用（exit）：它永远不会返回
+
+正如看到的，clone封装函数和clone系统调用的语义不同：
++ clone封装函数：接受要执行的函数的指针作为参数
++ clone系统调用：原始任务和克隆任务中返回两次给调用者 
+
+克隆系统调用处理程序非常简单，只是调用了已经熟悉的copy_process函数。然而，这个函数已经进行了修改，现在它支持克隆用户线程和内核线程：
+
+#+begin_src c 
+  int copy_process(unsigned long clone_flags, unsigned long fn, unsigned long arg, unsigned long stack)
+  {
+	  preempt_disable();
+	  struct task_struct *p;
+
+	  p = (struct task_struct *) get_free_page();
+	  if (!p) {
+		  return -1;
+	  }
+
+	  struct pt_regs *childregs = task_pt_regs(p);
+	  memzero((unsigned long)childregs, sizeof(struct pt_regs));
+	  memzero((unsigned long)&p->cpu_context, sizeof(struct cpu_context));
+
+	  if (clone_flags & PF_KTHREAD) {
+		  p->cpu_context.x19 = fn;
+		  p->cpu_context.x20 = arg;
+	  } else {
+		  struct pt_regs * cur_regs = task_pt_regs(current);
+		  ,*childregs = *cur_regs;
+		  childregs->regs[0] = 0;
+		  childregs->sp = stack + PAGE_SIZE;
+		  p->stack = stack;
+	  }
+	  p->flags = clone_flags;
+	  p->priority = current->priority;
+	  p->state = TASK_RUNNING;
+	  p->counter = p->priority;
+	  p->preempt_count = 1; //disable preemtion until schedule_tail
+
+	  p->cpu_context.pc = (unsigned long)ret_from_fork;
+	  p->cpu_context.sp = (unsigned long)childregs;
+	  int pid = nr_tasks++;
+	  task[pid] = p;
+	  preempt_enable();
+	  return pid;
+  }
+#+end_src
+
+如果正在创建一个新的内核线程，该函数的行为与前一章中描述的完全相同。另一种情况是当克隆一个用户线程时，将执行以下代码部分：
+
+#+begin_src c 
+  struct pt_regs * cur_regs = task_pt_regs(current);
+  ,*childregs = *cur_regs;
+  childregs->regs[0] = 0;
+  childregs->sp = stack + PAGE_SIZE;
+  p->stack = stack;
+#+end_src
+
+首先获取由 _kernel_entry宏_ 保存的 *处理器状态* 
+
+#+begin_example
+  然而，为什么可以使用同样的task_pt_regs函数来返回位于内核栈顶部的pt_regs区域? 为什么pt_regs不可能存储在栈的其他位置？
+
+  答案是，此代码只能在调用clone系统调用之后执行。在触发系统调用时，当前的内核栈是空的（在转换到用户模式后，我们将其保持为空）。这就是为什么pt_regs始终存储在内核栈的顶部
+
+  对于所有后续的系统调用，这个规则都将被保持，因为每个系统调用在返回用户模式之前都会使内核栈为空
+#+end_example
+
+第二行将 _当前处理器状态_ *复制* 到 _子进程的状态_ 中。 子进程状态中的x0设置为0，因为调用者将解释 _x0_ 作为 _系统调用的返回值_
+#+begin_example
+  克隆包装函数call_sys_clone 使用该值来确定是否作为原始线程或新线程继续执行 
+#+end_example
+
+接下来，将 _子进程的sp_ 设置为指向 _新用户栈页的顶部_ 。同时还保存了 _栈页的指针_ ，以便在任务结束后进行清理 
+
+* 退出进程
+在每个用户进程完成后，它应该调用 _exit 系统调用_（在当前实现中，exit 被 clone 包装函数隐式调用）。 _exit 系统调用_ 会调用 _exit_process 函数_ ，该函数负责停用任务。下面是该函数的代码：
+
+#+begin_src c 
+  void exit_process(){
+	  preempt_disable();
+	  for (int i = 0; i < NR_TASKS; i++){
+		  if (task[i] == current) {
+			  task[i]->state = TASK_ZOMBIE;
+			  break;
+		  }
+	  }
+	  if (current->stack) {
+		  free_page(current->stack);
+	  }
+	  preempt_enable();
+	  schedule();
+  }
+#+end_src
+
+按照Linux的惯例，不会立即删除任务，而是将其 *状态* 设置为 _TASK_ZOMBIE_ 。这样可以防止任务被调度程序选择并执行
+
+#+begin_example
+在Linux中，使用这种方法允许父进程在子进程完成后仍能查询有关子进程的信息
+#+end_example
+
+exit_process函数还会 *删除* _不再需要的用户栈_ ，并调用 _schedule函数_ 。调用schedule后将选择新的任务运行，因此该系统调用永远不会返回 
+
+* 结论
+#+begin_example
+  现在 rpios 已经可以管理用户进程，我们越来越接近于完全的进程隔离
+
+  然而仍然有一个重要的问题没有解决，所有的进程都共享相同的物理内存空间，并且可以互相读取其他进程的数据
+
+  下一章中将引入虚拟内存并解决这个问题
+#+end_example
+
+| [[file:virtual_memory.org][Next：虚拟内存]] | [[file:scheduler.org][Previous：进程调度]] | [[file:rpios.org][Home: 用树莓派学习操作系统开发]] |

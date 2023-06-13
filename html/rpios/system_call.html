@@ -207,10 +207,15 @@
 <ul>
 <li><a href="#org94a70a1">实现系统调用</a></li>
 <li><a href="#orgba915f8">处理同步异常</a></li>
+<li><a href="#orgef6e8d0">EL0 和 EL1跳转</a></li>
+<li><a href="#org863adb4">让进程在用户模式运行</a></li>
+<li><a href="#orge29957f">创建用户进程</a></li>
+<li><a href="#org64c7415">退出进程</a></li>
+<li><a href="#org20280cc">结论</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org9dca6f4">
+<pre class="example" id="orgcef5cae">
 我们已经为RPi OS添加了许多功能，使其看起来像一个真正的操作系统，而不仅仅是一个裸机程序
 
 RPi OS现在可以管理进程，但是在这个功能中仍然存在一个主要缺点：没有任何进程隔离。接下来我们将解决这个问题
@@ -219,7 +224,7 @@ RPi OS现在可以管理进程，但是在这个功能中仍然存在一个主�
 <p>
 首先，将所有用户进程移动到 <b>EL0</b> ，这将限制它们对特权处理器操作的访问
 </p>
-<pre class="example" id="orgc6c4f04">
+<pre class="example" id="org58c5cfb">
 如果没有这一步，任何其他隔离技术都没有意义，因为任何用户程序都可以重写我们的安全设置，从而破坏隔离
 </pre>
 
@@ -227,7 +232,7 @@ RPi OS现在可以管理进程，但是在这个功能中仍然存在一个主�
 如果我们限制用户程序直接访问内核函数，这会带来另外的问题
 </p>
 
-<pre class="example" id="org42105d8">
+<pre class="example" id="orge95571a">
 例如，如果用户程序需要向用户打印一些内容，但又不希望它直接使用UART设备
 </pre>
 
@@ -235,7 +240,7 @@ RPi OS现在可以管理进程，但是在这个功能中仍然存在一个主�
 相反，如果操作系统为每个程序提供一组API，那将会很好。这样的API不能简单地实现为一组函数，因为每当用户程序想调用其中一个API方法时，当前异常级别都应该提升到EL1。这种API中的单个函数都被称为 <span class="underline">系统调用</span> ，在本课程中，我们将向RPi OS添加一组系统调用 
 </p>
 
-<pre class="example" id="org5d11c2a">
+<pre class="example" id="org427f179">
 进程隔离的第三个方面还有一个问题：每个进程都应该有自己独立的内存视图。这将在下一章中解决这个问题
 </pre>
 
@@ -261,7 +266,7 @@ RPi OS定义了四个简单的系统调用：
 <li><p>
 <span class="underline">malloc</span> ：这个系统调用为用户进程分配一个内存页，返回指向新分配页的指针，或者在出现错误时返回-1
 </p>
-<pre class="example" id="org836fd52">
+<pre class="example" id="orgeb9d9d0">
 Linux中没有这种系统调用（我认为其他操作系统也是如此）
 
 我们需要它的唯一原因是RPi OS尚未实现虚拟内存，所有用户进程都使用物理内存。因此，每个进程都需要找出哪个内存页未被占用并可以使用
@@ -292,7 +297,7 @@ Linux中没有这种系统调用（我认为其他操作系统也是如此）
 <li>x8 用于存储系统调用号，这样一个系统调用就可以有最多8个参数</li>
 </ul>
 
-<pre class="example" id="org65e8d1f">
+<pre class="example" id="org9f6b26b">
 这样的包装函数通常不会直接包含在内核中，更有可能在不同的语言标准库中找到它们，比如glibc
 </pre>
 </div>
@@ -300,6 +305,454 @@ Linux中没有这种系统调用（我认为其他操作系统也是如此）
 
 <div id="outline-container-orgba915f8" class="outline-2">
 <h2 id="orgba915f8">处理同步异常</h2>
+<div class="outline-text-2" id="text-orgba915f8">
+<p>
+生成同步异常后，会调用在异常表中注册的处理程序：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">el0_sync</span>:
+        <span style="color: #00bfff; font-weight: bold;">kernel_entry</span> 0
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>     x25, esr_el1                            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">read the syndrome register</span>
+        <span style="color: #00bfff; font-weight: bold;">lsr</span>     x24, x25, #ESR_ELx_EC_SHIFT             <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">exception class</span>
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>     x24, #ESR_ELx_EC_SVC64                  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">SVC in 64-bit state</span>
+        <span style="color: #00bfff; font-weight: bold;">b.eq</span>    el0_svc
+        <span style="color: #00bfff; font-weight: bold;">handle_invalid_entry</span> 0, SYNC_ERROR
+</pre>
+</div>
+
+<p>
+首先，像所有异常处理程序一样，调用了 <span class="underline">kernel_entry</span> 宏。然后检查 <span class="underline">esr_el1</span> （异常综合寄存器）。该寄存器在偏移 <span class="underline">ESR_ELx_EC_SHIFT位处</span> 包含 <b>异常类</b> 字段。如果异常类等于 <span class="underline">ESR_ELx_EC_SVC64</span> ，这意味着当前异常是由svc指令引起的，即它是一个系统调用。在这种情况下，跳转到 <span class="underline">el0_svc标签</span> ，反之则打印出错信息
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">sc_nr</span>   .req    x25                  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">number of system calls</span>
+        <span style="color: #00bfff; font-weight: bold;">scno</span>    .req    x26                  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">syscall number</span>
+        <span style="color: #00bfff; font-weight: bold;">stbl</span>    .req    x27                  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">syscall table pointer</span>
+
+<span style="color: #daa520; font-weight: bold;">el0_svc</span>:
+        <span style="color: #00bfff; font-weight: bold;">adr</span>    stbl, sys_call_table      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">load syscall table pointer</span>
+        <span style="color: #00bfff; font-weight: bold;">uxtw</span>   scno, w8                  <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">syscall number in w8</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    sc_nr, #__NR_syscalls
+        <span style="color: #00bfff; font-weight: bold;">bl</span>     enable_irq
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>    scno, sc_nr               <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">check upper syscall limit</span>
+        <span style="color: #00bfff; font-weight: bold;">b.hs</span>   ni_sys
+
+        <span style="color: #00bfff; font-weight: bold;">ldr</span>    x16, [stbl, scno, lsl #3] <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">address in the syscall table</span>
+        <span style="color: #00bfff; font-weight: bold;">blr</span>    x16                       <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">call sys_* routine</span>
+        <span style="color: #00bfff; font-weight: bold;">b</span>      ret_from_syscall
+<span style="color: #daa520; font-weight: bold;">ni_sys</span>:
+        <span style="color: #00bfff; font-weight: bold;">handle_invalid_entry</span> 0, SYSCALL_ERROR
+</pre>
+</div>
+
+<p>
+el0_svc:
+</p>
+<ol class="org-ol">
+<li>将 <span class="underline">syscall表的地址</span> 加载到 <span class="underline">stbl寄存器</span> （它只是 <b>x27</b> 寄存器的 <span class="underline">别名</span> ）中</li>
+<li>将 <span class="underline">syscall号</span> 加载到 <span class="underline">scno变量</span> 中</li>
+<li>启用中断</li>
+<li>将syscall号与系统中的总syscall数进行比较：
+<ul class="org-ul">
+<li>如果大于或等于，则显示错误消息</li>
+<li>如果syscall号在所需范围内，它将作为syscall表数组中的索引，以获取指向syscall处理程序的指针</li>
+</ul></li>
+<li>执行处理程序</li>
+<li>在处理程序完成后调用 <span class="underline">ret_from_syscall</span></li>
+</ol>
+
+<pre class="example" id="org3fe6669">
+注意：这里不触碰寄存器x0-x7 。它们会透明地传递给处理程序
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">ret_from_syscall</span>:
+        <span style="color: #00bfff; font-weight: bold;">bl</span>    disable_irq
+        <span style="color: #00bfff; font-weight: bold;">str</span>   x0, [sp, #S_X0]             <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">returned x0</span>
+        <span style="color: #00bfff; font-weight: bold;">kernel_exit</span> 0
+</pre>
+</div>
+<p>
+ret_from_syscall：
+</p>
+<ol class="org-ol">
+<li>禁用中断</li>
+<li>将x0寄存器的值保存在堆栈上
+<ul class="org-ul">
+<li>这是必需的，因为kernel_exit将从保存的值中恢复所有通用寄存器，但是x0现在包含了syscall处理程序的返回值，而我们希望将此值传递给用户代码</li>
+</ul></li>
+<li>调用kernel_exit，它返回到用户代码</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-orgef6e8d0" class="outline-2">
+<h2 id="orgef6e8d0">EL0 和 EL1跳转</h2>
+<div class="outline-text-2" id="text-orgef6e8d0">
+<p>
+如果仔细阅读之前的课程，可能会注意到 <span class="underline">kernel_entry</span> 和 <span class="underline">kernel_exit</span> 宏发生了变化：现在它们都接受了一个额外的参数。该参数指示异常来自哪个 <b>异常级别</b> 。传递异常的起源级别是为了正确保存/恢复堆栈指针。以下是kernel_entry和kernel_exit宏的两个相关部分：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.if</span>    \el == 0
+<span style="color: #daa520; font-weight: bold;">mrs</span>    <span style="color: #00bfff; font-weight: bold;">x21</span>, sp_el0
+<span style="color: #00bfff; font-weight: bold;">.else</span>
+<span style="color: #daa520; font-weight: bold;">add</span>    <span style="color: #00bfff; font-weight: bold;">x21</span>, sp, #S_FRAME_SIZE
+<span style="color: #00bfff; font-weight: bold;">.endif</span> <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">\el == 0</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.if</span>    \el == 0
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">sp</span>_el0, x21
+<span style="color: #00bfff; font-weight: bold;">.endif</span> <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">\el == 0</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+</pre>
+</div>
+
+<p>
+在EL0和EL1中，分别使用了两个不同的堆栈指针，这就是为什么在从EL0接收异常后， <span class="underline">堆栈指针</span> 会被 <b>覆盖</b> 的原因：
+</p>
+<ul class="org-ul">
+<li>原始的堆栈指针可以在 <span class="underline">sp_el0寄存器</span> 中找到</li>
+<li>在接收异常 <span class="underline">之前</span> 和 <span class="underline">之后</span> ，必须 <b>存储</b> 和 <b>恢复</b> 该寄存器的值（即使在异常处理程序中没有操作sp_el0，如果不这样做，在上下文切换后，sp寄存器中将得到错误的值）</li>
+</ul>
+
+<pre class="example" id="org56e73ca">
+可能还会问，为什么在从EL1接收异常时不恢复sp寄存器的值？
+
+那是因为在异常处理程序中重用了同一个内核堆栈。即使在异常处理过程中发生了上下文切换，在kernel_exit时，sp已经被cpu_switch_to函数切换了
+
+顺便说一下，在Linux中的行为是不同的，因为Linux为中断处理程序使用了不同的堆栈
+</pre>
+<p>
+值得注意的是，不需要在 <span class="underline">eret指令</span> 之前显式指定返回到哪个异常级别。这是因为这个信息被编码在 <span class="underline">spsr_el1寄存器</span> 中，所以总是 <b>返回</b> 到 <span class="underline">异常发生的级别</span>
+</p>
+</div>
+</div>
+
+<div id="outline-container-org863adb4" class="outline-2">
+<h2 id="org863adb4">让进程在用户模式运行</h2>
+<div class="outline-text-2" id="text-org863adb4">
+<p>
+在进行任何系统调用之前，显然需要在用户模式下运行一个任务。创建新的用户任务有两种可能性：
+</p>
+<ul class="org-ul">
+<li>要么将内核线程转移到用户模式</li>
+<li>要么用户任务可以通过 fork 来创建新的用户任务</li>
+</ul>
+
+<pre class="example" id="orge7a0f81">
+这里将探讨第一种可能性
+</pre>
+
+<p>
+实际执行任务的函数称为 <span class="underline">move_to_user_mode</span> ，但在查看它之前，让我们先检查一下该函数的使用情况。为了做到这一点，先打开 <span class="underline">kernel.c文件</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">res</span> = copy_process(PF_KTHREAD, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;kernel_process, 0, 0);
+<span style="color: #00bfff; font-weight: bold;">if</span> (res &lt; 0) {
+    printf(<span style="color: #deb887;">"error while starting kernel process"</span>);
+    <span style="color: #00bfff; font-weight: bold;">return</span>;
+}
+</pre>
+</div>
+
+<p>
+首先，在 <span class="underline">kernel_main</span> 函数中，创建了一个新的内核线程。这与上一课相同的方式进行操作。在调度程序运行新创建的任务后，将以 <b>内核</b> 模式执行 <span class="underline">kernel_process函数</span> 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">kernel_process</span>(){
+    printf(<span style="color: #deb887;">"Kernel process started. EL %d\r\n"</span>, get_el());
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">err</span> = move_to_user_mode((<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;user_process);
+    <span style="color: #00bfff; font-weight: bold;">if</span> (err &lt; 0){
+        printf(<span style="color: #deb887;">"Error while moving process to user mode\n\r"</span>);
+    }
+}
+</pre>
+</div>
+
+<p>
+<span class="underline">kernel_process函数</span> 随后打印状态消息，并调用 <span class="underline">move_to_user_mode函数</span> ，将 <span class="underline">user_process的指针</span> 作为第一个参数传递。现在来看看move_to_user_mode函数在做什么：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">move_to_user_mode</span>(<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">pc</span>)
+{
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">pt_regs</span> *<span style="color: #4eee94;">regs</span> = task_pt_regs(current);
+    memzero((<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)regs, <span style="color: #00bfff; font-weight: bold;">sizeof</span>(*regs));
+    regs-&gt;pc = pc;
+    regs-&gt;pstate = PSR_MODE_EL0t;
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">stack</span> = get_free_page(); <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">allocate new user stack</span>
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!stack) {
+        <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+    }
+    regs-&gt;sp = stack + PAGE_SIZE;
+    current-&gt;stack = stack;
+    <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+}
+</pre>
+</div>
+
+<pre class="example" id="orgebd60ba">
+在之前的课程中，我们讨论了fork进程，并且已经看到在新创建的任务的栈顶保留了一个 pt_regs 属性
+
+这是我们第一次使用这个区域：我们将手动准备的处理器状态保存在其中
+
+这个状态的结构与kernel_exit宏所期望的完全相同，并且由pt_regs结构描述
+</pre>
+
+<p>
+在move_to_user_mode函数中，初始化了pt_regs结构的以下字段：
+</p>
+<ul class="org-ul">
+<li><span class="underline">pc</span> ：它现在指向需要在 <b>用户模式</b> 下 <span class="underline">执行的函数</span> 。kernel_exit将pc复制到 <span class="underline">elr_el1寄存器</span> ，确保在执行完异常返回后将返回到pc地址</li>
+<li><span class="underline">pstate</span> ：该字段将由kernel_exit复制到 <span class="underline">spsr_el1寄存器</span> ，并在异常返回完成后成为处理器状态
+<ul class="org-ul">
+<li><p>
+pstate字段复制的 <span class="underline">PSR_MODE_EL0t常量</span> 是以这样一种方式准备的，即异常返回将在 <span class="underline">EL0级别</span> 进行
+</p>
+<pre class="example" id="orgcfc4bc7">
+这在前面从EL3到EL1时切换时已经使用过同样的技巧
+</pre></li>
+</ul></li>
+<li><span class="underline">stack</span> ：move_to_user_mode为用户栈 <b>分配</b> 了一个 <span class="underline">新的页面</span> ，并将 <span class="underline">sp字段</span> 设置为指向该 <span class="underline">页面的顶部</span></li>
+</ul>
+
+<p>
+<span class="underline">task_pt_regs函数</span> 用于 <b>计算</b> <span class="underline">pt_regs域的位置</span> 。由于初始化了当前的内核线程，可以确定在它完成后， <span class="underline">sp</span> 将指向 <span class="underline">pt_regs域的前面</span> 。这发生在调用ret_from_fork函数之间
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">.globl</span> ret_from_fork
+<span style="color: #daa520; font-weight: bold;">ret_from_fork</span>:
+        <span style="color: #00bfff; font-weight: bold;">bl</span>    schedule_tail
+        <span style="color: #00bfff; font-weight: bold;">cbz</span>   x19, ret_to_user            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">not a kernel thread</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>   x0, x20
+        <span style="color: #00bfff; font-weight: bold;">blr</span>   x19
+<span style="color: #daa520; font-weight: bold;">ret_to_user</span>:
+        <span style="color: #00bfff; font-weight: bold;">bl</span> disable_irq
+        <span style="color: #00bfff; font-weight: bold;">kernel_exit</span> 0
+</pre>
+</div>
+
+<p>
+<span class="underline">ret_from_fork函数</span> 现在也已经更新。在内核线程完成后，执行将转到 <span class="underline">ret_to_user标签</span> 处，这里禁用中断并执行正常的异常返回，并使用之前准备好的 <b>处理器状态</b> 
+</p>
+</div>
+</div>
+
+<div id="outline-container-orge29957f" class="outline-2">
+<h2 id="orge29957f">创建用户进程</h2>
+<div class="outline-text-2" id="text-orge29957f">
+<p>
+现在回到kernel.c文件。正如在前面所看到的，当 <span class="underline">kernel_process</span> 完成后，将在用户模式下执行 <span class="underline">user_process</span> 函数。该函数两次调用 <b>clone系统调用</b> ，以便在两个并行线程中执行user_process1函数。clone系统调用要求传递一个 <span class="underline">新用户栈的位置</span> ，并且还需要调用 <span class="underline">malloc系统调用</span> 以 <b>分配</b>  <span class="underline">两个新的内存页面</span> 。现在看一下clone系统调用的封装函数是什么样子：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">.globl</span> call_sys_clone
+<span style="color: #daa520; font-weight: bold;">call_sys_clone</span>:
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Save args for the child.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x10, x0                    <span style="color: #5f9ea0; font-style: italic;">/*</span><span style="color: #5f9ea0; font-style: italic;">fn</span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x11, x1                    <span style="color: #5f9ea0; font-style: italic;">/*</span><span style="color: #5f9ea0; font-style: italic;">arg</span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x12, x2                    <span style="color: #5f9ea0; font-style: italic;">/*</span><span style="color: #5f9ea0; font-style: italic;">stack</span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Do the system call.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x0, x2                     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">stack</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x8, #SYS_CLONE_NUMBER
+        <span style="color: #00bfff; font-weight: bold;">svc</span>    0x0
+
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>    x0, #0
+        <span style="color: #00bfff; font-weight: bold;">beq</span>    thread_start
+        <span style="color: #00bfff; font-weight: bold;">ret</span>
+
+<span style="color: #daa520; font-weight: bold;">thread_start</span>:
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x29, 0
+
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Pick the function arg and execute.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x0, x11
+        <span style="color: #00bfff; font-weight: bold;">blr</span>    x10
+
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">We are done, pass the return value through x0.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x8, #SYS_EXIT_NUMBER
+        <span style="color: #00bfff; font-weight: bold;">svc</span>    0x0
+</pre>
+</div>
+
+<p>
+在clone系统调用封装函数的设计中，试图模拟glibc库中相应函数的行为。该函数执行以下操作：
+</p>
+<ol class="org-ol">
+<li>保存寄存器 x0 - x3，这些寄存器包含系统调用的参数，稍后将被系统调用处理程序覆盖</li>
+<li>调用系统调用处理程序</li>
+<li>检查系统调用处理程序的返回值：如果返回值为0，则表示我们正在新创建的线程内执行。在这种情况下，执行跳转到thread_start标签</li>
+<li>如果返回值为非零，则它是新任务的进程标识符（PID）。这意味着在系统调用结束后我们立即返回，并且正在原始线程中执行。在这种情况下，直接返回给调用者</li>
+<li>调用作为第一个参数传递的函数，在新线程中执行</li>
+<li>函数执行完成后，执行退出系统调用（exit）：它永远不会返回</li>
+</ol>
+
+<p>
+正如看到的，clone封装函数和clone系统调用的语义不同：
+</p>
+<ul class="org-ul">
+<li>clone封装函数：接受要执行的函数的指针作为参数</li>
+<li>clone系统调用：原始任务和克隆任务中返回两次给调用者</li>
+</ul>
+
+<p>
+克隆系统调用处理程序非常简单，只是调用了已经熟悉的copy_process函数。然而，这个函数已经进行了修改，现在它支持克隆用户线程和内核线程：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">copy_process</span>(<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">clone_flags</span>, <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">fn</span>, <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">arg</span>, <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">stack</span>)
+{
+    preempt_disable();
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *<span style="color: #4eee94;">p</span>;
+
+    p = (<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *) <span style="color: #daa520; font-weight: bold;">get_free_page</span>();
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!p) {
+        <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+    }
+
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">pt_regs</span> *<span style="color: #4eee94;">childregs</span> = task_pt_regs(p);
+    memzero((<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)childregs, <span style="color: #00bfff; font-weight: bold;">sizeof</span>(<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">pt_regs</span>));
+    memzero((<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;p-&gt;cpu_context, <span style="color: #00bfff; font-weight: bold;">sizeof</span>(<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">cpu_context</span>));
+
+    <span style="color: #00bfff; font-weight: bold;">if</span> (clone_flags &amp; PF_KTHREAD) {
+        p-&gt;cpu_context.x19 = fn;
+        p-&gt;cpu_context.x20 = arg;
+    } <span style="color: #00bfff; font-weight: bold;">else</span> {
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">pt_regs</span> * <span style="color: #4eee94;">cur_regs</span> = task_pt_regs(current);
+        *childregs = *cur_regs;
+        childregs-&gt;regs[0] = 0;
+        childregs-&gt;sp = stack + PAGE_SIZE;
+        p-&gt;stack = stack;
+    }
+    p-&gt;flags = clone_flags;
+    p-&gt;priority = current-&gt;priority;
+    p-&gt;state = TASK_RUNNING;
+    p-&gt;counter = p-&gt;priority;
+    p-&gt;preempt_count = 1; <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">disable preemtion until schedule_tail</span>
+
+    p-&gt;cpu_context.pc = (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)ret_from_fork;
+    p-&gt;cpu_context.sp = (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)childregs;
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">pid</span> = nr_tasks++;
+    task[pid] = p;
+    preempt_enable();
+    <span style="color: #00bfff; font-weight: bold;">return</span> pid;
+}
+</pre>
+</div>
+
+<p>
+如果正在创建一个新的内核线程，该函数的行为与前一章中描述的完全相同。另一种情况是当克隆一个用户线程时，将执行以下代码部分：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">pt_regs</span> * <span style="color: #4eee94;">cur_regs</span> = task_pt_regs(current);
+*childregs = *cur_regs;
+childregs-&gt;regs[0] = 0;
+childregs-&gt;sp = stack + PAGE_SIZE;
+p-&gt;stack = stack;
+</pre>
+</div>
+
+<p>
+首先获取由 <span class="underline">kernel_entry宏</span> 保存的 <b>处理器状态</b> 
+</p>
+
+<pre class="example" id="org58b7df5">
+然而，为什么可以使用同样的task_pt_regs函数来返回位于内核栈顶部的pt_regs区域? 为什么pt_regs不可能存储在栈的其他位置？
+
+答案是，此代码只能在调用clone系统调用之后执行。在触发系统调用时，当前的内核栈是空的（在转换到用户模式后，我们将其保持为空）。这就是为什么pt_regs始终存储在内核栈的顶部
+
+对于所有后续的系统调用，这个规则都将被保持，因为每个系统调用在返回用户模式之前都会使内核栈为空
+</pre>
+
+<p>
+第二行将 <span class="underline">当前处理器状态</span> <b>复制</b> 到 <span class="underline">子进程的状态</span> 中。 子进程状态中的x0设置为0，因为调用者将解释 <span class="underline">x0</span> 作为 <span class="underline">系统调用的返回值</span>
+</p>
+<pre class="example" id="org07bb0df">
+克隆包装函数call_sys_clone 使用该值来确定是否作为原始线程或新线程继续执行 
+</pre>
+
+<p>
+接下来，将 <span class="underline">子进程的sp</span> 设置为指向 <span class="underline">新用户栈页的顶部</span> 。同时还保存了 <span class="underline">栈页的指针</span> ，以便在任务结束后进行清理 
+</p>
+</div>
+</div>
+
+<div id="outline-container-org64c7415" class="outline-2">
+<h2 id="org64c7415">退出进程</h2>
+<div class="outline-text-2" id="text-org64c7415">
+<p>
+在每个用户进程完成后，它应该调用 <span class="underline">exit 系统调用_（在当前实现中，exit 被 clone 包装函数隐式调用）。 _exit 系统调用</span> 会调用 <span class="underline">exit_process 函数</span> ，该函数负责停用任务。下面是该函数的代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">exit_process</span>(){
+    preempt_disable();
+    <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = 0; i &lt; NR_TASKS; i++){
+        <span style="color: #00bfff; font-weight: bold;">if</span> (task[i] == current) {
+            task[i]-&gt;state = TASK_ZOMBIE;
+            <span style="color: #00bfff; font-weight: bold;">break</span>;
+        }
+    }
+    <span style="color: #00bfff; font-weight: bold;">if</span> (current-&gt;stack) {
+        free_page(current-&gt;stack);
+    }
+    preempt_enable();
+    schedule();
+}
+</pre>
+</div>
+
+<p>
+按照Linux的惯例，不会立即删除任务，而是将其 <b>状态</b> 设置为 <span class="underline">TASK_ZOMBIE</span> 。这样可以防止任务被调度程序选择并执行
+</p>
+
+<pre class="example" id="org87f86dd">
+在Linux中，使用这种方法允许父进程在子进程完成后仍能查询有关子进程的信息
+</pre>
+
+<p>
+exit_process函数还会 <b>删除</b> <span class="underline">不再需要的用户栈</span> ，并调用 <span class="underline">schedule函数</span> 。调用schedule后将选择新的任务运行，因此该系统调用永远不会返回 
+</p>
+</div>
+</div>
+
+<div id="outline-container-org20280cc" class="outline-2">
+<h2 id="org20280cc">结论</h2>
+<div class="outline-text-2" id="text-org20280cc">
+<pre class="example" id="org6df1a4f">
+现在 rpios 已经可以管理用户进程，我们越来越接近于完全的进程隔离
+
+然而仍然有一个重要的问题没有解决，所有的进程都共享相同的物理内存空间，并且可以互相读取其他进程的数据
+
+下一章中将引入虚拟内存并解决这个问题
+</pre>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="virtual_memory.html">Next：虚拟内存</a></td>
+<td class="org-left"><a href="scheduler.html">Previous：进程调度</a></td>
+<td class="org-left"><a href="rpios.html">Home: 用树莓派学习操作系统开发</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
