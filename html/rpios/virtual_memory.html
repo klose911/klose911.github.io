@@ -201,7 +201,222 @@
  <a accesskey="H" href="./rpios.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">虚拟内存</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org5e80285">地址转换</a></li>
+<li><a href="#org6768b8e">区段映射</a></li>
+<li><a href="#orga324b55">页表描述符</a></li>
+<li><a href="#org8029dc8">页面属性配置</a></li>
+</ul>
+</div>
+</div>
+<p>
+现在，RPi OS可以运行和调度用户进程，但它们之间的隔离并不完整：所有进程和内核本身共享同一块内存。这使得任何进程都可以轻易地访问其他进程甚至内核数据
+</p>
 
+<pre class="example" id="orgc67cfaf">
+即使假设所有的进程都不是恶意的，仍然存在另一个缺点：在分配内存之前，每个进程都需要知道哪些内存区域已被占用
+
+这使得进程的内存分配变得更加复杂
+</pre>
+<div id="outline-container-org5e80285" class="outline-2">
+<h2 id="org5e80285">地址转换</h2>
+<div class="outline-text-2" id="text-org5e80285">
+<p>
+接下来将通过引入 <span class="underline">虚拟内存</span> 来解决上述所有问题。虚拟内存为每个进程提供了一个抽象，使其认为它占用了所有可用的内存。每当一个进程需要访问某个内存位置时，它使用虚拟地址，该地址会被转换为物理地址。转换的过程完全对进程透明，由一个特殊设备进行：*MMU*（ <span class="underline">内存映射单元</span> ）。MMU使用 <span class="underline">转换表</span> 来将虚拟地址转换为物理地址。转换的过程如下图所示：
+</p>
+
+<pre class="example" id="org02e9fc4">
+			   Virtual address                                                                 Physical Memory
++-----------------------------------------------------------------------+                                +------------------+
+|         | PGD Index | PUD Index | PMD Index | PTE Index | Page offset |                                |                  |
++-----------------------------------------------------------------------+                                |                  |
+63        47     |    38      |   29     |    20    |     11      |     0                                |     Page N       |
+		 |            |          |          |             +--------------------+           +----&gt;+------------------+
+		 |            |          |          +---------------------+            |           |     |                  |
+	  +------+            |          |                                |            |           |     |                  |
+	  |                   |          +----------+                     |            |           |     |------------------|
++------+  |        PGD        |                     |                     |            +----------------&gt;| Physical address |
+| ttbr |----&gt;+-------------+  |           PUD       |                     |                        |     |------------------|
++------+  |  |             |  | +-&gt;+-------------+  |          PMD        |                        |     |                  |
+	  |  +-------------+  | |  |             |  | +-&gt;+-------------+  |          PTE           |     +------------------+
+	  +-&gt;| PUD address |----+  +-------------+  | |  |             |  | +-&gt;+--------------+    |     |                  |
+	     +-------------+  +---&gt;| PMD address |----+  +-------------+  | |  |              |    |     |                  |
+	     |             |       +-------------+  +---&gt;| PTE address |----+  +-------------_+    |     |                  |
+	     +-------------+       |             |       +-------------+  +---&gt;| Page address |----+     |                  |
+				   +-------------+       |             |       +--------------+          |                  |
+							 +-------------+       |              |          |                  |
+									       +--------------+          +------------------+
+</pre>
+
+<p>
+以下事实对于理解这个图表和内存转换过程非常重要：
+</p>
+<ul class="org-ul">
+<li><p>
+进程的内存总是以 <span class="underline">页面</span> 为单位分配的。页面是一个连续的内存区域，大小为 <span class="underline">4KB</span>
+</p>
+<pre class="example" id="org778c66e">
+ARM处理器支持更大的页面，但4KB是最常见的情况，这里将限制讨论在这个页面大小上
+</pre></li>
+<li><span class="underline">页表</span> 具有 <b>分层</b> 结构。在任何一个表中的项目包含了层次结构中下一个表的地址</li>
+<li>表层次结构中有4个级别：
+<ul class="org-ul">
+<li><b>PGD</b> :  <span class="underline">页全局目录</span> (Page Global Directory)</li>
+<li><b>PUD</b> :  <span class="underline">页上级目录</span> (Page Upper Directory)</li>
+<li><b>PMD</b> :  <span class="underline">页中间目录</span> (Page Middle Directory)</li>
+<li><b>PTE</b> : <span class="underline">页表项</span> (Page Table Entry) PTE是层次结构中的最后一个表，它指向 <b>物理内存</b> 中的 <span class="underline">实际页面</span></li>
+</ul></li>
+<li>内存转换过程从 <b>定位</b>  <span class="underline">PGD</span> （页全局目录）表的地址开始。该表的地址存储在 <b>ttbr0_el1寄存器</b> 中</li>
+<li><b>每个进程都有自己的所有页表的副本</b> ，包括 <span class="underline">PGD</span> ，因此每个进程都必须保持其PGD地址。在 <b>上下文切换</b> 期间，将 <span class="underline">下一个进程</span> 的 <span class="underline">PGD地址</span> <b>加载</b> 到 <span class="underline">ttbr0_el1寄存器</span> 中</li>
+<li><p>
+然后， <span class="underline">MMU</span> 使用PGD指针和虚拟地址计算相应的物理地址。所有虚拟地址仅使用64位中的 <span class="underline">48位</span> 。在进行转换时，MMU将地址分为4个部分：
+</p>
+<ul class="org-ul">
+<li><p>
+<b>位[39-47]</b> : 包含 <span class="underline">PGD表中的索引</span>
+</p>
+<pre class="example" id="org5072258">
+MMU使用此索引查找PUD的位置
+</pre></li>
+<li><p>
+<b>位[30-38]</b> : 包含 <span class="underline">PUD表中的索引</span>
+</p>
+<pre class="example" id="org9b4912d">
+MMU使用此索引查找PMD的位置
+</pre></li>
+<li><p>
+<b>位[21-29]</b> : 包含 <span class="underline">PMD表中的索引</span>
+</p>
+<pre class="example" id="org1ebce88">
+MMU使用此索引查找PTE的位置
+</pre></li>
+<li><p>
+<b>位[12-20]</b> : 包含 <span class="underline">PTE表中的索引</span>
+</p>
+<pre class="example" id="org038be69">
+MMU使用此索引在物理内存中找到一个页面
+</pre></li>
+<li><p>
+<b>位[0-11]</b> : 包含 <span class="underline">物理页面中的偏移量</span>
+</p>
+<pre class="example" id="orga82e974">
+MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对应的确切位置 
+</pre></li>
+</ul>
+
+<pre class="example" id="org53fb4ca">
+现在，让我们进行一个小练习，计算页表的大小
+
+从上面的图表中，知道页表中的索引占据9位（对于所有的页表级别都是如此）: 这意味着每个页表包含2^9 = 512个条目
+
+每个页表中的条目是层次结构中下一个页表或者PTE情况下的物理页面的地址。由于使用的是64位处理器，每个地址必须是64位或8字节大小
+
+将所有这些放在一起，我们可以计算出一个页表的大小必须是512 * 8 = 4096字节或4 KB。这正是一个页面的大小！
+
+这可能会让你对为什么MMU设计者选择这样的数字产生直觉
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org6768b8e" class="outline-2">
+<h2 id="org6768b8e">区段映射</h2>
+<div class="outline-text-2" id="text-org6768b8e">
+<p>
+有时候需要映射连续的大内存区域。在这种情况下，可以直接映射2 MB大小的块，称为 <span class="underline">区段</span> 。这样可以省去一级的地址转换。在这种情况下，转换图如下所示：
+</p>
+
+<pre class="example" id="orgb2c29d8">
+			   Virtual address                                               Physical Memory
++-----------------------------------------------------------------------+              +------------------+
+|         | PGD Index | PUD Index | PMD Index |      Section offset     |              |                  |
++-----------------------------------------------------------------------+              |                  |
+63        47     |    38      |   29     |    20            |           0              |    Section N     |
+		 |            |          |                  |                    +----&gt;+------------------+
+		 |            |          |                  |                    |     |                  |
+	  +------+            |          |                  |                    |     |                  |
+	  |                   |          +----------+       |                    |     |------------------|
++------+  |        PGD        |                     |       +-------------------------&gt;| Physical address |
+| ttbr |----&gt;+-------------+  |           PUD       |                            |     |------------------|
++------+  |  |             |  | +-&gt;+-------------+  |            PMD             |     |                  |
+	  |  +-------------+  | |  |             |  | +-&gt;+-----------------+     |     +------------------+
+	  +-&gt;| PUD address |----+  +-------------+  | |  |                 |     |     |                  |
+	     +-------------+  +---&gt;| PMD address |----+  +-----------------+     |     |                  |
+	     |             |       +-------------+  +---&gt;| Section address |-----+     |                  |
+	     +-------------+       |             |       +-----------------+           |                  |
+				   +-------------+       |                 |           |                  |
+							 +-----------------+           |                  |
+										       +------------------+
+</pre>
+
+<p>
+这里的区别在于 <span class="underline">PMD</span> 现在包含指向 <span class="underline">物理区段的指针</span> 。另外，偏移量占据了 <span class="underline">21位</span> 而不是12位
+</p>
+<pre class="example" id="orgc16ea68">
+因为需要21位来编码2MB的范围
+</pre>
+</div>
+</div>
+<div id="outline-container-orga324b55" class="outline-2">
+<h2 id="orga324b55">页表描述符</h2>
+<div class="outline-text-2" id="text-orga324b55">
+<pre class="example" id="org6e0f07f">
+可能会问MMU如何知道PMD项目是指向PTE还是物理2MB区段的？
+
+为了回答这个问题，需要更仔细地看一下页表项的结构
+</pre>
+
+<p>
+页表中的项目称为 <span class="underline">描述符</span> 。描述符具有特殊的格式：
+</p>
+
+<pre class="example" id="org6dca85e">
+			   Descriptor format
+`+------------------------------------------------------------------------------------------+
+ | Upper attributes | Address (bits 47:12) | Lower attributes | Block/table bit | Valid bit |
+ +------------------------------------------------------------------------------------------+
+ 63                 47                     11                 2                 1           0
+</pre>
+
+<p>
+关键是要理解每个描述符总是指向对齐的内容（可以是物理页、区段或层次结构中的下一个页表）。这意味着 <span class="underline">描述符中存储的地址</span> 的 <span class="underline">最后12位</span> <b>始终为0</b> 。这也意味着MMU可以使用这些位来存储更有用的信息，这正是它所做的
+</p>
+
+<p>
+描述符中各位的含义：
+</p>
+<ul class="org-ul">
+<li><p>
+<b>位 0</b>  ：对于所有 <b>有效</b> 的描述符，此位必须设置为 <span class="underline">1</span>
+</p>
+<pre class="example" id="orgb819fbb">
+如果在转换过程中MMU遇到非有效的描述符，将生成同步异常
+
+然后内核应处理此异常，分配一个新页并准备正确的描述符
+
+稍后将详细了解其工作原理
+</pre></li>
+<li><b>位 1</b> ： 指示当前描述符是指向层次结构中的 <b>下一个页表</b> 的描述符（称此类描述符为 <span class="underline">表描述符</span> ），还是指向 <b>物理页或区段</b> 的描述符（称此类描述符为 <span class="underline">块描述符</span> ）</li>
+<li><b>位 [11:2]</b> ：
+<ul class="org-ul">
+<li>对于表描述符，这些位被忽略</li>
+<li>对于块描述符：它们包含一些属性，比如控制映射的页 <span class="underline">是否可缓存</span> 、 <span class="underline">可执行</span> 等</li>
+</ul></li>
+<li><p>
+<b>位 [47:12]</b> ：存储描述符指向的 <span class="underline">地址</span> 
+</p>
+<pre class="example" id="orgfa6c180">
+如前所述，只需存储地址的位 [47:12]，因为其他位始终为0
+</pre></li>
+<li><b>位 [63:48]</b> ：另一组属性位</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org8029dc8" class="outline-2">
+<h2 id="org8029dc8">页面属性配置</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
