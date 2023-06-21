@@ -152,3 +152,423 @@
 + *位 [63:48]* ：另一组属性位
 * 页面属性配置
 
+#+begin_example
+  正如在前面的部分中提到的，每个块描述符包含一组属性，用于控制各种虚拟页面的参数
+
+  然而，对于我们的讨论来说，最重要的属性并不直接在描述符中配置
+
+  相反，ARM处理器实现了一种技巧，可以在描述符属性部分节省一些空间
+#+end_example
+
+ARM.v8架构引入了 _mair_el1寄存器_ 。该寄存器由8个部分组成，每个部分都有8个比特位。每个部分配置了一组常用的属性。然后， _描述符_ 仅指定 _mair部分_ 的 *索引* ，而不是直接指定所有属性。这样可以在描述符中仅使用 _3个比特位_ 来引用mair部分
+
+#+begin_example
+  mair部分中每个比特位的含义在AArch64参考手册的第2609页上有描述
+
+  在RPi OS中，我们仅使用了一些可用的属性选项
+#+end_example
+
+以下是准备mair寄存器值的代码：
+
+#+begin_src c 
+  /*
+   ,* Memory region attributes:
+   ,*
+   ,*   n = AttrIndx[2:0]
+   ,*            n    MAIR
+   ,*   DEVICE_nGnRnE    000    00000000
+   ,*   NORMAL_NC        001    01000100
+   ,*/
+  #define MT_DEVICE_nGnRnE         0x0
+  #define MT_NORMAL_NC            0x1
+  #define MT_DEVICE_nGnRnE_FLAGS        0x00
+  #define MT_NORMAL_NC_FLAGS          0x44
+  #define MAIR_VALUE            (MT_DEVICE_nGnRnE_FLAGS << (8 * MT_DEVICE_nGnRnE)) | (MT_NORMAL_NC_FLAGS << (8 * MT_NORMAL_NC))
+#+end_src
+
+在这里，只使用了mair寄存器中可用的8个槽位中的2个。第一个对应于 _设备内存_ ，第二个对应于 _普通非缓存内存_ 。 _MT_DEVICE_nGnRnE_ 和 _MT_NORMAL_NC_ 是将在 _块描述符_ 中使用的 *索引* ，而  _MT_DEVICE_nGnRnE_FLAGS_ 和 _MT_NORMAL_NC_FLAGS_ 是 *存储* 在 _mair_el1寄存器_ 的前两个槽位中的值 
+* 内核 VS 用户 虚拟内存
+在打开MMU之后，每次内存访问都必须使用虚拟内存而不是物理内存。这个事实的一个结果是 *内核本身必须准备好使用虚拟内存并维护自己的页表集合*
+
+#+begin_example
+  一种可能的解决方案是每次从用户模式切换到内核模式时重新加载pgd寄存器
+
+  但问题是切换pgd是非常昂贵的操作，因为它需要使所有缓存失效
+
+  考虑到需要多频繁地从用户模式切换到内核模式，这种解决方案将使缓存完全无效，因此在操作系统开发中从不使用这种解决方案
+#+end_example
+
+相反，操作系统的做法是将地址空间分为两个部分： _用户空间_ 和 _内核空间_
+
+#+begin_example
+  32位体系结构通常将地址空间的前3GB分配给用户程序，将最后1GB保留给内核
+
+  64位体系结构在这方面更加有利，因为它们具有巨大的地址空间
+
+  更重要的是：ARM.v8体系结构带有一种原生功能，可以用来轻松实现用户/内核地址分割
+#+end_example
+
+有两个寄存器可以保存PGD的地址： _ttbr0_el1_ 和 _ttbr1_el1_ 。前面提到我们只使用了64位地址中的48位，因此上面的16位可以在转换过程中用来区分ttbr0和ttbr1：
++ 如果上面的16位全为0，则使用存储在ttbr0_el1中的PGD地址
++ 如果地址以0xffff开头（前16位全为1），则选择存储在ttbr1_el1中的PGD地址
+
+体系结构还确保在 _EL0下运行的进程_ 永远无法访问以 _0xffff开头的虚拟地址_ ，否则会 _生成_ *同步异常*
+
+#+begin_example
+  从这个描述中，可以轻松推断：
+
+  内核PGD的指针存储在ttbr1_el1中，并在内核的整个生命周期中保持不变
+
+  而ttbr0_el1用于存储当前用户进程的PGD
+#+end_example
+
+这种方法的一个隐藏的结论是所有绝对内核地址必须以 _0xffff开头_ 。在RPi OS源代码中有两个地方处理了这个问题：
+1. 在 _链接脚本_ 中，将镜像的基地址指定为0xffff000000000000。这会使编译器认为镜像将加载到0xffff000000000000地址，因此无论何时需要生成绝对地址，它都会生成正确的地址
+   #+begin_example
+     链接脚本还有一些其他更改，将在后面讨论它们
+   #+end_example
+2. 硬编码了绝对内核基地址：在定义 _设备基地址_ 的 *头文件* 中。现在，将从0xffff00003F000000开始访问所有设备内存
+   #+begin_example
+     当然，为了使其正常工作，首先需要映射内核需要访问的所有内存
+
+     下面，将详细探讨创建此映射的代码
+   #+end_example
+* 初始化内核页面表
+在引导过程的早期阶段，需要处理 *创建* _内核页表_ 的任务。这个过程始于 _boot.S_ 文件。在切换到EL1并清空BSS之后，会调用 _create_page_tables_ 函数。接下来逐行分析这个函数：
+
+#+begin_src asm 
+  __create_page_tables:
+	  mov    x29, x30                        // save return address
+#+end_src
+
+首先，该函数保存了 _x30寄存器_ （链接寄存器）。因为将从 __create_page_tables 调用其他函数，x30寄存器会被覆盖
+
+#+begin_example
+  通常做法是把 x30寄存器保存在栈上，但是由于：
+  1. 在__create_page_tables执行期间不会使用递归
+  2. 没有其他人会使用x29寄存器
+
+  因此这种简单的保留链接寄存器的方法也能很好地工作
+#+end_example
+
+#+begin_src asm 
+	  adrp    x0, pg_dir
+	  mov    x1, #PG_DIR_SIZE
+	  bl     memzero
+#+end_src
+
+接下来，清除初始页表区域。在这里需要理解的重要事情是 _该区域的位置_ 以及 _如何知道它的大小_ ：
++ 初始页表区域在 _链接脚本_ 中定义：这意味着在 _内核映像_ 本身中为该区域分配了位置
++ 计算该区域的大小稍微有些棘手，需要了解初始内核页表的结构：
+  + 所有的映射都位于 _1 GB_ 的区域内（这是RPi内存的大小），一个PGD描述符可以覆盖 _2^39 = 512 GB_ ，一个PUD描述符可以覆盖 _2^30 = 1 GB_ 的连续虚拟映射区域
+    #+begin_example
+      这些值是根据PGD和PUD索引在虚拟地址中的位置计算得出的
+
+      这意味着只需要一个PGD和一个PUD来映射整个RPi内存
+    #+end_example
+  + 更重要的是，PGD和PUD都只包含一个描述符。即使只有一个PUD条目，那么也必须有一个单独的PMD表，该条目将指向该表
+    #+begin_example
+      单个PMD条目覆盖2 MB，一个PMD中有512个条目，所以整个PMD表覆盖了与单个PUD描述符相同的1 GB内存
+    #+end_example
+  + 需要映射1 GB的内存区域，而这是2 MB的倍数 ：可以使用 _区块映射_ 。这意味着 *根本不需要PTE* 
+    #+begin_example
+      因此，总共需要3个页面：一个用于PGD，一个用于PUD，一个用于PMD
+
+      这恰好是初始页表区域的大小
+    #+end_example
+
+  现在暂时先离开 ___create_page_tables_ 函数，看一下两个关键的宏： _create_table_entry_ 和 _create_block_map_
+
+** create_table_entry宏
+
+负责 *分配* 新的页表（可以是PGD或PUD）：
+#+begin_src asm 
+	  .macro    create_table_entry, tbl, virt, shift, tmp1, tmp2
+	  lsr    \tmp1, \virt, #\shift
+	  and    \tmp1, \tmp1, #PTRS_PER_TABLE - 1            // table index
+	  add    \tmp2, \tbl, #PAGE_SIZE
+	  orr    \tmp2, \tmp2, #MM_TYPE_PAGE_TABLE
+	  str    \tmp2, [\tbl, \tmp1, lsl #3]
+	  add    \tbl, \tbl, #PAGE_SIZE                    // next level table page
+	  .endm
+#+end_src
+
+这个宏接受以下参数：
++ tbl : 指向需要分配新表的内存区域的指针
++ virt : 当前正在映射的虚拟地址
++ shift : 应用于虚拟地址以提取当前表索引的位移量（对于PGD是39，对于PUD是30）
++ tmp1, tmp2 : 临时寄存器
+ 
+这个宏非常重要，所以将花一些时间来理解它
+
+#+begin_src asm 
+	  lsr    \tmp1, \virt, #\shift
+	  and    \tmp1, \tmp1, #PTRS_PER_TABLE - 1            // table index
+#+end_src
+
+前两行负责从 _虚拟地址_ 中 *提取* _表索引_ 。首先进行 _右移_ 操作，以 *去除* _索引右侧的所有位_ ，然后使用 _与位操作_ 来 *去除* _索引左侧的所有位_ 
+
+#+begin_src asm
+	  add    \tmp2, \tbl, #PAGE_SIZE
+#+end_src
+
+然后计算下一个页表的地址：
+
+#+begin_example
+  在这里，使用的约定是初始页表都位于一个连续的内存区域中
+
+  简单地假设下一个页表在层级结构中将与当前页表相邻
+#+end_example
+
+#+begin_src asm 
+	  orr    \tmp2, \tmp2, #MM_TYPE_PAGE_TABLE
+#+end_src
+
+接下来，将层级中的下一个页表的指针转换为一个表描述符（描述符的低两位必须设置为1）
+
+#+begin_src asm
+	  str    \tmp2, [\tbl, \tmp1, lsl #3]
+#+end_src
+
+然后，将 _描述符_ *存储* 在 _当前页表_ 中。这里使用之前计算的索引找到表中的正确位置
+
+#+begin_src asm 
+	  add    \tbl, \tbl, #PAGE_SIZE                    // next level table page
+#+end_src
+
+最后，将 _tbl参数_  *更改* 为 _指向层次结构中的下一个页表_ 
+
+#+begin_example
+  这一步不是必须的，但如果再次调用create_table_entry来为层次结构中的下一个表分配空间，就无需对tbl参数进行任何调整
+
+  这正是create_pgd_entry宏所做的，它只是一个分配PGD和PUD的包装器
+#+end_example
+
+** create_block_map宏
+正如猜测的那样，这个宏负责 *填充* _PMD表的条目_ 。代码如下所示：
+
+#+begin_src asm 
+	  .macro    create_block_map, tbl, phys, start, end, flags, tmp1
+	  lsr    \start, \start, #SECTION_SHIFT
+	  and    \start, \start, #PTRS_PER_TABLE - 1            // table index
+	  lsr    \end, \end, #SECTION_SHIFT
+	  and    \end, \end, #PTRS_PER_TABLE - 1                // table end index
+	  lsr    \phys, \phys, #SECTION_SHIFT
+	  mov    \tmp1, #\flags
+	  orr    \phys, \tmp1, \phys, lsl #SECTION_SHIFT            // table entry
+  9999:    str    \phys, [\tbl, \start, lsl #3]                // store the entry
+	  add    \start, \start, #1                    // next entry
+	  add    \phys, \phys, #SECTION_SIZE                // next block
+	  cmp    \start, \end
+	  b.ls    9999b
+	  .endm
+#+end_src
+
+这里的参数略有不同：
++ tbl: 指向PMD表的指针
++ phys: 要映射的物理区域的起始地址
++ start:  要映射的第一个section的虚拟地址
++ end: 要映射的最后一个section的虚拟地址
++ flags: 需要复制到块描述符的低属性中的标志位
++ tmp1: 临时寄存器
+
+#+begin_src asm 
+	  lsr    \start, \start, #SECTION_SHIFT
+	  and    \start, \start, #PTRS_PER_TABLE - 1            // table index
+#+end_src
+
+这两行代码从 _起始虚拟地址_ 中 *提取* 了 _表索引_ 。这与之前在create_table_entry宏中所做的方式完全相同 
+
+#+begin_src asm 
+	  lsr    \end, \end, #SECTION_SHIFT
+	  and    \end, \end, #PTRS_PER_TABLE - 1                // table end index
+#+end_src
+
+对结束地址进行相同的操作。现在，start和end都包含了PMD表中对应原始地址的索引，而不是虚拟地址
+
+#+begin_src asm 
+	  lsr    \phys, \phys, #SECTION_SHIFT
+	  mov    \tmp1, #\flags
+	  orr    \phys, \tmp1, \phys, lsl #SECTION_SHIFT            // table entry
+#+end_src
+
+接下来，会准备并将 _块描述符_ *存储* 在 _tmp1变量_ 中。为了准备描述符，首先对 _phys参数_ 进行 _右移_ ，然后再进行 _左移_ ，并使用 _orr指令_ 与 _flags参数_ 合并
+
+#+begin_example
+  为什么必须将地址来回移动 ？ 答案是：
+  
+  1. 这样清除了物理地址中的前21位
+  2. 使宏通用化，可以用于任何地址，而不仅仅是每一段的第一个地址 
+#+end_example
+
+#+begin_src asm 
+  9999:    str    \phys, [\tbl, \start, lsl #3]                // store the entry
+	  add    \start, \start, #1                    // next entry
+	  add    \phys, \phys, #SECTION_SIZE                // next block
+	  cmp    \start, \end
+	  b.ls    9999b
+#+end_src
+
+函数的最后部分在一个循环中执行：
+1. 将当前描述符存储在PMD表的正确索引位置
+2. 将当前索引增加1，并更新描述符，使其指向下一个节
+3. 重复这个过程，直到当前索引等于最后一个索引
+
+** 映射内核和内核堆栈
+#+begin_example
+  现在，当你理解了create_table_entry和create_block_map宏的工作原理后，理解__create_page_tables函数的其余部分将变得简单明了
+#+end_example
+
+#+begin_src asm 
+	  adrp    x0, pg_dir
+	  mov    x1, #VA_START
+	  create_pgd_entry x0, x1, x2, x3
+#+end_src
+在这里，创建了 _PGD_ 和 _PUD_ 。将它们配置为从 _VA_START虚拟地址_ 开始进行映射。由于create_table_entry宏的语义，当create_pgd_entry完成后，x0将包含层次结构中下一个表的地址，即PMD：
+
+#+begin_src asm 
+	  /* Mapping kernel and init stack*/
+	  mov     x1, xzr                            // start mapping from physical offset 0
+	  mov     x2, #VA_START                        // first virtual address
+	  ldr    x3, =(VA_START + DEVICE_BASE - SECTION_SIZE)        // last virtual address
+	  create_block_map x0, x1, x2, x3, MMU_FLAGS, x4
+#+end_src
+
+
+接下来，创建了整个内存的虚拟映射，但排除了 _设备寄存器区域_ 。使用 _MMU_FLAGS_ 常量作为 _flags参数_ ，这将所有的节区标记为正常的非缓存内存
+
+#+begin_example
+  请注意，MMU_FLAGS常量中也指定了MM_ACCESS标志
+
+  如果没有这个标志，每次内存访问都会引发同步异常
+#+end_example
+
+** 映射设备内存
+
+#+begin_src asm 
+	  /* Mapping device memory*/
+	  mov     x1, #DEVICE_BASE                    // start mapping from device base address
+	  ldr     x2, =(VA_START + DEVICE_BASE)                // first virtual address
+	  ldr    x3, =(VA_START + PHYS_MEMORY_SIZE - SECTION_SIZE)    // last virtual address
+	  create_block_map x0, x1, x2, x3, MMU_DEVICE_FLAGS, x4
+#+end_src
+
+设备寄存器区域被映射过程与之前的内核内存区域被映射完全相同，只是现在使用不同的起始地址、结束地址和标志位
+
+#+begin_src asm 
+	  mov    x30, x29                        // restore return address
+	  ret
+#+end_src
+
+最后，函数恢复了链接寄存器并返回给调用者
+
+* 配置页表翻译
+
+现在页面表已创建，再次回到el1_entry函数。但在打开MMU之前还有一些工作要做：
+
+#+begin_src asm 
+	  mov    x0, #VA_START
+	  add    sp, x0, #LOW_MEMORY
+#+end_src
+
+更新init任务的堆栈指针。现在它使用的是虚拟地址，而不是物理地址
+
+#+begin_example
+  因此，只能在MMU打开后使用
+#+end_example
+
+#+begin_src asm 
+	  adrp    x0, pg_dir
+	  msr    ttbr1_el1, x0
+#+end_src
+
+_ttbr1_el1_ 被更新为指向先前填充的 _PGD表_
+
+#+begin_src asm 
+	  ldr    x0, =(TCR_VALUE)
+	  msr    tcr_el1, x0
+#+end_src
+
+_tcr_el1寄存器_ 负责配置MMU的一些通用参数
+
+#+begin_example
+  例如，在这里配置内核和用户页表都应该使用4KB的页面大小
+#+end_example
+
+#+begin_src asm 
+	  ldr    x0, =(MAIR_VALUE)
+	  msr    mair_el1, x0
+#+end_src
+
+在前面已经讨论过了 mair_el1 寄存器，这里设置它的值
+
+#+begin_src asm 
+	  ldr    x2, =kernel_main
+
+	  mov    x0, #SCTLR_MMU_ENABLED
+	  msr    sctlr_el1, x0
+
+	  br     x2
+#+end_src
+
+_msr sctlr_el1, x0_ 是实际启用MMU的指令。现在可以跳转到kernel_main函数了
+
+#+begin_example
+  一个有趣的问题是为什么不能直接执行br kernel_main指令呢？
+
+  事实上，在MMU启用之前，我们一直在使用物理内存，内核加载在物理偏移0处，这意味着当前程序计数器非常接近0
+
+  启用MMU不会更新程序计数器。如果现在执行br kernel_main指令，该指令将使用相对于当前程序计数器的偏移量，并跳转到未开启MMU时kernel_main所在的位置
+
+  而ldr x2, =kernel_main则会加载x2寄存器的值为kernel_main函数的绝对地址
+
+  由于在链接脚本中将图像的基地址设置为0xffff000000000000，kernel_main函数的绝对地址将从内核镜像开始处的偏移量加上0xffff000000000000来计算，这正是我们所需要的
+
+  另一个需要理解的重要事项是为什么ldr x2, =kernel_main指令必须在我们启用MMU之前执行
+
+  原因是ldr指令也使用pc相对偏移量，因此如果我们尝试在MMU开启后但在跳转到镜像基地址之前执行此指令，该指令将引发页错误
+#+end_example
+
+* 加载用户级别进程代码
+#+begin_example
+  如果使用的是真正的操作系统，可能会期望它能够从文件系统中读取您的程序并执行它
+
+  但对于Rpi OS操作系统而言，情况有所不同，它目前还不具备文件系统支持
+
+  之前并不关注这个事实，因为用户进程与内核共享相同的地址空间
+
+  现在情况发生了变化，每个进程应该有自己独立的地址空间，因此需要找出如何存储用户程序，以便稍后加载到新创建的进程中
+#+end_example
+最终实现的一个技巧是将用户程序存储在内核映像的一个单独部分中。下面是负责执行此操作的链接脚本的相关部分：
+
+#+begin_example
+      . = ALIGN(0x00001000);
+      user_begin = .;
+      .text.user : { build/user* (.text) }
+      .rodata.user : { build/user* (.rodata) }
+      .data.user : { build/user* (.data) }
+      .bss.user : { build/user* (.bss) }
+      user_end = .;
+#+end_example
+
+这里使用了一种约定，即用户级别的源代码应该定义在以 _user_ 前缀命名的文件中。然后，链接脚本可以将所有与用户相关的代码隔离在一个连续的区域中，并定义 _user_begin_ 和 _user_end_ 变量，用于标记此区域的起始和结束位置。通过这种方式，可以简单地将user_begin和user_end之间的所有内容复制到新分配的进程地址空间中，从而模拟加载用户程序
+
+#+begin_example
+  这种方法足够简单，并且对于当前的目的效果很好
+
+  在实现文件系统支持之后，将摆脱这种临时解决方案，能够加载ELF文件
+#+end_example
+
+目前有两个文件被编译到用户区域中：
++ _user_sys.S_ ：该文件包含系统调用包装函数的定义
+  #+begin_example
+    RPi操作系统仍然支持与之前相同的系统调用，只是将使用fork系统调用而不是clone系统调用
+
+    fork会复制进程的虚拟内存，而这正是现在想要尝试的
+  #+end_example
++ _user.c_ ：用户程序的源代码
+  #+begin_example
+    几乎与之前使用的代码相同
+  #+end_example
+
+* 创建第一个用户级别进程

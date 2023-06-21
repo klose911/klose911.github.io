@@ -209,6 +209,18 @@
 <li><a href="#org6768b8e">区段映射</a></li>
 <li><a href="#orga324b55">页表描述符</a></li>
 <li><a href="#org8029dc8">页面属性配置</a></li>
+<li><a href="#org8705c5a">内核 VS 用户 虚拟内存</a></li>
+<li><a href="#org19cbeec">初始化内核页面表</a>
+<ul>
+<li><a href="#orgfd43b1b">create_table_entry宏</a></li>
+<li><a href="#org43061be">create_block_map宏</a></li>
+<li><a href="#orgd3c5c79">映射内核和内核堆栈</a></li>
+<li><a href="#org1c11064">映射设备内存</a></li>
+</ul>
+</li>
+<li><a href="#orge072a73">配置页表翻译</a></li>
+<li><a href="#orgcdb8ef1">加载用户级别进程代码</a></li>
+<li><a href="#orgbc1894f">创建第一个用户级别进程</a></li>
 </ul>
 </div>
 </div>
@@ -216,7 +228,7 @@
 现在，RPi OS可以运行和调度用户进程，但它们之间的隔离并不完整：所有进程和内核本身共享同一块内存。这使得任何进程都可以轻易地访问其他进程甚至内核数据
 </p>
 
-<pre class="example" id="orgc67cfaf">
+<pre class="example" id="orgca63ff9">
 即使假设所有的进程都不是恶意的，仍然存在另一个缺点：在分配内存之前，每个进程都需要知道哪些内存区域已被占用
 
 这使得进程的内存分配变得更加复杂
@@ -228,7 +240,7 @@
 接下来将通过引入 <span class="underline">虚拟内存</span> 来解决上述所有问题。虚拟内存为每个进程提供了一个抽象，使其认为它占用了所有可用的内存。每当一个进程需要访问某个内存位置时，它使用虚拟地址，该地址会被转换为物理地址。转换的过程完全对进程透明，由一个特殊设备进行：*MMU*（ <span class="underline">内存映射单元</span> ）。MMU使用 <span class="underline">转换表</span> 来将虚拟地址转换为物理地址。转换的过程如下图所示：
 </p>
 
-<pre class="example" id="org02e9fc4">
+<pre class="example" id="org12caff0">
 			   Virtual address                                                                 Physical Memory
 +-----------------------------------------------------------------------+                                +------------------+
 |         | PGD Index | PUD Index | PMD Index | PTE Index | Page offset |                                |                  |
@@ -258,7 +270,7 @@
 <li><p>
 进程的内存总是以 <span class="underline">页面</span> 为单位分配的。页面是一个连续的内存区域，大小为 <span class="underline">4KB</span>
 </p>
-<pre class="example" id="org778c66e">
+<pre class="example" id="orgdeaff6c">
 ARM处理器支持更大的页面，但4KB是最常见的情况，这里将限制讨论在这个页面大小上
 </pre></li>
 <li><span class="underline">页表</span> 具有 <b>分层</b> 结构。在任何一个表中的项目包含了层次结构中下一个表的地址</li>
@@ -278,36 +290,36 @@ ARM处理器支持更大的页面，但4KB是最常见的情况，这里将限�
 <li><p>
 <b>位[39-47]</b> : 包含 <span class="underline">PGD表中的索引</span>
 </p>
-<pre class="example" id="org5072258">
+<pre class="example" id="org14ecb64">
 MMU使用此索引查找PUD的位置
 </pre></li>
 <li><p>
 <b>位[30-38]</b> : 包含 <span class="underline">PUD表中的索引</span>
 </p>
-<pre class="example" id="org9b4912d">
+<pre class="example" id="org3fc09c0">
 MMU使用此索引查找PMD的位置
 </pre></li>
 <li><p>
 <b>位[21-29]</b> : 包含 <span class="underline">PMD表中的索引</span>
 </p>
-<pre class="example" id="org1ebce88">
+<pre class="example" id="org0f0a2e0">
 MMU使用此索引查找PTE的位置
 </pre></li>
 <li><p>
 <b>位[12-20]</b> : 包含 <span class="underline">PTE表中的索引</span>
 </p>
-<pre class="example" id="org038be69">
+<pre class="example" id="org2f2dbd5">
 MMU使用此索引在物理内存中找到一个页面
 </pre></li>
 <li><p>
 <b>位[0-11]</b> : 包含 <span class="underline">物理页面中的偏移量</span>
 </p>
-<pre class="example" id="orga82e974">
+<pre class="example" id="orgf996927">
 MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对应的确切位置 
 </pre></li>
 </ul>
 
-<pre class="example" id="org53fb4ca">
+<pre class="example" id="orgb7088ec">
 现在，让我们进行一个小练习，计算页表的大小
 
 从上面的图表中，知道页表中的索引占据9位（对于所有的页表级别都是如此）: 这意味着每个页表包含2^9 = 512个条目
@@ -328,7 +340,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 有时候需要映射连续的大内存区域。在这种情况下，可以直接映射2 MB大小的块，称为 <span class="underline">区段</span> 。这样可以省去一级的地址转换。在这种情况下，转换图如下所示：
 </p>
 
-<pre class="example" id="orgb2c29d8">
+<pre class="example" id="org93eaa5e">
 			   Virtual address                                               Physical Memory
 +-----------------------------------------------------------------------+              +------------------+
 |         | PGD Index | PUD Index | PMD Index |      Section offset     |              |                  |
@@ -354,7 +366,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <p>
 这里的区别在于 <span class="underline">PMD</span> 现在包含指向 <span class="underline">物理区段的指针</span> 。另外，偏移量占据了 <span class="underline">21位</span> 而不是12位
 </p>
-<pre class="example" id="orgc16ea68">
+<pre class="example" id="orgab56e97">
 因为需要21位来编码2MB的范围
 </pre>
 </div>
@@ -362,7 +374,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <div id="outline-container-orga324b55" class="outline-2">
 <h2 id="orga324b55">页表描述符</h2>
 <div class="outline-text-2" id="text-orga324b55">
-<pre class="example" id="org6e0f07f">
+<pre class="example" id="org7898216">
 可能会问MMU如何知道PMD项目是指向PTE还是物理2MB区段的？
 
 为了回答这个问题，需要更仔细地看一下页表项的结构
@@ -372,7 +384,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 页表中的项目称为 <span class="underline">描述符</span> 。描述符具有特殊的格式：
 </p>
 
-<pre class="example" id="org6dca85e">
+<pre class="example" id="org5d31e56">
 			   Descriptor format
 `+------------------------------------------------------------------------------------------+
  | Upper attributes | Address (bits 47:12) | Lower attributes | Block/table bit | Valid bit |
@@ -391,7 +403,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <li><p>
 <b>位 0</b>  ：对于所有 <b>有效</b> 的描述符，此位必须设置为 <span class="underline">1</span>
 </p>
-<pre class="example" id="orgb819fbb">
+<pre class="example" id="org05623e2">
 如果在转换过程中MMU遇到非有效的描述符，将生成同步异常
 
 然后内核应处理此异常，分配一个新页并准备正确的描述符
@@ -407,7 +419,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <li><p>
 <b>位 [47:12]</b> ：存储描述符指向的 <span class="underline">地址</span> 
 </p>
-<pre class="example" id="orgfa6c180">
+<pre class="example" id="orgdc0d2cb">
 如前所述，只需存储地址的位 [47:12]，因为其他位始终为0
 </pre></li>
 <li><b>位 [63:48]</b> ：另一组属性位</li>
@@ -416,6 +428,592 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 </div>
 <div id="outline-container-org8029dc8" class="outline-2">
 <h2 id="org8029dc8">页面属性配置</h2>
+<div class="outline-text-2" id="text-org8029dc8">
+<pre class="example" id="orgafa7785">
+正如在前面的部分中提到的，每个块描述符包含一组属性，用于控制各种虚拟页面的参数
+
+然而，对于我们的讨论来说，最重要的属性并不直接在描述符中配置
+
+相反，ARM处理器实现了一种技巧，可以在描述符属性部分节省一些空间
+</pre>
+
+<p>
+ARM.v8架构引入了 <span class="underline">mair_el1寄存器</span> 。该寄存器由8个部分组成，每个部分都有8个比特位。每个部分配置了一组常用的属性。然后， <span class="underline">描述符</span> 仅指定 <span class="underline">mair部分</span> 的 <b>索引</b> ，而不是直接指定所有属性。这样可以在描述符中仅使用 <span class="underline">3个比特位</span> 来引用mair部分
+</p>
+
+<pre class="example" id="orgd3b2004">
+mair部分中每个比特位的含义在AArch64参考手册的第2609页上有描述
+
+在RPi OS中，我们仅使用了一些可用的属性选项
+</pre>
+
+<p>
+以下是准备mair寄存器值的代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #5f9ea0; font-style: italic;">/*</span>
+<span style="color: #5f9ea0; font-style: italic;"> * Memory region attributes:</span>
+<span style="color: #5f9ea0; font-style: italic;"> *</span>
+<span style="color: #5f9ea0; font-style: italic;"> *   n = AttrIndx[2:0]</span>
+<span style="color: #5f9ea0; font-style: italic;"> *            n    MAIR</span>
+<span style="color: #5f9ea0; font-style: italic;"> *   DEVICE_nGnRnE    000    00000000</span>
+<span style="color: #5f9ea0; font-style: italic;"> *   NORMAL_NC        001    01000100</span>
+<span style="color: #5f9ea0; font-style: italic;"> */</span>
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">MT_DEVICE_nGnRnE</span>         0x0
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">MT_NORMAL_NC</span>            0x1
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">MT_DEVICE_nGnRnE_FLAGS</span>        0x00
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">MT_NORMAL_NC_FLAGS</span>          0x44
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">MAIR_VALUE</span>            (MT_DEVICE_nGnRnE_FLAGS &lt;&lt; (8 * MT_DEVICE_nGnRnE)) | (MT_NORMAL_NC_FLAGS &lt;&lt; (8 * MT_NORMAL_NC))
+</pre>
+</div>
+
+<p>
+在这里，只使用了mair寄存器中可用的8个槽位中的2个。第一个对应于 <span class="underline">设备内存</span> ，第二个对应于 <span class="underline">普通非缓存内存</span> 。 <span class="underline">MT_DEVICE_nGnRnE</span> 和 <span class="underline">MT_NORMAL_NC</span> 是将在 <span class="underline">块描述符</span> 中使用的 <b>索引</b> ，而  <span class="underline">MT_DEVICE_nGnRnE_FLAGS</span> 和 <span class="underline">MT_NORMAL_NC_FLAGS</span> 是 <b>存储</b> 在 <span class="underline">mair_el1寄存器</span> 的前两个槽位中的值 
+</p>
+</div>
+</div>
+<div id="outline-container-org8705c5a" class="outline-2">
+<h2 id="org8705c5a">内核 VS 用户 虚拟内存</h2>
+<div class="outline-text-2" id="text-org8705c5a">
+<p>
+在打开MMU之后，每次内存访问都必须使用虚拟内存而不是物理内存。这个事实的一个结果是 <b>内核本身必须准备好使用虚拟内存并维护自己的页表集合</b>
+</p>
+
+<pre class="example" id="org3def467">
+一种可能的解决方案是每次从用户模式切换到内核模式时重新加载pgd寄存器
+
+但问题是切换pgd是非常昂贵的操作，因为它需要使所有缓存失效
+
+考虑到需要多频繁地从用户模式切换到内核模式，这种解决方案将使缓存完全无效，因此在操作系统开发中从不使用这种解决方案
+</pre>
+
+<p>
+相反，操作系统的做法是将地址空间分为两个部分： <span class="underline">用户空间</span> 和 <span class="underline">内核空间</span>
+</p>
+
+<pre class="example" id="orgbb60c59">
+32位体系结构通常将地址空间的前3GB分配给用户程序，将最后1GB保留给内核
+
+64位体系结构在这方面更加有利，因为它们具有巨大的地址空间
+
+更重要的是：ARM.v8体系结构带有一种原生功能，可以用来轻松实现用户/内核地址分割
+</pre>
+
+<p>
+有两个寄存器可以保存PGD的地址： <span class="underline">ttbr0_el1</span> 和 <span class="underline">ttbr1_el1</span> 。前面提到我们只使用了64位地址中的48位，因此上面的16位可以在转换过程中用来区分ttbr0和ttbr1：
+</p>
+<ul class="org-ul">
+<li>如果上面的16位全为0，则使用存储在ttbr0_el1中的PGD地址</li>
+<li>如果地址以0xffff开头（前16位全为1），则选择存储在ttbr1_el1中的PGD地址</li>
+</ul>
+
+<p>
+体系结构还确保在 <span class="underline">EL0下运行的进程</span> 永远无法访问以 <span class="underline">0xffff开头的虚拟地址</span> ，否则会 <span class="underline">生成</span> <b>同步异常</b>
+</p>
+
+<pre class="example" id="org0899c20">
+从这个描述中，可以轻松推断：
+
+内核PGD的指针存储在ttbr1_el1中，并在内核的整个生命周期中保持不变
+
+而ttbr0_el1用于存储当前用户进程的PGD
+</pre>
+
+<p>
+这种方法的一个隐藏的结论是所有绝对内核地址必须以 <span class="underline">0xffff开头</span> 。在RPi OS源代码中有两个地方处理了这个问题：
+</p>
+<ol class="org-ol">
+<li><p>
+在 <span class="underline">链接脚本</span> 中，将镜像的基地址指定为0xffff000000000000。这会使编译器认为镜像将加载到0xffff000000000000地址，因此无论何时需要生成绝对地址，它都会生成正确的地址
+</p>
+<pre class="example" id="org564d0ae">
+链接脚本还有一些其他更改，将在后面讨论它们
+</pre></li>
+<li><p>
+硬编码了绝对内核基地址：在定义 <span class="underline">设备基地址</span> 的 <b>头文件</b> 中。现在，将从0xffff00003F000000开始访问所有设备内存
+</p>
+<pre class="example" id="org1a4ee11">
+当然，为了使其正常工作，首先需要映射内核需要访问的所有内存
+
+下面，将详细探讨创建此映射的代码
+</pre></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org19cbeec" class="outline-2">
+<h2 id="org19cbeec">初始化内核页面表</h2>
+<div class="outline-text-2" id="text-org19cbeec">
+<p>
+在引导过程的早期阶段，需要处理 <b>创建</b> <span class="underline">内核页表</span> 的任务。这个过程始于 <span class="underline">boot.S</span> 文件。在切换到EL1并清空BSS之后，会调用 <span class="underline">create_page_tables</span> 函数。接下来逐行分析这个函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">__create_page_tables</span>:
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    x29, x30                        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">save return address</span>
+</pre>
+</div>
+
+<p>
+首先，该函数保存了 <span class="underline">x30寄存器</span> （链接寄存器）。因为将从 __create_page_tables 调用其他函数，x30寄存器会被覆盖
+</p>
+
+<pre class="example" id="org9285e09">
+通常做法是把 x30寄存器保存在栈上，但是由于：
+1. 在__create_page_tables执行期间不会使用递归
+2. 没有其他人会使用x29寄存器
+
+因此这种简单的保留链接寄存器的方法也能很好地工作
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">adrp</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, pg_dir
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x1</span>, #PG_DIR_SIZE
+<span style="color: #daa520; font-weight: bold;">bl</span>     <span style="color: #00bfff; font-weight: bold;">memzero</span>
+</pre>
+</div>
+
+<p>
+接下来，清除初始页表区域。在这里需要理解的重要事情是 <span class="underline">该区域的位置</span> 以及 <span class="underline">如何知道它的大小</span> ：
+</p>
+<ul class="org-ul">
+<li>初始页表区域在 <span class="underline">链接脚本</span> 中定义：这意味着在 <span class="underline">内核映像</span> 本身中为该区域分配了位置</li>
+<li><p>
+计算该区域的大小稍微有些棘手，需要了解初始内核页表的结构：
+</p>
+<ul class="org-ul">
+<li><p>
+所有的映射都位于 <span class="underline">1 GB</span> 的区域内（这是RPi内存的大小），一个PGD描述符可以覆盖 <span class="underline">2^39 = 512 GB</span> ，一个PUD描述符可以覆盖 <span class="underline">2^30 = 1 GB</span> 的连续虚拟映射区域
+</p>
+<pre class="example" id="org392e33c">
+这些值是根据PGD和PUD索引在虚拟地址中的位置计算得出的
+
+这意味着只需要一个PGD和一个PUD来映射整个RPi内存
+</pre></li>
+<li><p>
+更重要的是，PGD和PUD都只包含一个描述符。即使只有一个PUD条目，那么也必须有一个单独的PMD表，该条目将指向该表
+</p>
+<pre class="example" id="orgeec7082">
+单个PMD条目覆盖2 MB，一个PMD中有512个条目，所以整个PMD表覆盖了与单个PUD描述符相同的1 GB内存
+</pre></li>
+<li><p>
+需要映射1 GB的内存区域，而这是2 MB的倍数 ：可以使用 <span class="underline">区块映射</span> 。这意味着 <b>根本不需要PTE</b> 
+</p>
+<pre class="example" id="org229043d">
+因此，总共需要3个页面：一个用于PGD，一个用于PUD，一个用于PMD
+
+这恰好是初始页表区域的大小
+</pre></li>
+</ul>
+
+<p>
+现在暂时先离开 <span class="underline">__create_page_tables</span> 函数，看一下两个关键的宏： <span class="underline">create_table_entry</span> 和 <span class="underline">create_block_map</span>
+</p></li>
+</ul>
+</div>
+
+<div id="outline-container-orgfd43b1b" class="outline-3">
+<h3 id="orgfd43b1b">create_table_entry宏</h3>
+<div class="outline-text-3" id="text-orgfd43b1b">
+<p>
+负责 <b>分配</b> 新的页表（可以是PGD或PUD）：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00bfff; font-weight: bold;">.macro</span>    create_table_entry, tbl, virt, shift, tmp1, tmp2
+<span style="color: #daa520; font-weight: bold;">lsr</span>    \tmp1, \virt, #\shift
+<span style="color: #daa520; font-weight: bold;">and</span>    \tmp1, \tmp1, #PTRS_PER_TABLE - 1            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">table index</span>
+<span style="color: #daa520; font-weight: bold;">add</span>    \tmp2, \tbl, #PAGE_SIZE
+<span style="color: #daa520; font-weight: bold;">orr</span>    \tmp2, \tmp2, #MM_TYPE_PAGE_TABLE
+<span style="color: #daa520; font-weight: bold;">str</span>    \tmp2, [\tbl, \tmp1, lsl #3]
+<span style="color: #daa520; font-weight: bold;">add</span>    \tbl, \tbl, #PAGE_SIZE                    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">next level table page</span>
+<span style="color: #00bfff; font-weight: bold;">.endm</span>
+</pre>
+</div>
+
+<p>
+这个宏接受以下参数：
+</p>
+<ul class="org-ul">
+<li>tbl : 指向需要分配新表的内存区域的指针</li>
+<li>virt : 当前正在映射的虚拟地址</li>
+<li>shift : 应用于虚拟地址以提取当前表索引的位移量（对于PGD是39，对于PUD是30）</li>
+<li>tmp1, tmp2 : 临时寄存器</li>
+</ul>
+
+<p>
+这个宏非常重要，所以将花一些时间来理解它
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">lsr</span>    \tmp1, \virt, #\shift
+<span style="color: #daa520; font-weight: bold;">and</span>    \tmp1, \tmp1, #PTRS_PER_TABLE - 1            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">table index</span>
+</pre>
+</div>
+
+<p>
+前两行负责从 <span class="underline">虚拟地址</span> 中 <b>提取</b> <span class="underline">表索引</span> 。首先进行 <span class="underline">右移</span> 操作，以 <b>去除</b> <span class="underline">索引右侧的所有位</span> ，然后使用 <span class="underline">与位操作</span> 来 <b>去除</b> <span class="underline">索引左侧的所有位</span> 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">add</span>    \tmp2, \tbl, #PAGE_SIZE
+</pre>
+</div>
+
+<p>
+然后计算下一个页表的地址：
+</p>
+
+<pre class="example" id="orgf5d2e48">
+在这里，使用的约定是初始页表都位于一个连续的内存区域中
+
+简单地假设下一个页表在层级结构中将与当前页表相邻
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">orr</span>    \tmp2, \tmp2, #MM_TYPE_PAGE_TABLE
+</pre>
+</div>
+
+<p>
+接下来，将层级中的下一个页表的指针转换为一个表描述符（描述符的低两位必须设置为1）
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">str</span>    \tmp2, [\tbl, \tmp1, lsl #3]
+</pre>
+</div>
+
+<p>
+然后，将 <span class="underline">描述符</span> <b>存储</b> 在 <span class="underline">当前页表</span> 中。这里使用之前计算的索引找到表中的正确位置
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">add</span>    \tbl, \tbl, #PAGE_SIZE                    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">next level table page</span>
+</pre>
+</div>
+
+<p>
+最后，将 <span class="underline">tbl参数</span>  <b>更改</b> 为 <span class="underline">指向层次结构中的下一个页表</span> 
+</p>
+
+<pre class="example" id="org7c0fe40">
+这一步不是必须的，但如果再次调用create_table_entry来为层次结构中的下一个表分配空间，就无需对tbl参数进行任何调整
+
+这正是create_pgd_entry宏所做的，它只是一个分配PGD和PUD的包装器
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org43061be" class="outline-3">
+<h3 id="org43061be">create_block_map宏</h3>
+<div class="outline-text-3" id="text-org43061be">
+<p>
+正如猜测的那样，这个宏负责 <b>填充</b> <span class="underline">PMD表的条目</span> 。代码如下所示：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00bfff; font-weight: bold;">.macro</span>    create_block_map, tbl, phys, start, end, flags, tmp1
+        <span style="color: #00bfff; font-weight: bold;">lsr</span>    \start, \start, #SECTION_SHIFT
+        <span style="color: #00bfff; font-weight: bold;">and</span>    \start, \start, #PTRS_PER_TABLE - 1            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">table index</span>
+        <span style="color: #00bfff; font-weight: bold;">lsr</span>    \end, \end, #SECTION_SHIFT
+        <span style="color: #00bfff; font-weight: bold;">and</span>    \end, \end, #PTRS_PER_TABLE - 1                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">table end index</span>
+        <span style="color: #00bfff; font-weight: bold;">lsr</span>    \phys, \phys, #SECTION_SHIFT
+        <span style="color: #00bfff; font-weight: bold;">mov</span>    \tmp1, #\flags
+        <span style="color: #00bfff; font-weight: bold;">orr</span>    \phys, \tmp1, \phys, lsl #SECTION_SHIFT            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">table entry</span>
+<span style="color: #daa520; font-weight: bold;">9999</span>:    <span style="color: #00bfff; font-weight: bold;">str</span>    \phys, [\tbl, \start, lsl #3]                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">store the entry</span>
+        <span style="color: #00bfff; font-weight: bold;">add</span>    \start, \start, #1                    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">next entry</span>
+        <span style="color: #00bfff; font-weight: bold;">add</span>    \phys, \phys, #SECTION_SIZE                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">next block</span>
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>    \start, \end
+        <span style="color: #00bfff; font-weight: bold;">b.ls</span>    9999b
+        <span style="color: #00bfff; font-weight: bold;">.endm</span>
+</pre>
+</div>
+
+<p>
+这里的参数略有不同：
+</p>
+<ul class="org-ul">
+<li>tbl: 指向PMD表的指针</li>
+<li>phys: 要映射的物理区域的起始地址</li>
+<li>start:  要映射的第一个section的虚拟地址</li>
+<li>end: 要映射的最后一个section的虚拟地址</li>
+<li>flags: 需要复制到块描述符的低属性中的标志位</li>
+<li>tmp1: 临时寄存器</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">lsr</span>    \start, \start, #SECTION_SHIFT
+<span style="color: #daa520; font-weight: bold;">and</span>    \start, \start, #PTRS_PER_TABLE - 1            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">table index</span>
+</pre>
+</div>
+
+<p>
+这两行代码从 <span class="underline">起始虚拟地址</span> 中 <b>提取</b> 了 <span class="underline">表索引</span> 。这与之前在create_table_entry宏中所做的方式完全相同 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">lsr</span>    \end, \end, #SECTION_SHIFT
+<span style="color: #daa520; font-weight: bold;">and</span>    \end, \end, #PTRS_PER_TABLE - 1                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">table end index</span>
+</pre>
+</div>
+
+<p>
+对结束地址进行相同的操作。现在，start和end都包含了PMD表中对应原始地址的索引，而不是虚拟地址
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">lsr</span>    \phys, \phys, #SECTION_SHIFT
+<span style="color: #daa520; font-weight: bold;">mov</span>    \tmp1, #\flags
+<span style="color: #daa520; font-weight: bold;">orr</span>    \phys, \tmp1, \phys, lsl #SECTION_SHIFT            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">table entry</span>
+</pre>
+</div>
+
+<p>
+接下来，会准备并将 <span class="underline">块描述符</span> <b>存储</b> 在 <span class="underline">tmp1变量</span> 中。为了准备描述符，首先对 <span class="underline">phys参数</span> 进行 <span class="underline">右移</span> ，然后再进行 <span class="underline">左移</span> ，并使用 <span class="underline">orr指令</span> 与 <span class="underline">flags参数</span> 合并
+</p>
+
+<pre class="example" id="org69f62fe">
+为什么必须将地址来回移动 ？ 答案是：
+
+1. 这样清除了物理地址中的前21位
+2. 使宏通用化，可以用于任何地址，而不仅仅是每一段的第一个地址 
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">9999</span>:    <span style="color: #00bfff; font-weight: bold;">str</span>    \phys, [\tbl, \start, lsl #3]                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">store the entry</span>
+        <span style="color: #00bfff; font-weight: bold;">add</span>    \start, \start, #1                    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">next entry</span>
+        <span style="color: #00bfff; font-weight: bold;">add</span>    \phys, \phys, #SECTION_SIZE                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">next block</span>
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>    \start, \end
+        <span style="color: #00bfff; font-weight: bold;">b.ls</span>    9999b
+</pre>
+</div>
+
+<p>
+函数的最后部分在一个循环中执行：
+</p>
+<ol class="org-ol">
+<li>将当前描述符存储在PMD表的正确索引位置</li>
+<li>将当前索引增加1，并更新描述符，使其指向下一个节</li>
+<li>重复这个过程，直到当前索引等于最后一个索引</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-orgd3c5c79" class="outline-3">
+<h3 id="orgd3c5c79">映射内核和内核堆栈</h3>
+<div class="outline-text-3" id="text-orgd3c5c79">
+<pre class="example" id="org2f2fc27">
+现在，当你理解了create_table_entry和create_block_map宏的工作原理后，理解__create_page_tables函数的其余部分将变得简单明了
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">adrp</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, pg_dir
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x1</span>, #VA_START
+<span style="color: #daa520; font-weight: bold;">create_pgd_entry</span> <span style="color: #00bfff; font-weight: bold;">x0</span>, x1, x2, x3
+</pre>
+</div>
+<p>
+在这里，创建了 <span class="underline">PGD</span> 和 <span class="underline">PUD</span> 。将它们配置为从 <span class="underline">VA_START虚拟地址</span> 开始进行映射。由于create_table_entry宏的语义，当create_pgd_entry完成后，x0将包含层次结构中下一个表的地址，即PMD：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Mapping kernel and init stack</span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #daa520; font-weight: bold;">mov</span>     <span style="color: #00bfff; font-weight: bold;">x1</span>, xzr                            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">start mapping from physical offset 0</span>
+<span style="color: #daa520; font-weight: bold;">mov</span>     <span style="color: #00bfff; font-weight: bold;">x2</span>, #VA_START                        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">first virtual address</span>
+<span style="color: #daa520; font-weight: bold;">ldr</span>    <span style="color: #00bfff; font-weight: bold;">x3</span>, =(VA_START + DEVICE_BASE - SECTION_SIZE)        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">last virtual address</span>
+<span style="color: #daa520; font-weight: bold;">create_block_map</span> <span style="color: #00bfff; font-weight: bold;">x0</span>, x1, x2, x3, MMU_FLAGS, x4
+</pre>
+</div>
+
+
+<p>
+接下来，创建了整个内存的虚拟映射，但排除了 <span class="underline">设备寄存器区域</span> 。使用 <span class="underline">MMU_FLAGS</span> 常量作为 <span class="underline">flags参数</span> ，这将所有的节区标记为正常的非缓存内存
+</p>
+
+<pre class="example" id="org45c4572">
+请注意，MMU_FLAGS常量中也指定了MM_ACCESS标志
+
+如果没有这个标志，每次内存访问都会引发同步异常
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org1c11064" class="outline-3">
+<h3 id="org1c11064">映射设备内存</h3>
+<div class="outline-text-3" id="text-org1c11064">
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Mapping device memory</span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #daa520; font-weight: bold;">mov</span>     <span style="color: #00bfff; font-weight: bold;">x1</span>, #DEVICE_BASE                    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">start mapping from device base address</span>
+<span style="color: #daa520; font-weight: bold;">ldr</span>     <span style="color: #00bfff; font-weight: bold;">x2</span>, =(VA_START + DEVICE_BASE)                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">first virtual address</span>
+<span style="color: #daa520; font-weight: bold;">ldr</span>    <span style="color: #00bfff; font-weight: bold;">x3</span>, =(VA_START + PHYS_MEMORY_SIZE - SECTION_SIZE)    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">last virtual address</span>
+<span style="color: #daa520; font-weight: bold;">create_block_map</span> <span style="color: #00bfff; font-weight: bold;">x0</span>, x1, x2, x3, MMU_DEVICE_FLAGS, x4
+</pre>
+</div>
+
+<p>
+设备寄存器区域被映射过程与之前的内核内存区域被映射完全相同，只是现在使用不同的起始地址、结束地址和标志位
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x30</span>, x29                        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">restore return address</span>
+<span style="color: #daa520; font-weight: bold;">ret</span>
+</pre>
+</div>
+
+<p>
+最后，函数恢复了链接寄存器并返回给调用者
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orge072a73" class="outline-2">
+<h2 id="orge072a73">配置页表翻译</h2>
+<div class="outline-text-2" id="text-orge072a73">
+<p>
+现在页面表已创建，再次回到el1_entry函数。但在打开MMU之前还有一些工作要做：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, #VA_START
+<span style="color: #daa520; font-weight: bold;">add</span>    <span style="color: #00bfff; font-weight: bold;">sp</span>, x0, #LOW_MEMORY
+</pre>
+</div>
+
+<p>
+更新init任务的堆栈指针。现在它使用的是虚拟地址，而不是物理地址
+</p>
+
+<pre class="example" id="org20ac7fd">
+因此，只能在MMU打开后使用
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">adrp</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, pg_dir
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">ttbr1</span>_el1, x0
+</pre>
+</div>
+
+<p>
+<span class="underline">ttbr1_el1</span> 被更新为指向先前填充的 <span class="underline">PGD表</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">ldr</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, =(TCR_VALUE)
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">tcr</span>_el1, x0
+</pre>
+</div>
+
+<p>
+<span class="underline">tcr_el1寄存器</span> 负责配置MMU的一些通用参数
+</p>
+
+<pre class="example" id="org4b508f8">
+例如，在这里配置内核和用户页表都应该使用4KB的页面大小
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">ldr</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, =(MAIR_VALUE)
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">mair</span>_el1, x0
+</pre>
+</div>
+
+<p>
+在前面已经讨论过了 mair_el1 寄存器，这里设置它的值
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">ldr</span>    <span style="color: #00bfff; font-weight: bold;">x2</span>, =kernel_main
+
+<span style="color: #daa520; font-weight: bold;">mov</span>    <span style="color: #00bfff; font-weight: bold;">x0</span>, #SCTLR_MMU_ENABLED
+<span style="color: #daa520; font-weight: bold;">msr</span>    <span style="color: #00bfff; font-weight: bold;">sctlr</span>_el1, x0
+
+<span style="color: #daa520; font-weight: bold;">br</span>     <span style="color: #00bfff; font-weight: bold;">x2</span>
+</pre>
+</div>
+
+<p>
+<span class="underline">msr sctlr_el1, x0</span> 是实际启用MMU的指令。现在可以跳转到kernel_main函数了
+</p>
+
+<pre class="example" id="org728f03c">
+一个有趣的问题是为什么不能直接执行br kernel_main指令呢？
+
+事实上，在MMU启用之前，我们一直在使用物理内存，内核加载在物理偏移0处，这意味着当前程序计数器非常接近0
+
+启用MMU不会更新程序计数器。如果现在执行br kernel_main指令，该指令将使用相对于当前程序计数器的偏移量，并跳转到未开启MMU时kernel_main所在的位置
+
+而ldr x2, =kernel_main则会加载x2寄存器的值为kernel_main函数的绝对地址
+
+由于在链接脚本中将图像的基地址设置为0xffff000000000000，kernel_main函数的绝对地址将从内核镜像开始处的偏移量加上0xffff000000000000来计算，这正是我们所需要的
+
+另一个需要理解的重要事项是为什么ldr x2, =kernel_main指令必须在我们启用MMU之前执行
+
+原因是ldr指令也使用pc相对偏移量，因此如果我们尝试在MMU开启后但在跳转到镜像基地址之前执行此指令，该指令将引发页错误
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgcdb8ef1" class="outline-2">
+<h2 id="orgcdb8ef1">加载用户级别进程代码</h2>
+<div class="outline-text-2" id="text-orgcdb8ef1">
+<pre class="example" id="orgc4b48c2">
+如果使用的是真正的操作系统，可能会期望它能够从文件系统中读取您的程序并执行它
+
+但对于Rpi OS操作系统而言，情况有所不同，它目前还不具备文件系统支持
+
+之前并不关注这个事实，因为用户进程与内核共享相同的地址空间
+
+现在情况发生了变化，每个进程应该有自己独立的地址空间，因此需要找出如何存储用户程序，以便稍后加载到新创建的进程中
+</pre>
+<p>
+最终实现的一个技巧是将用户程序存储在内核映像的一个单独部分中。下面是负责执行此操作的链接脚本的相关部分：
+</p>
+
+<pre class="example" id="org7d55ef5">
+. = ALIGN(0x00001000);
+user_begin = .;
+.text.user : { build/user* (.text) }
+.rodata.user : { build/user* (.rodata) }
+.data.user : { build/user* (.data) }
+.bss.user : { build/user* (.bss) }
+user_end = .;
+</pre>
+
+<p>
+这里使用了一种约定，即用户级别的源代码应该定义在以 <span class="underline">user</span> 前缀命名的文件中。然后，链接脚本可以将所有与用户相关的代码隔离在一个连续的区域中，并定义 <span class="underline">user_begin</span> 和 <span class="underline">user_end</span> 变量，用于标记此区域的起始和结束位置。通过这种方式，可以简单地将user_begin和user_end之间的所有内容复制到新分配的进程地址空间中，从而模拟加载用户程序
+</p>
+
+<pre class="example" id="org1d87cae">
+这种方法足够简单，并且对于当前的目的效果很好
+
+在实现文件系统支持之后，将摆脱这种临时解决方案，能够加载ELF文件
+</pre>
+
+<p>
+目前有两个文件被编译到用户区域中：
+</p>
+<ul class="org-ul">
+<li><p>
+<span class="underline">user_sys.S</span> ：该文件包含系统调用包装函数的定义
+</p>
+<pre class="example" id="org41b9d02">
+RPi操作系统仍然支持与之前相同的系统调用，只是将使用fork系统调用而不是clone系统调用
+
+fork会复制进程的虚拟内存，而这正是现在想要尝试的
+</pre></li>
+<li><p>
+<span class="underline">user.c</span> ：用户程序的源代码
+</p>
+<pre class="example" id="org36f8ce9">
+几乎与之前使用的代码相同
+</pre></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orgbc1894f" class="outline-2">
+<h2 id="orgbc1894f">创建第一个用户级别进程</h2>
 </div>
 </div>
 <div id="postamble" class="status">
