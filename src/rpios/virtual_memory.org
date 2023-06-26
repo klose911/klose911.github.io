@@ -572,3 +572,231 @@ _msr sctlr_el1, x0_ 是实际启用MMU的指令。现在可以跳转到kernel_ma
   #+end_example
 
 * 创建第一个用户级别进程
+与以前类似， _move_to_user_mode_ 函数负责创建第一个用户进程。从一个内核进程中调用此函数：
+
+#+begin_src c 
+  void kernel_process(){
+	  printf("Kernel process started. EL %d\r\n", get_el());
+	  unsigned long begin = (unsigned long)&user_begin;
+	  unsigned long end = (unsigned long)&user_end;
+	  unsigned long process = (unsigned long)&user_process;
+	  int err = move_to_user_mode(begin, end - begin, process - begin);
+	  if (err < 0){
+		  printf("Error while moving process to user mode\n\r");
+	  }
+  }
+#+end_src
+
+现在需要三个参数来调用 move_to_user_mode函数：
+1. 用户代码区域的起始指针
+2. 区域的大小
+3. 启动函数的偏移量
+
+#+begin_example
+  这些信息是基于前面讨论过的user_begin和user_end变量进行计算得出的
+#+end_example
+
+move_to_user_mode 函数：
+
+#+begin_src c 
+  int move_to_user_mode(unsigned long start, unsigned long size, unsigned long pc)
+  {
+	  struct pt_regs *regs = task_pt_regs(current);
+	  regs->pstate = PSR_MODE_EL0t;
+	  regs->pc = pc;
+	  regs->sp = 2 *  PAGE_SIZE;
+	  unsigned long code_page = allocate_user_page(current, 0);
+	  if (code_page == 0)    {
+		  return -1;
+	  }
+	  memcpy(code_page, start, size);
+	  set_pgd(current->mm.pgd);
+	  return 0;
+  }
+#+end_src
+
+现在逐行检查代码：
+
+#+begin_src c 
+  struct pt_regs *regs = task_pt_regs(current);
+  regs->pstate = PSR_MODE_EL0t;
+#+end_src
+
+首先获取一个指向 _pt_regs区域的指针_ ，并设置 _pstate_ ，这样在kernel_exit之后将进入EL0模式
+
+#+begin_src c
+  regs->pc = pc;
+#+end_src
+
+现在，pc指向用户区域中启动函数的 *偏移量*
+
+#+begin_src c 
+  regs->sp = 2 *  PAGE_SIZE;
+#+end_src
+
+这里有一个简单的约定，即用户程序不会超过1页的大小。所以从第二页开始分配给栈
+
+#+begin_src c 
+  unsigned long code_page = allocate_user_page(current, 0);
+  if (code_page == 0)    {
+	  return -1;
+  }
+#+end_src
+
+_allocate_user_page函数_ 预留 1个内存页面，并将其 *映射* 到 _提供的虚拟地址_ 作为第二个参数。在映射过程中，它 *填充* 了与 _当前进程关联的页表_
+
+#+begin_example
+稍后将详细研究这个函数的工作原理
+#+end_example
+
+#+begin_src c 
+  memcpy(code_page, start, size);
+#+end_src
+
+接下来，将把整个用户区域复制到新的地址空间（刚刚映射的页面中）
+
+#+begin_example
+从偏移量0开始，这样用户区域中的偏移量将成为实际的起始虚拟地址！
+#+end_example
+
+#+begin_src c 
+  set_pgd(current->mm.pgd);
+#+end_src
+
+最后，调用 _set_pgd函数_ ，它会 *更新* _ttbr0_el1寄存器_ ，从而 *激活* _当前进程的转换表_ 
+
+** TLB （地址转换缓存）
+
+如果查看 _set_pgd函数_ ，会看到在设置 _ttbr0_el1_ 之后，它还清空了TLB（Translation Lookaside Buffer，地址转换缓存）。TLB是一个专门用于存储物理页和虚拟页映射关系的缓存
++ 当某个虚拟地址第一次映射到物理地址时，该映射关系会被存储在TLB中
++ 下次访问相同的页面时，就不再需要进行完整的页表查找
++ 因此，在更新页表之后清空TLB是非常有意义的，否则更改将不会应用于已存储在TLB中的页面。
+
+#+begin_example
+  通常情况下，为了简化操作，尽量避免使用所有的缓存，但是如果没有TLB，任何内存访问都会变得极其低效，而且我认为完全禁用TLB可能是不可能的
+
+  此外，除了在切换ttbr0_el1之后需要清空它之外，TLB不会给操作系统增加其他复杂性
+#+end_example
+
+* 映射虚拟地址
+前面已经看到了 allocate_user_page 函数怎么使用，现在是时候来看看它是怎么实现的：
+
+#+begin_src c 
+  unsigned long allocate_user_page(struct task_struct *task, unsigned long va) {
+	  unsigned long page = get_free_page();
+	  if (page == 0) {
+		  return 0;
+	  }
+	  map_page(task, va, page);
+	  return page + VA_START;
+  }
+#+end_src
+
+这个函数分配一个新的页面，将其映射到提供的虚拟地址，并返回页面的指针。现在说 _指针_ 时，需要区分三种不同的指针：
+1. 指向 _物理页面_ 的指针
+2. 指向 _内核地址空间_ 中的指针
+3. 指向 _用户地址空间_ 中的指针
+
+#+begin_example
+  这三种不同的指针都可以指向相同的内存位置
+
+  在这里，page变量是一个物理指针，而返回值是内核地址空间中的指针
+#+end_example
+
+这个指针可以很容易地计算，因为在boot.S中将 _整个物理内存_ *线性映射* 到了 _VA_START虚拟地址_ 开始的位置。也不需要担心分配新的内核页表，因为在boot.S中已经将所有的内存映射完成。但是，仍然需要 *创建* _用户映射_ ，这是在 _map_page函数_ 中完成的，接下来将探讨这个函数：
+
+#+begin_src c 
+  void map_page(struct task_struct *task, unsigned long va, unsigned long page){
+	  unsigned long pgd;
+	  if (!task->mm.pgd) {
+		  task->mm.pgd = get_free_page();
+		  task->mm.kernel_pages[++task->mm.kernel_pages_count] = task->mm.pgd;
+	  }
+	  pgd = task->mm.pgd;
+	  int new_table;
+	  unsigned long pud = map_table((unsigned long *)(pgd + VA_START), PGD_SHIFT, va, &new_table);
+	  if (new_table) {
+		  task->mm.kernel_pages[++task->mm.kernel_pages_count] = pud;
+	  }
+	  unsigned long pmd = map_table((unsigned long *)(pud + VA_START) , PUD_SHIFT, va, &new_table);
+	  if (new_table) {
+		  task->mm.kernel_pages[++task->mm.kernel_pages_count] = pmd;
+	  }
+	  unsigned long pte = map_table((unsigned long *)(pmd + VA_START), PMD_SHIFT, va, &new_table);
+	  if (new_table) {
+		  task->mm.kernel_pages[++task->mm.kernel_pages_count] = pte;
+	  }
+	  map_table_entry((unsigned long *)(pte + VA_START), va, page);
+	  struct user_page p = {page, va};
+	  task->mm.user_pages[task->mm.user_pages_count++] = p;
+  }
+#+end_src
+
+_map_page函数_ 在某种程度上重复了在 ___create_page_tables函数_ 中的操作：它 *分配* 并 *填充* 了一个 _页面表层级结构_ 。然而，有三个重要的区别：
+1. 现在使用C语言而不是汇编语言
+2. map_page函数映射单个页面而不是整个内存
+3. 使用普通的页面映射而不是段映射
+
+在这个过程中涉及到两个重要的函数： _map_table_  和 _map_table_entry_ 。map_table 代码如下：
+
+#+begin_src c 
+  unsigned long map_table(unsigned long *table, unsigned long shift, unsigned long va, int* new_table) {
+	  unsigned long index = va >> shift;
+	  index = index & (PTRS_PER_TABLE - 1);
+	  if (!table[index]){
+		  ,*new_table = 1;
+		  unsigned long next_level_table = get_free_page();
+		  unsigned long entry = next_level_table | MM_TYPE_PAGE_TABLE;
+		  table[index] = entry;
+		  return next_level_table;
+	  } else {
+		  ,*new_table = 0;
+	  }
+	  return table[index] & PAGE_MASK;
+  }
+#+end_src
+
+
+该函数具有以下参数：
++ *table* ：指向父级页表的指针。假设该页表已经分配，但可能为空
++ *shift* ：用于从提供的虚拟地址中提取表索引的值
++ *va* ：虚拟地址本身
++ *new_table* ：这是一个输出参数。如果已经分配了新的子表，则设置为 _1_ ；否则设置为 _0_  
+
+可以将这个函数视为 _create_table_entry 宏_ 的引申。它从虚拟地址中提取表索引，并在父表中准备一个指向子表的描述符
+
+#+begin_example
+  但与 create_table_entry 宏不同，不能假设子表应与父表相邻 相反，依赖 get_free_table 函数返回可用的任意页
+
+  还可能出现子表已经分配的情况（如果子页表覆盖了先前已分配另一页的区域）。在这种情况下，将 new_table 设置为0，并从父表中读取子页表的地址
+#+end_example
+
+map_page 函数调用 map_table 三次：一次用于 _PGD_ ，一次用于 _PUD_ ，一次用于 _PMD_ 。最后一次调用分配 _PTE_  并在 _PMD_ 中 *设置* 一个 _描述符_ 。接下来，会调用 _map_table_entry 函数_ ：
+
+#+begin_src c 
+  void map_table_entry(unsigned long *pte, unsigned long va, unsigned long pa) {
+	  unsigned long index = va >> PAGE_SHIFT;
+	  index = index & (PTRS_PER_TABLE - 1);
+	  unsigned long entry = pa | MMU_PTE_FLAGS;
+	  pte[index] = entry;
+  }
+#+end_src
+
+map_table_entry 函数从 _虚拟地址_ 中 *提取* _PTE 索引_ ，然后准备并 *设置* _PTE 描述符_ 
+
+#+begin_example
+  类似于在 create_block_map 宏中所做的操作
+#+end_example
+
+这就是有关用户页表分配的内容，但是 map_page 还负责其他更重要的任务：
++ 它跟踪在虚拟地址映射过程中已经分配的页面。所有这些页面都存储在 _kernel_pages 数组_ 中
+  #+begin_example
+    需要这个数组来在任务退出后清理已分配的页面
+  #+end_example
++ 还有一个 _user_pages 数组_ ，也由 map_page 函数填充。这个数组 *存储* 了 _进程虚拟页面_ 和 _物理页面之间_ 的对应关系
+  #+begin_example
+    需要这些信息来在 fork 过程中能够复制进程的虚拟内存
+  #+end_example
+
+* fork进程
+
