@@ -799,4 +799,214 @@ map_table_entry 函数从 _虚拟地址_ 中 *提取* _PTE 索引_ ，然后准�
   #+end_example
 
 * fork进程
+#+begin_example
+  在继续之前，总结一下目前的进展：已经看到了如何创建第一个用户进程，填充其页表，将源代码复制到正确的位置并初始化堆栈
+#+end_example
 
+经过所有这些准备工作，进程已经准备好运行了。下面是在用户进程内执行的代码：
+
+#+begin_src c 
+  void loop(char* str)
+  {
+	  char buf[2] = {""};
+	  while (1){
+		  for (int i = 0; i < 5; i++){
+			  buf[0] = str[i];
+			  call_sys_write(buf);
+			  user_delay(1000000);
+		  }
+	  }
+  }
+
+  void user_process() 
+  {
+	  call_sys_write("User process\n\r");
+	  int pid = call_sys_fork();
+	  if (pid < 0) {
+		  call_sys_write("Error during fork\n\r");
+		  call_sys_exit();
+		  return;
+	  }
+	  if (pid == 0){
+		  loop("abcde");
+	  } else {
+		  loop("12345");
+	  }
+  }
+#+end_src
+
+这段代码本身非常简单。唯一棘手的部分是fork系统调用的语义。与clone不同：
++ 在fork时不需要提供在新进程中需要执行的函数
+  #+begin_example
+    fork包装函数比clone简单得多，因为fork会对进程的虚拟地址空间进行完全复制
+  #+end_example
++ fork包装函数会返回两次：一次在 _原始进程_ 中，一次在 _新进程_ 中。此时，有了两个 *完全相同* 的进程，具有相同的堆栈和pc位置。唯一的区别是fork系统调用的返回值：
+  + 在父进程中返回子进程的PID
+  + 在子进程中返回0
+    #+begin_example
+      从这一点开始，两个进程开始完全独立的生活，可以修改它们的堆栈并使用相同的内存地址写入不同的数据，而互不干扰 
+    #+end_example
+
+现在来看一下fork系统调用是如何实现的。 _copy_process函数_ 完成了大部分的工作：
+
+#+begin_src c 
+  int copy_process(unsigned long clone_flags, unsigned long fn, unsigned long arg)
+  {
+	  preempt_disable();
+	  struct task_struct *p;
+
+	  unsigned long page = allocate_kernel_page();
+	  p = (struct task_struct *) page;
+	  struct pt_regs *childregs = task_pt_regs(p);
+
+	  if (!p)
+		  return -1;
+
+	  if (clone_flags & PF_KTHREAD) {
+		  p->cpu_context.x19 = fn;
+		  p->cpu_context.x20 = arg;
+	  } else {
+		  struct pt_regs * cur_regs = task_pt_regs(current);
+		  ,*childregs = *cur_regs;
+		  childregs->regs[0] = 0;
+		  copy_virt_memory(p);
+	  }
+	  p->flags = clone_flags;
+	  p->priority = current->priority;
+	  p->state = TASK_RUNNING;
+	  p->counter = p->priority;
+	  p->preempt_count = 1; //disable preemtion until schedule_tail
+
+	  p->cpu_context.pc = (unsigned long)ret_from_fork;
+	  p->cpu_context.sp = (unsigned long)childregs;
+	  int pid = nr_tasks++;
+	  task[pid] = p;
+
+	  preempt_enable();
+	  return pid;
+  }
+#+end_src
+
+这个函数看起来几乎与之前的函数完全相同，只有一个例外：在复制用户进程时，现在不再修改新进程的堆栈指针和程序计数器，而是调用copy_virt_memory函数。 _copy_virt_memory_ 的实现如下所示：
+
+#+begin_src c 
+  int copy_virt_memory(struct task_struct *dst) {
+	  struct task_struct* src = current;
+	  for (int i = 0; i < src->mm.user_pages_count; i++) {
+		  unsigned long kernel_va = allocate_user_page(dst, src->mm.user_pages[i].virt_addr);
+		  if( kernel_va == 0) {
+			  return -1;
+		  }
+		  memcpy(kernel_va, src->mm.user_pages[i].virt_addr, PAGE_SIZE);
+	  }
+	  return 0;
+  }
+#+end_src
+
+它遍历 _user_pages数组_ ，该数组包含 _当前进程分配的所有页面_
+
+#+begin_example
+  请注意，user_pages数组只存储实际可用于进程的页面，其中包含其源代码或数据
+
+  不在此处包括存储在kernel_pages数组中的页表页面
+#+end_example
+
+接下来，对于每个页面，分配另一个空页面，并将原始页面的内容复制到其中。这里使用与 _原始页面相同的虚拟地址_ *映射* _新页面_ 。这样就获得了 *原始进程地址空间的精确副本* 
+
+#+begin_example
+  其他fork过程的细节与前一课程完全相同
+#+end_example
+
+* 需要时分配新的页面
+#+begin_example
+  如果回过头去看一下move_to_user_mode函数，可能会注意到只映射了从偏移量0开始的单个页面，但也假设第二个页面将用作堆栈
+
+  为什么不映射第二个页面呢？如果认为这是一个错误，那不是
+
+  这是一个特性！堆栈页面以及进程需要访问的任何其他页面将在首次请求时进行映射
+
+  接下来将探索此机制的内部工作原理
+#+end_example
+
+当进程尝试访问尚未映射的页面的地址时，将 *生成* _同步异常_ 。这是将要支持的第二种同步异常（第一种是由svc指令生成的系统调用异常）：
+
+#+begin_src asm
+  el0_sync:
+	  kernel_entry 0
+	  mrs    x25, esr_el1                // read the syndrome register
+	  lsr    x24, x25, #ESR_ELx_EC_SHIFT        // exception class
+	  cmp    x24, #ESR_ELx_EC_SVC64            // SVC in 64-bit state
+	  b.eq    el0_svc
+	  cmp    x24, #ESR_ELx_EC_DABT_LOW        // data abort in EL0
+	  b.eq    el0_da
+	  handle_invalid_entry 0, SYNC_ERROR
+#+end_src
+
+在这里，使用 _esr_el1寄存器_ 来确定 _异常类型_ 。如果它是 _页面故障异常_ （或者说是数据访问异常），则调用 _el0_da函数_
+
+#+begin_src asm 
+  el0_da:
+	  bl    enable_irq
+	  mrs    x0, far_el1
+	  mrs    x1, esr_el1
+	  bl    do_mem_abort
+	  cmp x0, 0
+	  b.eq 1f
+	  handle_invalid_entry 0, DATA_ABORT_ERROR
+  1:
+	  bl disable_irq
+	  kernel_exit 0
+#+end_src
+
+el0_da将主要工作转交到 _do_mem_abort函数_ 。此函数接受两个参数：
+1. 尝试访问的内存地址。此地址从 _far_el1寄存器_ （ *故障地址寄存器* ）中获取
+2. esr_el1的内容（ *异常综合寄存器* ）
+
+#+begin_src c 
+  int do_mem_abort(unsigned long addr, unsigned long esr) {
+	  unsigned long dfs = (esr & 0b111111);
+	  if ((dfs & 0b111100) == 0b100) {
+		  unsigned long page = get_free_page();
+		  if (page == 0) {
+			  return -1;
+		  }
+		  map_page(current, addr & PAGE_MASK, page);
+		  ind++;
+		  if (ind > 2){
+			  return -1;
+		  }
+		  return 0;
+	  }
+	  return -1;
+  }
+#+end_src
+为了理解这个函数，需要了解一些关于esr_el1寄存器的具体细节。该寄存器的 _[32:26]位_ 被称为 *异常类*
+
+#+begin_example
+  在el0_sync处理程序中检查这些位，以确定它是系统调用，数据访问异常还是其他可能的情况
+
+  异常类确定了[24:0]位的含义，这些位通常用于提供有关异常的附加信息
+
+  关于数据访问异常的[24:0]位的含义在AArch64参考手册的第2460页上有描述
+
+  一般来说，数据访问异常可能发生在许多不同的场景中（可能是权限故障、地址大小故障或其他故障）。这里只关注发生在当前虚拟地址的某些页表未初始化的情况下的转换故障
+#+end_example
+
+因此，在do_mem_abort函数的前两行中，检查当前异常是否确实是转换故障。如果是，将 *分配* 一个 _新页面_ 并将其 *映射* 到 _请求的虚拟地址_ 上
+
+#+begin_example
+  所有这些对于用户程序来说都是完全透明的
+
+  它不会注意到一些内存访问被中断，并且在此期间分配了新的页表
+#+end_example
+
+* 结论
+#+begin_example
+  这是一个漫长而困难的旅程，但希望它是有用的，虚拟内存是任何操作系统中最基本的组成部分之一
+
+  通过引入虚拟内存，现在拥有了完整的进程隔离，但是RPi OS离完成还有很长的路要走
+
+  它仍然不支持文件系统、驱动程序、信号和中断等待列表、网络以及许多其他有用的概念
+#+end_example
+
+| [[file:system_call.org][Previous：系统调用]] |  [[file:rpios.org][Home: 用树莓派学习操作系统开发]] |

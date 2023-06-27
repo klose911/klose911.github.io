@@ -227,6 +227,8 @@
 </li>
 <li><a href="#org112f4b4">映射虚拟地址</a></li>
 <li><a href="#orgf15b699">fork进程</a></li>
+<li><a href="#orgff2dec2">需要时分配新的页面</a></li>
+<li><a href="#org3bfb12f">结论</a></li>
 </ul>
 </div>
 </div>
@@ -234,7 +236,7 @@
 现在，RPi OS可以运行和调度用户进程，但它们之间的隔离并不完整：所有进程和内核本身共享同一块内存。这使得任何进程都可以轻易地访问其他进程甚至内核数据
 </p>
 
-<pre class="example" id="org34cf8f1">
+<pre class="example" id="org30c4b22">
 即使假设所有的进程都不是恶意的，仍然存在另一个缺点：在分配内存之前，每个进程都需要知道哪些内存区域已被占用
 
 这使得进程的内存分配变得更加复杂
@@ -246,7 +248,7 @@
 接下来将通过引入 <span class="underline">虚拟内存</span> 来解决上述所有问题。虚拟内存为每个进程提供了一个抽象，使其认为它占用了所有可用的内存。每当一个进程需要访问某个内存位置时，它使用虚拟地址，该地址会被转换为物理地址。转换的过程完全对进程透明，由一个特殊设备进行：*MMU*（ <span class="underline">内存映射单元</span> ）。MMU使用 <span class="underline">转换表</span> 来将虚拟地址转换为物理地址。转换的过程如下图所示：
 </p>
 
-<pre class="example" id="org14be643">
+<pre class="example" id="orgac28c05">
 			   Virtual address                                                                 Physical Memory
 +-----------------------------------------------------------------------+                                +------------------+
 |         | PGD Index | PUD Index | PMD Index | PTE Index | Page offset |                                |                  |
@@ -276,7 +278,7 @@
 <li><p>
 进程的内存总是以 <span class="underline">页面</span> 为单位分配的。页面是一个连续的内存区域，大小为 <span class="underline">4KB</span>
 </p>
-<pre class="example" id="org10eb18f">
+<pre class="example" id="orga33c8b3">
 ARM处理器支持更大的页面，但4KB是最常见的情况，这里将限制讨论在这个页面大小上
 </pre></li>
 <li><span class="underline">页表</span> 具有 <b>分层</b> 结构。在任何一个表中的项目包含了层次结构中下一个表的地址</li>
@@ -296,36 +298,36 @@ ARM处理器支持更大的页面，但4KB是最常见的情况，这里将限�
 <li><p>
 <b>位[39-47]</b> : 包含 <span class="underline">PGD表中的索引</span>
 </p>
-<pre class="example" id="org0bdf1d2">
+<pre class="example" id="orge3d5f71">
 MMU使用此索引查找PUD的位置
 </pre></li>
 <li><p>
 <b>位[30-38]</b> : 包含 <span class="underline">PUD表中的索引</span>
 </p>
-<pre class="example" id="orgfc1b2b9">
+<pre class="example" id="org6ab4786">
 MMU使用此索引查找PMD的位置
 </pre></li>
 <li><p>
 <b>位[21-29]</b> : 包含 <span class="underline">PMD表中的索引</span>
 </p>
-<pre class="example" id="org1e9cebf">
+<pre class="example" id="orgcbe0a6c">
 MMU使用此索引查找PTE的位置
 </pre></li>
 <li><p>
 <b>位[12-20]</b> : 包含 <span class="underline">PTE表中的索引</span>
 </p>
-<pre class="example" id="orge2ed3f0">
+<pre class="example" id="orgd8957a2">
 MMU使用此索引在物理内存中找到一个页面
 </pre></li>
 <li><p>
 <b>位[0-11]</b> : 包含 <span class="underline">物理页面中的偏移量</span>
 </p>
-<pre class="example" id="org293ebd5">
+<pre class="example" id="org40ef5e5">
 MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对应的确切位置 
 </pre></li>
 </ul>
 
-<pre class="example" id="org92437f6">
+<pre class="example" id="orgbd7b8e2">
 现在，让我们进行一个小练习，计算页表的大小
 
 从上面的图表中，知道页表中的索引占据9位（对于所有的页表级别都是如此）: 这意味着每个页表包含2^9 = 512个条目
@@ -346,7 +348,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 有时候需要映射连续的大内存区域。在这种情况下，可以直接映射2 MB大小的块，称为 <span class="underline">区段</span> 。这样可以省去一级的地址转换。在这种情况下，转换图如下所示：
 </p>
 
-<pre class="example" id="orge8bc32a">
+<pre class="example" id="org3cfcc85">
 			   Virtual address                                               Physical Memory
 +-----------------------------------------------------------------------+              +------------------+
 |         | PGD Index | PUD Index | PMD Index |      Section offset     |              |                  |
@@ -372,7 +374,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <p>
 这里的区别在于 <span class="underline">PMD</span> 现在包含指向 <span class="underline">物理区段的指针</span> 。另外，偏移量占据了 <span class="underline">21位</span> 而不是12位
 </p>
-<pre class="example" id="orgabc58ff">
+<pre class="example" id="orgc92ac30">
 因为需要21位来编码2MB的范围
 </pre>
 </div>
@@ -380,7 +382,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <div id="outline-container-orga324b55" class="outline-2">
 <h2 id="orga324b55">页表描述符</h2>
 <div class="outline-text-2" id="text-orga324b55">
-<pre class="example" id="org5a81d78">
+<pre class="example" id="orgd40d8f4">
 可能会问MMU如何知道PMD项目是指向PTE还是物理2MB区段的？
 
 为了回答这个问题，需要更仔细地看一下页表项的结构
@@ -390,7 +392,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 页表中的项目称为 <span class="underline">描述符</span> 。描述符具有特殊的格式：
 </p>
 
-<pre class="example" id="org09b69c0">
+<pre class="example" id="orgdd60cac">
 			   Descriptor format
 `+------------------------------------------------------------------------------------------+
  | Upper attributes | Address (bits 47:12) | Lower attributes | Block/table bit | Valid bit |
@@ -409,7 +411,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <li><p>
 <b>位 0</b>  ：对于所有 <b>有效</b> 的描述符，此位必须设置为 <span class="underline">1</span>
 </p>
-<pre class="example" id="org2e038a0">
+<pre class="example" id="orgbd21fe5">
 如果在转换过程中MMU遇到非有效的描述符，将生成同步异常
 
 然后内核应处理此异常，分配一个新页并准备正确的描述符
@@ -425,7 +427,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <li><p>
 <b>位 [47:12]</b> ：存储描述符指向的 <span class="underline">地址</span> 
 </p>
-<pre class="example" id="org5ea4cc3">
+<pre class="example" id="orgf114be2">
 如前所述，只需存储地址的位 [47:12]，因为其他位始终为0
 </pre></li>
 <li><b>位 [63:48]</b> ：另一组属性位</li>
@@ -435,7 +437,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 <div id="outline-container-org8029dc8" class="outline-2">
 <h2 id="org8029dc8">页面属性配置</h2>
 <div class="outline-text-2" id="text-org8029dc8">
-<pre class="example" id="orgbed3b49">
+<pre class="example" id="orgfececf9">
 正如在前面的部分中提到的，每个块描述符包含一组属性，用于控制各种虚拟页面的参数
 
 然而，对于我们的讨论来说，最重要的属性并不直接在描述符中配置
@@ -447,7 +449,7 @@ MMU使用此偏移量确定在之前找到的页面中与原始虚拟地址对�
 ARM.v8架构引入了 <span class="underline">mair_el1寄存器</span> 。该寄存器由8个部分组成，每个部分都有8个比特位。每个部分配置了一组常用的属性。然后， <span class="underline">描述符</span> 仅指定 <span class="underline">mair部分</span> 的 <b>索引</b> ，而不是直接指定所有属性。这样可以在描述符中仅使用 <span class="underline">3个比特位</span> 来引用mair部分
 </p>
 
-<pre class="example" id="orgb8767a1">
+<pre class="example" id="org5cfa84e">
 mair部分中每个比特位的含义在AArch64参考手册的第2609页上有描述
 
 在RPi OS中，我们仅使用了一些可用的属性选项
@@ -486,7 +488,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 在打开MMU之后，每次内存访问都必须使用虚拟内存而不是物理内存。这个事实的一个结果是 <b>内核本身必须准备好使用虚拟内存并维护自己的页表集合</b>
 </p>
 
-<pre class="example" id="orgbbd7c13">
+<pre class="example" id="orgc6f68f8">
 一种可能的解决方案是每次从用户模式切换到内核模式时重新加载pgd寄存器
 
 但问题是切换pgd是非常昂贵的操作，因为它需要使所有缓存失效
@@ -498,7 +500,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 相反，操作系统的做法是将地址空间分为两个部分： <span class="underline">用户空间</span> 和 <span class="underline">内核空间</span>
 </p>
 
-<pre class="example" id="org4ad6d21">
+<pre class="example" id="org0455a19">
 32位体系结构通常将地址空间的前3GB分配给用户程序，将最后1GB保留给内核
 
 64位体系结构在这方面更加有利，因为它们具有巨大的地址空间
@@ -518,7 +520,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 体系结构还确保在 <span class="underline">EL0下运行的进程</span> 永远无法访问以 <span class="underline">0xffff开头的虚拟地址</span> ，否则会 <span class="underline">生成</span> <b>同步异常</b>
 </p>
 
-<pre class="example" id="org4d657a7">
+<pre class="example" id="org23f7327">
 从这个描述中，可以轻松推断：
 
 内核PGD的指针存储在ttbr1_el1中，并在内核的整个生命周期中保持不变
@@ -533,13 +535,13 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 <li><p>
 在 <span class="underline">链接脚本</span> 中，将镜像的基地址指定为0xffff000000000000。这会使编译器认为镜像将加载到0xffff000000000000地址，因此无论何时需要生成绝对地址，它都会生成正确的地址
 </p>
-<pre class="example" id="orga19feb7">
+<pre class="example" id="orgbfb2ff3">
 链接脚本还有一些其他更改，将在后面讨论它们
 </pre></li>
 <li><p>
 硬编码了绝对内核基地址：在定义 <span class="underline">设备基地址</span> 的 <b>头文件</b> 中。现在，将从0xffff00003F000000开始访问所有设备内存
 </p>
-<pre class="example" id="orgfebb006">
+<pre class="example" id="orga63f8d6">
 当然，为了使其正常工作，首先需要映射内核需要访问的所有内存
 
 下面，将详细探讨创建此映射的代码
@@ -564,7 +566,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 首先，该函数保存了 <span class="underline">x30寄存器</span> （链接寄存器）。因为将从 __create_page_tables 调用其他函数，x30寄存器会被覆盖
 </p>
 
-<pre class="example" id="org3d7f6ea">
+<pre class="example" id="org47afe98">
 通常做法是把 x30寄存器保存在栈上，但是由于：
 1. 在__create_page_tables执行期间不会使用递归
 2. 没有其他人会使用x29寄存器
@@ -591,7 +593,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 <li><p>
 所有的映射都位于 <span class="underline">1 GB</span> 的区域内（这是RPi内存的大小），一个PGD描述符可以覆盖 <span class="underline">2^39 = 512 GB</span> ，一个PUD描述符可以覆盖 <span class="underline">2^30 = 1 GB</span> 的连续虚拟映射区域
 </p>
-<pre class="example" id="org85c182c">
+<pre class="example" id="org18e6dfc">
 这些值是根据PGD和PUD索引在虚拟地址中的位置计算得出的
 
 这意味着只需要一个PGD和一个PUD来映射整个RPi内存
@@ -599,13 +601,13 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 <li><p>
 更重要的是，PGD和PUD都只包含一个描述符。即使只有一个PUD条目，那么也必须有一个单独的PMD表，该条目将指向该表
 </p>
-<pre class="example" id="orgd77e7bb">
+<pre class="example" id="orgea2ad66">
 单个PMD条目覆盖2 MB，一个PMD中有512个条目，所以整个PMD表覆盖了与单个PUD描述符相同的1 GB内存
 </pre></li>
 <li><p>
 需要映射1 GB的内存区域，而这是2 MB的倍数 ：可以使用 <span class="underline">区块映射</span> 。这意味着 <b>根本不需要PTE</b> 
 </p>
-<pre class="example" id="org87e4a5b">
+<pre class="example" id="orgb29bc32">
 因此，总共需要3个页面：一个用于PGD，一个用于PUD，一个用于PMD
 
 这恰好是初始页表区域的大小
@@ -669,7 +671,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 然后计算下一个页表的地址：
 </p>
 
-<pre class="example" id="org1292312">
+<pre class="example" id="org3a3454d">
 在这里，使用的约定是初始页表都位于一个连续的内存区域中
 
 简单地假设下一个页表在层级结构中将与当前页表相邻
@@ -702,7 +704,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 最后，将 <span class="underline">tbl参数</span>  <b>更改</b> 为 <span class="underline">指向层次结构中的下一个页表</span> 
 </p>
 
-<pre class="example" id="orgb7678a6">
+<pre class="example" id="org5d4bd1e">
 这一步不是必须的，但如果再次调用create_table_entry来为层次结构中的下一个表分配空间，就无需对tbl参数进行任何调整
 
 这正是create_pgd_entry宏所做的，它只是一个分配PGD和PUD的包装器
@@ -778,7 +780,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 接下来，会准备并将 <span class="underline">块描述符</span> <b>存储</b> 在 <span class="underline">tmp1变量</span> 中。为了准备描述符，首先对 <span class="underline">phys参数</span> 进行 <span class="underline">右移</span> ，然后再进行 <span class="underline">左移</span> ，并使用 <span class="underline">orr指令</span> 与 <span class="underline">flags参数</span> 合并
 </p>
 
-<pre class="example" id="org701528b">
+<pre class="example" id="org1129d1d">
 为什么必须将地址来回移动 ？ 答案是：
 
 1. 这样清除了物理地址中的前21位
@@ -808,7 +810,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 <div id="outline-container-orgd3c5c79" class="outline-3">
 <h3 id="orgd3c5c79">映射内核和内核堆栈</h3>
 <div class="outline-text-3" id="text-orgd3c5c79">
-<pre class="example" id="orgae737b2">
+<pre class="example" id="org8d782da">
 现在，当你理解了create_table_entry和create_block_map宏的工作原理后，理解__create_page_tables函数的其余部分将变得简单明了
 </pre>
 
@@ -836,7 +838,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 接下来，创建了整个内存的虚拟映射，但排除了 <span class="underline">设备寄存器区域</span> 。使用 <span class="underline">MMU_FLAGS</span> 常量作为 <span class="underline">flags参数</span> ，这将所有的节区标记为正常的非缓存内存
 </p>
 
-<pre class="example" id="orgee0fc59">
+<pre class="example" id="org9e867bb">
 请注意，MMU_FLAGS常量中也指定了MM_ACCESS标志
 
 如果没有这个标志，每次内存访问都会引发同步异常
@@ -890,7 +892,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 更新init任务的堆栈指针。现在它使用的是虚拟地址，而不是物理地址
 </p>
 
-<pre class="example" id="orgfb3e590">
+<pre class="example" id="org7d9196e">
 因此，只能在MMU打开后使用
 </pre>
 
@@ -914,7 +916,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 <span class="underline">tcr_el1寄存器</span> 负责配置MMU的一些通用参数
 </p>
 
-<pre class="example" id="orgeea2203">
+<pre class="example" id="orgeb3b33e">
 例如，在这里配置内核和用户页表都应该使用4KB的页面大小
 </pre>
 
@@ -942,7 +944,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 <span class="underline">msr sctlr_el1, x0</span> 是实际启用MMU的指令。现在可以跳转到kernel_main函数了
 </p>
 
-<pre class="example" id="org5fd84b1">
+<pre class="example" id="orgb1f8a67">
 一个有趣的问题是为什么不能直接执行br kernel_main指令呢？
 
 事实上，在MMU启用之前，我们一直在使用物理内存，内核加载在物理偏移0处，这意味着当前程序计数器非常接近0
@@ -963,7 +965,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 <div id="outline-container-orgcdb8ef1" class="outline-2">
 <h2 id="orgcdb8ef1">加载用户级别进程代码</h2>
 <div class="outline-text-2" id="text-orgcdb8ef1">
-<pre class="example" id="org269d60d">
+<pre class="example" id="orga724cef">
 如果使用的是真正的操作系统，可能会期望它能够从文件系统中读取您的程序并执行它
 
 但对于Rpi OS操作系统而言，情况有所不同，它目前还不具备文件系统支持
@@ -976,7 +978,7 @@ mair部分中每个比特位的含义在AArch64参考手册的第2609页上有�
 最终实现的一个技巧是将用户程序存储在内核映像的一个单独部分中。下面是负责执行此操作的链接脚本的相关部分：
 </p>
 
-<pre class="example" id="orgc1fdaf8">
+<pre class="example" id="org6e2fee0">
 . = ALIGN(0x00001000);
 user_begin = .;
 .text.user : { build/user* (.text) }
@@ -990,7 +992,7 @@ user_end = .;
 这里使用了一种约定，即用户级别的源代码应该定义在以 <span class="underline">user</span> 前缀命名的文件中。然后，链接脚本可以将所有与用户相关的代码隔离在一个连续的区域中，并定义 <span class="underline">user_begin</span> 和 <span class="underline">user_end</span> 变量，用于标记此区域的起始和结束位置。通过这种方式，可以简单地将user_begin和user_end之间的所有内容复制到新分配的进程地址空间中，从而模拟加载用户程序
 </p>
 
-<pre class="example" id="org1d74ca6">
+<pre class="example" id="org358fccc">
 这种方法足够简单，并且对于当前的目的效果很好
 
 在实现文件系统支持之后，将摆脱这种临时解决方案，能够加载ELF文件
@@ -1003,7 +1005,7 @@ user_end = .;
 <li><p>
 <span class="underline">user_sys.S</span> ：该文件包含系统调用包装函数的定义
 </p>
-<pre class="example" id="org4b0ba5e">
+<pre class="example" id="orge0c6abe">
 RPi操作系统仍然支持与之前相同的系统调用，只是将使用fork系统调用而不是clone系统调用
 
 fork会复制进程的虚拟内存，而这正是现在想要尝试的
@@ -1011,7 +1013,7 @@ fork会复制进程的虚拟内存，而这正是现在想要尝试的
 <li><p>
 <span class="underline">user.c</span> ：用户程序的源代码
 </p>
-<pre class="example" id="org5e678f0">
+<pre class="example" id="orgc8f4710">
 几乎与之前使用的代码相同
 </pre></li>
 </ul>
@@ -1048,7 +1050,7 @@ fork会复制进程的虚拟内存，而这正是现在想要尝试的
 <li>启动函数的偏移量</li>
 </ol>
 
-<pre class="example" id="org7ad085f">
+<pre class="example" id="org77da84b">
 这些信息是基于前面讨论过的user_begin和user_end变量进行计算得出的
 </pre>
 
@@ -1118,7 +1120,7 @@ regs-&gt;pstate = PSR_MODE_EL0t;
 <span class="underline">allocate_user_page函数</span> 预留 1个内存页面，并将其 <b>映射</b> 到 <span class="underline">提供的虚拟地址</span> 作为第二个参数。在映射过程中，它 <b>填充</b> 了与 <span class="underline">当前进程关联的页表</span>
 </p>
 
-<pre class="example" id="org2a96536">
+<pre class="example" id="org867dace">
 稍后将详细研究这个函数的工作原理
 </pre>
 
@@ -1131,7 +1133,7 @@ regs-&gt;pstate = PSR_MODE_EL0t;
 接下来，将把整个用户区域复制到新的地址空间（刚刚映射的页面中）
 </p>
 
-<pre class="example" id="orgfc77f61">
+<pre class="example" id="org8e7cf0a">
 从偏移量0开始，这样用户区域中的偏移量将成为实际的起始虚拟地址！
 </pre>
 
@@ -1157,7 +1159,7 @@ regs-&gt;pstate = PSR_MODE_EL0t;
 <li>因此，在更新页表之后清空TLB是非常有意义的，否则更改将不会应用于已存储在TLB中的页面。</li>
 </ul>
 
-<pre class="example" id="orgf4c31dc">
+<pre class="example" id="orgdcba564">
 通常情况下，为了简化操作，尽量避免使用所有的缓存，但是如果没有TLB，任何内存访问都会变得极其低效，而且我认为完全禁用TLB可能是不可能的
 
 此外，除了在切换ttbr0_el1之后需要清空它之外，TLB不会给操作系统增加其他复杂性
@@ -1194,7 +1196,7 @@ regs-&gt;pstate = PSR_MODE_EL0t;
 <li>指向 <span class="underline">用户地址空间</span> 中的指针</li>
 </ol>
 
-<pre class="example" id="org8a877af">
+<pre class="example" id="org4900932">
 这三种不同的指针都可以指向相同的内存位置
 
 在这里，page变量是一个物理指针，而返回值是内核地址空间中的指针
@@ -1278,7 +1280,7 @@ regs-&gt;pstate = PSR_MODE_EL0t;
 可以将这个函数视为 <span class="underline">create_table_entry 宏</span> 的引申。它从虚拟地址中提取表索引，并在父表中准备一个指向子表的描述符
 </p>
 
-<pre class="example" id="orgf4fa811">
+<pre class="example" id="org6278ec5">
 但与 create_table_entry 宏不同，不能假设子表应与父表相邻 相反，依赖 get_free_table 函数返回可用的任意页
 
 还可能出现子表已经分配的情况（如果子页表覆盖了先前已分配另一页的区域）。在这种情况下，将 new_table 设置为0，并从父表中读取子页表的地址
@@ -1302,7 +1304,7 @@ map_page 函数调用 map_table 三次：一次用于 <span class="underline">PG
 map_table_entry 函数从 <span class="underline">虚拟地址</span> 中 <b>提取</b> <span class="underline">PTE 索引</span> ，然后准备并 <b>设置</b> <span class="underline">PTE 描述符</span> 
 </p>
 
-<pre class="example" id="org0eb9cce">
+<pre class="example" id="org0d8e464">
 类似于在 create_block_map 宏中所做的操作
 </pre>
 
@@ -1313,13 +1315,13 @@ map_table_entry 函数从 <span class="underline">虚拟地址</span> 中 <b>提
 <li><p>
 它跟踪在虚拟地址映射过程中已经分配的页面。所有这些页面都存储在 <span class="underline">kernel_pages 数组</span> 中
 </p>
-<pre class="example" id="orgb89d8d0">
+<pre class="example" id="org06f3ebc">
 需要这个数组来在任务退出后清理已分配的页面
 </pre></li>
 <li><p>
 还有一个 <span class="underline">user_pages 数组</span> ，也由 map_page 函数填充。这个数组 <b>存储</b> 了 <span class="underline">进程虚拟页面</span> 和 <span class="underline">物理页面之间</span> 的对应关系
 </p>
-<pre class="example" id="orgd60d5d8">
+<pre class="example" id="org48c6b53">
 需要这些信息来在 fork 过程中能够复制进程的虚拟内存
 </pre></li>
 </ul>
@@ -1328,6 +1330,279 @@ map_table_entry 函数从 <span class="underline">虚拟地址</span> 中 <b>提
 
 <div id="outline-container-orgf15b699" class="outline-2">
 <h2 id="orgf15b699">fork进程</h2>
+<div class="outline-text-2" id="text-orgf15b699">
+<pre class="example" id="org2070455">
+在继续之前，总结一下目前的进展：已经看到了如何创建第一个用户进程，填充其页表，将源代码复制到正确的位置并初始化堆栈
+</pre>
+
+<p>
+经过所有这些准备工作，进程已经准备好运行了。下面是在用户进程内执行的代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">loop</span>(<span style="color: #98f5ff;">char</span>* <span style="color: #4eee94;">str</span>)
+{
+    <span style="color: #98f5ff;">char</span> <span style="color: #4eee94;">buf</span>[2] = {<span style="color: #deb887;">""</span>};
+    <span style="color: #00bfff; font-weight: bold;">while</span> (1){
+        <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = 0; i &lt; 5; i++){
+            buf[0] = str[i];
+            call_sys_write(buf);
+            user_delay(1000000);
+        }
+    }
+}
+
+<span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">user_process</span>() 
+{
+    call_sys_write(<span style="color: #deb887;">"User process\n\r"</span>);
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">pid</span> = call_sys_fork();
+    <span style="color: #00bfff; font-weight: bold;">if</span> (pid &lt; 0) {
+        call_sys_write(<span style="color: #deb887;">"Error during fork\n\r"</span>);
+        call_sys_exit();
+        <span style="color: #00bfff; font-weight: bold;">return</span>;
+    }
+    <span style="color: #00bfff; font-weight: bold;">if</span> (pid == 0){
+        loop(<span style="color: #deb887;">"abcde"</span>);
+    } <span style="color: #00bfff; font-weight: bold;">else</span> {
+        loop(<span style="color: #deb887;">"12345"</span>);
+    }
+}
+</pre>
+</div>
+
+<p>
+这段代码本身非常简单。唯一棘手的部分是fork系统调用的语义。与clone不同：
+</p>
+<ul class="org-ul">
+<li><p>
+在fork时不需要提供在新进程中需要执行的函数
+</p>
+<pre class="example" id="org1f1cb6f">
+fork包装函数比clone简单得多，因为fork会对进程的虚拟地址空间进行完全复制
+</pre></li>
+<li>fork包装函数会返回两次：一次在 <span class="underline">原始进程</span> 中，一次在 <span class="underline">新进程</span> 中。此时，有了两个 <b>完全相同</b> 的进程，具有相同的堆栈和pc位置。唯一的区别是fork系统调用的返回值：
+<ul class="org-ul">
+<li>在父进程中返回子进程的PID</li>
+<li><p>
+在子进程中返回0
+</p>
+<pre class="example" id="orgcae7514">
+从这一点开始，两个进程开始完全独立的生活，可以修改它们的堆栈并使用相同的内存地址写入不同的数据，而互不干扰 
+</pre></li>
+</ul></li>
+</ul>
+
+<p>
+现在来看一下fork系统调用是如何实现的。 <span class="underline">copy_process函数</span> 完成了大部分的工作：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">copy_process</span>(<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">clone_flags</span>, <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">fn</span>, <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">arg</span>)
+{
+    preempt_disable();
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *<span style="color: #4eee94;">p</span>;
+
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">page</span> = allocate_kernel_page();
+    p = (<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *) page;
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">pt_regs</span> *<span style="color: #4eee94;">childregs</span> = task_pt_regs(p);
+
+    <span style="color: #00bfff; font-weight: bold;">if</span> (!p)
+        <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+
+    <span style="color: #00bfff; font-weight: bold;">if</span> (clone_flags &amp; PF_KTHREAD) {
+        p-&gt;cpu_context.x19 = fn;
+        p-&gt;cpu_context.x20 = arg;
+    } <span style="color: #00bfff; font-weight: bold;">else</span> {
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">pt_regs</span> * <span style="color: #4eee94;">cur_regs</span> = task_pt_regs(current);
+        *childregs = *cur_regs;
+        childregs-&gt;regs[0] = 0;
+        copy_virt_memory(p);
+    }
+    p-&gt;flags = clone_flags;
+    p-&gt;priority = current-&gt;priority;
+    p-&gt;state = TASK_RUNNING;
+    p-&gt;counter = p-&gt;priority;
+    p-&gt;preempt_count = 1; <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">disable preemtion until schedule_tail</span>
+
+    p-&gt;cpu_context.pc = (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)ret_from_fork;
+    p-&gt;cpu_context.sp = (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)childregs;
+    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">pid</span> = nr_tasks++;
+    task[pid] = p;
+
+    preempt_enable();
+    <span style="color: #00bfff; font-weight: bold;">return</span> pid;
+}
+</pre>
+</div>
+
+<p>
+这个函数看起来几乎与之前的函数完全相同，只有一个例外：在复制用户进程时，现在不再修改新进程的堆栈指针和程序计数器，而是调用copy_virt_memory函数。 <span class="underline">copy_virt_memory</span> 的实现如下所示：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">copy_virt_memory</span>(<span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span> *<span style="color: #4eee94;">dst</span>) {
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">task_struct</span>* <span style="color: #4eee94;">src</span> = current;
+    <span style="color: #00bfff; font-weight: bold;">for</span> (<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">i</span> = 0; i &lt; src-&gt;mm.user_pages_count; i++) {
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">kernel_va</span> = allocate_user_page(dst, src-&gt;mm.user_pages[i].virt_addr);
+        <span style="color: #00bfff; font-weight: bold;">if</span>( kernel_va == 0) {
+            <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+        }
+        memcpy(kernel_va, src-&gt;mm.user_pages[i].virt_addr, PAGE_SIZE);
+    }
+    <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+}
+</pre>
+</div>
+
+<p>
+它遍历 <span class="underline">user_pages数组</span> ，该数组包含 <span class="underline">当前进程分配的所有页面</span>
+</p>
+
+<pre class="example" id="org3bf865e">
+请注意，user_pages数组只存储实际可用于进程的页面，其中包含其源代码或数据
+
+不在此处包括存储在kernel_pages数组中的页表页面
+</pre>
+
+<p>
+接下来，对于每个页面，分配另一个空页面，并将原始页面的内容复制到其中。这里使用与 <span class="underline">原始页面相同的虚拟地址</span> <b>映射</b> <span class="underline">新页面</span> 。这样就获得了 <b>原始进程地址空间的精确副本</b> 
+</p>
+
+<pre class="example" id="orga6ea213">
+其他fork过程的细节与前一课程完全相同
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgff2dec2" class="outline-2">
+<h2 id="orgff2dec2">需要时分配新的页面</h2>
+<div class="outline-text-2" id="text-orgff2dec2">
+<pre class="example" id="org3597025">
+如果回过头去看一下move_to_user_mode函数，可能会注意到只映射了从偏移量0开始的单个页面，但也假设第二个页面将用作堆栈
+
+为什么不映射第二个页面呢？如果认为这是一个错误，那不是
+
+这是一个特性！堆栈页面以及进程需要访问的任何其他页面将在首次请求时进行映射
+
+接下来将探索此机制的内部工作原理
+</pre>
+
+<p>
+当进程尝试访问尚未映射的页面的地址时，将 <b>生成</b> <span class="underline">同步异常</span> 。这是将要支持的第二种同步异常（第一种是由svc指令生成的系统调用异常）：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">el0_sync</span>:
+        <span style="color: #00bfff; font-weight: bold;">kernel_entry</span> 0
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x25, esr_el1                <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">read the syndrome register</span>
+        <span style="color: #00bfff; font-weight: bold;">lsr</span>    x24, x25, #ESR_ELx_EC_SHIFT        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">exception class</span>
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>    x24, #ESR_ELx_EC_SVC64            <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">SVC in 64-bit state</span>
+        <span style="color: #00bfff; font-weight: bold;">b.eq</span>    el0_svc
+        <span style="color: #00bfff; font-weight: bold;">cmp</span>    x24, #ESR_ELx_EC_DABT_LOW        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">data abort in EL0</span>
+        <span style="color: #00bfff; font-weight: bold;">b.eq</span>    el0_da
+        <span style="color: #00bfff; font-weight: bold;">handle_invalid_entry</span> 0, SYNC_ERROR
+</pre>
+</div>
+
+<p>
+在这里，使用 <span class="underline">esr_el1寄存器</span> 来确定 <span class="underline">异常类型</span> 。如果它是 <span class="underline">页面故障异常</span> （或者说是数据访问异常），则调用 <span class="underline">el0_da函数</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #daa520; font-weight: bold;">el0_da</span>:
+        <span style="color: #00bfff; font-weight: bold;">bl</span>    enable_irq
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x0, far_el1
+        <span style="color: #00bfff; font-weight: bold;">mrs</span>    x1, esr_el1
+        <span style="color: #00bfff; font-weight: bold;">bl</span>    do_mem_abort
+        <span style="color: #00bfff; font-weight: bold;">cmp</span> x0, 0
+        <span style="color: #00bfff; font-weight: bold;">b.eq</span> 1f
+        <span style="color: #00bfff; font-weight: bold;">handle_invalid_entry</span> 0, DATA_ABORT_ERROR
+<span style="color: #daa520; font-weight: bold;">1</span>:
+        <span style="color: #00bfff; font-weight: bold;">bl</span> disable_irq
+        <span style="color: #00bfff; font-weight: bold;">kernel_exit</span> 0
+</pre>
+</div>
+
+<p>
+el0_da将主要工作转交到 <span class="underline">do_mem_abort函数</span> 。此函数接受两个参数：
+</p>
+<ol class="org-ol">
+<li>尝试访问的内存地址。此地址从 <span class="underline">far_el1寄存器</span> （ <b>故障地址寄存器</b> ）中获取</li>
+<li>esr_el1的内容（ <b>异常综合寄存器</b> ）</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">do_mem_abort</span>(<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">addr</span>, <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">esr</span>) {
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">dfs</span> = (esr &amp; 0b111111);
+    <span style="color: #00bfff; font-weight: bold;">if</span> ((dfs &amp; 0b111100) == 0b100) {
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">page</span> = get_free_page();
+        <span style="color: #00bfff; font-weight: bold;">if</span> (page == 0) {
+            <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+        }
+        map_page(current, addr &amp; PAGE_MASK, page);
+        ind++;
+        <span style="color: #00bfff; font-weight: bold;">if</span> (ind &gt; 2){
+            <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+        }
+        <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+    }
+    <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+}
+</pre>
+</div>
+<p>
+为了理解这个函数，需要了解一些关于esr_el1寄存器的具体细节。该寄存器的 <span class="underline">[32:26]位</span> 被称为 <b>异常类</b>
+</p>
+
+<pre class="example" id="orge59a20d">
+在el0_sync处理程序中检查这些位，以确定它是系统调用，数据访问异常还是其他可能的情况
+
+异常类确定了[24:0]位的含义，这些位通常用于提供有关异常的附加信息
+
+关于数据访问异常的[24:0]位的含义在AArch64参考手册的第2460页上有描述
+
+一般来说，数据访问异常可能发生在许多不同的场景中（可能是权限故障、地址大小故障或其他故障）。这里只关注发生在当前虚拟地址的某些页表未初始化的情况下的转换故障
+</pre>
+
+<p>
+因此，在do_mem_abort函数的前两行中，检查当前异常是否确实是转换故障。如果是，将 <b>分配</b> 一个 <span class="underline">新页面</span> 并将其 <b>映射</b> 到 <span class="underline">请求的虚拟地址</span> 上
+</p>
+
+<pre class="example" id="org87cbcd1">
+所有这些对于用户程序来说都是完全透明的
+
+它不会注意到一些内存访问被中断，并且在此期间分配了新的页表
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org3bfb12f" class="outline-2">
+<h2 id="org3bfb12f">结论</h2>
+<div class="outline-text-2" id="text-org3bfb12f">
+<pre class="example" id="orgc0a815d">
+这是一个漫长而困难的旅程，但希望它是有用的，虚拟内存是任何操作系统中最基本的组成部分之一
+
+通过引入虚拟内存，现在拥有了完整的进程隔离，但是RPi OS离完成还有很长的路要走
+
+它仍然不支持文件系统、驱动程序、信号和中断等待列表、网络以及许多其他有用的概念
+</pre>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="system_call.html">Previous：系统调用</a></td>
+<td class="org-left"><a href="rpios.html">Home: 用树莓派学习操作系统开发</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
