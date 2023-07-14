@@ -579,3 +579,254 @@ $\frac{\mathrm{d} J}{\mathrm{d} u} = \frac{\mathrm{d} J}{\mathrm{d} v} \frac{\ma
 #+end_example
 
 * 向量化
+#+begin_example
+向量化是非常基础的去除代码中for循环的艺术，下面举例说明什么是向量化
+#+end_example
+
+在逻辑回归中需要计算 $z=w^Tx + b$ ，$w$ 和 $b$ 都是 *列向量* 。因为 $w \in \mathbb{R}^{n_x}$ , $x \in \mathbb{R}^{n_x}$ 如果有很多的特征那么就会有一个非常大的向量 ，所以如果想使用非向量化方法 $w^Tx$ 去计算，需要用如下方式：
+
+#+begin_src python 
+  ​x
+  z=0
+  ​
+  for i in range(n_x)
+  ​    z += w[i]*x[i]
+  ​
+  z += b
+#+end_src
+
+#+begin_example
+  这是一个非向量化的实现，会发现这真的很慢
+#+end_example
+
+作为一个对比，向量化实现将会非常直接计算，代码如下：
+
+#+begin_src python 
+  import numpy as np
+
+  z = np.dot(w, x) + b 
+#+end_src
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/e9c7f9f3694453c07fe6b9fe7cf0c4c8.png]]
+
+#+begin_example
+  有人说：“大规模的深度学习使用了GPU或者图像处理单元实现”，但是实际上 CPU和GPU都有并行化的指令
+
+  CPU也有会叫做SIMD指令，这个代表了一个单独指令多维数据
+
+  如果使用了像np.function或者并不要求实现循环的函数，它可以充分利用并行化计算
+
+  事实是相对而言 GPU更加擅长SIMD计算，因为现代GPU 内置了数以千计的小的浮点运算单元
+
+  重要的是：无论什么时候在可能的情况下避免使用显示的for循环 
+#+end_example
+
+一个更具体的例子：
+
+#+begin_src python 
+  import numpy as np #导入numpy库
+
+  a = np.array([1,2,3,4]) #创建一个数据a
+  print(a)
+  # [1 2 3 4]
+
+  import time #导入时间库
+  a = np.random.rand(1000000)
+  b = np.random.rand(1000000) #通过round随机得到两个一百万维度的数组
+  tic = time.time() #现在测量一下当前时间
+  #向量化的版本
+  c = np.dot(a,b)
+  toc = time.time()
+  print(“Vectorized version:” + str(1000*(toc-tic)) +”ms”) #打印一下向量化的版本的时间
+  ​
+  #继续增加非向量化的版本
+  c = 0
+  tic = time.time()
+  for i in range(1000000):
+      c += a[i]*b[i]
+      toc = time.time()
+      print(c)
+      print(“For loop:” + str(1000*(toc-tic)) + “ms”)#打印for循环的版本的时间
+#+end_src
+
+#+begin_example
+  在两个方法中，向量化和非向量化计算了相同的值
+
+  向量化版本花费了1.5毫秒，非向量化版本的for循环花费了大约几乎500毫秒，非向量化版本多花费了300倍时间
+
+  所以在这个例子中，仅仅是向量化代码，就会运行300倍快
+
+  这意味着如果向量化方法需要花费一分钟去运行的数据，for循环将会花费5个小时去运行
+#+end_example
+
+** 更多例子
+如果想计算向量 $u = Av$，矩阵乘法的定义就是：$u_i = \sum_jA_{ij}v_i$ 使用非向量化实现
+1. 初始化 $u = np.zeros(n, 1)$ 
+2. 通过两层循环 $for(i) : for(j) :$ ，得到 $u[i] = u[i] + A[i][j] * v[j]$
+
+#+begin_example
+现在就有了 i 和 j 的两层循环，这就是非向量化
+#+end_example
+向量化方式就可以用 $u = np.dot(A, v)$ ，使得代码运行速度更快
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/a22eb5a73d2d45b342810eee70a4620c.png]]
+
+事实上，numpy库有很多向量化函数，比如：
++ $u=np.log(v)$ : 计算对数函数(log)
++ $u = np.exp(v)$ : 计算指数操作
++ $np.abs()$ : 计算数据的绝对值
++ $np.maximum()$ : 计算元素中的最大值
+  + 也可以 $np.maximum(v,0)$ 
++ $v ** 2$ 代表获得元素 每个值得平方
++ $\frac{1}{v}$ 获取每个元素的倒数
++ .......
+
+#+begin_example
+  所以当想写循环时候，检查numpy是否存在类似的内置函数，从而避免使用循环(loop)方式
+#+end_example
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/6a7d76b4a66ef5af71d55b8f980a5ab2.png]]
+
+#+begin_example
+  那么，将刚才所学到的内容，运用在逻辑回归的梯度下降上，看看是否能简化两个计算过程中的某一步
+#+end_example
+
+逻辑回归的求导代码，有两层循环：
+1. 如果有超过两个特征时，需要循环 $\mathrm{d} w_1$ , $\mathrm{d} w_2$ , $\mathrm{d} w_3$ 等。所以 $j$ 的实际值是1, 2 和 $n_x$ 。如果想要消除第二循环，首先不用初始化 $\mathrm{d} w_1$ , $\mathrm{d} w_2$ 都等于0，而是定义  $\mathrm{d} w$  为一个向量，设置 $dw = np.zeros(nx, 1)$ ，定义了一个 $n_x$ 行的一维向量，从而替代循环
+2. 使用了一个向量操作 $\mathrm{d} w = \mathrm{d} w + x^{(i)}\mathrm{d} z^{(i)}$
+3. 最后 $\mathrm{d} w = \frac{\mathrm{d} w}{m}$
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/e28b7cda6504e2a8ff0f0b2f1e258a96.png]]
+
+#+begin_example
+  虽然通过将两层循环转成一层循环，但仍然还有一个for循环来训练样本
+
+  接下来需要解决这个问题
+#+end_example
+
+** 向量化逻辑回归
+#+begin_example
+  前面讨论过向量化是如何显著加速代码，接下来将讨论如何实现逻辑回归的向量化计算
+
+  这样就能处理整个数据集，甚至不会用一个明确的for循环就能实现对于整个数据集梯度下降算法的优化
+#+end_example
+
+如果你有 $m$ 个训练样本：
+1. 对第一个样本进行预测：
+   + 使用这个熟悉的公式 $z^{(1)} = w^Tx^{(1)} + b$ 计算 $z$
+   + 计算激活函数 $a^{(1)} = \sigma(z^{(1)})$
+   + 计算第一个样本的预测值 $y^{(1)}$
+2. 对第二个样本进行预测，需要计算 $z^{(2)} = w^Tx^{(2)} + b$ , $a^{(2)} = \sigma(z^{(2)})$ , $y^{(2)}$
+3. 对第三个样本进行预测，需要计算 $z^{(3)} = w^Tx^{(3)} + b$ , $a^{(3)} = \sigma(z^{(3)})$ , $y^{(3)}$
+4. 依次类推
+
+#+begin_example
+  如果有 m 个训练样本，可能需要这样做  m 次
+
+  有没有办法可以并且不需要任何一个明确的for循环完成向前传播？ 
+#+end_example
+
+首先，曾经定义了一个矩阵 $\mathbf{X}$ 作为 *训练输入* (如下图中蓝色) 像这样在不同的列中堆积在一起。这是一个 $n_x$ 行 $m$ 列的矩阵。如果把它写为 _numpy_ 的形式 $(n_x, m)$ ，这表示 $\mathbf{X}$ 是一个 $n_{x}$ 乘以 ${m}$ 的矩阵 $\mathbb{R}^{n_x \times m}$
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/3a8a0c9ed33cd6c033103e35c26eeeb7.png]]
+
+首先在一个步骤中计算 $z_1, z_2, \ldots z_m$ ：
+1. 先构建一个 $1 \times m$ 的矩阵，实际上它是一个 _行向量_ 
+2. 同时准备计算 $z^{(1)}$, $z^{(2)}$ 一直到 $z^{(m)}$ ，所有值都是在同一时间内完成
+
+实际上计算结果可以表达为 $w$ 的转置乘以大写矩阵 $\mathbf{X}$ 然后加上向量 $[b, b, \ldots, b]$ ,  也就是说 $[z^{(1)}, z^{(2)}, \ldots,  z^{(m)}] = w^T \cdot \mathbf{X} +  [b, b, \ldots, b]$ , 其中 $[b, b, \ldots, b]$ 是一个 $1\times m$ 的向量或者 $1\times m$ 的矩阵或者是一个 $m$ 维的行向量。如果熟悉矩阵乘法，会发现的 $w$ 转置乘以 $x^{(1)}$ , $x^{(2)}$ 一直到 $x^{(m)}$ 。然后加上 $[b, b, \ldots, b]$  ，实际上将 $b$ 加到了每个元素上。最终得到了另一个 $1 \times m$ 的向量：
+
+ $[z^{(1)}, z^{(2)}, \ldots,  z^{(m)}] = w^T \cdot \mathbf{X} +  [b, b, \ldots, b] = [w^Tx{(1)} + b, w^Tx{(2)} + b, \ldots , w^Tx{(m)} + b]$ ,  而 $w^Tx{(1)} + b$ 第一个元素， $w^Tx{(2)} + b$ 是第二个元素，  $w^Tx{(m)} + b$ 是第 $m$ 个元素 
+
+第一个元素恰好是 $z^{(1)}$ 的定义，第二个元素恰好是 $z_{(2)}$ 的定义 .... 另外 $\mathbf{X}$ 是一次获得的，在得到的训练样本，一个一个横向堆积起来。类似地也将 $[z^{(1)}, z^{(2)}, \ldots,  z^{(m)}]$ 定义为大写的 $\mathbf{Z}$。为了计算 $w^T \cdot \mathbf{X} +  [b, b, \ldots, b]$ ， _numpy_ 代码只需要 *$Z = np.dot(w.T, X) + b$*  
+
+#+begin_example
+  这里在Python中有一个巧妙的地方，这里 b 是一个实数，或者你可以说是一个 1 X 1 矩阵，只是一个普通的实数
+
+  但是将这个向量加上这个实数时，Python自动把这个实数 b 扩展成一个 1 X m 的行向量，这被称作广播 (brosdcasting)
+
+  它只用一行代码，用这一行代码，你可以计算Z，包含所有小写 z1 到 zm 的 1 X m 的矩阵
+#+end_example
+
+接下下来要做的就是找到一个同时计算 $[a^{(1)}, a^{(2)}, \ldots,  a^{(m)}]$ 的方法。就像横向堆积小写 $z$ 得到大写 $\mathbf{Z}$ 一样，堆积小写变量 $a$ 将形成一个新的变量，将它定义为大写 $\mathbf{A}$ 。剩余地只需要编写一个支持向量化计算的 $\mathbf{sigmoid}$ 函数：
+
+$\mathbf{A} = [a^{(1)}, a^{(2)}, \ldots,  a^{(m)}] = \sigma(\mathbf{Z})$
+
+#+begin_example
+  概括一下：已经学习了如何利用向量化在同一时间内高效地计算所有的激活函数的所有 a 值
+
+  接下来，也可以利用向量化高效地计算反向传播并以此来计算梯度
+#+end_example
+
+*** 梯度输出
+#+begin_example
+  接下来将学习如何向量化地计算个 m 训练数据的梯度，并且实现一个非常高效的逻辑回归算法
+#+end_example
+
+讲梯度计算的时候，列举过几个例子 $\mathrm{d} z^{(1)} = a^{(1)} - y^{(1)}, \mathrm{d} z^{(2)} = a^{(2)} - y^{(2)} \ldots$ ， 等等一系列类似公式。现在，对 $m$ 个训练数据做同样的运算，可以定义一个新的变量 $\mathrm{d} \mathbf{Z} = [\mathrm{d} z^{(1)}, \mathrm{d} z^{(2)}, \dots, \mathrm{d} z^{(m)}]$ ，所有的 $\mathrm{d} z$ 变量横向排列，因此，$\mathrm{d} \mathbf{Z}$ 是一个 $1 \times m$ 的矩阵，或者说，一个 $m$ 维行向量：
++ 已经知道如何计算 $\mathbf{A}$，即 $[a^{(1)}, a^{(2)}, \ldots,  a^{(m)}]$
++ 而行向量 $\mathbf{Y} = [y^{(1)}, y^{(2)}, \ldots,  y^{(m)}]$ 实际上就是标本里的实际结果横向堆积起来
+
+由此，可以这样计算 $\mathrm{d} \mathbf{Z} = \mathbf{A} - \mathbf{Y}$，第一个元素就是 $\mathrm{d} z^{(1)}$ ，第二个元素就是 $\mathrm{d} z^{(2)}$ ......
+
+#+begin_example
+  所以现在仅需一行代码，就可以同时完成对m个样本的 dz 计算
+#+end_example
+
+循环剩余部分：
+
+\begin{aligned}
+        & \mathrm{d} w = 0 \\
+        & \mathrm{d} w += x^{(1)} \cdot \mathrm{d} z^{(1)} \\
+        & \mathrm{d} w += x^{(2)} \cdot \mathrm{d} z^{(2)} \\
+        & \ldots\ldots \\
+        & \mathrm{d} w += x^{(m)} \cdot \mathrm{d} z^{(m)} \\
+        &\mathrm{d} w = \frac{\mathrm{d} w}{m} \\
+        & \\ 
+        & \mathrm{d} b = 0 \\
+        & \mathrm{d} b += \mathrm{d} z^{(1)} \\
+        & \mathrm{d} b +=  \mathrm{d} z^{(2)} \\
+        & \ldots\ldots \\
+        & \mathrm{d} b +=  \mathrm{d} z^{(m)} \\
+        & \mathrm{d} b = \frac{\mathrm{d} b}{m} 
+\end{aligned}
+
++ 首先来看 $\mathrm{d} b$ ，不难发现 $\mathrm{d} b = \frac{1}{m} \sum_{i=1}^{m} \mathrm{d} z^{(i)}$  ，所以在 _numpy_ 中很容易地想到 $\mathrm{d}b = \frac{1}{m} \cdot np.sum(\mathrm{d} \mathbf{Z})$
++ 接下来看 $\mathrm{d} w$ 先写出它的公式 $\mathrm{d} w = \frac{1}{m} \cdot (x^{(1)}\mathrm{d} z^{(1)} + x^{(2)}\mathrm{d} z^{(2)} + \ldots + x^{(m)}\mathrm{d} z^{(m)})$ 这等价于 $\mathrm{d} w = \frac{1}{m} \cdot \mathbf{X} \cdot \mathrm{d} \mathbf{Z}^T$， 其中 $\mathbf{X}$ 是一个行向量
+
+#+begin_example
+  仅用两行代码进行计算就避免了在训练集上使用for循环
+#+end_example
+
+现在回顾下前面介绍过的逻辑回归算法：
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/505663d02e8120e30c3d8405f31a8497.jpg]]
+
+向量化后：
+
+\begin{aligned}
+        &  \mathbf{Z} = w^T\mathbf{X} + b = np.dot(w.T, X) + b\\
+        & \mathbf{A} = \sigma(\mathbf{Z}) \\
+        & \mathrm{d} \mathbf{Z} =  \mathbf{A} - \mathbf{Y} \\
+        & \mathrm{d} w = \frac{1}{m} \cdot \mathbf{X} \cdot \mathrm{d} \mathbf{Z}^T \\
+        & \mathrm{d} b = \frac{1}{m} \cdot np.sum(\mathrm{d} \mathbf{Z}) \\ 
+        & w := w - \alpha \cdot \mathrm{d} w \\
+        & b := b - \alpha \cdot \mathrm{d} b
+\end{aligned}
+
+前五个公式完成了 _前向_ 和 _后向_ 传播，也实现了对所有训练样本进行 _预测_ 和 _求导_ ，再利用后两个公式，梯度下降 _更新_ 参数
+
+#+begin_example
+  通过一次迭代实现一次梯度下降，但如果希望多次迭代进行梯度下降，那么仍然需要for循环，放在最外层
+
+  最后，得到了一个高度向量化的、非常高效的逻辑回归的梯度下降算法
+#+end_example
+* Python 中的广播
+* 损失函数的解释
+
