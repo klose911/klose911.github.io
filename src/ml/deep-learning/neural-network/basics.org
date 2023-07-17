@@ -1,7 +1,7 @@
 #+TITLE: 神经网络基础
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_UP: ./introduction.html
-#+HTML_LINK_HOME: ../neural-network.html
+#+HTML_LINK_HOME: ./neural-network.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
 
 当实现一个神经网络的时候，需要知道一些非常重要的技术和技巧
@@ -741,7 +741,7 @@ $\frac{\mathrm{d} J}{\mathrm{d} u} = \frac{\mathrm{d} J}{\mathrm{d} v} \frac{\ma
 
 实际上计算结果可以表达为 $w$ 的转置乘以大写矩阵 $\mathbf{X}$ 然后加上向量 $[b, b, \ldots, b]$ ,  也就是说 $[z^{(1)}, z^{(2)}, \ldots,  z^{(m)}] = w^T \cdot \mathbf{X} +  [b, b, \ldots, b]$ , 其中 $[b, b, \ldots, b]$ 是一个 $1\times m$ 的向量或者 $1\times m$ 的矩阵或者是一个 $m$ 维的行向量。如果熟悉矩阵乘法，会发现的 $w$ 转置乘以 $x^{(1)}$ , $x^{(2)}$ 一直到 $x^{(m)}$ 。然后加上 $[b, b, \ldots, b]$  ，实际上将 $b$ 加到了每个元素上。最终得到了另一个 $1 \times m$ 的向量：
 
- $[z^{(1)}, z^{(2)}, \ldots,  z^{(m)}] = w^T \cdot \mathbf{X} +  [b, b, \ldots, b] = [w^Tx{(1)} + b, w^Tx{(2)} + b, \ldots , w^Tx{(m)} + b]$ ,  而 $w^Tx{(1)} + b$ 第一个元素， $w^Tx{(2)} + b$ 是第二个元素，  $w^Tx{(m)} + b$ 是第 $m$ 个元素 
+$[z^{(1)}, z^{(2)}, \ldots,  z^{(m)}] = w^T \cdot \mathbf{X} +  [b, b, \ldots, b] = [w^Tx{(1)} + b, w^Tx{(2)} + b, \ldots , w^Tx{(m)} + b]$ ,  而 $w^Tx{(1)} + b$ 第一个元素， $w^Tx{(2)} + b$ 是第二个元素，  $w^Tx{(m)} + b$ 是第 $m$ 个元素 
 
 第一个元素恰好是 $z^{(1)}$ 的定义，第二个元素恰好是 $z_{(2)}$ 的定义 .... 另外 $\mathbf{X}$ 是一次获得的，在得到的训练样本，一个一个横向堆积起来。类似地也将 $[z^{(1)}, z^{(2)}, \ldots,  z^{(m)}]$ 定义为大写的 $\mathbf{Z}$。为了计算 $w^T \cdot \mathbf{X} +  [b, b, \ldots, b]$ ， _numpy_ 代码只需要 *$Z = np.dot(w.T, X) + b$*  
 
@@ -827,6 +827,63 @@ $\mathbf{A} = [a^{(1)}, a^{(2)}, \ldots,  a^{(m)}] = \sigma(\mathbf{Z})$
 
   最后，得到了一个高度向量化的、非常高效的逻辑回归的梯度下降算法
 #+end_example
-* Python 中的广播
+
 * 损失函数的解释
 
+#+begin_example
+  前面已经分析了逻辑回归的损失函数表达式
+
+  接下来将给出一个简洁的证明来说明逻辑回归的损失函数为什么是这种形式 
+#+end_example
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/5b658991f4c61d088aa962310cee99eb.png]]
+
+在逻辑回归中，需要预测的结果,可以表示为 $\hat{y} = \sigma(w^Tx + b)$ ，其中 $\sigma(z) = \frac{1}{1 + e^{-z}}$ ：
++ 根据约定 $\hat{y} = p(y=1|x)$ ，即算法的输出 $\hat{y}$ 是给定训练样本 $x$ 条件下 $y$ 等于1的概率。换句话说，如果 $y = 1$ ，在给定训练样本 $x$ 条件下 $y = \hat{y}$
++ 反过来说，如果 $y = 0$，在给定训练样本条件下 $y = 1 - \hat{y}$
+
+因此，如果 $\hat{y}$ 代表 $y = 1$ 的概率，那么 $1 - \hat{y}$ 就是 $y = 0$ 的概率。接下来，就来分析这两个条件概率公式：
+
+\begin{aligned}
+& if \quad y = 1:  \quad p(y|x) = \hat{y} \\
+& if \quad y = 0:  \quad p(y|x) = 1 - \hat{y}
+\end{aligned}
+
+#+begin_example
+  需要注意：这里讨论的是二分类问题的损失函数，因此 y 的取值只能是0或者1
+#+end_example
+
+把上诉概率公式合并成一个: $p(y|x) = \hat{y}^{y} \cdot (1 - \hat{y})^{(1 - y)}$ 
+
+由于 $\mathbf{log}$ 函数是 *严格单调递增* 的函数，最大化 $\log(p(y|x))$  等价于最大化  $p(y|x)$ 再计算对数，通过对数函数化简为: $\log(p(y|x)) = \log( \hat{y}^{y} \cdot (1 - \hat{y})^{(1 - y)}) = ylog\hat{y} + (1 - y)\log(1 - \hat{y})$ 
+
+而这就是前面提到的损失函数的负数 $-\mathbf{L}(\hat{y}, y)$ ，负数的原因是训练学习算法时需要算法输出值的概率是最大的（以最大的概率预测这个值），然而在逻辑回归中需要最小化损失函数，因此最小化损失函数与最大化条件概率的对数正好相反，所以这就是单个训练样本的损失函数表达式
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/5a3c2208dfbc9dbcfac57fde07dfac0e.png]]
+
+#+begin_example
+  m 个训练样本的整个训练集中又该如何表示呢？
+#+end_example
+
+整个训练集中标签的概率，假设所有的训练样本服从同一分布且相互独立，也即 *独立同分布* 的，所有这些样本的联合概率就是每个样本概率的乘积：
+
+$\mathbf{P}(\text{labels in training set}) = \prod_{i = 1}^m\mathbf{P}(y^{(i)} | x^{(i)})$
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/6ce9e585fab07fe9fc124dd2dc14bdbf.png]]
+
+如果想做最大似然估计，需要寻找一组参数，使得给定样本的观测值概率最大，因为令这个概率最大化等价于令其对数最大化，在等式两边取对数：
+
+$\log{\big(\mathbf{P}(\text{labels in training set})\big)} = \log{\big(\prod_{i = 1}^m\mathbf{P}(y^{(i)} | x^{(i)})\big)} = \sum_{i = 1}^m\log{\mathbf{P}(y^{(i)} | x^{(i)})} =  \sum_{i = 1}^m-\mathbf{L}(\hat{y}^{(i)}, y^{(i)})$
+
+在统计学里面，有一个方法叫做最大似然估计，即求出一组参数，使这个式子 取最大值，也就是说，使得这个式子 $\sum_{i = 1}^m-\mathbf{L}(\hat{y}^{(i)}, y^{(i)})$ 取最大值，，把将负号移到求和符号的外面 $-\sum_{i = 1}^m\mathbf{L}(\hat{y}^{(i)}, y^{(i)})$ ，这就推导出了前面给出的 *逻辑回归的成本函数* $\mathbf{J}(w, b) = \sum_{i = 1}^m\mathbf{L}(\hat{y}^{(i)}, y^{(i)})$ 
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/6ce9e585fab07fe9fc124dd2dc14bdbf.png]]
+
+由于训练模型时，目标是让成本函数最小化，所以不是直接用最大似然概率，而是去掉这里的负号，最后为了方便，可以对成本函数进行适当的缩放，就在前面加一个额外的常数因子 $\frac{1}{m}$ ，即: $\mathbf{J}(w, b) = \frac{1}{m} \cdot \sum_{i = 1}^m\mathbf{L}(\hat{y}^{(i)}, y^{(i)})$
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:shallow.org][Next：浅层神经网络]] | [[file:introduction.org][Previous：神经网络引言]] | [[file:neural-network.org][Home：神经网络]] |
