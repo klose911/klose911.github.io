@@ -280,6 +280,12 @@ for the JavaScript code in this tag.
 </ul>
 </li>
 <li><a href="#orgc436ab0">神经网络的梯度下降</a></li>
+<li><a href="#org44cd791">推导反向传播</a>
+<ul>
+<li><a href="#org814f14c">向量化的反向传播</a></li>
+</ul>
+</li>
+<li><a href="#org1f6db0a">随机初始化</a></li>
 </ul>
 </div>
 </div>
@@ -1146,6 +1152,256 @@ g(z)^{'} = \left\{
 
 <div id="outline-container-orgc436ab0" class="outline-2">
 <h2 id="orgc436ab0">神经网络的梯度下降</h2>
+<div class="outline-text-2" id="text-orgc436ab0">
+<p>
+前面介绍的 <span class="underline">单隐层神经网络</span> 会有 \(W^{[1]}\) , \(b^{[1]}\) , \(W^{[2]}\) , \(b^{[2]}\) 这些 <b>参数</b> ，还有个 \(n_x = n^{[0]}\) 表示 <b>输入特征的个数</b> ， \(n^{[1]}\) 表示 <b>隐藏单元个数</b> ， \(n^{[2]}\) 表示 <b>输出单元个数</b> ，那么：
+</p>
+<ul class="org-ul">
+<li>矩阵 \(W^{[1]}\) 的维度就是 \((n^{[1]}, n^{[0]})\)</li>
+<li>\(b^{[1]}\) 就是 \(n^{[1]}\) 维的列向量，可以写成 \((n^{[1]}, 1)\)</li>
+<li>矩阵 \(W^{[2]}\) 的维度就是 \((n^{[2]}, n^{[1]})\)</li>
+<li>\(b^{[2]}\) 就是 \(n^{[2]}\) 维的列向量，可以写成 \((n^{[2]}, 1)\)</li>
+</ul>
+
+<p>
+同样也有成本函数： \(\mathbf{J}(W^{[1]}, b^{[1]}, W^{[2]}, b^{[2]}) = \frac{1}{m}\sum_{i=1}^{m}\mathbf{L}(\hat{y}, y)\) 
+</p>
+<pre class="example">
+    这里的代价函数和之前逻辑回归完全一样
+</pre>
+
+
+<p>
+当参数初始化成某些值后，每次梯度下降都会循环计算以下预测值：
+</p>
+
+\begin{equation}
+\hat{y}^{(i)} ,\quad i = 1,2,\cdots,m 
+\end{equation} 
+
+\begin{equation}
+\mathrm{d} W^{[1]} = \frac{\mathrm{d} J}{\mathrm{d} W^{[1]}}, \mathrm{d} b^{[1]} = \frac{\mathrm{d} J}{\mathrm{d} b^{[1]}}
+\end{equation}
+
+\begin{equation}
+\mathrm{d} W^{[2]} = \frac{\mathrm{d} J}{\mathrm{d} W^{[2]}}, \mathrm{d} b^{[2]} = \frac{\mathrm{d} J}{\mathrm{d} b^{[2]}}
+\end{equation}
+
+<p>
+其中：
+</p>
+
+\begin{equation}
+W^{[1]} \Longrightarrow W^{[1]} - \alpha\mathrm{d} W^{[1]}, b^{[1]} \Longrightarrow b^{[1]} - \alpha\mathrm{d} b^{[1]}
+\end{equation}
+
+\begin{equation}
+W^{[2]} \Longrightarrow W^{[2]} - \alpha\mathrm{d} W^{[2]}, b^{[2]} \Longrightarrow b^{[2]} - \alpha\mathrm{d} b^{[2]}
+\end{equation}
+
+<p>
+正向传播方程如下：
+</p>
+
+\begin{equation} 
+z^{[1]} = W^{[1]}x + b^{[1]} \\ 
+a^{[1]} = \sigma(z^{[1]}) \\ 
+z^{[2]} = W^{[2]}a^{[1]} + b^{[2]} \\ 
+a^{[2]} = g^{[2]}(z^{[2]}) = \sigma(z^{[2]})
+\end{equation} 
+
+<p>
+反向传播方程如下:
+</p>
+
+\begin{equation}
+\mathrm{d} z^{[2]} = A^{[2]} - Y, \quad Y = \begin{bmatrix}
+					 y^{(1)} & y^{(2)} & \ldots & y^{(m)}  
+				      \end{bmatrix}
+\end{equation} 
+
+\begin{equation}
+\mathrm{d} W^{[2]} = \frac{1}{m}\mathrm{d}z^{[2]}A^{[1]T}  
+\end{equation}
+
+\begin{equation}
+\mathrm{d} b^{[2]} = \frac{1}{m}\sum_{i=1}^{m}\mathrm{d}z^{[2](i)} = \frac{1}{m}np.sum(\mathrm{d} z^{[2]}, axis=1, keepdims=True) 
+\end{equation}
+
+\begin{equation}
+\mathrm{d} z^{[1]} = \underbrace{W^{[2]T}\mathrm{d}z^{[2]}}_{(n^{[1]}, m)} \quad \ast \underbrace{g^{[1]^{'}}}_{\text{activation function of hidden layer}} \quad \ast \underbrace{z^{[1]}}_{(n^{[1]}, m)}
+\end{equation}
+
+\begin{equation}
+\mathrm{d} W^{[1]} = \frac{1}{m}\mathrm{d}z^{[1]}x^{T}
+\end{equation}
+
+\begin{equation}
+\underbrace{\mathrm{d} b^{[2]}}_{(n^{[1]}, 1)} = \frac{1}{m}\sum_{i=1}^{m}\mathrm{d}z^{[1](i)} = \frac{1}{m}np.sum(\mathrm{d} z^{[1]}, axis=1, keepdims=True)
+\end{equation}
+
+<pre class="example">
+np.sum是python的numpy命令，axis=1表示水平相加求和
+
+keepdims是防止python输出那些古怪的秩数， 可以确保矩阵 db^[2] 这个向量输出的维度为 (n, 1) 这样的标准形式
+</pre>
+
+<p>
+目前为止，计算都和逻辑回归十分相似，但当开始计算反向传播时，需要计算隐藏层函数的导数，输出时候再使用 \(sigmoid\) 函数进行二元分类。这里可以进行逐个元素乘积，因为 \(W^{[2]T}\mathrm{d}z^{[2]}\) 和 \(z^{[1]}\) 这两个都为 \((n^{[1]}, m)\) 的矩阵
+</p>
+
+<pre class="example">
+    还有一种防止python输出奇怪的秩数，需要显式地调用reshape把np.sum输出结果写成矩阵形式
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org44cd791" class="outline-2">
+<h2 id="org44cd791">推导反向传播</h2>
+<div class="outline-text-2" id="text-org44cd791">
+<p>
+回想一下逻辑回归的公式：
+</p>
+
+\begin{equation}                        
+\left. 
+\begin{array}{c}
+x \\ 
+w \\ 
+b
+\end{array}
+\right\} \Longrightarrow z = w^Tx + b \Longrightarrow \alpha = \sigma(z) \Longrightarrow \mathbf{L}(a, y) 
+\end{equation}                          
+
+<p>
+正向传播步骤，先计算 \(z\) ，然后 \(a\) ，最后损失函数 \(L\) 
+</p>
+
+\begin{equation}
+\underbrace{\left.
+  \begin{array}{c}
+  x \\
+  w \\
+  b
+  \end{array}
+  \right\}}_{\mathrm{d} w = \mathrm{d} z \cdot x, \mathrm{d} b = \mathrm{d} z} \Longleftarrow \underbrace{z = w^Tx + b}_{\mathrm{d} z = \mathrm{d}a \cdot g^{'}(z), g(z)=\sigma(z), \frac{\mathrm{d} L}{\mathrm{d} z} = \frac{\mathrm{d} L}{\mathrm{d} a} \cdot \frac{\mathrm{d} a}{\mathrm{d} z}, \frac{\mathrm{d}}{\mathrm{d} z}g(z) = g^{1}(z)} \Longleftarrow \underbrace{\alpha = \sigma(z) \Longleftarrow \mathbf{L}(a, y)}_{\mathrm{d} a = \frac{\mathrm{d}}{\mathrm{d} a}L(a,y) = (-y\log{a} - (1-y)\log(1-a))^{'} = -\frac{y}{a} + \frac{1-y}{1-a}}
+\end{equation}
+
+<p>
+神经网络的计算中，与逻辑回归十分类似，但中间会有多层的计算。下面是一个双层神经网络，有一个输入层，一个隐藏层和一个输出层：
+</p>
+<ul class="org-ul">
+<li>前向传播：计算 \(z^{[1]}\) ， \(a^{[1]}\) ，再计算 \(z^{[2]}\) ， \(a^{[2]}\) ，最后得到损失函数</li>
+<li><p>
+反向传播：向后推算出 \(\mathrm{d} a^{[2]}\) ，然后推算出 \(\mathrm{d} z^{[2]}\) ，接着推算出 \(\mathrm{d} a^{[1]}\) ，最后推算出 \(\mathrm{d} z^{[1]}\) 
+</p>
+<pre class="example">
+      不需要对x求导，因为x是固定的，也不是想优化x 
+</pre>
+<ul class="org-ul">
+<li>向后推算出 \(\mathrm{d} a^{[2]}\) ，然后推算出 \(\mathrm{d} z^{[2]}\) 的步骤可以合为一步： 
+<ul class="org-ul">
+<li>\begin{equation} \mathrm{d} z^{[2]} = a^{[2]} - y \\ \mathrm{d} W^{[2]} = \mathrm{d} z^{[2]}a^{[1]T} \end{equation}
+<ul class="org-ul">
+<li>注意：\(\mathrm{d}W\) 中的 \(W\) 是一个列向量，而 \(W^{[2]}\) 是个行向量，故需要加个转置</li>
+</ul></li>
+<li>\begin{equation} \mathrm{d} b^{[2]} = \mathrm{d} z^{[2]} \end{equation}</li>
+<li>\begin{equation} \mathrm{d} z^{[1]} = W^{[2]T}\mathrm{d}z^{[2]} &lowast; g^{[1]^{'}}(z^{[1]}) \end{equation} 
+<ul class="org-ul">
+<li>这里的矩阵 \(W^{[2]}\) 的维度是 \((n^{[2]}, n^{[1]})\)</li>
+<li><p>
+\(z^{[2]}\) ,  \(\mathrm{d} z^{[2]}\) 的维度都是：\((n^{[2]}, 1)\) 
+</p>
+<pre class="example">
+	    如果是二分类，那维度就是(1, 1) 
+</pre></li>
+<li>\(z^{[1]}\) ,  \(\mathrm{d} z^{[1]}\) 的维度都是： \((n^{[1]}, 1)\)</li>
+</ul></li>
+</ul></li>
+</ul></li>
+</ul>
+
+<p>
+证明过程:
+</p>
+<ol class="org-ol">
+<li>\(W^{[2]T}\mathrm{d}z^{[2]}\) 就是 \((n^{[1]}, n^{[2]})\) 与\((n^{[2]}, 1)\) 相乘得到维度 \((n^{[1]}, 1)\) ，这和 \(z^{[1]}\) 维度相同</li>
+<li>\(g^{[1]^{'}}(z^{[1]})\) 就是两个 \((n^{[1]}, 1)\) 向量逐个元素相乘，维度也是 \((n^{[1]}, 1)\)</li>
+<li>两者再相乘可以得到 \(\mathrm{d} z^{[1]}\) 的维度也是 \((n^{[1]}, 1)\)</li>
+</ol>
+
+<pre class="example">
+    实现后向传播有个技巧，就是要保证矩阵的维度相互匹配
+</pre>
+
+<p>
+最后得到 \(\mathrm{d} W^{[1]}\) 和 \(\mathrm{d} b^{[1]}\) ：
+</p>
+\begin{equation} 
+  \mathrm{d} W^{[1]} = \mathrm{d} z^{[1]}x^{T} \\ 
+  \mathrm{d} b^{[1]} = \mathrm{d} z^{[1]}
+\end{equation}
+
+<p>
+可以看出 \(\mathrm{d} W^{[1]}\) 和 \(\mathrm{d} W^{[2]}\) 非常相似，其中 \(x\) 扮演了 \(a^{[0]}\) 的角色， \(x^{T}\) 等同于 \(a^{[0]T}\) 
+</p>
+</div>
+
+<div id="outline-container-org814f14c" class="outline-3">
+<h3 id="org814f14c">向量化的反向传播</h3>
+<div class="outline-text-3" id="text-org814f14c">
+<p>
+由 \(Z^{[1]} = W^{[1]}x + b\) 和 \(A^{[1]} = g^{[1]}(Z^{[1]})\) 得到：
+</p>
+
+\begin{equation}
+Z^{[1]} = \begin{bmatrix} 
+	     \vdots & \vdots & \vdots & \vdots \\
+	     z^{[1](1)} & z^{[1](2)} & \vdots & z^{[1](m)} \\ 
+	     \vdots & \vdots & \vdots & \vdots  
+	  \end{bmatrix}
+\end{equation}
+
+<p>
+注意：大写的 \(Z^{[1]}\) 表示\(z^{[1](1)}, z^{[1](2)}, \ldots , z^{[1](m)}\) 的列向量堆叠成的矩阵。类似于逻辑回归，一步步可以得到：
+</p>
+
+\begin{equation}
+\mathrm{d} Z^{[2]} = A^{[2]} - Y \\ 
+\mathrm{d} W^{[2]} = \frac{1}{m}\mathrm{d} Z^{[2]}A^{[1]T}
+\end{equation}
+
+\begin{equation}
+\mathbf{J} = \frac{1}{m}\sum_{i=1}^{m}\mathbf{L}(\hat{y}, y) 
+\end{equation}
+
+\begin{equation}
+\mathrm{d} b^{[2]} = \frac{1}{m}np.sum(\mathrm{d} Z^{[2]}, axis=1, keepdims=True)
+\end{equation}
+
+\begin{equation}
+\underbrace{\mathrm{d} Z^{[1]}}_{(n^{[1]}, m)} = \underbrace{W^{[2]T}\mathrm{d} Z^{[2]}}_{(n^{[1]}, m)} \ast \underbrace{g^{[1]^{'}}(Z^{[1]})}_{(n^{[1]}, m)}
+\end{equation}
+
+\begin{equation}
+\mathrm{d} W^{[1]} = \frac{1}{m}\mathrm{d} Z^{[1]}x^{T}
+\end{equation}
+
+\begin{equation}
+\mathrm{d} b^{[1]} = \frac{1}{m}np.sum(\mathrm{d} Z^{[1]}, axis=1, keepdims=True)
+\end{equation}
+
+<pre class="example">
+     反向传播的推导是机器学习领域最难的数学推导之一，矩阵的导数要用链式法则来求
+
+     另外就是初始化神经网络的权重，不要都是0，而是随机初始化
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org1f6db0a" class="outline-2">
+<h2 id="org1f6db0a">随机初始化</h2>
 </div>
 </div>
 <div id="postamble" class="status">
