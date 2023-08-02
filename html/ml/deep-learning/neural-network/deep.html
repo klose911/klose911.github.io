@@ -262,6 +262,8 @@ for the JavaScript code in this tag.
 <ul>
 <li><a href="#org5053be7">深层神经网络</a></li>
 <li><a href="#org8c06538">前向传播</a></li>
+<li><a href="#orgb413eac">反向传播</a></li>
+<li><a href="#orgef9340f">深层网络中的前向传播</a></li>
 </ul>
 </div>
 </div>
@@ -359,6 +361,136 @@ for the JavaScript code in this tag.
 
 <div id="outline-container-org8c06538" class="outline-2">
 <h2 id="org8c06538">前向传播</h2>
+<div class="outline-text-2" id="text-org8c06538">
+<pre class="example">
+    之前学习了构成深度神经网络的基本模块
+
+    比如每一层都有前向传播步骤以及一个相反的反向传播步骤
+</pre>
+
+<p>
+前向传播：输入 \(a^{[l-1]}\) ，输出 \(a^{[l]}\) ，缓存为 \(z^{[l]}\) ；从实现的角度来可以缓存下 \(w^{[l]}\) 和 \(b^{[l]}\) ，这样更容易在不同的环节中调用函数
+</p>
+
+
+<div class="figure">
+<p><img src="../pic/7cfc4b5fe94dcd9fe7130ac52701fed5.png" alt="7cfc4b5fe94dcd9fe7130ac52701fed5.png" width="70%" />
+</p>
+</div>
+
+<p>
+前向传播的步骤：
+</p>
+
+\begin{equation}
+z^{[l]} = W^{[l]} \cdot a^{[l-1]} + b^{[l]} \\ 
+a^{[l]} = g^{[l]}(z^{[l]}) 
+\end{equation}
+
+<p>
+向量化实现过程：
+</p>
+
+\begin{equation}
+Z^{[l]} = W^{[l]} \cdot A^{[l-1]} + b^{[l]} \\
+A^{[l]} = g^{[l]}(Z^{[l]})
+\end{equation} 
+
+<p>
+前向传播需要喂入 \(A^{[0]}\) 也就是 \(X\) ，来初始化；初始化的是第一层的输入值。\(a^{[0]}\) 对应于一个训练样本的输入特征，而 \(A^{[0]}\) 对应于一整个训练样本的输入特征
+</p>
+<pre class="example">
+    所以这就是这条链的第一个前向函数的输入，重复这个步骤就可以从左到右计算前向传播 
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgb413eac" class="outline-2">
+<h2 id="orgb413eac">反向传播</h2>
+<div class="outline-text-2" id="text-orgb413eac">
+<p>
+输入为 \(\mathrm{d} a^{[l]}\) ，输出为 \(\mathrm{d} a^{[l-1]}\) ，\(\mathrm{d} w^{[l]}\) ,  \(\mathrm{d} b^{[l]}\)   
+</p>
+
+
+<div class="figure">
+<p><img src="../pic/c13d2a8fa258125a5398030c97101ee1.png" alt="c13d2a8fa258125a5398030c97101ee1.png" width="70%" />
+</p>
+</div>
+
+<p>
+反向传播的步骤：
+</p>
+
+\begin{equation}
+\mathrm{d} z^{[l]} = \mathrm{d} a^{[l]} \ast g^{[l]^{'}}(z^{[l]}) 
+\end{equation} 
+
+\begin{equation}
+\mathrm{d} w^{[l]} =  \mathrm{d} z^{[l]} \cdot a^{[l-1]}
+\end{equation}
+
+\begin{equation}
+\mathrm{d} b^{[l]} =  \mathrm{d} z^{[l]} 
+\end{equation}
+
+\begin{equation}
+\mathrm{d} a^{[l-1]} =  w^{[l]T} \cdot \mathrm{d} z^{[l]}
+\end{equation}
+
+\begin{equation}
+\mathrm{d} z^{[l]} =  w^{[l+1]T}\mathrm{d} z^{[l+1]} \ast g^{[l]^{'}}(z^{[l]}) 
+\end{equation}
+
+<pre class="example">
+  式子（5）由式子（4）带入式子（1）得到，前四个式子就可实现反向函数
+</pre>
+
+<p>
+向量化实现过程：
+</p>
+
+\begin{equation}
+\mathrm{d} Z^{[l]} = \mathrm{d} A^{[l]} \ast g^{[l]^{'}}(Z^{[l]})
+\end{equation}
+
+\begin{equation}
+\mathrm{d} W^{[l]} =  \frac{1}{m}\mathrm{d} Z^{[l]} \cdot A^{[l-1]T}
+\end{equation}
+
+\begin{equation}
+\mathrm{d} b^{[l]} =  \frac{1}{m} np.sum(\mathrm{d} z^{[l]}, \text{axis} = 1, \text{keepdims} = True)
+\end{equation}
+
+\begin{equation}
+\mathrm{d} A^{[l-1]} =  W^{[l]T} \cdot \mathrm{d} Z^{[l]}
+\end{equation}
+
+<p>
+总结：
+</p>
+
+
+<div class="figure">
+<p><img src="../pic/53a5b4c71c0facfc8145af3b534f8583.png" alt="53a5b4c71c0facfc8145af3b534f8583.png" width="70%" />
+</p>
+</div>
+
+<ul class="org-ul">
+<li>第一层可能有一个 \(ReLU\) 激活函数，第二层为另一个 \(ReLU\) 激活函数，第三层可能是\(sigmoid\) 函数（如果做二分类的话），输出值为 \(\hat{y}\) ，用来计算损失</li>
+<li>这样就可以向后迭代进行反向传播求导来求 \(\mathrm{d} w^{[3]}\) , \(\mathrm{d} b^{[3]}\) , \(\mathrm{d}w^{[2]}\) , \(\mathrm{d} b^{[2]}\) , \(\mathrm{d} w^{[1]}\) , \(\mathrm{d} b^{[1]}\)</li>
+<li>在计算的时候，缓存会把 \(z^{[1]}\) , \(z^{[2]}\) , \(z^{[3]}\) 传递过来，然后回传 \(\mathrm{d} a^{[2]}\) ,  \(\mathrm{d} a^{[1]}\)</li>
+<li>也可以计算 \(\mathrm{d}a^{[0]}\) ，但实际不会使用它</li>
+</ul>
+
+<pre class="example">
+    这里讲述了一个三层网络的前向和反向传播
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgef9340f" class="outline-2">
+<h2 id="orgef9340f">深层网络中的前向传播</h2>
 </div>
 </div>
 <div id="postamble" class="status">
