@@ -267,6 +267,7 @@ for the JavaScript code in this tag.
 <li><a href="#org2cc3998">核对矩阵的维数</a></li>
 <li><a href="#org4016cf9">为什么使用深层表示？</a></li>
 <li><a href="#org48a15ed">搭建神经网络块</a></li>
+<li><a href="#org4b63a83">参数 VS 超参数</a></li>
 </ul>
 </div>
 </div>
@@ -760,6 +761,127 @@ A^{[0]} = X
 
 <div id="outline-container-org48a15ed" class="outline-2">
 <h2 id="org48a15ed">搭建神经网络块</h2>
+<div class="outline-text-2" id="text-org48a15ed">
+<pre class="example">
+  已经看到过正向反向传播的基础组成部分了，它们也是深度神经网络的重要组成部分
+
+  现在来用它们建一个深度神经网络
+</pre>
+
+
+<div class="figure">
+<p><img src="../pic/2922198c51ca18fb64dcc7f4cc46d507.png" alt="2922198c51ca18fb64dcc7f4cc46d507.png" width="70%" />
+</p>
+</div>
+
+<p>
+这是一个层数较少的神经网络，选择其中一层（方框部分），从这一层的计算着手：
+</p>
+<ul class="org-ul">
+<li>在第 \(l\) 层有参数 \(W^{[l]}\) 和 \(b^{[l]}\)</li>
+<li>正向传播里有输入的激活函数，输入是前一层 \(a^{[l-1]}\) ，输出是 \(a^{[l]}\)</li>
+<li>根据 \(z^{[l]} = W^{[l]}a^{[l-1]} + b^{[l]}\) , \(a^{[l]} = g^{[l]}(z^{[l]}\) ，这就是如何从输入 \(a^{[l-1]}\) 走到输出的 \(a^{[l]}\)</li>
+<li>之后可以把 \(z^{[l]}\) 的值缓存起来，因为缓存的 \(z^{[l]}\) 对以后的反向传播的步骤非常有用</li>
+</ul>
+
+<p>
+接下来是反向步骤步骤，同样也是第 \(l\) 层的计算，会需要实现一个函数输入为 \(\mathrm{d} a^{[l]}\) ，输出的函数 \(\mathrm{d} a^{[l-1]}\) 
+</p>
+<ul class="org-ul">
+<li>输入在这里其实是 \(\mathrm{d} a^{[l]}\) 以及所缓存的值 \(z^{[l]}\) (之前已经计算好)</li>
+<li>也需要输出所以需要的梯度 \(\mathrm{d} W^{[l]}\) 和 \(\mathrm{d} b^{[l]}\) ，这是为了实现梯度下降学习</li>
+</ul>
+
+<pre class="example">
+这就是基本的正向步骤的结构，它成为称为正向函数，类似的在反向步骤中会称为反向函数
+</pre>
+
+
+<div class="figure">
+<p><img src="../pic/f1c14c92b1735648c05db7741f7d2871.png" alt="f1c14c92b1735648c05db7741f7d2871.png" width="70%" />
+</p>
+</div>
+
+
+<p>
+总结: 
+</p>
+<ul class="org-ul">
+<li>在 \(l\) 层，会有正向函数 ，输入 \(a^{[l-1]}\) 并且输出 \(a^{[l]}\) ，为了计算结果需要用 \(W^{[l]}\) 和 \(b^{[l]}\) ，以及输出到缓存的 \(z^{[l]}\)</li>
+<li>用作反向传播的反向函数，是另一个函数，输入 \(\mathrm{d} a^{[l]}\) ，输出 \(\mathrm{d} a^{[l-1]}\) 
+<ol class="org-ol">
+<li>在第二个方块里根据 \(W^{[l]}\) 和 \(b^{[l]}\) ，可以算的是 \(\mathrm{d} z^{[l]}\)</li>
+<li>第三个方块中，这个反向函数可以计算输出 \(\mathrm{d} W^{[l]}\) 和 \(\mathrm{d} b^{[l]}\)</li>
+</ol></li>
+</ul>
+
+<pre class="example">
+  这里用红色箭头标注标注反向步骤
+</pre>
+
+<p>
+如果实现了这两个函数（正向和反向），然后神经网络的计算过程会是这样的：
+</p>
+
+
+<div class="figure">
+<p><img src="../pic/0b59199835620b12c781b3190a3fca1c.png" alt="0b59199835620b12c781b3190a3fca1c.png" width="70%" />
+</p>
+</div>
+
+
+<ul class="org-ul">
+<li>把输入特征 \(a^{[0]}\) ，放入第一层并计算第一层的激活函数，用 \(a^{[1]}\) 表示，需要 \(W^{[1]}\) 和 \(b^{[1]}\) 来计算，之后缓存 $z^{[1]}$值</li>
+<li>之后把 \(a^{[1]}\) 喂到第二层，需要用到 \(W^{[2]}\) 和 \(b^{[2]}\) 和计算第二层的激活函数 $a^{[2]} $</li>
+<li>后面几层以此类推，直到最后算出了 \(a^{[L]}\) ，第 \(L\) 层的最终输出值 \(\hat{y}\)</li>
+</ul>
+
+<pre class="example">
+  在这些过程里缓存了所有的 z 值，这就是正向传播的步骤
+</pre>
+
+<p>
+对反向传播的步骤而言，需要算一系列的反向迭代：
+</p>
+<ul class="org-ul">
+<li>把 \(\mathrm{d} a^{[L]}\) 值放在这里，然后这个方块负责计算 \(\mathrm{d} a^{[L-1]}\) 值</li>
+<li>以此类推，直到得到 \(\mathrm{d} a^{[2]}\) 和 \(\mathrm{d} a^{[1]}\)</li>
+<li><p>
+还可以计算多一个输出值 \(\mathrm{d} a^{[0]}\) ，这其实是输入特征的导数
+</p>
+<pre class="example">
+    起码对于训练监督学习的权重不算重要，可以止步于此
+</pre></li>
+<li>反向传播步骤中也会输出 \(\mathrm{d} W^{[l]}\) 和 \(\mathrm{d} b^{[l]}\)</li>
+</ul>
+
+<pre class="example">
+  目前为止算好了所有需要的导数，稍微填一下这个流程图
+</pre>
+
+
+<div class="figure">
+<p><img src="../pic/be2f6c7a8ff3c58e952208d5d59b19ce.png" alt="be2f6c7a8ff3c58e952208d5d59b19ce.png" width="70%" />
+</p>
+</div>
+
+<p>
+神经网络的一步训练包含了 ：
+</p>
+<ol class="org-ol">
+<li>从 \(a^{[0]}\) 开始，也就是 \(x\) 经过一系列正向传播计算得到 \(\hat{y}\)</li>
+<li>再用输出值计算这个（第二行最后方块），再实现反向传播。现在就有所有的导数项了</li>
+<li>\(W\) 也会在每一层被更新为 \(W = W - \alpha\mathrm{d}W\) ， \(b\) 也一样 \(b = b - \alpha\mathrm{d} b\) ，反向传播就都计算完毕</li>
+</ol>
+
+<pre class="example">
+这是神经网络一个梯度下降循环
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org4b63a83" class="outline-2">
+<h2 id="org4b63a83">参数 VS 超参数</h2>
 </div>
 </div>
 <div id="postamble" class="status">
