@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>改善算法</title>
+<title>简单动态字符串</title>
 <meta name="generator" content="Org mode" />
 <meta name="author" content="Wu, Shanliang" />
 <style type="text/css">
@@ -226,148 +226,105 @@ for the JavaScript code in this tag.
  }
 /*]]>*///-->
 </script>
-<script type="text/x-mathjax-config">
-    MathJax.Hub.Config({
-        displayAlign: "center",
-        displayIndent: "0em",
-
-        "HTML-CSS": { scale: 100,
-                        linebreaks: { automatic: "false" },
-                        webFont: "TeX"
-                       },
-        SVG: {scale: 100,
-              linebreaks: { automatic: "false" },
-              font: "TeX"},
-        NativeMML: {scale: 100},
-        TeX: { equationNumbers: {autoNumber: "AMS"},
-               MultLineWidth: "85%",
-               TagSide: "right",
-               TagIndent: ".8em"
-             }
-});
-</script>
-<script type="text/javascript"
-        src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="./practical.html"> UP </a>
+ <a accesskey="h" href="./data_structure.html"> UP </a>
  |
- <a accesskey="H" href="./improvment.html"> HOME </a>
+ <a accesskey="H" href="./data_structure.html"> HOME </a>
 </div><div id="content">
-<h1 class="title">改善算法</h1>
+<h1 class="title">简单动态字符串</h1>
 <div id="table-of-contents">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="#orge462b81">Mini-batch 梯度下降</a></li>
+<li><a href="#orgd5c8ba2">sds 的用途</a>
+<ul>
+<li><a href="#org96be1d8">实现字符串对象</a></li>
+<li><a href="#org644318d">用 sds 取代 C 默认的 char* 类型</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
 <p>
-接下来将学习优化算法，这能让神经网络运行得更快
+Sds <span class="underline">Simple Dynamic String</span>  <b>简单动态字符串</b> 是 Redis 底层所使用的字符串表示， 几乎所有的 Redis 模块中都用了 sds 
 </p>
 
 <pre class="example">
-  机器学习的应用是一个高度依赖经验的过程，伴随着大量迭代的过程，需要训练诸多模型，才能找到合适的那一个，所以，优化算法能够帮助快速训练模型
-
-  其中一个难点在于，深度学习不能在没有大数据领域发挥最大的效果，而在巨大的数据集基础上进行训练速度很慢。因此，会发现，使用快速的优化算法能够大大提高效率
+  本章将对 sds 的实现、性能和功能等方面进行介绍， 并说明 Redis 使用 sds 而不是传统 C 字符串的原因
 </pre>
-<div id="outline-container-orge462b81" class="outline-2">
-<h2 id="orge462b81">Mini-batch 梯度下降</h2>
-<div class="outline-text-2" id="text-orge462b81">
+<div id="outline-container-orgd5c8ba2" class="outline-2">
+<h2 id="orgd5c8ba2">sds 的用途</h2>
+<div class="outline-text-2" id="text-orgd5c8ba2">
 <p>
-首先来谈谈 mini-batch 梯度下降法
+Sds 在 Redis 中的主要作用有以下两个：
 </p>
-
-
-<div class="figure">
-<p><img src="../pic/ef8c62ba3c82cb37e6ed4783e7717a8d.png" alt="ef8c62ba3c82cb37e6ed4783e7717a8d.png" width="70%" />
-</p>
+<ol class="org-ol">
+<li>实现字符串对象 String Object</li>
+<li>在 Redis 程序内部用作 <span class="underline">char*</span> 类型的替代品</li>
+</ol>
 </div>
 
-
+<div id="outline-container-org96be1d8" class="outline-3">
+<h3 id="org96be1d8">实现字符串对象</h3>
+<div class="outline-text-3" id="text-org96be1d8">
 <p>
-向量化能够有效地对所有个样本进行计算，允许处理整个训练集，而无需某个明确的公式。所以要把训练样本放入巨大的矩阵 \(X\) 当中去， \(X=[x^{(1)} x^{(2)} x^{(3)} \ldots x^{(m)}]\) ，\(Y\) 也是如此，\(Y=[y^{(1)} y^{(2)} y^{(3)} \ldots y^{(m)}]\) ，所以 \(X\) 的维数是 \((n_x, m)\) ， \(Y\) 的维数是 \((1, m)\) ，向量化能够相对较快地处理 \(m\) 所有个样本
+Redis 是一个 <b>键值对</b> 数据库 <span class="underline">key-value</span> DB ， 数据库的值可以是 <span class="underline">字符串</span> 、 <span class="underline">集合</span> 、 <span class="underline">列表</span> 等多种类型的对象， 而数据库的 <span class="underline">键</span> 则总是 <b>字符串</b> 对象。对于那些包含字符串值的字符串对象来说， 每个字符串对象都包含一个 sds 值 
 </p>
 
 <pre class="example">
-  如果m 很大的话，处理速度仍然缓慢。比如说，如果 m 是500万或5000万或者更大的一个数
+“包含字符串值的字符串对象”，这种说法初听上去可能会有点奇怪
 
-  在对整个训练集执行梯度下降法时，要做的是，必须处理整个训练集，然后才能进行一步梯度下降法
+但是在 Redis 中， 一个字符串对象除了可以保存字符串值之外， 还可以保存 long  类型的值，
 
-  然后需要再重新处理500万个训练样本，才能进行下一步梯度下降法
-
-  所以如果在处理完整个500万个样本的训练集之前，先让梯度下降法处理一部分，算法速度会更快
+所以为了严谨起见， 这里需要强调一下： 当字符串对象保存的是字符串时， 它包含的才是 sds 值， 否则的话， 它就是一个 long 类型的值 
 </pre>
 
 <p>
-可以把训练集分割为小一点的子集训练，这些子集被取名为 <b>mini-batch</b> ，假设每一个子集中只有1000个样本，那么把其中的 \(x^{(1)}\) 到 \(x^{(1000)}\) 取出来，将其称为第一个子训练集，然后再取出接下来的1000个样本，从 \(x^{(1001)}\) 到 \(x^{(2000)}\) ，然后再取1000个样本，以此类推。
+举个例子， 以下命令创建了一个新的数据库键值对， 这个键值对的键和值都是字符串对象， 它们都包含一个 sds 值：
 </p>
-<ul class="org-ul">
-<li>把 \(x^{(1)}\) 到 \(x^{(1000)}\) 称为 \(X^{\{1\}}\)</li>
-<li>把 \(x^{(1001)}\) 到 \(x^{(2000)}\) 称为 \(X^{\{2\}}\)</li>
-<li>如果训练样本一共有500万个，每个mini-batch都有1000个样本，也就是说，有5000个mini-batch，因为5000乘以1000就是500万，所以最后得到的就是 \(X^{\{5000\}}\)</li>
-</ul>
 
+<div class="org-src-container">
+<pre class="src src-sh">redis&gt; SET book <span style="color: #deb887;">"Mastering C++ in 21 days"</span>
+OK
 
-
-<div class="figure">
-<p><img src="../pic/112c45cf393d896833ffce29e14fe8bc.png" alt="112c45cf393d896833ffce29e14fe8bc.png" width="70%" />
-</p>
+redis&gt; GET book
+<span style="color: #deb887;">"Mastering C++ in 21 days"</span>
+</pre>
 </div>
 
+
 <p>
-对 \(Y\) 也要进行相同处理，相应地拆分 \(Y\) 的训练集，所以这是 \(Y^{\{1\}}\) ，然后从 \(y^{(1001)}\) 到 \(y^{(2000)}\) ，这个叫 \(Y^{\{2\}}\) ，一直到 \(Y^{\{5000\}}\) 
+以下命令创建了另一个键值对， 它的键是字符串对象， 而值则是一个集合对象：
 </p>
 
+<div class="org-src-container">
+<pre class="src src-sh">redis&gt; SADD nosql <span style="color: #deb887;">"Redis"</span> <span style="color: #deb887;">"MongoDB"</span> <span style="color: #deb887;">"Neo4j"</span>
+(integer) 3
 
-<div class="figure">
-<p><img src="../pic/609ea5be2140af929985951f2aab542c.png" alt="609ea5be2140af929985951f2aab542c.png" width="70%" />
-</p>
+redis&gt; SMEMBERS nosql
+1) <span style="color: #deb887;">"Neo4j"</span>
+2) <span style="color: #deb887;">"Redis"</span>
+3) <span style="color: #deb887;">"MongoDB"</span>
+</pre>
+</div>
+</div>
 </div>
 
+<div id="outline-container-org644318d" class="outline-3">
+<h3 id="org644318d">用 sds 取代 C 默认的 char* 类型</h3>
+<div class="outline-text-3" id="text-org644318d">
 <p>
-mini-batch的数量 \(t\) 组成了\(X^{\{t\}}\) 和 \(Y^{\{t\}}\) ，这就是1000个训练样本，包含相应的输入输出对 
-</p>
-
-<div class="figure">
-<p><img src="../pic/98fd6e4c5eec8866bbf722c489cd6177.png" alt="98fd6e4c5eec8866bbf722c489cd6177.png" width="70%" />
-</p>
-</div>
-
-<p>
-之前使用了上角小括号 \((i)\) 表示训练集里的值，所以 \(x^{(i)}\) 是第 \(i\) 个训练样本。用了上角中括号 \([l]\) 来表示神经网络的层数，\(z^{[l]}\) 表示神经网络中第 \(l\) 层的 \(z\) 值，现在引入了大括号 \(t\) 来代表不同的mini-batch，所以有 \(X^{\{t\}}\) 和 \(Y^{\{t\}}\) 
+因为 char* 类型的功能单一， 抽象层次低， 并且不能高效地支持一些 Redis 常用的操作（比如追加操作和长度计算操作）， 所以在 Redis 程序内部， 绝大部分情况下都会使用 sds 而不是 char* 来表示字符串
 </p>
 
 <pre class="example">
-batch梯度下降法指的是之前讲过的梯度下降法算法，就是同时处理整个训练集
+     性能问题在稍后介绍 sds 定义的时候就会说到， 因为我们还没有了解过 Redis 的其他功能模块， 所以也没办法详细地举例说那里用到了 sds ， 不过在后面的章节中， 我们会经常看到其他模块（几乎每一个）都用到了 sds 类型值
 
-这个名字就是来源于能够同时看到整个batch训练集的样本被处理
-
-相比之下，mini-batch梯度下降法，指的是每次同时处理的单个的 mini-batch , 而不是同时处理全部的 X 和 Y 训练集
-
-那么究竟mini-batch梯度下降法的原理是什么？
+     目前来说， 只要记住这个事实即可： 在 Redis 中， 客户端传入服务器的协议内容、 aof 缓存、 返回给客户端的回复， 等等， 这些重要的内容都是由 sds 类型来保存的
 </pre>
-
-<p>
-在训练集上运行mini-batch梯度下降法，运行 \(for \quad t = 1 \ldots 5000\) ，因为有5000个各有1000个样本的组，在for循环里要做得基本就是对 \(X^{\{t\}}\) 和 \(Y^{\{t\}}\) 执行一步梯度下降法
-</p>
-<p width="70%">
-<a href="../pic/" width="70%">../pic/</a>
-</p>
-
-<p width="70%">
-<a href="../pic/" width="70%">../pic/</a>
-</p>
-
-<p width="70%">
-<a href="../pic/" width="70%">../pic/</a>
-</p>
-
-<p width="70%">
-<a href="../pic/" width="70%">../pic/</a>
-</p>
+</div>
 </div>
 </div>
 </div>

@@ -1,0 +1,61 @@
+#+TITLE: 简单动态字符串
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: ./data_structure.html
+#+HTML_LINK_UP: ./data_structure.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+Sds _Simple Dynamic String_  *简单动态字符串* 是 Redis 底层所使用的字符串表示， 几乎所有的 Redis 模块中都用了 sds 
+
+#+BEGIN_EXAMPLE
+  本章将对 sds 的实现、性能和功能等方面进行介绍， 并说明 Redis 使用 sds 而不是传统 C 字符串的原因
+#+END_EXAMPLE
+* sds 的用途
+
+  Sds 在 Redis 中的主要作用有以下两个：
+  1. 实现字符串对象 String Object 
+  2. 在 Redis 程序内部用作 _char*_ 类型的替代品
+
+** 实现字符串对象
+
+   Redis 是一个 *键值对* 数据库 _key-value_ DB ， 数据库的值可以是 _字符串_ 、 _集合_ 、 _列表_ 等多种类型的对象， 而数据库的 _键_ 则总是 *字符串* 对象。对于那些包含字符串值的字符串对象来说， 每个字符串对象都包含一个 sds 值 
+
+   #+BEGIN_EXAMPLE
+       “包含字符串值的字符串对象”，这种说法初听上去可能会有点奇怪
+
+       但是在 Redis 中， 一个字符串对象除了可以保存字符串值之外， 还可以保存 long  类型的值，
+
+       所以为了严谨起见， 这里需要强调一下： 当字符串对象保存的是字符串时， 它包含的才是 sds 值， 否则的话， 它就是一个 long 类型的值 
+   #+END_EXAMPLE
+
+   举个例子， 以下命令创建了一个新的数据库键值对， 这个键值对的键和值都是字符串对象， 它们都包含一个 sds 值：
+
+   #+BEGIN_SRC sh 
+  redis> SET book "Mastering C++ in 21 days"
+  OK
+
+  redis> GET book
+  "Mastering C++ in 21 days"
+   #+END_SRC
+
+
+   以下命令创建了另一个键值对， 它的键是字符串对象， 而值则是一个集合对象：
+
+   #+BEGIN_SRC sh 
+  redis> SADD nosql "Redis" "MongoDB" "Neo4j"
+  (integer) 3
+
+  redis> SMEMBERS nosql
+  1) "Neo4j"
+  2) "Redis"
+  3) "MongoDB"
+   #+END_SRC
+
+** 用 sds 取代 C 默认的 char* 类型
+   因为 char* 类型的功能单一， 抽象层次低， 并且不能高效地支持一些 Redis 常用的操作（比如追加操作和长度计算操作）， 所以在 Redis 程序内部， 绝大部分情况下都会使用 sds 而不是 char* 来表示字符串
+
+   #+BEGIN_EXAMPLE
+     性能问题在稍后介绍 sds 定义的时候就会说到， 因为我们还没有了解过 Redis 的其他功能模块， 所以也没办法详细地举例说那里用到了 sds ， 不过在后面的章节中， 我们会经常看到其他模块（几乎每一个）都用到了 sds 类型值
+
+     目前来说， 只要记住这个事实即可： 在 Redis 中， 客户端传入服务器的协议内容、 aof 缓存、 返回给客户端的回复， 等等， 这些重要的内容都是由 sds 类型来保存的
+   #+END_EXAMPLE
+
