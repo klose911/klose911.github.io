@@ -59,3 +59,172 @@ Sds _Simple Dynamic String_  *简单动态字符串* 是 Redis 底层所使用�
      目前来说， 只要记住这个事实即可： 在 Redis 中， 客户端传入服务器的协议内容、 aof 缓存、 返回给客户端的回复， 等等， 这些重要的内容都是由 sds 类型来保存的
    #+END_EXAMPLE
 
+* Redis 中的字符串
+
+  #+BEGIN_EXAMPLE
+    在 C 语言中，字符串可以用一个 \0 结尾的 char 数组来表示
+
+    比如说， hello world 在 C 语言中就可以表示为 "hello world\0" 
+  #+END_EXAMPLE
+
+  这种简单的字符串表示，在大多数情况下都能满足要求，但是，它并不能高效地支持长度计算和追加 _append_ 这两种操作：
+  + 每次计算字符串长度 _strlen(s)_ 的复杂度为 $O(N)$
+  + 对字符串进行 $n$ 次追加，必定需要对字符串进行 $n$ 次内存重分配 _realloc_ 
+
+  在 Redis 内部， 字符串的追加和长度计算很常见
+
+  #+BEGIN_EXAMPLE
+     APPEND 和 STRLEN  这两种操作，是 Redis 命令中的直接映射
+
+    这两个简单的操作不应该成为性能的瓶颈
+  #+END_EXAMPLE
+
+  另外， Redis 除了处理 C 字符串之外， 还需要处理单纯的字节数组， 以及服务器协议等内容， 所以为了方便起见， Redis 的字符串表示还应该是二进制安全的
+
+  #+BEGIN_EXAMPLE
+    程序不应对字符串里面保存的数据做任何假设，
+
+    数据可以是以 \0 结尾的 C 字符串， 也可以是单纯的字节数组， 或者其他格式的数据
+  #+END_EXAMPLE
+
+  考虑到这两个原因， Redis 使用 sds 类型替换了 C 语言的默认字符串表示： sds 既可 *高效地实现追加和长度计算* ， 同时是 *二进制安全* 
+
+** sds 实现
+   #+BEGIN_EXAMPLE
+     在前面的内容中，我们一直将 sds 作为一种抽象数据结构来说明
+   #+END_EXAMPLE
+
+   实际上， 它的实现由以下两部分组成：
+
+   #+BEGIN_SRC c 
+  typedef char *sds;
+
+  struct sdshdr {
+	  int len; // buf 已占用长度
+	  int free; // buf 剩余可用长度
+	  char buf[]; // 实际保存字符串数据的地方
+  };
+   #+END_SRC
+
+   其中， _类型 sds_ 是 _char *_ 的 *别名* _alias_ ，而 _结构 sdshdr_ 则保存了 _len_ , _free_ 和 _buf_ 三个 *属性* 。作为例子，以下是新创建的，同样保存 hello world 字符串的 sdshdr 结构：
+
+   #+BEGIN_SRC c 
+  struct sdshdr {
+	  len = 11;
+	  free = 0;
+	  buf = "hello world\0";  // buf 的实际长度为 len + 1
+  };
+   #+END_SRC
+
+   + 通过 _len_ 属性，sdshdr 可以实现复杂度为 $O(1)$ 的 *长度计算* 操作
+   + 通过对 buf 分配一些额外的空间， 并使用 free 记录未使用空间的大小，sdshdr 可以让执行追加操作所需的内存重分配次数大大减少
+
+   #+BEGIN_EXAMPLE
+     当然，sds 也对操作的正确实现提出了要求：
+
+     所有处理 sdshdr 的函数，都必须正确地更新 len 和 free 属性，否则就会造成 bug
+   #+END_EXAMPLE
+
+* 优化追加操作
+  为了易于理解，用一个 Redis 执行实例作为例子，解释一下，当执行以下代码时， Redis 内部发生了什么：
+
+  #+BEGIN_SRC sh 
+  redis> SET msg "hello world"
+  OK
+
+  redis> APPEND msg " again!"
+  (integer) 18
+
+  redis> GET msg
+  "hello world again!"
+  #+END_SRC
+
+  首先， _SET_  命令创建并保存 hello world 到一个 _sdshdr_ 中，这个 sdshdr 的值如下：
+
+  #+BEGIN_SRC c 
+  struct sdshdr {
+      len = 11;
+      free = 0;
+      buf = "hello world\0";
+  }
+  #+END_SRC
+
+  当执行 _APPEND_ 命令时，相应的 sdshdr 被更新，字符串 " again!" 会被追加到原来的 "hello world" 之后：
+
+  #+BEGIN_SRC c
+  struct sdshdr {
+      len = 18;
+      free = 18;
+      buf = "hello world again!\0                  ";     // 空白的地方是预分配空间，共 18 + 18 + 1 个字节
+  }
+  #+END_SRC
+
+  注意： 当调用 SET 命令创建 sdshdr 时， sdshdr 的 free 属性为 0 ，Redis 也没有为 buf 创建额外的空间。而是在执行 APPEND 之后， Redis 为 buf 创建了多于所需空间一倍的大小
+
+  #+BEGIN_EXAMPLE
+    在这个例子中， 保存 "hello world again!" 共需要 18 + 1 个字节，但程序却预先分配了 18 + 18 + 1 = 37 个字节
+
+    这样一来，如果将来再次对同一个 sdshdr 进行追加操作，只要追加内容的长度不超过 free 属性的值，那么就不需要对 buf 进行内存重分配
+  #+END_EXAMPLE
+
+  比如说， 执行以下命令并不会引起 buf 的内存重分配， 因为新追加的字符串长度小于 18 ：
+
+  #+BEGIN_SRC sh 
+  redis> APPEND msg " again!"
+  (integer) 25
+  #+END_SRC
+
+  再次执行 APPEND 命令之后， msg 的值所对应的 sdshdr 结构可以表示如下：
+
+  #+BEGIN_SRC c 
+  struct sdshdr {
+      len = 25;
+      free = 11;
+      buf = "hello world again! again!\0           ";     // 空白的地方为预分配空间，共 18 + 18 + 1 个字节
+  }
+  #+END_SRC
+
+  _sds.c/sdsMakeRoomFor_ 函数描述了 sdshdr 的这种内存预分配优化策略， 以下是这个函数的伪代码版本：
+
+  #+BEGIN_SRC python
+  def sdsMakeRoomFor(sdshdr, required_len):
+
+      # 预分配空间足够，无须再进行空间分配
+      if (sdshdr.free >= required_len):
+	  return sdshdr
+
+      # 计算新字符串的总长度
+      newlen = sdshdr.len + required_len
+
+      # 如果新字符串的总长度小于 SDS_MAX_PREALLOC
+      # 那么为字符串分配 2 倍于所需长度的空间
+      # 否则就分配所需长度加上 SDS_MAX_PREALLOC 数量的空间
+      if newlen < SDS_MAX_PREALLOC:
+	  newlen *= 2
+      else:
+	  newlen += SDS_MAX_PREALLOC
+
+      # 分配内存
+      newsh = zrelloc(sdshdr, sizeof(struct sdshdr)+newlen+1)
+
+      # 更新 free 属性
+      newsh.free = newlen - sdshdr.len
+
+      # 返回
+      return newsh
+  #+END_SRC
+
+  在目前版本的 Redis 中， _SDS_MAX_PREALLOC_ 的值为 $1024 * 1024$ ：
+  + 当小于 $1MB$ 的字符串执行追加操作时， sdsMakeRoomFor 就为它们分配多于所需大小一倍的空间
+  + 当字符串的大小大于 $1MB$ ， 那么 sdsMakeRoomFor 就为它们额外多分配 $1MB$ 的空间 
+
+  #+BEGIN_EXAMPLE
+    执行过 APPEND 命令的字符串会带有额外的预分配空间，这些预分配空间不会被释放，除非该字符串所对应的键被删除，或者等到关闭 Redis 之后， 再次启动时重新载入的字符串对象将不会有预分配空间。这种分配策略会浪费内存吗？
+
+    因为执行 APPEND 命令的字符串键数量通常并不多， 占用内存的体积通常也不大， 所以这一般并不算什么问题
+
+    另一方面，如果执行 APPEND 操作的键很多， 而字符串的体积又很大的话， 那可能就需要修改 Redis 服务器， 让它定时释放一些字符串键的预分配空间， 从而更有效地使用内存
+  #+END_EXAMPLE
+
+* sds 操作API 
+
