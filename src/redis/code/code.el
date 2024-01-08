@@ -31,7 +31,7 @@
 	;; picture
         ("redis-code-pic"
          :base-directory "~/Documents/programming/html/klose911.github.io/src/redis/code/pic"  ;; Change this to your local dir
-         :base-extension "png\\|jpg\\|gif"
+         :base-extension "png\\|jpg\\|gif\\|svg"
          :publishing-directory "~/Documents/programming/html/klose911.github.io/html/redis/code/pic"
          :recursive t
          :publishing-function org-publish-attachment

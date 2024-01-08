@@ -226,6 +226,28 @@ for the JavaScript code in this tag.
  }
 /*]]>*///-->
 </script>
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script type="text/javascript"
+        src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -238,7 +260,18 @@ for the JavaScript code in this tag.
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="#org80dd42f">应用</a></li>
+<li><a href="#org80dd42f">应用</a>
+<ul>
+<li><a href="#org21595c2">实现 Redis 的列表类型</a></li>
+<li><a href="#org9640c3d">Redis 自身功能的构建</a></li>
+</ul>
+</li>
+<li><a href="#org83d9bf0">实现</a>
+<ul>
+<li><a href="#org3580a28">API</a></li>
+</ul>
+</li>
+<li><a href="#org50a5060">迭代器</a></li>
 </ul>
 </div>
 </div>
@@ -261,6 +294,261 @@ for the JavaScript code in this tag.
 </pre>
 <div id="outline-container-org80dd42f" class="outline-2">
 <h2 id="org80dd42f">应用</h2>
+<div class="outline-text-2" id="text-org80dd42f">
+<p>
+双端链表作为一种通用的数据结构， 在 Redis 内部使用得非常多： 既是 Redis 列表结构的底层实现之一， 同时为大量 Redis 模块所用， 用于构建 Redis 的其他功能
+</p>
+</div>
+<div id="outline-container-org21595c2" class="outline-3">
+<h3 id="org21595c2">实现 Redis 的列表类型</h3>
+<div class="outline-text-3" id="text-org21595c2">
+<p>
+双端链表还是 Redis 列表类型的底层实现之一，当对列表类型的键进行操作 比如执行 <span class="underline">RPUSH</span>  <span class="underline">LPOP</span> 或 <span class="underline">LLEN</span> 等命令时，程序在底层操作的可能就是双端链表 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">redis&gt; RPUSH brands Apple Microsoft Google
+(integer) 3
+
+redis&gt; LPOP brands
+<span style="color: #deb887;">"Apple"</span>
+
+redis&gt; LLEN brands
+(integer) 2
+
+redis&gt; LRANGE brands 0 -1
+1) <span style="color: #deb887;">"Microsoft"</span>
+2) <span style="color: #deb887;">"Google"</span>
+</pre>
+</div>
+
+<pre class="example">
+     现在的Redis 列表使用两种数据结构作为底层实现：
+	1. 双端链表
+	2. 压缩列表
+
+     因为双端链表占用的内存比压缩列表要多，所以当创建新的列表键时，列表会优先考虑使用压缩列表作为底层实现，并且在有需要的时候， 才从压缩列表实现转换到双端链表实现 
+</pre>
+</div>
+</div>
+<div id="outline-container-org9640c3d" class="outline-3">
+<h3 id="org9640c3d">Redis 自身功能的构建</h3>
+<div class="outline-text-3" id="text-org9640c3d">
+<p>
+除了实现列表类型以外， 双端链表还被很多 Redis 内部模块所应用：
+</p>
+<ul class="org-ul">
+<li><span class="underline">事务</span> 模块使用双端链表依序保存输入的命令</li>
+<li><span class="underline">服务器</span> 模块使用双端链表来保存多个客户端</li>
+<li><span class="underline">订阅/发送</span> 模块使用双端链表来保存订阅模式的多个客户端</li>
+<li><span class="underline">事件</span> 模块使用双端链表来保存时间事件 time event</li>
+</ul>
+
+<pre class="example">
+     类似的应用还有很多，双端链表在 Redis 中发挥着重要的作用
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org83d9bf0" class="outline-2">
+<h2 id="org83d9bf0">实现</h2>
+<div class="outline-text-2" id="text-org83d9bf0">
+<p>
+双端链表的实现由 <span class="underline">listNode</span> 和 <span class="underline">list</span> 两个数据结构构成， 下图展示了由这两个结构组成的一个双端链表实例：
+</p>
+
+
+<div class="figure">
+<p><object type="image/svg+xml" data="../pic/graphviz-784672591f106642e353f784c9d64cec7a2adb26.svg" class="org-svg" width="90%">
+Sorry, your browser does not support SVG.</object>
+</p>
+</div>
+
+<p>
+其中 <span class="underline">listNode</span> 是双端链表的 <b>节点</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">typedef</span> <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">listNode</span> {
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">listNode</span> *<span style="color: #4eee94;">prev</span>; <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#21069;&#39537;&#33410;&#28857;</span>
+    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">listNode</span> *<span style="color: #4eee94;">next</span>; <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#21518;&#32487;&#33410;&#28857;</span>
+    <span style="color: #98f5ff;">void</span> *<span style="color: #4eee94;">value</span>; <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#20540;</span>
+} <span style="color: #98f5ff;">listNode</span>;
+</pre>
+</div>
+
+<p>
+而 <span class="underline">list</span> 则是双端链表本身：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00bfff; font-weight: bold;">typedef</span> <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">list</span> {
+    <span style="color: #98f5ff;">listNode</span> *<span style="color: #4eee94;">head</span>; <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#34920;&#22836;&#25351;&#38024;</span>
+    <span style="color: #98f5ff;">listNode</span> *<span style="color: #4eee94;">tail</span>; <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#34920;&#23614;&#25351;&#38024;</span>
+    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">len</span>; <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#33410;&#28857;&#25968;&#37327;</span>
+    <span style="color: #98f5ff;">void</span> *(*dup)(<span style="color: #98f5ff;">void</span> *<span style="color: #4eee94;">ptr</span>); <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#22797;&#21046;&#20989;&#25968;&#25351;&#38024;</span>
+    <span style="color: #98f5ff;">void</span> (*free)(<span style="color: #98f5ff;">void</span> *<span style="color: #4eee94;">ptr</span>); <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#37322;&#25918;&#20989;&#25968;&#25351;&#38024;</span>
+    <span style="color: #98f5ff;">int</span> (*match)(<span style="color: #98f5ff;">void</span> *<span style="color: #4eee94;">ptr</span>, <span style="color: #98f5ff;">void</span> *<span style="color: #4eee94;">key</span>); <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">&#27604;&#23545;&#20989;&#25968;&#25351;&#38024;</span>
+} <span style="color: #98f5ff;">list</span>;
+</pre>
+</div>
+
+<p>
+注意，listNode 的 value 属性的类型是 <span class="underline">void *</span>  ，说明这个双端链表对节点所保存的值的类型不做限制 
+</p>
+
+<p>
+对于不同类型的值，有时候需要不同的函数来处理这些值，因此， list 类型保留了三个函数指针 <span class="underline">dup</span>  <span class="underline">free</span> 和 <span class="underline">match</span> ，分别用于处理值的 <b>复制</b> <b>释放</b> 和 <b>对比</b> 匹配
+</p>
+
+<pre class="example">
+  在对节点的值进行处理时，如果有给定这些函数，就会调用这些函数
+</pre>
+
+<p>
+另外，从这两个数据结构的定义上，也可以了解到一些行为和性能特征：
+</p>
+<ul class="org-ul">
+<li>listNode 带有 <span class="underline">prev</span> 和 <span class="underline">next</span> 两个指针，因此，遍历可以双向进行：从表头到表尾，表尾到表头</li>
+<li><p>
+list 保存了 <span class="underline">head</span> 和 <span class="underline">tail</span> 两个指针，因此，对链表的表头和表尾进行插入的复杂度都为 \(O(1)\)
+</p>
+<pre class="example">
+      这是高效实现 LPUSH 、 RPOP 、 RPOPLPUSH 等命令的关键
+</pre></li>
+<li><p>
+list 带有保存节点数量的 len 属性，所以计算链表长度的复杂度仅为 \(O(1)\) 
+</p>
+<pre class="example">
+      这也保证了 LLEN 命令不会成为性能瓶颈
+</pre></li>
+</ul>
+</div>
+<div id="outline-container-org3580a28" class="outline-3">
+<h3 id="org3580a28">API</h3>
+<div class="outline-text-3" id="text-org3580a28">
+<p>
+以下是用于操作双端链表的 API ，它们的作用以及算法复杂度：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> adlist API</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">函数</td>
+<td class="org-left">作用</td>
+<td class="org-left">算法复杂度</td>
+</tr>
+
+<tr>
+<td class="org-left">listCreate</td>
+<td class="org-left">创建新链表</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listRelease</td>
+<td class="org-left">释放链表，以及该链表所包含的节点</td>
+<td class="org-left">O(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">listDup</td>
+<td class="org-left">创建给定链表的副本</td>
+<td class="org-left">O(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">listRotate</td>
+<td class="org-left">取出链表的表尾节点，并插入到表头</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listAddNodeHead</td>
+<td class="org-left">将包含给定值的节点添加到链表的表头</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listAddNodeTail</td>
+<td class="org-left">将包含给定值的节点添加到链表的表尾</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listInsertNode</td>
+<td class="org-left">将包含给定值的节点添加到某个节点的之前或之后</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listDelNode</td>
+<td class="org-left">删除给定节点</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listSearchKey</td>
+<td class="org-left">在链表中查找和给定 key 匹配的节点</td>
+<td class="org-left">O(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">listIndex</td>
+<td class="org-left">给据给定索引，返回列表中相应的节点</td>
+<td class="org-left">O(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">listLength</td>
+<td class="org-left">返回给定链表的节点数量</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listFirst</td>
+<td class="org-left">返回链表的表头节点</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listLast</td>
+<td class="org-left">返回链表的表尾节点</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listPrevNode</td>
+<td class="org-left">返回给定节点的前一个节点</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listNextNode</td>
+<td class="org-left">返回给定节点的后一个节点</td>
+<td class="org-left">O(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">listNodeValue</td>
+<td class="org-left">返回给定节点的值</td>
+<td class="org-left">O(1)</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div id="outline-container-org50a5060" class="outline-2">
+<h2 id="org50a5060">迭代器</h2>
 </div>
 </div>
 <div id="postamble" class="status">
