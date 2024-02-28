@@ -13,4 +13,185 @@
 
   最后， 以对字典迭代器的介绍作为结束
 #+END_EXAMPLE
+* 应用
+字典在 Redis 中的应用广泛， 使用频率可以说和 SDS 以及双端链表不相上下， 基本上各个功能模块都有用到字典的地方。其中， 字典的主要用途有以下两个：
++ 实现 *数据库键空间* _key space_
++ 用作 *Hash 类型键* 的底层实现之一
+  
+** 实现数据库键空间
+Redis 是一个键值对数据库， 数据库中的 _键值对_ 由 *字典* 保存： 每个数据库都有一个对应的字典， 这个字典被称之为 *键空间* _key space_
++ 当用户添加一个键值对到数据库时（不论键值对是什么类型）， 程序就将该键值对添加到键空间
++ 当用户从数据库中删除键值对时， 程序就会将这个键值对从键空间中删除
 
+举个例子，执行 _FLUSHDB_ 可以清空键空间里的所有键值对数据：
+
+#+begin_src sh 
+  redis> FLUSHDB
+  OK
+#+end_src
+
+执行 _DBSIZE_ 则返回键空间里现有的键值对：
+
+#+begin_src sh 
+  redis> DBSIZE
+  (integer) 0
+#+end_src
+
+#+begin_example
+  后面章节会对键空间以及数据库的实现作详细的介绍
+
+  大部分针对数据库的命令， 比如 DBSIZE 、 FLUSHDB 、 RANDOMKEY ， 等等， 都是构建于对字典的操作之上的
+
+  而那些创建、更新、删除和查找键值对的命令， 也无一例外地需要在键空间上进行操作
+#+end_example
+** Hash 类型键的底层实现之一
+Redis 的 Hash 类型键使用以下两种数据结构作为底层实现:
++ 字典
++ 压缩列表
+
+  #+begin_example
+    因为压缩列表比字典更节省内存， 所以程序在创建新 Hash 键时， 默认使用压缩列表作为底层实现
+
+    当有需要时， 程序才会将底层实现从压缩列表转换到字典
+  #+end_example
+
+当用户操作一个 Hash 键时， 键值在底层就可能是一个哈希表：
+
+#+begin_src sh 
+  redis> HSET book name "The design and implementation of Redis"
+  (integer) 1
+
+  redis> HSET book type "source code analysis"
+  (integer) 1
+
+  redis> HSET book release-date "2013.3.8"
+  (integer) 1
+
+  redis> HGETALL book
+  1) "name"
+  2) "The design and implementation of Redis"
+  3) "type"
+  4) "source code analysis"
+  5) "release-date"
+  6) "2013.3.8"
+#+end_src
+
+#+begin_example
+  以后《哈希表》章节给出了关于哈希类型键的更多信息， 并介绍了压缩列表和字典之间的转换条件
+#+end_example
+* 实现
+实现字典的方法有很多种：
++ 最简单的就是使用 _链表_ 或 _数组_ ，但是这种方式只适用于 *元素个数不多* 的情况下：
++ 要 *兼顾高效和简单性* ，可以使用 _哈希表_
++ 如果追求更为稳定的性能特征，并希望 *高效地实现排序* 操作的话，则可使用更为复杂的 _平衡树_ 
+
+#+begin_example
+在众多可能的实现中， Redis 选择了高效、实现简单的哈希表，作为字典的底层实现
+#+end_example
+
+_dict.h/dict_ 给出了这个字典的定义：
+
+#+begin_src c 
+  /*
+   ,* 字典
+   ,*
+   ,* 每个字典使用两个哈希表，用于实现渐进式 rehash
+   ,*/
+  typedef struct dict {
+	  dictType *type; // 特定于类型的处理函数
+	  void *privdata; // 类型处理函数的私有数据
+	  dictht ht[2]; // 哈希表（2 个）
+	  int rehashidx; // 记录 rehash 进度的标志，值为 -1 表示 rehash 未进行
+	  int iterators; // 当前正在运作的安全迭代器数量
+  } dict;
+#+end_src
+
+以下是用于处理 dict 类型的 API ， 它们的作用及相应的算法复杂度：
+
+#+CAPTION: dict API 
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 操作                           | 函数                   | 算法复杂度 |
+| 创建一个新字典                 | dictCreate             | $O$(1)       |
+| 添加新键值对到字典             | dictAdd                | $O$(1)       |
+| 添加或更新给定键的值           | dictReplace            | $O$(1)       |
+| 在字典中查找给定键所在的节点   | dictFind               | $O$(1)       |
+| 在字典中查找给定键的值         | dictFetchValue         | $O$(1)       |
+| 从字典中随机返回一个节点       | dictGetRandomKey       | $O$(1)       |
+| 根据给定键，删除字典中的键值对 | dictDelete             | $O$(1)       |
+| 清空并释放字典                 | dictRelease            | $O$(N)       |
+| 清空并重置（但不释放）字典     | dictEmpty              | $O$(N)       |
+| 缩小字典                       | dictResize             | $O$(N)       |
+| 扩大字典                       | dictExpand             | $O$(N)       |
+| 对字典进行给定步数的 rehash    | dictRehash             | $O$(N)       |
+| 在给定毫秒内，对字典进行rehash | dictRehashMilliseconds | $O$(N)       |
+
+注意 dict 类型使用了两个指针，分别指向两个 _哈希表_ 。其中：
++ 0 号哈希表 _ht[0]_ 是字典主要使用的哈希表
++ 1 号哈希表 _ht[1]_ 则只有在程序对 0 号哈希表进行 _rehash_ 时才使用。
+
+#+begin_example
+接下来两个小节将对哈希表的实现，以及哈希表所使用的哈希算法进行介绍
+#+end_example
+** 哈希表实现
+字典所使用的哈希表实现由 _dict.h/dictht_ 类型定义：
+
+#+begin_src c 
+  /*
+   ,* 哈希表
+   ,*/
+  typedef struct dictht {
+	  dictEntry **table; // 哈希表节点指针数组（俗称桶，bucket）
+	  unsigned long size; // 指针数组的大小
+	  unsigned long sizemask; // 指针数组的长度掩码，用于计算索引值
+	  unsigned long used; // 哈希表现有的节点数量
+  } dictht;
+#+end_src
+
+_table_ 属性是个数组， 数组的每个元素都是个指向 _dictEntry 结构_ 的 *指针* 。每个 dictEntry 都保存着一个 _键值对_ ， 以及一个指向 _另一个 dictEntry 结构_ 的 *指针* ：
+
+
+#+begin_src c 
+  /*
+   ,* 哈希表节点
+   ,*/
+  typedef struct dictEntry {
+	  void *key; // 键
+
+	  union {
+		  void *val;
+		  uint64_t u64;
+		  int64_t s64;
+	  } v; // 值
+
+	  struct dictEntry *next; // 链往后继节点
+  } dictEntry;
+#+end_src
+
+next 属性指向另一个 dictEntry 结构， 多个 dictEntry 可以通过 next 指针串连成链表， 从这里可以看出， dictht 使用 _链地址法_ 来处理键碰撞： 当多个不同的键拥有相同的哈希值时，哈希表用一个链表将这些键连接起来。下图展示了一个由 dictht 和数个 dictEntry 组成的哈希表例子：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-c720caba6b4d02c54fe310c148f0d56316ee80a2.svg]]
+
+如果再加上之前列出的 dict 类型，那么整个字典结构可以表示如下：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-6989792733a041b23cdc0b8f126434590c50a4e4.svg]]
+
+#+begin_example
+  在上图的字典示例中， 字典虽然创建了两个哈希表， 但正在使用的只有 0 号哈希表， 这说明字典未进行 rehash 状态
+#+end_example
+** 哈希算法
+Redis 目前使用两种不同的哈希算法：
++ _MurmurHash2_ 32 bit 算法：这种算法的分布率和速度都非常好
+  #+begin_example
+    具体信息请参考 MurmurHash 的主页： http://code.google.com/p/smhasher/ 
+  #+end_example
++ 基于 _djb 算法_ 实现的一个大小写无关散列算法
+  #+begin_example
+    具体信息请参考 http://www.cse.yorku.ca/~oz/hash.html 
+  #+end_example
+
+使用哪种算法取决于具体应用所处理的数据：
++ 命令表以及 Lua 脚本缓存都用到了算法 2
++ 算法 1 的应用则更加广泛：数据库、集群、哈希键、阻塞操作等功能都用到了这个算法
+* 创建新字典

@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -201,17 +222,389 @@
  <a accesskey="H" href="./data_structure.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">字典</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org37342e7">应用</a>
+<ul>
+<li><a href="#org882d841">实现数据库键空间</a></li>
+<li><a href="#orgcce9538">Hash 类型键的底层实现之一</a></li>
+</ul>
+</li>
+<li><a href="#org7cf22b1">实现</a>
+<ul>
+<li><a href="#orgd77c48e">哈希表实现</a></li>
+<li><a href="#org52be89c">哈希算法</a></li>
+</ul>
+</li>
+<li><a href="#org566067b">创建新字典</a></li>
+</ul>
+</div>
+</div>
 <p>
 <b>字典</b> <span class="underline">dictionary</span> ， 又名 <b>映射</b> <span class="underline">map</span> 或 <b>关联数组</b>  <span class="underline">associative array</span> ， 是一种抽象数据结构， 由一组 <b>键值对</b> <span class="underline">key-value pairs</span> 组成， 各个键值对的键各不相同， 程序可以 <span class="underline">添加</span> 新的键值对到字典中， 或者基于键进行 <span class="underline">查找</span> 、 <span class="underline">更新</span> 或 <span class="underline">删除</span> 等操作 
 </p>
 
-<pre class="example" id="org768690b">
+<pre class="example" id="orge53a5b6">
 接下来先对字典在 Redis 中的应用进行介绍
 
 接着讲解字典的具体实现方式， 以及这个字典实现要解决的问题
 
 最后， 以对字典迭代器的介绍作为结束
 </pre>
+<div id="outline-container-org37342e7" class="outline-2">
+<h2 id="org37342e7">应用</h2>
+<div class="outline-text-2" id="text-org37342e7">
+<p>
+字典在 Redis 中的应用广泛， 使用频率可以说和 SDS 以及双端链表不相上下， 基本上各个功能模块都有用到字典的地方。其中， 字典的主要用途有以下两个：
+</p>
+<ul class="org-ul">
+<li>实现 <b>数据库键空间</b> <span class="underline">key space</span></li>
+<li>用作 <b>Hash 类型键</b> 的底层实现之一</li>
+</ul>
+</div>
+
+<div id="outline-container-org882d841" class="outline-3">
+<h3 id="org882d841">实现数据库键空间</h3>
+<div class="outline-text-3" id="text-org882d841">
+<p>
+Redis 是一个键值对数据库， 数据库中的 <span class="underline">键值对</span> 由 <b>字典</b> 保存： 每个数据库都有一个对应的字典， 这个字典被称之为 <b>键空间</b> <span class="underline">key space</span>
+</p>
+<ul class="org-ul">
+<li>当用户添加一个键值对到数据库时（不论键值对是什么类型）， 程序就将该键值对添加到键空间</li>
+<li>当用户从数据库中删除键值对时， 程序就会将这个键值对从键空间中删除</li>
+</ul>
+
+<p>
+举个例子，执行 <span class="underline">FLUSHDB</span> 可以清空键空间里的所有键值对数据：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">redis&gt; FLUSHDB
+OK
+</pre>
+</div>
+
+<p>
+执行 <span class="underline">DBSIZE</span> 则返回键空间里现有的键值对：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">redis&gt; DBSIZE
+(integer) 0
+</pre>
+</div>
+
+<pre class="example" id="org0653acd">
+后面章节会对键空间以及数据库的实现作详细的介绍
+
+大部分针对数据库的命令， 比如 DBSIZE 、 FLUSHDB 、 RANDOMKEY ， 等等， 都是构建于对字典的操作之上的
+
+而那些创建、更新、删除和查找键值对的命令， 也无一例外地需要在键空间上进行操作
+</pre>
+</div>
+</div>
+<div id="outline-container-orgcce9538" class="outline-3">
+<h3 id="orgcce9538">Hash 类型键的底层实现之一</h3>
+<div class="outline-text-3" id="text-orgcce9538">
+<p>
+Redis 的 Hash 类型键使用以下两种数据结构作为底层实现:
+</p>
+<ul class="org-ul">
+<li>字典</li>
+<li><p>
+压缩列表
+</p>
+
+<pre class="example" id="org713a42c">
+因为压缩列表比字典更节省内存， 所以程序在创建新 Hash 键时， 默认使用压缩列表作为底层实现
+
+当有需要时， 程序才会将底层实现从压缩列表转换到字典
+</pre></li>
+</ul>
+
+<p>
+当用户操作一个 Hash 键时， 键值在底层就可能是一个哈希表：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">redis&gt; HSET book name <span style="color: #ffa07a;">"The design and implementation of Redis"</span>
+(integer) 1
+
+redis&gt; HSET book type <span style="color: #ffa07a;">"source code analysis"</span>
+(integer) 1
+
+redis&gt; HSET book release-date <span style="color: #ffa07a;">"2013.3.8"</span>
+(integer) 1
+
+redis&gt; HGETALL book
+1) <span style="color: #ffa07a;">"name"</span>
+2) <span style="color: #ffa07a;">"The design and implementation of Redis"</span>
+3) <span style="color: #ffa07a;">"type"</span>
+4) <span style="color: #ffa07a;">"source code analysis"</span>
+5) <span style="color: #ffa07a;">"release-date"</span>
+6) <span style="color: #ffa07a;">"2013.3.8"</span>
+</pre>
+</div>
+
+<pre class="example" id="org3280fdc">
+以后《哈希表》章节给出了关于哈希类型键的更多信息， 并介绍了压缩列表和字典之间的转换条件
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org7cf22b1" class="outline-2">
+<h2 id="org7cf22b1">实现</h2>
+<div class="outline-text-2" id="text-org7cf22b1">
+<p>
+实现字典的方法有很多种：
+</p>
+<ul class="org-ul">
+<li>最简单的就是使用 <span class="underline">链表</span> 或 <span class="underline">数组</span> ，但是这种方式只适用于 <b>元素个数不多</b> 的情况下：</li>
+<li>要 <b>兼顾高效和简单性</b> ，可以使用 <span class="underline">哈希表</span></li>
+<li>如果追求更为稳定的性能特征，并希望 <b>高效地实现排序</b> 操作的话，则可使用更为复杂的 <span class="underline">平衡树</span></li>
+</ul>
+
+<pre class="example" id="org43585f2">
+在众多可能的实现中， Redis 选择了高效、实现简单的哈希表，作为字典的底层实现
+</pre>
+
+<p>
+<span class="underline">dict.h/dict</span> 给出了这个字典的定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">/*</span>
+<span style="color: #ff4500;"> * &#23383;&#20856;</span>
+<span style="color: #ff4500;"> *</span>
+<span style="color: #ff4500;"> * &#27599;&#20010;&#23383;&#20856;&#20351;&#29992;&#20004;&#20010;&#21704;&#24076;&#34920;&#65292;&#29992;&#20110;&#23454;&#29616;&#28176;&#36827;&#24335; rehash</span>
+<span style="color: #ff4500;"> */</span>
+<span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">dict</span> {
+    <span style="color: #98fb98;">dictType</span> *<span style="color: #eedd82;">type</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29305;&#23450;&#20110;&#31867;&#22411;&#30340;&#22788;&#29702;&#20989;&#25968;</span>
+    <span style="color: #98fb98;">void</span> *<span style="color: #eedd82;">privdata</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31867;&#22411;&#22788;&#29702;&#20989;&#25968;&#30340;&#31169;&#26377;&#25968;&#25454;</span>
+    <span style="color: #98fb98;">dictht</span> <span style="color: #eedd82;">ht</span>[2]; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21704;&#24076;&#34920;&#65288;2 &#20010;&#65289;</span>
+    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">rehashidx</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35760;&#24405; rehash &#36827;&#24230;&#30340;&#26631;&#24535;&#65292;&#20540;&#20026; -1 &#34920;&#31034; rehash &#26410;&#36827;&#34892;</span>
+    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">iterators</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24403;&#21069;&#27491;&#22312;&#36816;&#20316;&#30340;&#23433;&#20840;&#36845;&#20195;&#22120;&#25968;&#37327;</span>
+} <span style="color: #98fb98;">dict</span>;
+</pre>
+</div>
+
+<p>
+以下是用于处理 dict 类型的 API ， 它们的作用及相应的算法复杂度：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> dict API</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">操作</td>
+<td class="org-left">函数</td>
+<td class="org-left">算法复杂度</td>
+</tr>
+
+<tr>
+<td class="org-left">创建一个新字典</td>
+<td class="org-left">dictCreate</td>
+<td class="org-left">\(O\)(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">添加新键值对到字典</td>
+<td class="org-left">dictAdd</td>
+<td class="org-left">\(O\)(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">添加或更新给定键的值</td>
+<td class="org-left">dictReplace</td>
+<td class="org-left">\(O\)(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">在字典中查找给定键所在的节点</td>
+<td class="org-left">dictFind</td>
+<td class="org-left">\(O\)(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">在字典中查找给定键的值</td>
+<td class="org-left">dictFetchValue</td>
+<td class="org-left">\(O\)(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">从字典中随机返回一个节点</td>
+<td class="org-left">dictGetRandomKey</td>
+<td class="org-left">\(O\)(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">根据给定键，删除字典中的键值对</td>
+<td class="org-left">dictDelete</td>
+<td class="org-left">\(O\)(1)</td>
+</tr>
+
+<tr>
+<td class="org-left">清空并释放字典</td>
+<td class="org-left">dictRelease</td>
+<td class="org-left">\(O\)(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">清空并重置（但不释放）字典</td>
+<td class="org-left">dictEmpty</td>
+<td class="org-left">\(O\)(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">缩小字典</td>
+<td class="org-left">dictResize</td>
+<td class="org-left">\(O\)(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">扩大字典</td>
+<td class="org-left">dictExpand</td>
+<td class="org-left">\(O\)(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">对字典进行给定步数的 rehash</td>
+<td class="org-left">dictRehash</td>
+<td class="org-left">\(O\)(N)</td>
+</tr>
+
+<tr>
+<td class="org-left">在给定毫秒内，对字典进行rehash</td>
+<td class="org-left">dictRehashMilliseconds</td>
+<td class="org-left">\(O\)(N)</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+注意 dict 类型使用了两个指针，分别指向两个 <span class="underline">哈希表</span> 。其中：
+</p>
+<ul class="org-ul">
+<li>0 号哈希表 <span class="underline">ht[0]</span> 是字典主要使用的哈希表</li>
+<li>1 号哈希表 <span class="underline">ht[1]</span> 则只有在程序对 0 号哈希表进行 <span class="underline">rehash</span> 时才使用。</li>
+</ul>
+
+<pre class="example" id="orgeba24d9">
+接下来两个小节将对哈希表的实现，以及哈希表所使用的哈希算法进行介绍
+</pre>
+</div>
+<div id="outline-container-orgd77c48e" class="outline-3">
+<h3 id="orgd77c48e">哈希表实现</h3>
+<div class="outline-text-3" id="text-orgd77c48e">
+<p>
+字典所使用的哈希表实现由 <span class="underline">dict.h/dictht</span> 类型定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">/*</span>
+<span style="color: #ff4500;"> * &#21704;&#24076;&#34920;</span>
+<span style="color: #ff4500;"> */</span>
+<span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">dictht</span> {
+    <span style="color: #98fb98;">dictEntry</span> **<span style="color: #eedd82;">table</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21704;&#24076;&#34920;&#33410;&#28857;&#25351;&#38024;&#25968;&#32452;&#65288;&#20439;&#31216;&#26742;&#65292;bucket&#65289;</span>
+    <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">size</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25351;&#38024;&#25968;&#32452;&#30340;&#22823;&#23567;</span>
+    <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">sizemask</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25351;&#38024;&#25968;&#32452;&#30340;&#38271;&#24230;&#25513;&#30721;&#65292;&#29992;&#20110;&#35745;&#31639;&#32034;&#24341;&#20540;</span>
+    <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">used</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21704;&#24076;&#34920;&#29616;&#26377;&#30340;&#33410;&#28857;&#25968;&#37327;</span>
+} <span style="color: #98fb98;">dictht</span>;
+</pre>
+</div>
+
+<p>
+<span class="underline">table</span> 属性是个数组， 数组的每个元素都是个指向 <span class="underline">dictEntry 结构</span> 的 <b>指针</b> 。每个 dictEntry 都保存着一个 <span class="underline">键值对</span> ， 以及一个指向 <span class="underline">另一个 dictEntry 结构</span> 的 <b>指针</b> ：
+</p>
+
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">/*</span>
+<span style="color: #ff4500;"> * &#21704;&#24076;&#34920;&#33410;&#28857;</span>
+<span style="color: #ff4500;"> */</span>
+<span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">dictEntry</span> {
+    <span style="color: #98fb98;">void</span> *<span style="color: #eedd82;">key</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#38190;</span>
+
+    <span style="color: #00ffff;">union</span> {
+        <span style="color: #98fb98;">void</span> *<span style="color: #eedd82;">val</span>;
+        <span style="color: #98fb98;">uint64_t</span> <span style="color: #eedd82;">u64</span>;
+        <span style="color: #98fb98;">int64_t</span> <span style="color: #eedd82;">s64</span>;
+    } <span style="color: #eedd82;">v</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20540;</span>
+
+    <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">dictEntry</span> *<span style="color: #eedd82;">next</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#38142;&#24448;&#21518;&#32487;&#33410;&#28857;</span>
+} <span style="color: #98fb98;">dictEntry</span>;
+</pre>
+</div>
+
+<p>
+next 属性指向另一个 dictEntry 结构， 多个 dictEntry 可以通过 next 指针串连成链表， 从这里可以看出， dictht 使用 <span class="underline">链地址法</span> 来处理键碰撞： 当多个不同的键拥有相同的哈希值时，哈希表用一个链表将这些键连接起来。下图展示了一个由 dictht 和数个 dictEntry 组成的哈希表例子：
+</p>
+
+
+<div id="org402a3a1" class="figure">
+<p><img src="../pic/graphviz-c720caba6b4d02c54fe310c148f0d56316ee80a2.svg" alt="graphviz-c720caba6b4d02c54fe310c148f0d56316ee80a2.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+如果再加上之前列出的 dict 类型，那么整个字典结构可以表示如下：
+</p>
+
+
+<div id="org8665676" class="figure">
+<p><img src="../pic/graphviz-6989792733a041b23cdc0b8f126434590c50a4e4.svg" alt="graphviz-6989792733a041b23cdc0b8f126434590c50a4e4.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<pre class="example" id="org5f1cee1">
+在上图的字典示例中， 字典虽然创建了两个哈希表， 但正在使用的只有 0 号哈希表， 这说明字典未进行 rehash 状态
+</pre>
+</div>
+</div>
+<div id="outline-container-org52be89c" class="outline-3">
+<h3 id="org52be89c">哈希算法</h3>
+<div class="outline-text-3" id="text-org52be89c">
+<p>
+Redis 目前使用两种不同的哈希算法：
+</p>
+<ul class="org-ul">
+<li><p>
+<span class="underline">MurmurHash2</span> 32 bit 算法：这种算法的分布率和速度都非常好
+</p>
+<pre class="example" id="orgb7e9b99">
+具体信息请参考 MurmurHash 的主页： http://code.google.com/p/smhasher/ 
+</pre></li>
+<li><p>
+基于 <span class="underline">djb 算法</span> 实现的一个大小写无关散列算法
+</p>
+<pre class="example" id="org812897d">
+具体信息请参考 http://www.cse.yorku.ca/~oz/hash.html 
+</pre></li>
+</ul>
+
+<p>
+使用哪种算法取决于具体应用所处理的数据：
+</p>
+<ul class="org-ul">
+<li>命令表以及 Lua 脚本缓存都用到了算法 2</li>
+<li>算法 1 的应用则更加广泛：数据库、集群、哈希键、阻塞操作等功能都用到了这个算法</li>
+</ul>
+</div>
+</div>
+</div>
+<div id="outline-container-org566067b" class="outline-2">
+<h2 id="org566067b">创建新字典</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
