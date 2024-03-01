@@ -195,3 +195,107 @@ Redis 目前使用两种不同的哈希算法：
 + 命令表以及 Lua 脚本缓存都用到了算法 2
 + 算法 1 的应用则更加广泛：数据库、集群、哈希键、阻塞操作等功能都用到了这个算法
 * 创建新字典
+_dictCreate_ 函数创建并返回一个新字典：
+
+#+begin_src c 
+  dict *d = dictCreate(&hash_type, NULL);
+#+end_src
+
+d 的值可以用图片表示如下：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-ce90f2a0f396c0ab66b48c0eb83f18fa8f4754f0.svg]]
+
+新创建的两个哈希表都没有为 _table 属性_ 分配任何空间：
++ _ht[0]->table_ 的空间分配将在 *第一次* 往字典 *添加键值对* 时进行
++ _ht[1]->table_ 的空间分配将在 *rehash* 开始时进行
+* 添加键值对到字典
+根据字典所处的状态， 将给定的键值对添加到字典可能会引起一系列复杂的操作：
++ 如果字典为未初始化（即字典的 0 号哈希表的 table 属性为空），则程序需要对 0 号哈希表进行 *初始化*
++ 如果在插入时发生了键碰撞，则程序需要处理 *碰撞* 
++ 如果插入新元素，使得字典满足了 rehash 条件，则需要启动相应的  *rehash* 程序
+
+当程序处理完以上三种情况之后，新的键值对才会被真正地添加到字典上。整个添加流程可以用下图表示：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-68f4129c529e0c49d38cfe664cad48af4412770a.svg]]
+
+接下来将分别看到，添加操作如何在以下三种情况中执行：
+1. 字典为空
+2. 添加新键值对时发生碰撞处理
+3. 添加新键值对时触发了 rehash 操作
+** 添加新元素到空白字典
+当第一次往空字典里添加键值对时， 程序会根据 _dict.h/DICT_HT_INITIAL_SIZE_ 里指定的大小为 _d->ht[0]->table_  *分配空间*
+
+#+begin_example
+在目前的版本中， DICT_HT_INITIAL_SIZE 的值为 4 
+#+end_example
+
+以下是字典空白时的样子：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-ce90f2a0f396c0ab66b48c0eb83f18fa8f4754f0.svg]]
+
+以下是往空白字典添加了第一个键值对之后的样子：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-5db645431193228424095abdcf1a3270c9da385e.svg]]
+** 添加新键值对时发生碰撞处理
+在哈希表实现中， 当两个不同的键拥有相同的哈希值时， 称这两个键发生 *碰撞* _collision_
+
+#+begin_example
+哈希表实现必须想办法对碰撞进行处理
+#+end_example
+
+字典哈希表所使用的碰撞解决方法被称之为 _链地址法_ ： 这种方法使用 *链表* 将多个哈希值相同的节点串连在一起， 从而解决冲突问题。假设现在有一个带有三个节点的哈希表，如下图：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-551247f8f670dc6b0eb2dbd6406aee607068249c.svg]]
+
+对于一个新的键值对 _key4_ 和 _value4_ ， 如果 key4 的哈希值和 key1 的哈希值相同， 那么它们将在哈希表的 _0_ 号索引上发生碰撞。通过将 _key4-value4_ 和 _key1-value1_ 两个键值对用链表连接起来， 就可以解决碰撞的问题：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-f351812afbaf4b7c29731b38d17dc4a24f902069.svg]]
+
+** 添加新键值对时触发了 rehash 操作
+对于使用链地址法来解决碰撞问题的哈希表 dictht 来说， 哈希表的性能取决于 *大小*  _size属性_ 与 *保存节点数量* _used属性_ 之间的 *比率* ：
++ 哈希表的大小与节点数量，比率在 _1:1_ 时，哈希表的 *性能最好* 
++ 如果 *节点数量比哈希表的大小要大很多* 的话，那么哈希表就会退化成 _多个链表_ ，哈希表本身的性能优势便不复存在；
+
+举个例子， 下面这个哈希表， 平均每次失败查找只需要访问 1 个节点（非空节点访问 2 次，空节点访问 1 次）：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-ff857f0c77749cd0213041b561bac0a6348f78e5.svg]]
+
+而下面这个哈希表， 平均每次失败查找需要访问 5 个节点：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-cbec5e98bba611d3021b57f5417b93538328af42.svg]]
+
+#+begin_example
+  为了在字典的键值对不断增多的情况下保持良好的性能， 字典需要对所使用的哈希表（ht[0]）进行 rehash 操作
+
+  在不修改任何键值对的情况下，对哈希表进行扩容， 尽量将比率维持在 1:1 左右
+#+end_example
+
+dictAdd 在每次向字典添加新键值对之前， 都会对哈希表 ht[0] 进行检查， 对于 ht[0] 的 size 和 used 属性， 如果它们之间的比率 $ratio = used / size$ 满足以下任何一个条件的话， _rehash_ 过程就会被 *激活* ：
+1. 自然 rehash ：  $ratio >= 1 ，且变量 \text{dict_can_resize} 为真$
+2. 强制 rehash ：  $ratio 大于变量 \text{dict_force_resize_ratio}$
+   #+begin_example
+     目前版本中， dict_force_resize_ratio 的值为 5 
+   #+end_example
+
+#+begin_example
+  什么时候 dict_can_resize 会为假?
+
+  当 Redis 使用子进程对数据库执行后台持久化任务时（比如执行 BGSAVE 或 BGREWRITEAOF 时）
+
+  为了最大化地利用系统的 copy on write 机制， 程序会暂时将 dict_can_resize 设为假
+
+  避免执行自然 rehash ， 从而减少程序对内存的触碰。当持久化任务完成之后， dict_can_resize 会重新被设为真
+
+  另一方面， 当字典满足了强制 rehash 的条件时， 即使 dict_can_resize 不为真（有 BGSAVE 或 BGREWRITEAOF 正在执行）， 这个字典一样会被 rehash 
+#+end_example
+*** Rehash 执行过程
+# #+ATTR_HTML: image :width 90% 
+# [[file:../pic/]]
+
+*** 渐进式Rehash
