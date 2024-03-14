@@ -444,3 +444,66 @@ dictRehashMilliseconds 可以在指定的毫秒数内， 对字典进行 rehash
 #+end_example
 
 * 迭代
+字典带有自己的 _迭代器_ 实现。对字典进行迭代实际上就是对字典所使用的哈希表进行迭代：
++ 迭代器首先迭代字典的第一个哈希表，然后，如果 rehash 正在进行的话，就继续对第二个哈希表进行迭代
+  + 当迭代哈希表时，找到第一个不为空的索引，然后迭代这个索引上的所有节点
+  + 当这个索引迭代完了，继续查找下一个不为空的索引，如此反覆，直到整个哈希表都迭代完为止
+
+整个迭代过程可以用伪代码表示如下：
+
+#+begin_src python 
+  def iter_dict(dict):
+      iter_table(ht[0]->table) # 迭代 0 号哈希表
+      if dict.is_rehashing(): iter_table(ht[1]->table) # 如果正在执行 rehash ，那么也迭代 1 号哈希表
+
+
+  def iter_table(table):
+      for index in table: # 遍历哈希表上的所有索引
+	  if table[index].empty(): # 跳过空索引
+	      continue
+	  for node in table[index]: # 遍历索引上的所有节点
+	      do_something_with(node) # 处理节点
+#+end_src
+
+字典的迭代器有两种：
+1. 安全迭代器：在迭代进行过程中，可以对字典进行修改
+2. 不安全迭代器：在迭代进行过程中，不对字典进行修改
+
+以下是迭代器的数据结构定义：
+#+begin_src c 
+  /*
+   ,* 字典迭代器
+   ,*/
+  typedef struct dictIterator {
+	  dict *d;                // 正在迭代的字典
+
+	  int table,              // 正在迭代的哈希表的号码（0 或者 1）
+		  index,              // 正在迭代的哈希表数组的索引
+		  safe;               // 是否安全？
+        
+	  dictEntry *entry,       // 当前哈希节点
+		  ,*nextEntry;   // 当前哈希节点的后继节点
+
+  } dictIterator;
+#+end_src
+
+以下函数是这个迭代器的 API ，API 的作用及相关算法复杂度：
+
+#+CAPTION: dict iterator 
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 操作                                              | 函数                | 算法复杂度 |
+| 创建一个不安全迭代器                              | dictGetIterator     | $O$(1)     |
+| 创建一个安全迭代器                                | dictGetSafeIterator | $O$(1)     |
+| 返回迭代器指向的当前节点，如果迭代完毕，返回 NULL | dictNext            | $O$(1)     |
+| 释放迭代器                                        | dictReleaseIterator | $O$(1)     |
+
+* 总结
++ 字典是由键值对构成的抽象数据结构
++ Redis 中的数据库和哈希键都基于字典来实现
++ Redis 字典的底层实现为哈希表，每个字典使用两个哈希表，一般情况下只使用 0 号哈希表，只有在 rehash 进行时，才会同时使用 0 号和 1 号哈希表
++ 哈希表使用链地址法来解决键冲突的问题
++ Rehash 可以用于扩展或收缩哈希表
++ 对哈希表的 rehash 是分多次、渐进式地进行的
+
+
+
