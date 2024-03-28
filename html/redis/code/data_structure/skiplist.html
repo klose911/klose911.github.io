@@ -244,7 +244,7 @@
 <li>比起平衡树来说， 跳跃表的实现要简单直观得多</li>
 </ul>
 
-<pre class="example" id="org86fe540">
+<pre class="example" id="orgcc4306a">
 跳跃表由 William Pugh 在论文《Skip lists: a probabilistic alternative to balanced trees》中提出
 </pre>
 
@@ -253,7 +253,7 @@
 </p>
 
 
-<div id="org0798894" class="figure">
+<div id="org4d31d0c" class="figure">
 <p><img src="../pic/skiplist.png" alt="skiplist.png" width="90%" />
 </p>
 </div>
@@ -271,7 +271,7 @@
 <li>表尾：全部由 <span class="underline">NULL</span> 组成，表示跳跃表的末尾</li>
 </ul>
 
-<pre class="example" id="orgc3ec428">
+<pre class="example" id="org90fa201">
 因为跳跃表的定义可以在任何一本算法或数据结构的书中找到
 
 所以不介绍跳跃表的具体实现方式或者具体的算法，而只介绍跳跃表在 Redis 的应用、核心数据结构和 API 
@@ -437,9 +437,75 @@
 
 <div id="outline-container-orgaab674a" class="outline-2">
 <h2 id="orgaab674a">应用</h2>
+<div class="outline-text-2" id="text-orgaab674a">
+<p>
+和字典、链表或者字符串这几种在 Redis 中大量使用的数据结构不同， 跳跃表在 Redis 的唯一作用， 就是实现 <span class="underline">有序集</span> 数据类型。跳跃表将指向有序集的 <span class="underline">score</span> 值和 <span class="underline">member</span> 域的指针作为元素， 并以 <span class="underline">score</span> 值为 <b>索引</b> ， 对有序集元素进行 <b>排序</b> 。举个例子， 以下代码创建了一个带有 3 个元素的有序集：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">redis&gt; ZADD s 6 x 10 y 15 z
+(integer) 3
+
+redis&gt; ZRANGE s 0 -1 WITHSCORES
+1) <span style="color: #ffa07a;">"x"</span>
+2) <span style="color: #ffa07a;">"6"</span>
+3) <span style="color: #ffa07a;">"y"</span>
+4) <span style="color: #ffa07a;">"10"</span>
+5) <span style="color: #ffa07a;">"z"</span>
+6) <span style="color: #ffa07a;">"15"</span>
+</pre>
 </div>
+
+<p>
+在底层实现中， Redis 为 <span class="underline">x</span>  、 <span class="underline">y</span> 和 <span class="underline">z</span> 三个 <span class="underline">member</span> 分别创建了三个字符串， <span class="underline">score</span> 值分别为 <span class="underline">double</span> 类型的  <span class="underline">6</span>  、 <span class="underline">10</span>  和  <span class="underline">15</span> ， 然后用 <b>跳跃表</b> 将这些指针 <b>有序地</b> 保存起来， 形成这样一个跳跃表：
+</p>
+
+
+<div id="org1b16824" class="figure">
+<p><img src="../pic/graphviz-ba063df77d0d9a6581ef14368644db453ab8a7f7.svg" alt="graphviz-ba063df77d0d9a6581ef14368644db453ab8a7f7.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<pre class="example" id="orge2941a0">
+为了方便展示， 在图片中直接将 member 和 score 值包含在表节点中
+
+但是在实际的定义中， 因为跳跃表要和另一个实现有序集的结构（字典）分享 member 和 score 值， 所以跳跃表只保存指向 member 和 score 的指针
+</pre>
+</div>
+</div>
+
 <div id="outline-container-org8b4138e" class="outline-2">
 <h2 id="org8b4138e">小结</h2>
+<div class="outline-text-2" id="text-org8b4138e">
+<ul class="org-ul">
+<li>跳跃表是一种随机化数据结构，查找、添加、删除操作都可以在对数期望时间下完成</li>
+<li>跳跃表目前在 Redis 的唯一作用，就是作为有序集类型的底层数据结构（另一个构成有序集的结构是字典）</li>
+<li><p>
+为了满足自身的需求，Redis 基于 William Pugh 论文中描述的跳跃表进行了修改，包括：
+</p>
+<ul class="org-ul">
+<li>score 值可重复</li>
+<li>对比一个元素需要同时检查它的 score 和 memeber</li>
+<li>每个节点带有高度为 1 层的后退指针，用于从表尾方向向表头方向迭代</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="dict.html">Previous：字典</a></td>
+<td class="org-left"><a href="data_structure.html">Home: 内部数据结构</a></td>
+</tr>
+</tbody>
+</table></li>
+</ul>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">

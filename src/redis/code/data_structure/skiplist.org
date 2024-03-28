@@ -87,4 +87,40 @@
 | zslGetElementByRank   | 根据给定排位，返回该排位上的元素节点                  | 最坏 $O(N)$ 平均 $O(log{N})$ |
      
 * 应用
+和字典、链表或者字符串这几种在 Redis 中大量使用的数据结构不同， 跳跃表在 Redis 的唯一作用， 就是实现 _有序集_ 数据类型。跳跃表将指向有序集的 _score_ 值和 _member_ 域的指针作为元素， 并以 _score_ 值为 *索引* ， 对有序集元素进行 *排序* 。举个例子， 以下代码创建了一个带有 3 个元素的有序集：
+
+#+begin_src sh 
+  redis> ZADD s 6 x 10 y 15 z
+  (integer) 3
+
+  redis> ZRANGE s 0 -1 WITHSCORES
+  1) "x"
+  2) "6"
+  3) "y"
+  4) "10"
+  5) "z"
+  6) "15"
+#+end_src
+
+在底层实现中， Redis 为 _x_  、 _y_ 和 _z_ 三个 _member_ 分别创建了三个字符串， _score_ 值分别为 _double_ 类型的  _6_  、 _10_  和  _15_ ， 然后用 *跳跃表* 将这些指针 *有序地* 保存起来， 形成这样一个跳跃表：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-ba063df77d0d9a6581ef14368644db453ab8a7f7.svg]]
+
+#+begin_example
+  为了方便展示， 在图片中直接将 member 和 score 值包含在表节点中
+
+  但是在实际的定义中， 因为跳跃表要和另一个实现有序集的结构（字典）分享 member 和 score 值， 所以跳跃表只保存指向 member 和 score 的指针
+#+end_example
+
 * 小结
++ 跳跃表是一种随机化数据结构，查找、添加、删除操作都可以在对数期望时间下完成
++ 跳跃表目前在 Redis 的唯一作用，就是作为有序集类型的底层数据结构（另一个构成有序集的结构是字典）
++ 为了满足自身的需求，Redis 基于 William Pugh 论文中描述的跳跃表进行了修改，包括：
+  + score 值可重复
+  + 对比一个元素需要同时检查它的 score 和 memeber
+  + 每个节点带有高度为 1 层的后退指针，用于从表尾方向向表头方向迭代
+
+  #+ATTR_HTML: :border 1 :rules all :frame boader
+   | [[file:dict.org][Previous：字典]] | [[file:data_structure.org][Home: 内部数据结构]] |
+
