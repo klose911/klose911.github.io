@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -206,13 +227,26 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org0ebfd2d">应用</a></li>
+<li><a href="#org1d207cc">实现</a></li>
+<li><a href="#org819c0b6">实例</a>
+<ul>
+<li><a href="#org9fd85f4">创建新 intset</a></li>
+<li><a href="#org47b5675">添加新元素到 intset</a>
+<ul>
+<li><a href="#org251756c">添加新元素到 intset （不需要升级）</a></li>
+<li><a href="#org8616e1c">添加新元素到 intset （需要升级）</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orgc9031bb">升级</a></li>
 </ul>
 </div>
 </div>
 <p>
 <b>整数集合</b> <span class="underline">intset</span> 用于 <b>有序</b>  <b>无重复</b> 地保存多个整数值， 根据元素的值， 自动选择该用什么长度的整数类型来保存元素
 </p>
-<pre class="example" id="orgbc2387f">
+<pre class="example" id="orged28f4b">
 举个例子， 如果在一个 intset 里面， 最长的元素可以用 int16_t 类型来保存， 那么这个 intset 的所有元素都以 int16_t 类型来保存
 
 另一方面， 如果有一个新元素要加入到这个 intset ， 并且这个元素不能用 int16_t 类型来保存 比如说， 新元素的长度为 int32_t
@@ -225,6 +259,282 @@
 </p>
 <div id="outline-container-org0ebfd2d" class="outline-2">
 <h2 id="org0ebfd2d">应用</h2>
+<div class="outline-text-2" id="text-org0ebfd2d">
+<p>
+Intset 是 <span class="underline">集合键</span> 的底层实现之一，如果一个集合：
+</p>
+<ul class="org-ul">
+<li>只保存着 <b>整数</b> 元素</li>
+<li>元素的 <b>数量不多</b></li>
+</ul>
+
+<p>
+那么 Redis 就会使用 intset 来保存集合元素
+</p>
+</div>
+</div>
+<div id="outline-container-org1d207cc" class="outline-2">
+<h2 id="org1d207cc">实现</h2>
+<div class="outline-text-2" id="text-org1d207cc">
+<p>
+以下是 <span class="underline">intset.h/intset</span> 类型的定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">intset</span> {
+    <span style="color: #98fb98;">uint32_t</span> <span style="color: #eedd82;">encoding</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20445;&#23384;&#20803;&#32032;&#25152;&#20351;&#29992;&#30340;&#31867;&#22411;&#30340;&#38271;&#24230;</span>
+    <span style="color: #98fb98;">uint32_t</span> <span style="color: #eedd82;">length</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20803;&#32032;&#20010;&#25968;</span>
+    <span style="color: #98fb98;">int8_t</span> <span style="color: #eedd82;">contents</span>[]; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20445;&#23384;&#20803;&#32032;&#30340;&#25968;&#32452;</span>
+} <span style="color: #98fb98;">intset</span>;
+</pre>
+</div>
+
+<p>
+<span class="underline">encoding</span> 的值可以是以下三个常量之一：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">INTSET_ENC_INT16</span> (<span style="color: #00ffff;">sizeof</span>(int16_t))
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">INTSET_ENC_INT32</span> (<span style="color: #00ffff;">sizeof</span>(int32_t))
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">INTSET_ENC_INT64</span> (<span style="color: #00ffff;">sizeof</span>(int64_t))
+</pre>
+</div>
+
+<p>
+<span class="underline">contents</span> 数组是实际保存元素的地方，数组中的元素有以下两个特性：
+</p>
+<ul class="org-ul">
+<li>元素不重复</li>
+<li>元素在数组中由小到大排列</li>
+</ul>
+
+<p>
+contents 数组的 int8_t 类型声明比较容易让人误解：
+</p>
+<ul class="org-ul">
+<li>实际上， intset 并不使用 int8_t 类型来保存任何元素，结构中的这个类型声明只是作为一个占位符使用</li>
+<li>在对 contents 中的元素进行读取或者写入时，程序并不是直接使用 contents 来对元素进行索引，而是 <b>根据 encoding 的值，对 contents 进行类型转换和指针运算，计算出元素在内存中的正确位置</b></li>
+<li>在添加新元素，进行内存分配时，分配的空间也是由 encoding 的值决定</li>
+</ul>
+
+<p>
+下表列出了处理 intset 的一些主要操作，以及这些操作的算法复杂度：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> intset API</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">操作</td>
+<td class="org-left">函数</td>
+<td class="org-left">复杂度</td>
+</tr>
+
+<tr>
+<td class="org-left">创建 intset</td>
+<td class="org-left">intsetNew</td>
+<td class="org-left">\(O(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">删除 intset</td>
+<td class="org-left">无</td>
+<td class="org-left">无</td>
+</tr>
+
+<tr>
+<td class="org-left">添加新元素（不升级）</td>
+<td class="org-left">intsetAdd</td>
+<td class="org-left">\(O(N)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">添加新元素（升级）</td>
+<td class="org-left">intsetUpgradeAndAdd</td>
+<td class="org-left">\(O(N)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">按索引获取元素</td>
+<td class="org-left">_intsetGet</td>
+<td class="org-left">\(O(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">按索引设置元素</td>
+<td class="org-left">_intsetSet</td>
+<td class="org-left">\(O(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">查找元素，返回索引</td>
+<td class="org-left">intsetSearch</td>
+<td class="org-left">\(O(\log{N})\)</td>
+</tr>
+
+<tr>
+<td class="org-left">删除元素</td>
+<td class="org-left">intsetRemove</td>
+<td class="org-left">\(O(N)\)</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<div id="outline-container-org819c0b6" class="outline-2">
+<h2 id="org819c0b6">实例</h2>
+<div class="outline-text-2" id="text-org819c0b6">
+<p>
+使用一个 intset 的创建和添加过程，借此了解 intset 的运作方式
+</p>
+</div>
+
+<div id="outline-container-org9fd85f4" class="outline-3">
+<h3 id="org9fd85f4">创建新 intset</h3>
+<div class="outline-text-3" id="text-org9fd85f4">
+<p>
+<span class="underline">intset.c/intsetNew</span> 函数创建一个新的 intset ，并设置初始化值：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">intset</span> *<span style="color: #eedd82;">is</span> = intsetNew();
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">intset-&gt;encoding = INTSET_ENC_INT16;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">intset-&gt;length 0;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">intset-&gt;contents = [];</span>
+</pre>
+</div>
+
+<p>
+注意： encoding 使用 INTSET_ENC_INT16 作为初始值
+</p>
+</div>
+</div>
+
+<div id="outline-container-org47b5675" class="outline-3">
+<h3 id="org47b5675">添加新元素到 intset</h3>
+<div class="outline-text-3" id="text-org47b5675">
+<p>
+创建 intset 之后，就可以对它添加新元素了。添加新元素到 intset 的工作由 <span class="underline">intset.c/intsetAdd</span> 函数完成，需要处理以下三种情况：
+</p>
+<ol class="org-ol">
+<li>元素已存在于集合，不做动作</li>
+<li>元素不存在于集合，并且添加新元素并不需要升级</li>
+<li>元素不存在于集合，但是要在升级之后，才能添加新元素</li>
+</ol>
+
+<p>
+并且， intsetAdd 需要维持 intset-&gt;contents 的以下性质：
+</p>
+<ul class="org-ul">
+<li>确保数组中没有重复元素</li>
+<li>确保数组中的元素按由小到大排序</li>
+</ul>
+
+
+<div id="orgb09d726" class="figure">
+<p><img src="../pic/graphviz-1565e65522fdcd4245030f17b5074729033297d8.svg" alt="graphviz-1565e65522fdcd4245030f17b5074729033297d8.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+接下来分别演示添加操作在升级和不升级两种情况下的执行过程
+</p>
+</div>
+
+<div id="outline-container-org251756c" class="outline-4">
+<h4 id="org251756c">添加新元素到 intset （不需要升级）</h4>
+<div class="outline-text-4" id="text-org251756c">
+<p>
+如果 intset 现有的编码方式适用于新元素， 则可直接将新元素添加到 intset ， 无须对 intset 进行升级。以下代码演示了将三个 int16_t 类型的整数添加到集合的过程， 以及在添加过程中，集合的状态：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">intset</span> *<span style="color: #eedd82;">is</span> = intsetNew();
+
+<span style="color: #87cefa;">intsetAdd</span>(is, 10, <span style="color: #7fffd4;">NULL</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;encoding = INTSET_ENC_INT16;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;length = 1;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;contents = [10];</span>
+
+<span style="color: #87cefa;">intsetAdd</span>(is, 5, <span style="color: #7fffd4;">NULL</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;encoding = INTSET_ENC_INT16;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;length = 2;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;contents = [5, 10];</span>
+
+<span style="color: #87cefa;">intsetAdd</span>(is, 12, <span style="color: #7fffd4;">NULL</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;encoding = INTSET_ENC_INT16;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;length = 3;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;contents = [5, 10, 12]</span>
+</pre>
+</div>
+
+<pre class="example" id="orgf5dda2a">
+因为添加的三个元素都可以表示为 int16_t ， 因此 is-&gt;encoding 一直都是 INTSET_ENC_INT16 
+
+另一方面， is-&gt;length 和 is-&gt;contents 的值，则随着新元素的加入而被修改
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org8616e1c" class="outline-4">
+<h4 id="org8616e1c">添加新元素到 intset （需要升级）</h4>
+<div class="outline-text-4" id="text-org8616e1c">
+<p>
+当要添加新元素到 intset ，并且 intset 当前的编码，不适用于新元素的编码时，就需要对 intset 进行升级。以下代码演示了带升级的添加操作的执行过程：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">intset</span> *<span style="color: #eedd82;">is</span> = intsetNew();
+
+<span style="color: #87cefa;">intsetAdd</span>(is, 1, <span style="color: #7fffd4;">NULL</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;encoding = INTSET_ENC_INT16;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;length = 1;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;contents = [1];                  // &#25152;&#26377;&#20540;&#20351;&#29992; int16_t &#20445;&#23384;</span>
+
+<span style="color: #87cefa;">intsetAdd</span>(is, 65535, <span style="color: #7fffd4;">NULL</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;encoding = INTSET_ENC_INT32;     // &#21319;&#32423;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;length = 2;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;contents = [1, 65535];           // &#25152;&#26377;&#20540;&#20351;&#29992; int32_t &#20445;&#23384;</span>
+
+<span style="color: #87cefa;">intsetAdd</span>(is, 70000, <span style="color: #7fffd4;">NULL</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;encoding = INTSET_ENC_INT32;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;length = 3;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;contents = [1, 65535, 70000];</span>
+
+<span style="color: #87cefa;">intsetAdd</span>(is, 4294967295, <span style="color: #7fffd4;">NULL</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;encoding = INTSET_ENC_INT64;                 // &#21319;&#32423;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;length = 4;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">is-&gt;contents = [1, 65535, 70000, 4294967295];    // &#25152;&#26377;&#20540;&#20351;&#29992; int64_t &#20445;&#23384;</span>
+</pre>
+</div>
+
+<pre class="example" id="org94908ee">
+在添加 65535 和 4294967295 之后， encoding 属性的值，以及 contents 数组保存值的方式，都被改变了
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgc9031bb" class="outline-2">
+<h2 id="orgc9031bb">升级</h2>
 </div>
 </div>
 <div id="postamble" class="status">
