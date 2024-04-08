@@ -159,3 +159,144 @@ _intset.c/intsetNew_ 函数创建一个新的 intset ，并设置初始化值：
 #+end_example
 
 * 升级
+添加新元素时，如果 intsetAdd 发现新元素，不能用现有的编码方式来保存，便会将升级集合和添加新元素的任务转交给 _intsetUpgradeAndAdd_ 来完成：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-1058591c9a0d517a84afc9e1e5e90aa88e27fc1a.svg]]
+
+intsetUpgradeAndAdd 需要完成以下几个任务：
+1. 对新元素进行检测，看保存这个新元素需要什么类型的编码
+2. 将集合 encoding 属性的值设置为新编码类型，并根据新编码类型，对整个 contents 数组进行内存重分配
+3. 调整 contents 数组内原有元素在内存中的排列方式，从旧编码调整为新编码
+4. 将新元素添加到集合中。
+
+整个过程中，最复杂的就是第三步，用一个例子来理解这个步骤
+
+** 实例
+假设有一个 intset ，里面有三个用 int16_t 方式保存的数值，分别是 1 、 2 和 3 ，结构如下：
+
+#+begin_src sh 
+  intset->encoding = INTSET_ENC_INT16;
+  intset->length = 3;
+  intset->contents = [1, 2, 3];
+#+end_src
+
+其中， intset->contents 在内存中的排列如下：
+
+#+begin_example
+  bit     0    15    31    47
+  value   |  1  |  2  |  3  |
+#+end_example
+
+现在，将一个长度为 int32_t 的值 65535 加入到集合中， intset 需要执行以下步骤：
+1. 将 encoding 属性设置为 INTSET_ENC_INT32
+
+2. 根据 encoding 属性的值，对 contents 数组进行内存重分配。重分配完成之后， contents 在内存中的排列如下：
+   #+begin_example
+     bit     0    15    31    47     63        95       127
+     value   |  1  |  2  |  3  |  ?  |    ?    |    ?    |
+
+     contents 数组现在共有可容纳 4 个 int32_t 值的空间
+   #+end_example
+
+3. 因为原来的 3 个 int16_t 值还“挤在” contents 前面的 48 个位里， 所以程序需要移动它们并转换类型， 让它们适应集合的新编码方式：
+   + 首先是移动 3 ：
+     #+begin_example
+       bit     0    15    31    47     63        95       127
+       value   |  1  |  2  |  3  |  ?  |    3    |    ?    |
+			      |             ^
+			      |             |
+			      +-------------+
+			    int16_t -> int32_t
+     #+end_example
+   + 接着移动 2 ：
+     #+begin_example
+       bit     0    15    31   47     63        95       127
+       value   |  1  |  2  |    2     |    3    |    ?    |
+			|       ^
+			|       |
+			+-------+
+		   int16_t -> int32_t
+     #+end_example
+   + 最后，移动 1 ：
+     #+begin_example
+       bit     0   15    31   47     63        95       127
+       value   |    1     |    2     |    3    |    ?    |
+		   | ^
+		   V |
+	   int16_t -> int32_t
+     #+end_example
+4. 最后，将新值 65535 添加到数组：
+   #+begin_example
+     bit     0   15    31   47     63        95       127
+     value   |    1     |    2     |    3    |  65535  |
+						  ^
+						  |
+						 add
+   #+end_example
+
+   最后将 intset->length 设置为 4 。至此，集合的升级和添加操作完成，现在的 intset 结构如下：
+
+   #+begin_src sh 
+     intset->encoding = INTSET_ENC_INT32;
+     intset->length = 4;
+     intset->contents = [1, 2, 3, 65535];
+   #+end_src
+
+** 注意
+关于升级操作，有两点需要提醒一下：
+1. 从较短整数到较长整数的转换，并不会更改元素里面的值
+   #+begin_example
+     在 C 语言中，从长度较短的带符号整数到长度较长的带符号整数之间的转换（比如从 int16_t 转换为 int32_t ）总是可行的（不会溢出）、无损的
+
+     另一方面，从较长整数到较短整数之间的转换，可能是有损的（比如从 int32_t 转换为 int16_t ）
+
+     因为 intset 只进行从较短整数到较长整数的转换（也即是，只“升级”，不“降级”），因此，“升级”操作并不会修改元素原有的值
+   #+end_example
+2. 集合编码元素的方式，由元素中长度最大的那个值来决定
+   #+begin_example
+     就像前面演示的例子一样， 当要将一个 int32_t 编码的新元素添加到集合时， 集合原有的所有 int16_t 编码的元素， 都必须转换为 int32_t 
+
+     尽管这个集合真正需要用 int32_t 长度来保存的元素只有一个， 但整个集合的所有元素都必须转换为这种类型
+   #+end_example
+
+在进行升级的过程中，需要对数组内的元素进行 _类型转换_ 和 _移动_ 操作。其中， 移动不仅出现在升级 _intsetUpgradeAndAdd_ 操作中， 还出现其他对 contents 数组内容进行增删的操作上， 比如 intsetAdd 和 intsetRemove
+
+#+begin_example
+  因为这种移动操作需要处理 intset 中的所有元素， 所以这些函数的复杂度都不低于 O(N)
+#+end_example
+
+* 其他操作
+以下是一些关于 intset 其他操作
+** 读取
+有两种方式读取 intset 的元素，一种是 __intsetGet_ ，另一种是 _intsetSearch_ ：
+  + _intsetGet 接受一个给定的索引 pos ，并根据 intset->encoding 的值进行指针运算，计算出给定索引在 intset->contents 数组上的值
+  + intsetSearch 则使用 _二分查找_ 算法，判断一个给定元素在 contents 数组上的索引
+
+** 写入
+除了前面介绍过的 intsetAdd 和 intsetUpgradeAndAdd 之外， __intsetSet_ 也对集合进行写入操作：
+  + 它接受一个索引 pos ，以及一个 new_value ，将 contents 数组 pos 位置的值设为 new_value
+
+** 删除
+删除单个元素的工作由 _intsetRemove_ 操作：
+1. 先调用 intsetSearch 找到需要被删除的元素在 contents 数组中的索引
+2. 然后使用内存移位操作，将目标元素从内存中抹去
+3. 通过内存重分配，对 contents 数组的长度进行调整 
+
+** 降级
+Intset 不支持降级操作。Intset 定位为一种受限的中间表示， 只能保存整数值， 而且元素的个数也不能超过 _redis.h/REDIS_SET_MAX_INTSET_ENTRIES_ （目前版本值为 512 ） 
+
+#+begin_example
+  这些条件决定了它被保存的时间不会太长， 因此没有必要进行太复杂的操作
+
+  当然，如果内存确实十分紧张的话，给 intset 添加降级功能也是可以实现的，不过这可能会让 intset 的代码增长一倍
+#+end_example
+
+* 小结
++ intset 用于有序、无重复地保存多个整数值，会根据元素的值，自动选择该用什么长度的整数类型来保存元素
++ 当一个位长度更长的整数值添加到 intset 时，需要对 intset 进行升级，新 intset 中每个元素的位长度，会等于新添加值的位长度，但原有元素的值不变
++ 升级会引起整个 intset 进行内存重分配，并移动集合中的所有元素，这个操作的复杂度为 $O(N)$
++ Intset 只支持升级，不支持降级
++ Intset 是有序的，程序使用二分查找算法来实现查找操作，复杂度为 $O(\log{N})$
+
+

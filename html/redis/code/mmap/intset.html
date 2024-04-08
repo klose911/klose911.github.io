@@ -228,7 +228,7 @@
 <ul>
 <li><a href="#org0ebfd2d">应用</a></li>
 <li><a href="#org1d207cc">实现</a></li>
-<li><a href="#org819c0b6">实例</a>
+<li><a href="#org14ecdd0">实例</a>
 <ul>
 <li><a href="#org9fd85f4">创建新 intset</a></li>
 <li><a href="#org47b5675">添加新元素到 intset</a>
@@ -239,14 +239,28 @@
 </li>
 </ul>
 </li>
-<li><a href="#orgc9031bb">升级</a></li>
+<li><a href="#orgc9031bb">升级</a>
+<ul>
+<li><a href="#org99b31e4">实例</a></li>
+<li><a href="#org76a040d">注意</a></li>
+</ul>
+</li>
+<li><a href="#orgbe1ea3b">其他操作</a>
+<ul>
+<li><a href="#orgcb026af">读取</a></li>
+<li><a href="#org14b694b">写入</a></li>
+<li><a href="#org3cb77fd">删除</a></li>
+<li><a href="#org5df7498">降级</a></li>
+</ul>
+</li>
+<li><a href="#org50cad10">小结</a></li>
 </ul>
 </div>
 </div>
 <p>
 <b>整数集合</b> <span class="underline">intset</span> 用于 <b>有序</b>  <b>无重复</b> 地保存多个整数值， 根据元素的值， 自动选择该用什么长度的整数类型来保存元素
 </p>
-<pre class="example" id="orged28f4b">
+<pre class="example" id="org499a158">
 举个例子， 如果在一个 intset 里面， 最长的元素可以用 int16_t 类型来保存， 那么这个 intset 的所有元素都以 int16_t 类型来保存
 
 另一方面， 如果有一个新元素要加入到这个 intset ， 并且这个元素不能用 int16_t 类型来保存 比如说， 新元素的长度为 int32_t
@@ -390,9 +404,9 @@ contents 数组的 int8_t 类型声明比较容易让人误解：
 </div>
 </div>
 
-<div id="outline-container-org819c0b6" class="outline-2">
-<h2 id="org819c0b6">实例</h2>
-<div class="outline-text-2" id="text-org819c0b6">
+<div id="outline-container-org14ecdd0" class="outline-2">
+<h2 id="org14ecdd0">实例</h2>
+<div class="outline-text-2" id="text-org14ecdd0">
 <p>
 使用一个 intset 的创建和添加过程，借此了解 intset 的运作方式
 </p>
@@ -441,7 +455,7 @@ contents 数组的 int8_t 类型声明比较容易让人误解：
 </ul>
 
 
-<div id="orgb09d726" class="figure">
+<div id="org898efaf" class="figure">
 <p><img src="../pic/graphviz-1565e65522fdcd4245030f17b5074729033297d8.svg" alt="graphviz-1565e65522fdcd4245030f17b5074729033297d8.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -481,7 +495,7 @@ contents 数组的 int8_t 类型声明比较容易让人误解：
 </pre>
 </div>
 
-<pre class="example" id="orgf5dda2a">
+<pre class="example" id="orgf26eec9">
 因为添加的三个元素都可以表示为 int16_t ， 因此 is-&gt;encoding 一直都是 INTSET_ENC_INT16 
 
 另一方面， is-&gt;length 和 is-&gt;contents 的值，则随着新元素的加入而被修改
@@ -525,7 +539,7 @@ contents 数组的 int8_t 类型声明比较容易让人误解：
 </pre>
 </div>
 
-<pre class="example" id="org94908ee">
+<pre class="example" id="org5726673">
 在添加 65535 和 4294967295 之后， encoding 属性的值，以及 contents 数组保存值的方式，都被改变了
 </pre>
 </div>
@@ -535,6 +549,242 @@ contents 数组的 int8_t 类型声明比较容易让人误解：
 
 <div id="outline-container-orgc9031bb" class="outline-2">
 <h2 id="orgc9031bb">升级</h2>
+<div class="outline-text-2" id="text-orgc9031bb">
+<p>
+添加新元素时，如果 intsetAdd 发现新元素，不能用现有的编码方式来保存，便会将升级集合和添加新元素的任务转交给 <span class="underline">intsetUpgradeAndAdd</span> 来完成：
+</p>
+
+
+<div id="orge9492a5" class="figure">
+<p><img src="../pic/graphviz-1058591c9a0d517a84afc9e1e5e90aa88e27fc1a.svg" alt="graphviz-1058591c9a0d517a84afc9e1e5e90aa88e27fc1a.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+intsetUpgradeAndAdd 需要完成以下几个任务：
+</p>
+<ol class="org-ol">
+<li>对新元素进行检测，看保存这个新元素需要什么类型的编码</li>
+<li>将集合 encoding 属性的值设置为新编码类型，并根据新编码类型，对整个 contents 数组进行内存重分配</li>
+<li>调整 contents 数组内原有元素在内存中的排列方式，从旧编码调整为新编码</li>
+<li>将新元素添加到集合中。</li>
+</ol>
+
+<p>
+整个过程中，最复杂的就是第三步，用一个例子来理解这个步骤
+</p>
+</div>
+
+<div id="outline-container-org99b31e4" class="outline-3">
+<h3 id="org99b31e4">实例</h3>
+<div class="outline-text-3" id="text-org99b31e4">
+<p>
+假设有一个 intset ，里面有三个用 int16_t 方式保存的数值，分别是 1 、 2 和 3 ，结构如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">intset-&gt;encoding = INTSET_ENC_INT16;
+intset-&gt;length = 3;
+intset-&gt;contents = [1, 2, 3];
+</pre>
+</div>
+
+<p>
+其中， intset-&gt;contents 在内存中的排列如下：
+</p>
+
+<pre class="example" id="orgf0885d2">
+bit     0    15    31    47
+value   |  1  |  2  |  3  |
+</pre>
+
+<p>
+现在，将一个长度为 int32_t 的值 65535 加入到集合中， intset 需要执行以下步骤：
+</p>
+<ol class="org-ol">
+<li>将 encoding 属性设置为 INTSET_ENC_INT32</li>
+
+<li><p>
+根据 encoding 属性的值，对 contents 数组进行内存重分配。重分配完成之后， contents 在内存中的排列如下：
+</p>
+<pre class="example" id="org0dc9906">
+bit     0    15    31    47     63        95       127
+value   |  1  |  2  |  3  |  ?  |    ?    |    ?    |
+
+contents 数组现在共有可容纳 4 个 int32_t 值的空间
+</pre></li>
+
+<li>因为原来的 3 个 int16_t 值还“挤在” contents 前面的 48 个位里， 所以程序需要移动它们并转换类型， 让它们适应集合的新编码方式：
+<ul class="org-ul">
+<li><p>
+首先是移动 3 ：
+</p>
+<pre class="example" id="orgfdbf65f">
+bit     0    15    31    47     63        95       127
+value   |  1  |  2  |  3  |  ?  |    3    |    ?    |
+		       |             ^
+		       |             |
+		       +-------------+
+		     int16_t -&gt; int32_t
+</pre></li>
+<li><p>
+接着移动 2 ：
+</p>
+<pre class="example" id="org4f18e76">
+bit     0    15    31   47     63        95       127
+value   |  1  |  2  |    2     |    3    |    ?    |
+		 |       ^
+		 |       |
+		 +-------+
+	    int16_t -&gt; int32_t
+</pre></li>
+<li><p>
+最后，移动 1 ：
+</p>
+<pre class="example" id="orga28856f">
+bit     0   15    31   47     63        95       127
+value   |    1     |    2     |    3    |    ?    |
+	    | ^
+	    V |
+    int16_t -&gt; int32_t
+</pre></li>
+</ul></li>
+<li><p>
+最后，将新值 65535 添加到数组：
+</p>
+<pre class="example" id="org10d85eb">
+bit     0   15    31   47     63        95       127
+value   |    1     |    2     |    3    |  65535  |
+					     ^
+					     |
+					    add
+</pre>
+
+<p>
+最后将 intset-&gt;length 设置为 4 。至此，集合的升级和添加操作完成，现在的 intset 结构如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">intset-&gt;encoding = INTSET_ENC_INT32;
+intset-&gt;length = 4;
+intset-&gt;contents = [1, 2, 3, 65535];
+</pre>
+</div></li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-org76a040d" class="outline-3">
+<h3 id="org76a040d">注意</h3>
+<div class="outline-text-3" id="text-org76a040d">
+<p>
+关于升级操作，有两点需要提醒一下：
+</p>
+<ol class="org-ol">
+<li><p>
+从较短整数到较长整数的转换，并不会更改元素里面的值
+</p>
+<pre class="example" id="org3463719">
+在 C 语言中，从长度较短的带符号整数到长度较长的带符号整数之间的转换（比如从 int16_t 转换为 int32_t ）总是可行的（不会溢出）、无损的
+
+另一方面，从较长整数到较短整数之间的转换，可能是有损的（比如从 int32_t 转换为 int16_t ）
+
+因为 intset 只进行从较短整数到较长整数的转换（也即是，只“升级”，不“降级”），因此，“升级”操作并不会修改元素原有的值
+</pre></li>
+<li><p>
+集合编码元素的方式，由元素中长度最大的那个值来决定
+</p>
+<pre class="example" id="orgaa59038">
+就像前面演示的例子一样， 当要将一个 int32_t 编码的新元素添加到集合时， 集合原有的所有 int16_t 编码的元素， 都必须转换为 int32_t 
+
+尽管这个集合真正需要用 int32_t 长度来保存的元素只有一个， 但整个集合的所有元素都必须转换为这种类型
+</pre></li>
+</ol>
+
+<p>
+在进行升级的过程中，需要对数组内的元素进行 <span class="underline">类型转换</span> 和 <span class="underline">移动</span> 操作。其中， 移动不仅出现在升级 <span class="underline">intsetUpgradeAndAdd</span> 操作中， 还出现其他对 contents 数组内容进行增删的操作上， 比如 intsetAdd 和 intsetRemove
+</p>
+
+<pre class="example" id="org3ebb928">
+因为这种移动操作需要处理 intset 中的所有元素， 所以这些函数的复杂度都不低于 O(N)
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgbe1ea3b" class="outline-2">
+<h2 id="orgbe1ea3b">其他操作</h2>
+<div class="outline-text-2" id="text-orgbe1ea3b">
+<p>
+以下是一些关于 intset 其他操作
+</p>
+</div>
+<div id="outline-container-orgcb026af" class="outline-3">
+<h3 id="orgcb026af">读取</h3>
+<div class="outline-text-3" id="text-orgcb026af">
+<p>
+有两种方式读取 intset 的元素，一种是 <span class="underline">_intsetGet</span> ，另一种是 <span class="underline">intsetSearch</span> ：
+</p>
+<ul class="org-ul">
+<li>_intsetGet 接受一个给定的索引 pos ，并根据 intset-&gt;encoding 的值进行指针运算，计算出给定索引在 intset-&gt;contents 数组上的值</li>
+<li>intsetSearch 则使用 <span class="underline">二分查找</span> 算法，判断一个给定元素在 contents 数组上的索引</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org14b694b" class="outline-3">
+<h3 id="org14b694b">写入</h3>
+<div class="outline-text-3" id="text-org14b694b">
+<p>
+除了前面介绍过的 intsetAdd 和 intsetUpgradeAndAdd 之外， <span class="underline">_intsetSet</span> 也对集合进行写入操作：
+</p>
+<ul class="org-ul">
+<li>它接受一个索引 pos ，以及一个 new_value ，将 contents 数组 pos 位置的值设为 new_value</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org3cb77fd" class="outline-3">
+<h3 id="org3cb77fd">删除</h3>
+<div class="outline-text-3" id="text-org3cb77fd">
+<p>
+删除单个元素的工作由 <span class="underline">intsetRemove</span> 操作：
+</p>
+<ol class="org-ol">
+<li>先调用 intsetSearch 找到需要被删除的元素在 contents 数组中的索引</li>
+<li>然后使用内存移位操作，将目标元素从内存中抹去</li>
+<li>通过内存重分配，对 contents 数组的长度进行调整</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-org5df7498" class="outline-3">
+<h3 id="org5df7498">降级</h3>
+<div class="outline-text-3" id="text-org5df7498">
+<p>
+Intset 不支持降级操作。Intset 定位为一种受限的中间表示， 只能保存整数值， 而且元素的个数也不能超过 <span class="underline">redis.h/REDIS_SET_MAX_INTSET_ENTRIES</span> （目前版本值为 512 ） 
+</p>
+
+<pre class="example" id="orga7a41df">
+这些条件决定了它被保存的时间不会太长， 因此没有必要进行太复杂的操作
+
+当然，如果内存确实十分紧张的话，给 intset 添加降级功能也是可以实现的，不过这可能会让 intset 的代码增长一倍
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org50cad10" class="outline-2">
+<h2 id="org50cad10">小结</h2>
+<div class="outline-text-2" id="text-org50cad10">
+<ul class="org-ul">
+<li>intset 用于有序、无重复地保存多个整数值，会根据元素的值，自动选择该用什么长度的整数类型来保存元素</li>
+<li>当一个位长度更长的整数值添加到 intset 时，需要对 intset 进行升级，新 intset 中每个元素的位长度，会等于新添加值的位长度，但原有元素的值不变</li>
+<li>升级会引起整个 intset 进行内存重分配，并移动集合中的所有元素，这个操作的复杂度为 \(O(N)\)</li>
+<li>Intset 只支持升级，不支持降级</li>
+<li>Intset 是有序的，程序使用二分查找算法来实现查找操作，复杂度为 \(O(\log{N})\)</li>
+</ul>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
