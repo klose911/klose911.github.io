@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>内存映射数据结构</title>
+<title>压缩列表</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -193,36 +193,80 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="../data_structure/data_structure.html"> UP </a>
+ <a accesskey="h" href="./intset.html"> UP </a>
  |
- <a accesskey="H" href="../code.html"> HOME </a>
+ <a accesskey="H" href="./mmap.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">内存映射数据结构</h1>
-<pre class="example" id="orgfe1b81e">
-虽然内部数据结构非常强大， 但是创建一系列完整的数据结构本身也是一件相当耗费内存的工作
+<h1 class="title">压缩列表</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orga4accca">构成</a></li>
+</ul>
+</div>
+</div>
+<p>
+<span class="underline">ziplist</span> 是由一系列特殊编码的内存块构成的列表， 一个 ziplist 可以包含多个 <b>节点</b> <span class="underline">entry</span> ， 每个节点可以保存一个 <span class="underline">长度受限的字符数组</span> （ <b>不以 \0 结尾</b> 的 char 数组）或者 <span class="underline">整数</span> ， 包括：
+</p>
+<ul class="org-ul">
+<li>字符数组
+<ul class="org-ul">
+<li>长度小于等于 63  \((2^{6} - 1)\) 字节的字符数组</li>
+<li>长度小于等于 16383 \((2^{14} - 1)\) 字节的字符数组</li>
+<li>长度小于等于 4294967295 \((2^{32} - 1)\) 字节的字符数组</li>
+</ul></li>
+<li>整数
+<ul class="org-ul">
+<li>4 位长，介于 0 至 12 之间的无符号整数</li>
+<li>1 字节长，有符号整数</li>
+<li>3 字节长，有符号整数</li>
+<li>int16_t 类型整数</li>
+<li>int32_t 类型整数</li>
+<li>int64_t 类型整数</li>
+</ul></li>
+</ul>
 
-当一个对象包含的元素数量并不多， 或者元素本身的体积并不大时， 使用代价高昂的内部数据结构并不是最好的办法
+<p>
+因为 ziplist <b>节约内存</b> 的性质， 哈希键、列表键和有序集合键初始化的底层实现皆采用 ziplist
+</p>
 
-为了解决这一问题， Redis 在条件允许的情况下， 会使用内存映射数据结构来代替内部数据结构
+<pre class="example" id="org6768e6c">
+更多信息请参考《哈希表》、《列表》和《有序集》
+
+接下来先介绍 ziplist 的组成结构， 以及 ziplist 节点的编码方式
+
+再介绍 ziplist 的添加操作和删除操作的执行过程， 以及这两种操作可能引起的连锁更新现象
+
+最后介绍 ziplist 的遍历方法和节点查找方式
 </pre>
-<p>
-<span class="underline">内存映射数据结构</span> 是一系列经过 <b>特殊编码</b> 的 <span class="underline">字节序列</span> ：
-</p>
-<ul class="org-ul">
-<li>创建它们所消耗的内存通常比作用类似的内部数据结构要少得多， 如果使用得当， 内存映射数据结构可以为用户 <b>节省大量的内存</b></li>
-<li>不过， 因为内存映射数据结构的编码和操作方式要比内部数据结构要复杂得多， 所以内存映射数据结构所 <b>占用的 CPU 时间会比作用类似的内部数据结构要多</b></li>
-</ul>
-
-<p>
-这一部分将对 Redis 目前正在使用的两种内存映射数据结构进行介绍：
-</p>
-<ul class="org-ul">
-<li><a href="intset.html">整数集合</a></li>
-<li><a href="ziplist.html">压缩列表</a></li>
-</ul>
+<div id="outline-container-orga4accca" class="outline-2">
+<h2 id="orga4accca">构成</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
