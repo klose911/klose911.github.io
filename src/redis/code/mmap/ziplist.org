@@ -29,3 +29,194 @@ _ziplist_ 是由一系列特殊编码的内存块构成的列表， 一个 zipli
   最后介绍 ziplist 的遍历方法和节点查找方式
 #+end_example
 * 构成
+下图展示了一个 ziplist 的典型分布结构：
+
+#+begin_example
+  area        |<---- ziplist header ---->|<----------- entries ------------->|<-end->|
+
+  size          4 bytes  4 bytes  2 bytes    ?        ?        ?        ?     1 byte
+	      +---------+--------+-------+--------+--------+--------+--------+-------+
+  component   | zlbytes | zltail | zllen | entry1 | entry2 |  ...   | entryN | zlend |
+	      +---------+--------+-------+--------+--------+--------+--------+-------+
+					 ^                          ^        ^
+  address                                |                          |        |
+				  ZIPLIST_ENTRY_HEAD                |   ZIPLIST_ENTRY_END
+								    |
+							   ZIPLIST_ENTRY_TAIL
+#+end_example
+
+各个域的作用如下：
+
+#+CAPTION: fields of ziplist  
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 域      | 长度/类型     | 域的值                                                                                                                                                                  |
+| zlbytes | uint32_t      | 整个 ziplist 占用的内存字节数，对 ziplist 进行内存重分配，或者计算末端时使用                                                                                            |
+| zltail  | uint32_t      | 到达 ziplist 表尾节点的偏移量。 通过这个偏移量，可以在不遍历整个 ziplist 的前提下，弹出表尾节点                                                                         |
+| zllen   | uint16_t      | ziplist 中节点的数量。 当这个值小于 UINT16_MAX （65535）时，这个值就是 ziplist 中节点的数量； 当这个值等于 UINT16_MAX 时，节点的数量需要遍历整个 ziplist 才能计算得出。 |
+| entryX  | ?     ziplist | 所保存的节点，各个节点的长度根据内容而定                                                                                                                               |
+| zlend   | uint8_t       | 255 的二进制值 1111 1111 （UINT8_MAX） ，用于标记 ziplist 的末端                                                                                                       |
+
+为了方便地取出 ziplist 的各个域以及一些指针地址， ziplist 模块定义了以下宏：
+#+CAPTION: macro of ziplist  
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 宏                           | 作用                                               | 算法复杂度 |
+| ZIPLIST_BYTES(ziplist)       | 取出 zlbytes 的值                                  | $\theta(1)$ |
+| ZIPLIST_TAIL_OFFSET(ziplist) | 取出 zltail 的值                                   | $\theta(1)$       |
+| ZIPLIST_LENGTH(ziplist)      | 取出 zllen 的值                                    | $\theta(1)$       |
+| ZIPLIST_HEADER_SIZE          | 返回 ziplist header 部分的长度，总是固定的 10 字节 | $\theta(1)$       |
+| ZIPLIST_ENTRY_HEAD(ziplist)  | 返回到达 ziplist 第一个节点（表头）的地址          | $\theta(1)$       |
+| ZIPLIST_ENTRY_TAIL(ziplist)  | 返回到达 ziplist 最后一个节点（表尾）的地址        | $\theta(1)$       |
+| ZIPLIST_ENTRY_END(ziplist)   | 返回 ziplist 的末端，也即是 zlend 之前的地址       | $\theta(1)$       |
+
++ ziplist header 部分的长度总是固定的（4 字节 + 4 字节 + 2 字节）， 因此将指针移动到表头节点的复杂度为常数时间
++ 表尾节点的地址可以通过 zltail 计算得出， 因此将指针移动到表尾节点的复杂度也为常数时间
+
+以下是用于操作 ziplist 的函数：
+#+CAPTION: function of ziplist  
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 函数名             | 作用                                                          | 算法复杂度      |
+| ziplistNew         | 创建一个新的 ziplist                                          | $\theta(1)$     |
+| ziplistResize      | 重新调整 ziplist 的内存大小                                   | $\theta(N)$     |
+| ziplistPush        | 将一个包含给定值的新节点推入 ziplist 的表头或者表尾           | $\theta(N^{2})$ |
+| zipEntry           | 取出给定地址上的节点，并将它的属性保存到 zlentry 结构然后返回 | $\theta(1)$     |
+| ziplistInsert      | 将一个包含给定值的新节点插入到给定地址                        | $\theta(N^{2})$ |
+| ziplistDelete      | 删除给定地址上的节点                                          | $\theta(N^{2})$ |
+| ziplistDeleteRange | 在给定索引上，连续进行多次删除                                | $\theta(N^{2})$ |
+| ziplistFind        | 在 ziplist 中查找并返回包含给定值的节点                       | $\theta(N)$     |
+| ziplistLen         | 返回 ziplist 保存的节点数量                                   | $\theta(N)$     |
+| ziplistBlobLen     | 以字节为单位，返回 ziplist 占用的内存大小                     | $\theta(1)$     |
+
+因为 ziplist 由连续的内存块构成， 在最坏情况下， 当 _ziplistPush_ 、  _ziplistDelete_ 这类对节点进行增加或删除的函数之后， 程序需要执行一种称为 *连锁更新* 的动作来维持 ziplist 结构本身的性质， 所以这些函数的最坏复杂度都为 $\theta(N^{2})$
+
+#+begin_example
+  因为这种最坏情况出现的概率并不高， 所以大可以放心使用 ziplist ， 而不必太担心出现最坏情况
+#+end_example
+** 节点 
+一个 ziplist 可以包含多个节点，每个节点可以划分为以下几个部分：
+
+#+begin_example
+  area        |<------------------- entry -------------------->|
+
+	      +------------------+----------+--------+---------+
+  component   | pre_entry_length | encoding | length | content |
+	      +------------------+----------+--------+---------+
+#+end_example
+
+以下几个小节将分别对这个四个部分进行介绍
+*** pre_entry_length
+_pre_entry_length_ 记录了 *前一个节点的长度* ，通过这个值，可以进行指针计算，从而跳转到上一个节点。
+
+#+begin_example
+  area        |<---- previous entry --->|<--------------- current entry ---------------->|
+
+  size          5 bytes                   1 byte             ?          ?        ?
+	      +-------------------------+-----------------------------+--------+---------+
+  component   | ...                     | pre_entry_length | encoding | length | content |
+	      |                         |                  |          |        |         |
+  value       |                         | 0000 0101        |    ?     |   ?    |    ?    |
+	      +-------------------------+-----------------------------+--------+---------+
+	      ^                         ^
+  address     |                         |
+	      p = e - 5                 e
+
+  上图展示了如何通过一个节点向前跳转到另一个节点
+
+  用指向当前节点的指针 e ， 减去 pre_entry_length 的值（0000 0101 的十进制值， 5）
+
+  得出的结果就是指向前一个节点的地址 p 
+#+end_example
+
+根据编码方式的不同， pre_entry_length 域可能占用  _1 字节_ 或者 _5 字节_ ：
++ 1 字节：如果前一节点的长度小于 254 字节，便使用一个字节保存它的值
++ 5 字节：如果前一节点的长度大于等于 254 字节，那么将第 1 个字节的值设为 _254_ ，然后用接下来的 4 个字节保存实际长度
+
+作为例子， 以下是个长度为 1 字节的 pre_entry_length 域， 域的值为 128 （二进制为 1000 0000 ）
+
+#+begin_example
+  area        |<------------------- entry -------------------->|
+
+  size          1 byte             ?          ?        ?
+	      +------------------+----------+--------+---------+
+  component   | pre_entry_length | encoding | length | content |
+	      |                  |          |        |         |
+  value       | 1000 0000        |          |        |         |
+	      +------------------+----------+--------+---------+
+#+end_example
+
+而以下则是个长度为 5 字节的 pre_entry_length 域， 域的第一个字节被设为 254 的二进制 _1111 1110_ ， 而之后的四个字节则被设置为 10086 的二进制 _10 0111 0110 0110_ （多余的高位用 0 补完）：
+
+#+begin_example
+  area        |<------------------------------ entry ---------------------------------->|
+
+  size          5 bytes                                     ?          ?        ?
+	      +-------------------------------------------+----------+--------+---------+
+  component   | pre_entry_length                          | encoding | length | content |
+	      |                                           |          |        |         |
+	      | 11111110 00000000000000000010011101100110 | ?        | ?      | ?       |
+	      +-------------------------------------------+----------+--------+---------+
+	      |<------->|<------------------------------->|
+		1 byte       4 bytes
+#+end_example
+*** encoding 和 length
+encoding 和 length 两部分一起决定了 content 部分所保存的数据的类型（以及长度）。其中，  _encoding_ 域的长度为两个 bit ， 它的值可以是 00 、 01 、 10 和 11 ：
++ 00, 01 和 10 表示 content 部分保存着 *字符* 数组
++ 11 表示 content 部分保存着 *整数* 
+
+以 00 、 01 和 10 开头的字符数组的编码方式如下：
+#+CAPTION: encoding and length field for node of char array 
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 编码                                       | 编码长度 | content 部分保存的值                 |
+| 00bbbbbb                                   | 1 byte   | 长度小于等于 63 字节的字符数组      |
+| 01bbbbbb xxxxxxxx                          | 2 byte   | 长度小于等于 16383 字节的字符数组   |
+| 10____ aaaaaaaa bbbbbbbb cccccccc dddddddd | 5 byte   | 长度小于等于 4294967295 的字符数组  |
+
+#+begin_example
+  表格中的下划线 _ 表示留空，变量 b 、 x 等则代表实际的二进制数据
+
+  为了方便阅读，多个字节之间用空格隔开
+#+end_example
+
+11 开头的整数编码如下：
+#+CAPTION: encoding and length field for node of integer
+#+ATTR_HTML: :border 1 :rules all :frame boader
+|     编码 | 编码长度 | content 部分保存的值                |
+| 11000000 | 1 byte   | int16_t 类型的整数                  |
+| 11010000 | 1 byte   | int32_t 类型的整数                  |
+| 11100000 | 1 byte   | int64_t 类型的整数                  |
+| 11110000 | 1 byte   | 24 bit 有符号整数                   |
+| 11111110 | 1 byte   | 8 bit 有符号整数                    |
+| 1111xxxx | 1 byte   | 4 bit 无符号整数，介于 0 至 12 之间 |
+*** content
+content 部分保存着节点的内容，类型和长度由 encoding 和 length 决定。以下是一个保存着字符数组 hello world 的节点的例子：
+
+#+begin_example
+  area      |<---------------------- entry ----------------------->|
+
+  size        ?                  2 bit      6 bit    11 byte
+	    +------------------+----------+--------+---------------+
+  component | pre_entry_length | encoding | length | content       |
+	    |                  |          |        |               |
+  value     | ?                |    00    | 001011 | hello world   |
+	    +------------------+----------+--------+---------------+
+#+end_example
+
++ encoding 域的值 00 表示节点保存着一个长度小于等于 63 字节的字符数组
++ length 域给出了这个字符数组的准确长度 11 字节（的二进制 001011）
++ content 则保存着字符数组值 hello world 本身（为了方便表示， content 部分使用字符而不是二进制表示）
+
+以下是另一个节点，它保存着整数 10086 ：
+#+begin_example
+  area      |<---------------------- entry ----------------------->|
+
+  size        ?                  2 bit      6 bit    2 bytes
+	    +------------------+----------+--------+---------------+
+  component | pre_entry_length | encoding | length | content       |
+	    |                  |          |        |               |
+  value     | ?                |    11    | 000000 | 10086         |
+	    +------------------+----------+--------+---------------+
+#+end_example
++ encoding 域的值 11 表示节点保存的是一个整数
++ 而 length 域的值 000000 表示这个节点的值的类型为 int16_t
++ 最后， content 保存着整数值 10086 本身（为了方便表示， content 部分用十进制而不是二进制表示）
+* 创建
+

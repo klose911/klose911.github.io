@@ -226,7 +226,18 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#orga4accca">构成</a></li>
+<li><a href="#orga4accca">构成</a>
+<ul>
+<li><a href="#org7f0bfbe">节点</a>
+<ul>
+<li><a href="#org5098c6f">pre_entry_length</a></li>
+<li><a href="#orgd1a977f">encoding 和 length</a></li>
+<li><a href="#orga7d5a1d">content</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org298b254">创建</a></li>
 </ul>
 </div>
 </div>
@@ -255,7 +266,7 @@
 因为 ziplist <b>节约内存</b> 的性质， 哈希键、列表键和有序集合键初始化的底层实现皆采用 ziplist
 </p>
 
-<pre class="example" id="org6768e6c">
+<pre class="example" id="org2eb5c95">
 更多信息请参考《哈希表》、《列表》和《有序集》
 
 接下来先介绍 ziplist 的组成结构， 以及 ziplist 节点的编码方式
@@ -266,6 +277,488 @@
 </pre>
 <div id="outline-container-orga4accca" class="outline-2">
 <h2 id="orga4accca">构成</h2>
+<div class="outline-text-2" id="text-orga4accca">
+<p>
+下图展示了一个 ziplist 的典型分布结构：
+</p>
+
+<pre class="example" id="orga265687">
+area        |&lt;---- ziplist header ----&gt;|&lt;----------- entries -------------&gt;|&lt;-end-&gt;|
+
+size          4 bytes  4 bytes  2 bytes    ?        ?        ?        ?     1 byte
+	    +---------+--------+-------+--------+--------+--------+--------+-------+
+component   | zlbytes | zltail | zllen | entry1 | entry2 |  ...   | entryN | zlend |
+	    +---------+--------+-------+--------+--------+--------+--------+-------+
+				       ^                          ^        ^
+address                                |                          |        |
+				ZIPLIST_ENTRY_HEAD                |   ZIPLIST_ENTRY_END
+								  |
+							 ZIPLIST_ENTRY_TAIL
+</pre>
+
+<p>
+各个域的作用如下：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> fields of ziplist</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">域</td>
+<td class="org-left">长度/类型</td>
+<td class="org-left">域的值</td>
+</tr>
+
+<tr>
+<td class="org-left">zlbytes</td>
+<td class="org-left">uint32_t</td>
+<td class="org-left">整个 ziplist 占用的内存字节数，对 ziplist 进行内存重分配，或者计算末端时使用</td>
+</tr>
+
+<tr>
+<td class="org-left">zltail</td>
+<td class="org-left">uint32_t</td>
+<td class="org-left">到达 ziplist 表尾节点的偏移量。 通过这个偏移量，可以在不遍历整个 ziplist 的前提下，弹出表尾节点</td>
+</tr>
+
+<tr>
+<td class="org-left">zllen</td>
+<td class="org-left">uint16_t</td>
+<td class="org-left">ziplist 中节点的数量。 当这个值小于 UINT16_MAX （65535）时，这个值就是 ziplist 中节点的数量； 当这个值等于 UINT16_MAX 时，节点的数量需要遍历整个 ziplist 才能计算得出。</td>
+</tr>
+
+<tr>
+<td class="org-left">entryX</td>
+<td class="org-left">?     ziplist</td>
+<td class="org-left">所保存的节点，各个节点的长度根据内容而定</td>
+</tr>
+
+<tr>
+<td class="org-left">zlend</td>
+<td class="org-left">uint8_t</td>
+<td class="org-left">255 的二进制值 1111 1111 （UINT8_MAX） ，用于标记 ziplist 的末端</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+为了方便地取出 ziplist 的各个域以及一些指针地址， ziplist 模块定义了以下宏：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 2:</span> macro of ziplist</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">宏</td>
+<td class="org-left">作用</td>
+<td class="org-left">算法复杂度</td>
+</tr>
+
+<tr>
+<td class="org-left">ZIPLIST_BYTES(ziplist)</td>
+<td class="org-left">取出 zlbytes 的值</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ZIPLIST_TAIL_OFFSET(ziplist)</td>
+<td class="org-left">取出 zltail 的值</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ZIPLIST_LENGTH(ziplist)</td>
+<td class="org-left">取出 zllen 的值</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ZIPLIST_HEADER_SIZE</td>
+<td class="org-left">返回 ziplist header 部分的长度，总是固定的 10 字节</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ZIPLIST_ENTRY_HEAD(ziplist)</td>
+<td class="org-left">返回到达 ziplist 第一个节点（表头）的地址</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ZIPLIST_ENTRY_TAIL(ziplist)</td>
+<td class="org-left">返回到达 ziplist 最后一个节点（表尾）的地址</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ZIPLIST_ENTRY_END(ziplist)</td>
+<td class="org-left">返回 ziplist 的末端，也即是 zlend 之前的地址</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+</tbody>
+</table>
+
+<ul class="org-ul">
+<li>ziplist header 部分的长度总是固定的（4 字节 + 4 字节 + 2 字节）， 因此将指针移动到表头节点的复杂度为常数时间</li>
+<li>表尾节点的地址可以通过 zltail 计算得出， 因此将指针移动到表尾节点的复杂度也为常数时间</li>
+</ul>
+
+<p>
+以下是用于操作 ziplist 的函数：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 3:</span> function of ziplist</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">函数名</td>
+<td class="org-left">作用</td>
+<td class="org-left">算法复杂度</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistNew</td>
+<td class="org-left">创建一个新的 ziplist</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistResize</td>
+<td class="org-left">重新调整 ziplist 的内存大小</td>
+<td class="org-left">\(\theta(N)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistPush</td>
+<td class="org-left">将一个包含给定值的新节点推入 ziplist 的表头或者表尾</td>
+<td class="org-left">\(\theta(N^{2})\)</td>
+</tr>
+
+<tr>
+<td class="org-left">zipEntry</td>
+<td class="org-left">取出给定地址上的节点，并将它的属性保存到 zlentry 结构然后返回</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistInsert</td>
+<td class="org-left">将一个包含给定值的新节点插入到给定地址</td>
+<td class="org-left">\(\theta(N^{2})\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistDelete</td>
+<td class="org-left">删除给定地址上的节点</td>
+<td class="org-left">\(\theta(N^{2})\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistDeleteRange</td>
+<td class="org-left">在给定索引上，连续进行多次删除</td>
+<td class="org-left">\(\theta(N^{2})\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistFind</td>
+<td class="org-left">在 ziplist 中查找并返回包含给定值的节点</td>
+<td class="org-left">\(\theta(N)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistLen</td>
+<td class="org-left">返回 ziplist 保存的节点数量</td>
+<td class="org-left">\(\theta(N)\)</td>
+</tr>
+
+<tr>
+<td class="org-left">ziplistBlobLen</td>
+<td class="org-left">以字节为单位，返回 ziplist 占用的内存大小</td>
+<td class="org-left">\(\theta(1)\)</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+因为 ziplist 由连续的内存块构成， 在最坏情况下， 当 <span class="underline">ziplistPush</span> 、  <span class="underline">ziplistDelete</span> 这类对节点进行增加或删除的函数之后， 程序需要执行一种称为 <b>连锁更新</b> 的动作来维持 ziplist 结构本身的性质， 所以这些函数的最坏复杂度都为 \(\theta(N^{2})\)
+</p>
+
+<pre class="example" id="orgd401f0e">
+因为这种最坏情况出现的概率并不高， 所以大可以放心使用 ziplist ， 而不必太担心出现最坏情况
+</pre>
+</div>
+<div id="outline-container-org7f0bfbe" class="outline-3">
+<h3 id="org7f0bfbe">节点</h3>
+<div class="outline-text-3" id="text-org7f0bfbe">
+<p>
+一个 ziplist 可以包含多个节点，每个节点可以划分为以下几个部分：
+</p>
+
+<pre class="example" id="org7bb6518">
+area        |&lt;------------------- entry --------------------&gt;|
+
+	    +------------------+----------+--------+---------+
+component   | pre_entry_length | encoding | length | content |
+	    +------------------+----------+--------+---------+
+</pre>
+
+<p>
+以下几个小节将分别对这个四个部分进行介绍
+</p>
+</div>
+<div id="outline-container-org5098c6f" class="outline-4">
+<h4 id="org5098c6f">pre_entry_length</h4>
+<div class="outline-text-4" id="text-org5098c6f">
+<p>
+<span class="underline">pre_entry_length</span> 记录了 <b>前一个节点的长度</b> ，通过这个值，可以进行指针计算，从而跳转到上一个节点。
+</p>
+
+<pre class="example" id="orga761765">
+area        |&lt;---- previous entry ---&gt;|&lt;--------------- current entry ----------------&gt;|
+
+size          5 bytes                   1 byte             ?          ?        ?
+	    +-------------------------+-----------------------------+--------+---------+
+component   | ...                     | pre_entry_length | encoding | length | content |
+	    |                         |                  |          |        |         |
+value       |                         | 0000 0101        |    ?     |   ?    |    ?    |
+	    +-------------------------+-----------------------------+--------+---------+
+	    ^                         ^
+address     |                         |
+	    p = e - 5                 e
+
+上图展示了如何通过一个节点向前跳转到另一个节点
+
+用指向当前节点的指针 e ， 减去 pre_entry_length 的值（0000 0101 的十进制值， 5）
+
+得出的结果就是指向前一个节点的地址 p 
+</pre>
+
+<p>
+根据编码方式的不同， pre_entry_length 域可能占用  <span class="underline">1 字节</span> 或者 <span class="underline">5 字节</span> ：
+</p>
+<ul class="org-ul">
+<li>1 字节：如果前一节点的长度小于 254 字节，便使用一个字节保存它的值</li>
+<li>5 字节：如果前一节点的长度大于等于 254 字节，那么将第 1 个字节的值设为 <span class="underline">254</span> ，然后用接下来的 4 个字节保存实际长度</li>
+</ul>
+
+<p>
+作为例子， 以下是个长度为 1 字节的 pre_entry_length 域， 域的值为 128 （二进制为 1000 0000 ）
+</p>
+
+<pre class="example" id="org640012d">
+area        |&lt;------------------- entry --------------------&gt;|
+
+size          1 byte             ?          ?        ?
+	    +------------------+----------+--------+---------+
+component   | pre_entry_length | encoding | length | content |
+	    |                  |          |        |         |
+value       | 1000 0000        |          |        |         |
+	    +------------------+----------+--------+---------+
+</pre>
+
+<p>
+而以下则是个长度为 5 字节的 pre_entry_length 域， 域的第一个字节被设为 254 的二进制 <span class="underline">1111 1110</span> ， 而之后的四个字节则被设置为 10086 的二进制 <span class="underline">10 0111 0110 0110</span> （多余的高位用 0 补完）：
+</p>
+
+<pre class="example" id="orgcf55d23">
+area        |&lt;------------------------------ entry ----------------------------------&gt;|
+
+size          5 bytes                                     ?          ?        ?
+	    +-------------------------------------------+----------+--------+---------+
+component   | pre_entry_length                          | encoding | length | content |
+	    |                                           |          |        |         |
+	    | 11111110 00000000000000000010011101100110 | ?        | ?      | ?       |
+	    +-------------------------------------------+----------+--------+---------+
+	    |&lt;-------&gt;|&lt;-------------------------------&gt;|
+	      1 byte       4 bytes
+</pre>
+</div>
+</div>
+<div id="outline-container-orgd1a977f" class="outline-4">
+<h4 id="orgd1a977f">encoding 和 length</h4>
+<div class="outline-text-4" id="text-orgd1a977f">
+<p>
+encoding 和 length 两部分一起决定了 content 部分所保存的数据的类型（以及长度）。其中，  <span class="underline">encoding</span> 域的长度为两个 bit ， 它的值可以是 00 、 01 、 10 和 11 ：
+</p>
+<ul class="org-ul">
+<li>00, 01 和 10 表示 content 部分保存着 <b>字符</b> 数组</li>
+<li>11 表示 content 部分保存着 <b>整数</b></li>
+</ul>
+
+<p>
+以 00 、 01 和 10 开头的字符数组的编码方式如下：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 4:</span> encoding and length field for node of char array</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">编码</td>
+<td class="org-left">编码长度</td>
+<td class="org-left">content 部分保存的值</td>
+</tr>
+
+<tr>
+<td class="org-left">00bbbbbb</td>
+<td class="org-left">1 byte</td>
+<td class="org-left">长度小于等于 63 字节的字符数组</td>
+</tr>
+
+<tr>
+<td class="org-left">01bbbbbb xxxxxxxx</td>
+<td class="org-left">2 byte</td>
+<td class="org-left">长度小于等于 16383 字节的字符数组</td>
+</tr>
+
+<tr>
+<td class="org-left">10____ aaaaaaaa bbbbbbbb cccccccc dddddddd</td>
+<td class="org-left">5 byte</td>
+<td class="org-left">长度小于等于 4294967295 的字符数组</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org0a2951d">
+表格中的下划线 _ 表示留空，变量 b 、 x 等则代表实际的二进制数据
+
+为了方便阅读，多个字节之间用空格隔开
+</pre>
+
+<p>
+11 开头的整数编码如下：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 5:</span> encoding and length field for node of integer</caption>
+
+<colgroup>
+<col  class="org-right" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-right">编码</td>
+<td class="org-left">编码长度</td>
+<td class="org-left">content 部分保存的值</td>
+</tr>
+
+<tr>
+<td class="org-right">11000000</td>
+<td class="org-left">1 byte</td>
+<td class="org-left">int16_t 类型的整数</td>
+</tr>
+
+<tr>
+<td class="org-right">11010000</td>
+<td class="org-left">1 byte</td>
+<td class="org-left">int32_t 类型的整数</td>
+</tr>
+
+<tr>
+<td class="org-right">11100000</td>
+<td class="org-left">1 byte</td>
+<td class="org-left">int64_t 类型的整数</td>
+</tr>
+
+<tr>
+<td class="org-right">11110000</td>
+<td class="org-left">1 byte</td>
+<td class="org-left">24 bit 有符号整数</td>
+</tr>
+
+<tr>
+<td class="org-right">11111110</td>
+<td class="org-left">1 byte</td>
+<td class="org-left">8 bit 有符号整数</td>
+</tr>
+
+<tr>
+<td class="org-right">1111xxxx</td>
+<td class="org-left">1 byte</td>
+<td class="org-left">4 bit 无符号整数，介于 0 至 12 之间</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="outline-container-orga7d5a1d" class="outline-4">
+<h4 id="orga7d5a1d">content</h4>
+<div class="outline-text-4" id="text-orga7d5a1d">
+<p>
+content 部分保存着节点的内容，类型和长度由 encoding 和 length 决定。以下是一个保存着字符数组 hello world 的节点的例子：
+</p>
+
+<pre class="example" id="org2df1ea3">
+area      |&lt;---------------------- entry -----------------------&gt;|
+
+size        ?                  2 bit      6 bit    11 byte
+	  +------------------+----------+--------+---------------+
+component | pre_entry_length | encoding | length | content       |
+	  |                  |          |        |               |
+value     | ?                |    00    | 001011 | hello world   |
+	  +------------------+----------+--------+---------------+
+</pre>
+
+<ul class="org-ul">
+<li>encoding 域的值 00 表示节点保存着一个长度小于等于 63 字节的字符数组</li>
+<li>length 域给出了这个字符数组的准确长度 11 字节（的二进制 001011）</li>
+<li>content 则保存着字符数组值 hello world 本身（为了方便表示， content 部分使用字符而不是二进制表示）</li>
+</ul>
+
+<p>
+以下是另一个节点，它保存着整数 10086 ：
+</p>
+<pre class="example" id="orgb402464">
+area      |&lt;---------------------- entry -----------------------&gt;|
+
+size        ?                  2 bit      6 bit    2 bytes
+	  +------------------+----------+--------+---------------+
+component | pre_entry_length | encoding | length | content       |
+	  |                  |          |        |               |
+value     | ?                |    11    | 000000 | 10086         |
+	  +------------------+----------+--------+---------------+
+</pre>
+<ul class="org-ul">
+<li>encoding 域的值 11 表示节点保存的是一个整数</li>
+<li>而 length 域的值 000000 表示这个节点的值的类型为 int16_t</li>
+<li>最后， content 保存着整数值 10086 本身（为了方便表示， content 部分用十进制而不是二进制表示）</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org298b254" class="outline-2">
+<h2 id="org298b254">创建</h2>
 </div>
 </div>
 <div id="postamble" class="status">
