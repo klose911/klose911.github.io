@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>内存映射数据结构</title>
+<title>对象处理机制</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -196,53 +196,71 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="../data_structure/data_structure.html"> UP </a>
+ <a accesskey="h" href=""> UP </a>
  |
- <a accesskey="H" href="../code.html"> HOME </a>
+ <a accesskey="H" href="./data_type.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">内存映射数据结构</h1>
-<pre class="example" id="org96cf7db">
-虽然内部数据结构非常强大， 但是创建一系列完整的数据结构本身也是一件相当耗费内存的工作
+<h1 class="title">对象处理机制</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orga4fdf75">redisObject</a></li>
+</ul>
+</div>
+</div>
+<p>
+在 Redis 的命令中，用于对键 <span class="underline">key</span> 进行处理的命令占了很大一部分， 而对于键所保存的值的类型 <span class="underline">键的类型</span> ，键能执行的命令又各不相同 
+</p>
 
-当一个对象包含的元素数量并不多， 或者元素本身的体积并不大时， 使用代价高昂的内部数据结构并不是最好的办法
+<pre class="example" id="orgb06d04b">
+比如说， LPUSH 和 LLEN 只能用于列表键， 而 SADD 和 SRANDMEMBER 只能用于集合键.....
 
-为了解决这一问题， Redis 在条件允许的情况下， 会使用内存映射数据结构来代替内部数据结构
+另外一些命令， 比如 DEL 、TTL 和 TYPE ， 可以用于任何类型的键
+
+但是， 要正确实现这些命令， 必须为不同类型的键设置不同的处理方式
+
+比如说， 删除一个列表键和删除一个字符串键的操作过程就不太一样
 </pre>
 <p>
-<span class="underline">内存映射数据结构</span> 是一系列经过 <b>特殊编码</b> 的 <span class="underline">字节序列</span> ：
+所以Redis 必须让每个键都带有类型信息， 使得程序可以检查键的 <b>类型</b> ， 并为它选择合适的处理方式
 </p>
-<ul class="org-ul">
-<li>创建它们所消耗的内存通常比作用类似的内部数据结构要少得多， 如果使用得当， 内存映射数据结构可以为用户 <b>节省大量的内存</b></li>
-<li>不过， 因为内存映射数据结构的编码和操作方式要比内部数据结构要复杂得多， 所以内存映射数据结构所 <b>占用的 CPU 时间会比作用类似的内部数据结构要多</b></li>
-</ul>
 
 <p>
-这一部分将对 Redis 目前正在使用的两种内存映射数据结构进行介绍：
+另外 Redis 的每一种数据类型，比如字符串、列表、有序集， 它们都拥有不只一种底层实现（Redis 内部称之为编码，encoding）。这说明， 每当对某种数据类型的键进行操作时， 程序都必须根据键所采取的编码， 进行不同的操作
+</p>
+
+<pre class="example" id="org0da9b56">
+比如说， 集合类型就可以由字典和整数集合两种不同的数据结构实现
+
+但是， 当用户执行 ZADD 命令时， 他/她应该不必关心集合使用的是什么编码， 只要 Redis 能按照 ZADD 命令的指示， 将新元素添加到集合就可以了
+</pre>
+
+<p>
+操作数据类型的命令除了要对键的类型进行检查之外， 还需要根据数据类型的不同编码进行 <b>多态</b> 处理
+</p>
+
+<p>
+为了解决以上问题， Redis 构建了自己的类型系统， 这个系统的主要功能包括：
 </p>
 <ul class="org-ul">
-<li><a href="intset.html">整数集合</a></li>
-<li><p>
-<a href="ziplist.html">压缩列表</a>
-</p></li>
+<li>redisObject 对象</li>
+<li>基于 redisObject 对象的类型检查</li>
+<li>基于 redisObject 对象的显式多态函数</li>
+<li>对 redisObject 进行分配、共享和销毁的机制</li>
 </ul>
-<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
 
+<pre class="example" id="org84311b2">
+因为 C 并不是面向对象语言，这里将 redisObject 称呼为对象：
 
-<colgroup>
-<col  class="org-left" />
+1. 为了讲述的方便
+2. 希望通过模仿 OOP 的常用术语，让这里的内容更容易被理解
 
-<col  class="org-left" />
-
-<col  class="org-left" />
-</colgroup>
-<tbody>
-<tr>
-<td class="org-left"><a href="../data_type/data_type.html">Next：数据类型</a></td>
-<td class="org-left"><a href="../data_structure/data_structure.html">Previous：内部数据结构</a></td>
-<td class="org-left"><a href="../code.html">Home: Redis 设计与实现</a></td>
-</tr>
-</tbody>
-</table>
+redisObject 实际上是只是一个结构 (struct) 类型
+</pre>
+<div id="outline-container-orga4fdf75" class="outline-2">
+<h2 id="orga4fdf75">redisObject</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
