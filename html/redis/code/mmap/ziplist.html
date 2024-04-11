@@ -238,6 +238,16 @@
 </ul>
 </li>
 <li><a href="#org298b254">创建</a></li>
+<li><a href="#org168981c">添加</a>
+<ul>
+<li><a href="#org3b8da6c">将节点添加到末端</a></li>
+<li><a href="#org973a638">将节点添加到某个/某些节点的前面</a></li>
+</ul>
+</li>
+<li><a href="#org9da0d10">删除</a></li>
+<li><a href="#orgf1777a9">遍历</a></li>
+<li><a href="#org6d90329">查找</a></li>
+<li><a href="#org7309a75">总结</a></li>
 </ul>
 </div>
 </div>
@@ -266,7 +276,7 @@
 因为 ziplist <b>节约内存</b> 的性质， 哈希键、列表键和有序集合键初始化的底层实现皆采用 ziplist
 </p>
 
-<pre class="example" id="org2eb5c95">
+<pre class="example" id="org4b9af81">
 更多信息请参考《哈希表》、《列表》和《有序集》
 
 接下来先介绍 ziplist 的组成结构， 以及 ziplist 节点的编码方式
@@ -282,7 +292,7 @@
 下图展示了一个 ziplist 的典型分布结构：
 </p>
 
-<pre class="example" id="orga265687">
+<pre class="example" id="org2b10f85">
 area        |&lt;---- ziplist header ----&gt;|&lt;----------- entries -------------&gt;|&lt;-end-&gt;|
 
 size          4 bytes  4 bytes  2 bytes    ?        ?        ?        ?     1 byte
@@ -504,7 +514,7 @@ address                                |                          |        |
 因为 ziplist 由连续的内存块构成， 在最坏情况下， 当 <span class="underline">ziplistPush</span> 、  <span class="underline">ziplistDelete</span> 这类对节点进行增加或删除的函数之后， 程序需要执行一种称为 <b>连锁更新</b> 的动作来维持 ziplist 结构本身的性质， 所以这些函数的最坏复杂度都为 \(\theta(N^{2})\)
 </p>
 
-<pre class="example" id="orgd401f0e">
+<pre class="example" id="org4bf8454">
 因为这种最坏情况出现的概率并不高， 所以大可以放心使用 ziplist ， 而不必太担心出现最坏情况
 </pre>
 </div>
@@ -515,7 +525,7 @@ address                                |                          |        |
 一个 ziplist 可以包含多个节点，每个节点可以划分为以下几个部分：
 </p>
 
-<pre class="example" id="org7bb6518">
+<pre class="example" id="org71a8606">
 area        |&lt;------------------- entry --------------------&gt;|
 
 	    +------------------+----------+--------+---------+
@@ -534,7 +544,7 @@ component   | pre_entry_length | encoding | length | content |
 <span class="underline">pre_entry_length</span> 记录了 <b>前一个节点的长度</b> ，通过这个值，可以进行指针计算，从而跳转到上一个节点。
 </p>
 
-<pre class="example" id="orga761765">
+<pre class="example" id="org640ab1f">
 area        |&lt;---- previous entry ---&gt;|&lt;--------------- current entry ----------------&gt;|
 
 size          5 bytes                   1 byte             ?          ?        ?
@@ -566,7 +576,7 @@ address     |                         |
 作为例子， 以下是个长度为 1 字节的 pre_entry_length 域， 域的值为 128 （二进制为 1000 0000 ）
 </p>
 
-<pre class="example" id="org640012d">
+<pre class="example" id="org99280de">
 area        |&lt;------------------- entry --------------------&gt;|
 
 size          1 byte             ?          ?        ?
@@ -581,7 +591,7 @@ value       | 1000 0000        |          |        |         |
 而以下则是个长度为 5 字节的 pre_entry_length 域， 域的第一个字节被设为 254 的二进制 <span class="underline">1111 1110</span> ， 而之后的四个字节则被设置为 10086 的二进制 <span class="underline">10 0111 0110 0110</span> （多余的高位用 0 补完）：
 </p>
 
-<pre class="example" id="orgcf55d23">
+<pre class="example" id="org0fdd340">
 area        |&lt;------------------------------ entry ----------------------------------&gt;|
 
 size          5 bytes                                     ?          ?        ?
@@ -646,7 +656,7 @@ encoding 和 length 两部分一起决定了 content 部分所保存的数据的
 </tbody>
 </table>
 
-<pre class="example" id="org0a2951d">
+<pre class="example" id="orgd8beb21">
 表格中的下划线 _ 表示留空，变量 b 、 x 等则代表实际的二进制数据
 
 为了方便阅读，多个字节之间用空格隔开
@@ -718,7 +728,7 @@ encoding 和 length 两部分一起决定了 content 部分所保存的数据的
 content 部分保存着节点的内容，类型和长度由 encoding 和 length 决定。以下是一个保存着字符数组 hello world 的节点的例子：
 </p>
 
-<pre class="example" id="org2df1ea3">
+<pre class="example" id="orgf263dc6">
 area      |&lt;---------------------- entry -----------------------&gt;|
 
 size        ?                  2 bit      6 bit    11 byte
@@ -738,7 +748,7 @@ value     | ?                |    00    | 001011 | hello world   |
 <p>
 以下是另一个节点，它保存着整数 10086 ：
 </p>
-<pre class="example" id="orgb402464">
+<pre class="example" id="org769b2a1">
 area      |&lt;---------------------- entry -----------------------&gt;|
 
 size        ?                  2 bit      6 bit    2 bytes
@@ -759,6 +769,340 @@ value     | ?                |    11    | 000000 | 10086         |
 </div>
 <div id="outline-container-org298b254" class="outline-2">
 <h2 id="org298b254">创建</h2>
+<div class="outline-text-2" id="text-org298b254">
+<p>
+函数 <span class="underline">ziplistNew</span> 用于创建一个新的空白 ziplist ，这个 ziplist 可以表示为下图：
+</p>
+
+<pre class="example" id="org6858142">
+area        |&lt;---- ziplist header ----&gt;|&lt;-- end --&gt;|
+
+size          4 bytes   4 bytes 2 bytes  1 byte
+	    +---------+--------+-------+-----------+
+component   | zlbytes | zltail | zllen | zlend     |
+	    |         |        |       |           |
+value       |  1011   |  1010  |   0   | 1111 1111 |
+	    +---------+--------+-------+-----------+
+				       ^
+				       |
+			       ZIPLIST_ENTRY_HEAD
+				       &amp;
+address                        ZIPLIST_ENTRY_TAIL
+				       &amp;
+			       ZIPLIST_ENTRY_END
+</pre>
+
+<p>
+空白 ziplist 的表头、表尾和末端处于同一地址。创建了 ziplist 之后， 就可以往里面添加新节点了， 根据新节点添加位置的不同， 这个工作可以分为两类来进行：
+</p>
+<ul class="org-ul">
+<li>将节点添加到 ziplist 末端：在这种情况下，新节点的后面没有任何节点</li>
+<li>将节点添加到某个/某些节点的前面：在这种情况下，新节点的后面有至少一个节点</li>
+</ul>
+
+<p>
+以下分别讨论这两种情况
+</p>
+</div>
+</div>
+<div id="outline-container-org168981c" class="outline-2">
+<h2 id="org168981c">添加</h2>
+<div class="outline-text-2" id="text-org168981c">
+</div>
+<div id="outline-container-org3b8da6c" class="outline-3">
+<h3 id="org3b8da6c">将节点添加到末端</h3>
+<div class="outline-text-3" id="text-org3b8da6c">
+<p>
+将新节点添加到 ziplist 的末端需要执行以下步骤：
+</p>
+<ol class="org-ol">
+<li>记录到达 ziplist 末端所需的偏移量（因为之后的内存重分配可能会改变 ziplist 的地址，因此记录偏移量而不是保存指针）</li>
+<li>根据新节点要保存的值，计算出编码这个值所需的空间大小，以及编码它前一个节点的长度所需的空间大小，然后对 ziplist 进行内存重分配</li>
+<li>设置新节点的各项属性： pre_entry_length 、 encoding 、 length 和 content</li>
+<li>更新 ziplist 的各项属性，比如记录空间占用的 zlbytes ，到达表尾节点的偏移量 zltail ，以及记录节点数量的 zllen 。</li>
+</ol>
+
+<p>
+举个例子，假设现在要将一个新节点添加到只含有一个节点的 ziplist 上，程序首先要执行步骤 1 ，定位 ziplist 的末端：
+</p>
+
+<pre class="example" id="org07077cb">
+area        |&lt;---- ziplist header ----&gt;|&lt;--- entries --&gt;|&lt;-- end --&gt;|
+
+size          4 bytes  4 bytes  2 bytes  5 bytes          1 bytes
+	    +---------+--------+-------+----------------+-----------+
+component   | zlbytes | zltail | zllen | entry 1        | zlend     |
+	    |         |        |       |                |           |
+value       |  10000  |  1010  |   1   | ?              | 1111 1111 |
+	    +---------+--------+-------+----------------+-----------+
+				       ^                ^
+				       |                |
+address                         ZIPLIST_ENTRY_HEAD   ZIPLIST_ENTRY_END
+				       &amp;
+				ZIPLIST_ENTRY_TAIL
+</pre>
+
+
+<p>
+然后执行步骤 2 ，程序需要计算新节点所需的空间。假设要添加到节点里的值为字符数组 hello world
+</p>
+<ul class="org-ul">
+<li>那么保存这个值共需要 12 字节的空间：
+<ul class="org-ul">
+<li>11 字节用于保存字符数组本身；</li>
+<li>另外 1 字节中的 2 bit 用于保存类型编码 00  (encoding)， 而其余 6 bit 则保存字符数组长度 11 的二进制 001011 (length)</li>
+</ul></li>
+<li>还需要 1 字节， 用于保存前一个节点的长度 5 （二进制 101）</li>
+</ul>
+
+<p>
+合算起来，为了添加新节点， ziplist 总共需要多分配  <span class="underline">13 字节</span> 空间。 以下是分配完成之后， ziplist 的样子：
+</p>
+
+<pre class="example" id="org2a305be">
+area        |&lt;---- ziplist header ----&gt;|&lt;------------ entries ------------&gt;|&lt;-- end --&gt;|
+
+size          4 bytes  4 bytes  2 bytes  5 bytes          13 bytes           1 bytes
+	    +---------+--------+-------+----------------+------------------+-----------+
+component   | zlbytes | zltail | zllen | entry 1        | entry 2          | zlend     |
+	    |         |        |       |                |                  |           |
+value       |  10000  |  1010  |   1   | ?              | pre_entry_length | 1111 1111 |
+	    |         |        |       |                | ?                |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | encoding         |           |
+	    |         |        |       |                | ?                |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | length           |           |
+	    |         |        |       |                | ?                |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | content          |           |
+	    |         |        |       |                | ?                |           |
+	    |         |        |       |                |                  |           |
+	    +---------+--------+-------+----------------+------------------+-----------+
+				       ^                ^
+				       |                |
+address                       ZIPLIST_ENTRY_HEAD   ZIPLIST_ENTRY_END
+				       &amp;
+			      ZIPLIST_ENTRY_TAIL
+</pre>
+<p>
+步骤三，更新新节点的各项属性（为了方便表示， content 的内容使用字符而不是二进制来表示）：
+</p>
+
+<pre class="example" id="orgef07dc7">
+area        |&lt;---- ziplist header ----&gt;|&lt;------------ entries ------------&gt;|&lt;-- end --&gt;|
+
+size          4 bytes  4 bytes  2 bytes  5 bytes          13 bytes           1 bytes
+	    +---------+--------+-------+----------------+------------------+-----------+
+component   | zlbytes | zltail | zllen | entry 1        | entry 2          | zlend     |
+	    |         |        |       |                |                  |           |
+value       |  10000  |  1010  |   1   | ?              | pre_entry_length | 1111 1111 |
+	    |         |        |       |                | 101              |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | encoding         |           |
+	    |         |        |       |                | 00               |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | length           |           |
+	    |         |        |       |                | 001011           |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | content          |           |
+	    |         |        |       |                | hello world      |           |
+	    |         |        |       |                |                  |           |
+	    +---------+--------+-------+----------------+------------------+-----------+
+				       ^                ^
+				       |                |
+address                       ZIPLIST_ENTRY_HEAD   ZIPLIST_ENTRY_END
+				       &amp;
+			      ZIPLIST_ENTRY_TAIL
+</pre>
+<p>
+最后一步，更新 ziplist 的 zlbytes 、 zltail 和 zllen 属性：
+</p>
+
+<pre class="example" id="orgc483545">
+area        |&lt;---- ziplist header ----&gt;|&lt;------------ entries ------------&gt;|&lt;-- end --&gt;|
+
+size          4 bytes  4 bytes  2 bytes  5 bytes          13 bytes           1 bytes
+	    +---------+--------+-------+----------------+------------------+-----------+
+component   | zlbytes | zltail | zllen | entry 1        | entry 2          | zlend     |
+	    |         |        |       |                |                  |           |
+value       |  11101  |  1111  |  10   | ?              | pre_entry_length | 1111 1111 |
+	    |         |        |       |                | 101              |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | encoding         |           |
+	    |         |        |       |                | 00               |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | length           |           |
+	    |         |        |       |                | 001011           |           |
+	    |         |        |       |                |                  |           |
+	    |         |        |       |                | content          |           |
+	    |         |        |       |                | hello world      |           |
+	    |         |        |       |                |                  |           |
+	    +---------+--------+-------+----------------+------------------+-----------+
+				       ^                ^                  ^
+				       |                |                  |
+address                                |          ZIPLIST_ENTRY_TAIL   ZIPLIST_ENTRY_END
+				       |
+			       ZIPLIST_ENTRY_HEAD
+</pre>
+<p>
+到这一步，添加新节点到表尾的工作正式完成
+</p>
+
+<pre class="example" id="org9f4b69c">
+这里没有演示往空 ziplist 添加第一个节点的过程， 因为这个过程和上面演示的添加第二个节点的过程类似
+
+而且因为第一个节点的存在， 添加第二个节点的过程可以更好地展示“将节点添加到表尾”这一操作的一般性
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org973a638" class="outline-3">
+<h3 id="org973a638">将节点添加到某个/某些节点的前面</h3>
+<div class="outline-text-3" id="text-org973a638">
+<p>
+比起将新节点添加到 ziplist 的末端， 将一个新节点添加到某个/某些节点的前面要复杂得多， 因为这种操作除了将新节点添加到 ziplist 以外， 还可能引起后续一系列节点的改变。举个例子，假设要将一个新节点 new 添加到节点 prev 和 next 之间：
+</p>
+
+<pre class="example" id="orgcfcbfd5">
+   add new entry here
+	   |
+	   V
++----------+----------+----------+----------+----------+
+|          |          |          |          |          |
+|   prev   |   next   | next + 1 | next + 2 |   ...    |
+|          |          |          |          |          |
+</pre>
+
+<p>
+程序首先为新节点扩大 ziplist 的空间：
+</p>
+
+<pre class="example" id="orgad1972a">
++----------+----------+----------+----------+----------+----------+
+|          |          |          |          |          |          |
+|   prev   |   ???    |   next   | next + 1 | next + 2 |   ...    |
+|          |          |          |          |          |          |
++----------+----------+----------+----------+----------+----------+
+
+	   |&lt;--------&gt;|
+	      expand
+	      space
+</pre>
+<p>
+然后设置 new 节点的各项值（到目前为止，一切都和前面介绍的添加操作一样）
+</p>
+
+<pre class="example" id="orgcf685b7">
+	     set value,
+	     property,
+	     length,
+	     etc.
+		|
+		v
++----------+----------+----------+----------+----------+----------+
+|          |          |          |          |          |          |
+|   prev   |   new    |   next   | next + 1 | next + 2 |   ...    |
+|          |          |          |          |          |          |
++----------+----------+----------+----------+----------+----------+
+</pre>
+<p>
+现在，新的 new 节点取代原来的 prev 节点， 成为了 next 节点的新前驱节点， 不过， 因为这时 next 节点的 <span class="underline">pre_entry_length 域</span> 编码的仍然是 prev 节点的长度， 所以程序需要将 new 节点的长度编码进 next 节点的 pre_entry_length 域里， 这里会出现三种可能：
+</p>
+<ul class="org-ul">
+<li>next 的 pre_entry_length 域的长度正好能够编码 new 的长度（都是 1 字节或者都是 5 字节）： 程序直接更新 next 的 pre_entry_length 域</li>
+<li><p>
+next 的 pre_entry_length 只有 1 字节长，但编码 new 的长度需要 5 字节：
+</p>
+<pre class="example" id="org06b38f9">
+如果是第二种情况， 那么程序必须对 ziplist 进行内存重分配， 从而扩展 next 的空间
+
+然而，因为 next 的空间长度改变了， 所以程序又必须检查 next 的后继节点 next+1
+
+看它的 pre_entry_length 能否编码 next 的新长度， 如果不能的话，程序又需要继续对 next+1 进行扩容。。。
+</pre></li>
+<li>next 的 pre_entry_length 有 5 字节长，但编码 new 的长度只需要 1 字节： 程序直接更新 next 的 pre_entry_length 域</li>
+</ul>
+
+<p>
+在某个/某些节点的前面添加新节点之后， 程序必须沿着路径挨个检查后续的节点，是否满足新长度的编码要求， 直到遇到一个能满足要求的节点（如果有一个能满足，则这个节点之后的其他节点也满足）， 或者到达 ziplist 的末端 zlend 为止， 这种检查操作的复杂度为 \(\theta(N^{2})\)
+</p>
+
+<pre class="example" id="orgd83ae5b">
+不过，因为只有在新添加节点的后面有连续多个长度接近 254 的节点时， 这种连锁更新才会发生
+
+所以可以普遍地认为， 这种连锁更新发生的概率非常小， 在一般情况下， 将添加操作看成是 O(N) 复杂度也是可以的
+</pre>
+
+<p>
+执行完这三种情况的其中一种后， 程序更新 ziplist 的各项属性， 至此，添加操作完成
+</p>
+
+<pre class="example" id="org0b5132c">
+在第三种情况中，程序实际上是可以执行类似于情况二的动作的： 它可以挨个地检查新节点之后的节点， 尝试收缩它们的空间长度
+
+不过 Redis 决定不这么做， 因为在一些情况下，比如前面提到的，有连续多个长度接近 254 的节点时
+
+可能会出现重复的扩展，收缩再扩展，再收缩的抖动效果， 这会让操作的性能变得非常差
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org9da0d10" class="outline-2">
+<h2 id="org9da0d10">删除</h2>
+<div class="outline-text-2" id="text-org9da0d10">
+<p>
+删除节点和添加操作的步骤类似：
+</p>
+<ol class="org-ol">
+<li><p>
+定位目标节点，并计算节点的空间长度 target - size：
+</p>
+<pre class="example" id="orgde93ea5">
+   target start here
+	   |
+	   V
++----------+----------+----------+----------+----------+----------+
+|          |          |          |          |          |          |
+|   prev   |  target  |   next   | next + 1 | next + 2 |   ...    |
+|          |          |          |          |          |          |
++----------+----------+----------+----------+----------+----------+
+
+	   |&lt;--------&gt;|
+	    target-size
+</pre></li>
+<li><p>
+进行内存移位，覆盖 target 原本的数据，然后通过内存重分配，收缩多余空间：
+</p>
+<pre class="example" id="orgeeb1fe1">
+   target start here
+	   |
+	   V
++----------+----------+----------+----------+----------+
+|          |          |          |          |          |
+|   prev   |   next   | next + 1 | next + 2 |   ...    |
+|          |          |          |          |          |
++----------+----------+----------+----------+----------+
+
+	   | &lt;------------------------------------------ memmove
+</pre></li>
+<li><p>
+检查 next 、 next+1 等后续节点能否满足新前驱节点的编码
+</p>
+<pre class="example" id="orgafc1b85">
+和添加操作一样，删除操作也可能会引起连锁更新
+</pre></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgf1777a9" class="outline-2">
+<h2 id="orgf1777a9">遍历</h2>
+</div>
+<div id="outline-container-org6d90329" class="outline-2">
+<h2 id="org6d90329">查找</h2>
+</div>
+<div id="outline-container-org7309a75" class="outline-2">
+<h2 id="org7309a75">总结</h2>
 </div>
 </div>
 <div id="postamble" class="status">
