@@ -473,5 +473,67 @@ content 部分保存着节点的内容，类型和长度由 encoding 和 length 
      和添加操作一样，删除操作也可能会引起连锁更新
    #+end_example
 * 遍历
+#+begin_example
+可以对 ziplist 进行从前向后的遍历，或者从后先前的遍历
+#+end_example
+当进行从前向后的遍历时， 程序从指向节点 e1 的指针 p 开始， 计算节点 e1 的长度 _e1 - size_ ， 然后将 p 加上 _e1 - size_ ， 就将指针后移到了下一个节点 e2 。。。 如此反覆，直到 p 遇到 _ZIPLIST_ENTRY_END_ 为止， 这样整个 ziplist 就遍历完了：
+#+begin_example
+				 p + e1-size + e2-size
+		   p + e1-size     |
+	     p          |          |
+	     |          |          |
+	     V          V          V
+  +----------+----------+----------+----------+----------+----------+----------+
+  | ZIPLIST  |          |          |          |          |          | ZIPLIST  |
+  | ENTRY    |    e1    |    e2    |    e3    |    e4    |   ...    | ENTRY    |
+  | HEAD     |          |          |          |          |          | END      |
+  +----------+----------+----------+----------+----------+----------+----------+
+
+	     |<-------->|<-------->|
+	       e1-size    e2-size
+#+end_example
+当进行从后往前遍历的时候， 程序从指向节点 eN 的指针 p 出发， 取出 eN 的 pre_entry_length 值， 然后用 _p - pre_entry_length_ ， 这就将指针移动到了前一个节点 eN-1 。。。 如此反覆，直到 p 遇到 _ZIPLIST_ENTRY_HEAD_ 为止， 这样整个 ziplist 就遍历完了：
+
+#+begin_example
+					   p - eN.pre_entry_length
+					      |
+					      |          p
+					      |          |
+					      V          V
+  +----------+----------+----------+----------+----------+----------+----------+
+  | ZIPLIST  |          |          |          |          |          | ZIPLIST  |
+  | ENTRY    |    e1    |    e2    |   ...    |   eN-1   |    eN    | ENTRY    |
+  | HEAD     |          |          |          |          |          | END      |
+#+end_example
+
 * 查找
+查找元素、根据值定位节点，这两个操作和遍历的原理基本相同，不再赘述
+
 * 总结
++ ziplist 是由一系列特殊编码的内存块构成的列表，可以保存字符数组或整数值，同时是哈希键、列表键和有序集合键的底层实现之一
++ ziplist 典型分布结构如下：
+  #+begin_example
+    area        |<---- ziplist header ---->|<----------- entries ------------->|<-end->|
+
+    size          4 bytes  4 bytes  2 bytes    ?        ?        ?        ?     1 byte
+		+---------+--------+-------+--------+--------+--------+--------+-------+
+    component   | zlbytes | zltail | zllen | entry1 | entry2 |  ...   | entryN | zlend |
+		+---------+--------+-------+--------+--------+--------+--------+-------+
+					   ^                          ^        ^
+    address                                |                          |        |
+				    ZIPLIST_ENTRY_HEAD                |   ZIPLIST_ENTRY_END
+								      |
+							     ZIPLIST_ENTRY_TAIL
+  #+end_example
++ ziplist 节点的分布结构如下：
+  #+begin_example
+    area        |<------------------- entry -------------------->|
+
+		+------------------+----------+--------+---------+
+    component   | pre_entry_length | encoding | length | content |
+		+------------------+----------+--------+---------+
+  #+end_example
++ 添加和删除 ziplist 节点有可能会引起连锁更新，因此，添加和删除操作的最坏复杂度为 $\theta(N^2)$
+  #+begin_example
+    不过，因为连锁更新的出现概率并不高，所以一般可以将添加和删除操作的复杂度视为 O(N) 
+  #+end_example
