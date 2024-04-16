@@ -41,3 +41,81 @@
   redisObject 实际上是只是一个结构 (struct) 类型
 #+end_example  
 * redisObject 
+redisObject 是 Redis 类型系统的核心， 数据库中的每个 _键_ , _值_ 以及 _Redis 本身处理的参数_ ， 都表示为这种数据类型。redisObject 的定义位于 _redis.h_ ：
+
+#+begin_src c 
+  /*
+   ,* Redis 对象
+   ,*/
+  typedef struct redisObject {
+    unsigned type:4; // 类型
+
+    unsigned notused:2; // 对齐位
+
+    unsigned encoding:4; // 编码方式
+
+    unsigned lru:22; // LRU 时间（相对于 server.lruclock）
+
+    int refcount; // 引用计数
+
+    void *ptr; // 指向对象的值
+  } robj;
+#+end_src
+
+type , encoding 和 ptr 是最重要的三个属性：
++ _type_ 记录了对象所保存的值的 *类型* ，它的值可能是以下常量的其中一个（定义位于 redis.h）：
+  #+begin_src c 
+    /*
+     ,* 对象类型
+     ,*/
+    #define REDIS_STRING 0  // 字符串
+    #define REDIS_LIST 1    // 列表
+    #define REDIS_SET 2     // 集合
+    #define REDIS_ZSET 3    // 有序集
+    #define REDIS_HASH 4    // 哈希表
+  #+end_src
++ encoding 记录了对象所保存的值的 *编码*，它的值可能是以下常量的其中一个（定义位于 redis.h）：
+  #+begin_src c 
+    /*
+     ,* 对象编码
+     ,*/
+    #define REDIS_ENCODING_RAW 0            // 编码为字符串
+    #define REDIS_ENCODING_INT 1            // 编码为整数
+    #define REDIS_ENCODING_HT 2             // 编码为哈希表
+    #define REDIS_ENCODING_ZIPMAP 3         // 编码为 zipmap
+    #define REDIS_ENCODING_LINKEDLIST 4     // 编码为双端链表
+    #define REDIS_ENCODING_ZIPLIST 5        // 编码为压缩列表
+    #define REDIS_ENCODING_INTSET 6         // 编码为整数集合
+    #define REDIS_ENCODING_SKIPLIST 7       // 编码为跳跃表
+  #+end_src
++ ptr 是一个指针，指向 *实际保存值的数据结构* ，这个数据结构由 type 属性和 encoding 属性决定
+  #+begin_example
+    举个例子，如果一个 redisObject 的 type 属性为 REDIS_LIST ， encoding 属性为 REDIS_ENCODING_LINKEDLIST
+    那么这个对象就是一个 Redis 列表，它的值保存在一个双端链表内，而 ptr 指针就指向这个双端链表
+
+    另一方面，如果一个 redisObject 的 type 属性为 REDIS_HASH ， encoding 属性为 REDIS_ENCODING_ZIPMAP
+    那么这个对象就是一个 Redis 哈希表，它的值保存在一个 zipmap 里，而 ptr 指针就指向这个 zipmap ；诸如此类
+  #+end_example
+
+下图展示了 redisObject 、Redis 所有数据类型、以及 Redis 所有编码方式（底层实现）三者之间的关系：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-243b3a1747269b8e966a9bdd9db2129d983f2b23.svg]]
+
+#+begin_example
+REDIS_ENCODING_ZIPMAP 没有出现在图中， 因为从 Redis 2.6 开始， 它不再是任何数据类型的底层结构
+#+end_example
+* 类型检查和多态
+#+begin_example
+有了 redisObject 结构的存在， 在执行处理数据类型的命令时， 进行类型检查和对编码进行多态操作就简单得多了
+#+end_example
+当执行一个处理数据类型的命令时， Redis 执行以下步骤：
+1. 根据给定 _key_ ，在数据库字典中查找和它相对应的 _redisObject_ ，如果没找到，就返回 *NULL*
+2. 检查 redisObject 的 _type_ 属性和 _执行命令所需的类型_ 是否相符，如果不相符，返回 *类型错误*
+3. 根据 redisObject 的 _encoding_ 属性所指定的编码，选择 *合适的操作函数* 来处理底层的数据结构
+4. 返回数据结构的 *操作结果* 作为命令的 _返回值_
+
+ 作为例子，以下展示了对键 key 执行 LPOP 命令的完整过程：  
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-19bb826a6b2f1b39218ae00e804c65654128cc74.svg]]
+* 对象共享
+* 引用计数
