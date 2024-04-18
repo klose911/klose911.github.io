@@ -4,3 +4,36 @@
 #+HTML_LINK_HOME: ./data_type.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
 
+REDIS_HASH _哈希表_ 是 _HSET_  _HLEN_ 等命令的操作对象， 它使用 _REDIS_ENCODING_ZIPLIST_ 和 _REDIS_ENCODING_HT_ 两种编码方式：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-145365a458984496cfecacd67b29f5d42c39a401.svg]]
+
+* 字典
+当哈希表使用字典编码时， 程序将哈希表的键 _key_ 保存为字典的键， 将哈希表的值 _value_ 保存为字典的值。哈希表所使用的字典的键和值都是 _字符串对象_ 。下图展示了一个包含三个键值对的哈希表：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-47d8c87484f68b0f34687f02b323dbd8d369d1ce.svg]]
+
+* 压缩列表
+
+当使用 REDIS_ENCODING_ZIPLIST 编码哈希表时， 程序通过将 _键_ 和 _值_ 一同 *推入* _压缩列表_ ， 从而形成保存哈希表所需的键-值对结构：
+
+#+begin_example
+  +---------+------+------+------+------+------+------+------+------+---------+
+  | ZIPLIST |      |      |      |      |      |      |      |      | ZIPLIST |
+  | ENTRY   | key1 | val1 | key2 | val2 | ...  | ...  | keyN | valN | ENTRY   |
+  | HEAD    |      |      |      |      |      |      |      |      | END     |
+  +---------+------+------+------+------+------+------+------+------+---------+
+#+end_example
+
++ 新添加的 key-value 对会被添加到压缩列表的 *表尾* 
++ 当进行查找/删除或更新操作时，先定位到 _键的位置_ ，然后再通过对键的位置来定位 _值的位置_
+
+* 编码
+创建空白哈希表时， 程序默认使用 REDIS_ENCODING_ZIPLIST 编码， 当以下任何一个条件被满足时， 程序将编码从 REDIS_ENCODING_ZIPLIST 切换为 REDIS_ENCODING_HT ：
++ *某个键或某个值的长度* 大于 server.hash_max_ziplist_value （默认值为  _64_ ）
++ 压缩列表中的 *节点数量* 大于 server.hash_max_ziplist_entries （默认值为 _512_ ）
+
+* 命令
+哈希类型命令的实现全都是对字典和压缩列表操作函数的包装， 以及几个在两种编码之间进行转换的函数， 没有特别要讲解的地方
+

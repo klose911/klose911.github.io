@@ -201,7 +201,84 @@
  <a accesskey="H" href="./data_type.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">哈希表</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgc2d6a70">字典</a></li>
+<li><a href="#org0f6e81f">压缩列表</a></li>
+<li><a href="#orgb804cf1">编码</a></li>
+<li><a href="#org6760ce8">命令</a></li>
+</ul>
+</div>
+</div>
+<p>
+REDIS_HASH <span class="underline">哈希表</span> 是 <span class="underline">HSET</span>  <span class="underline">HLEN</span> 等命令的操作对象， 它使用 <span class="underline">REDIS_ENCODING_ZIPLIST</span> 和 <span class="underline">REDIS_ENCODING_HT</span> 两种编码方式：
+</p>
 
+
+<div id="org25844f3" class="figure">
+<p><img src="../pic/graphviz-145365a458984496cfecacd67b29f5d42c39a401.svg" alt="graphviz-145365a458984496cfecacd67b29f5d42c39a401.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<div id="outline-container-orgc2d6a70" class="outline-2">
+<h2 id="orgc2d6a70">字典</h2>
+<div class="outline-text-2" id="text-orgc2d6a70">
+<p>
+当哈希表使用字典编码时， 程序将哈希表的键 <span class="underline">key</span> 保存为字典的键， 将哈希表的值 <span class="underline">value</span> 保存为字典的值。哈希表所使用的字典的键和值都是 <span class="underline">字符串对象</span> 。下图展示了一个包含三个键值对的哈希表：
+</p>
+
+<div id="org9b237bd" class="figure">
+<p><img src="../pic/graphviz-47d8c87484f68b0f34687f02b323dbd8d369d1ce.svg" alt="graphviz-47d8c87484f68b0f34687f02b323dbd8d369d1ce.svg" class="org-svg" width="90%" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org0f6e81f" class="outline-2">
+<h2 id="org0f6e81f">压缩列表</h2>
+<div class="outline-text-2" id="text-org0f6e81f">
+<p>
+当使用 REDIS_ENCODING_ZIPLIST 编码哈希表时， 程序通过将 <span class="underline">键</span> 和 <span class="underline">值</span> 一同 <b>推入</b> <span class="underline">压缩列表</span> ， 从而形成保存哈希表所需的键-值对结构：
+</p>
+
+<pre class="example" id="orgb58c270">
++---------+------+------+------+------+------+------+------+------+---------+
+| ZIPLIST |      |      |      |      |      |      |      |      | ZIPLIST |
+| ENTRY   | key1 | val1 | key2 | val2 | ...  | ...  | keyN | valN | ENTRY   |
+| HEAD    |      |      |      |      |      |      |      |      | END     |
++---------+------+------+------+------+------+------+------+------+---------+
+</pre>
+
+<ul class="org-ul">
+<li>新添加的 key-value 对会被添加到压缩列表的 <b>表尾</b></li>
+<li>当进行查找/删除或更新操作时，先定位到 <span class="underline">键的位置</span> ，然后再通过对键的位置来定位 <span class="underline">值的位置</span></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orgb804cf1" class="outline-2">
+<h2 id="orgb804cf1">编码</h2>
+<div class="outline-text-2" id="text-orgb804cf1">
+<p>
+创建空白哈希表时， 程序默认使用 REDIS_ENCODING_ZIPLIST 编码， 当以下任何一个条件被满足时， 程序将编码从 REDIS_ENCODING_ZIPLIST 切换为 REDIS_ENCODING_HT ：
+</p>
+<ul class="org-ul">
+<li><b>某个键或某个值的长度</b> 大于 server.hash_max_ziplist_value （默认值为  <span class="underline">64</span> ）</li>
+<li>压缩列表中的 <b>节点数量</b> 大于 server.hash_max_ziplist_entries （默认值为 <span class="underline">512</span> ）</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org6760ce8" class="outline-2">
+<h2 id="org6760ce8">命令</h2>
+<div class="outline-text-2" id="text-org6760ce8">
+<p>
+哈希类型命令的实现全都是对字典和压缩列表操作函数的包装， 以及几个在两种编码之间进行转换的函数， 没有特别要讲解的地方
+</p>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
