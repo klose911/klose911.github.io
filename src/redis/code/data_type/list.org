@@ -3,3 +3,67 @@
 #+HTML_LINK_UP: ./hash.html
 #+HTML_LINK_HOME: ./data_type.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
+
+_REDIS_LIST_ *列表* 是 _LPUSH_ ,  _LRANGE_ 等命令的操作对象， 它使用 _REDIS_ENCODING_ZIPLIST_ 和 _REDIS_ENCODING_LINKEDLIST_ 这两种方式编码：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-9d1b937227cf948b8a9bfb3137570475e5407d2c.svg]]
+
+* 编码
+创建新列表时 Redis 默认使用 _REDIS_ENCODING_ZIPLIST_ 编码， 当以下任意一个条件被满足时， 列表会被转换成 _REDIS_ENCODING_LINKEDLIST_ 编码：
++ 试图往列表新添加一个 _字符串值_ ，且这个字符串的长度超过 _server.list_max_ziplist_value_ （默认值为 _64_ ）
++ ziplist 包含的节点超过 _server.list_max_ziplist_entries_ （默认值为 _512_ ）
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/]]
+
+* 命令
+#+begin_example
+  因为两种底层实现的抽象方式和列表的抽象方式非常接近， 所以列表命令几乎就是通过一对一地映射到底层数据结构的操作来实现的
+
+  既然这些映射都非常直观， 这里就不做赘述了
+#+end_example
+在以下的内容中， 将焦点放在 _BLPOP_  ,  _BRPOP_ 和 _BRPOPLPUSH_ 这个几个 *阻塞* 命令的实现原理上
+
+* 阻塞
+
+** 条件
+_BLPOP_ , _BRPOP_ 和 _BRPOPLPUSH_ 三个命令都可能造成 *客户端被阻塞*， 以下将这些命令统称为 _列表的阻塞原语_ 。阻塞原语并不一定会造成客户端阻塞：
++ 只有当这些命令被用于 *空列表* 时， 它们才会阻塞客户端
++ 如果被处理的列表不为空的话， 它们就执行无阻塞版本的 LPOP 、 RPOP 或 RPOPLPUSH 命令
+
+作为例子，以下流程图展示了 BLPOP 决定是否对客户端进行阻塞过程：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-657d8e78e1f1357fdff05173a259334670b87f85.svg]]
+
+** 过程
+阻塞一个客户端需要执行以下步骤：
+1. 将 _客户端的状态_ 设为 *正在阻塞*，并记录阻塞这个 _客户端的各个键_ ，以及阻塞的最长时限 _timeout_ 等数据
+2. 将客户端的信息记录到 _server.db[i]->blocking_keys_ 中（其中 i 为 _客户端所使用的数据库号码_ ）
+3. 继续 *维持* 客户端和服务器之间的 _网络连接_ ，但 *不再向* 客户端传送任何信息，造成客户端阻塞
+
+步骤 2 是将来解除阻塞的关键， _server.db[i]->blocking_keys_ 是一个 *字典* ：
++ 字典的键：那些造成客户端阻塞的键
++ 字典的值：一个链表， 链表里保存了所有因为这个键而被阻塞的客户端 （被同一个键所阻塞的客户端可能不止一个）
+
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg]]
+
+#+begin_example
+  在上图展示的 例子中， client2 、 client5 和 client1 三个客户端就正被 key1 阻塞
+
+  而其他几个客户端也正在被别的两个 key 阻塞
+#+end_example
+
+当客户端被阻塞之后，脱离阻塞状态有以下三种方法：
+1. *被动* 脱离：有其他客户端为造成阻塞的键推入了新元素
+2. *主动* 脱离：到达执行阻塞原语时设定的最大阻塞时间
+3. *强制* 脱离：客户端强制终止和服务器的连接，或者服务器停机
+** 取消
+
+*** 策略
+
+** 超时
+

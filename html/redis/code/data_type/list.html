@@ -201,6 +201,151 @@
  <a accesskey="H" href="./data_type.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">列表</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgb2b4faf">编码</a></li>
+<li><a href="#orgd089d80">命令</a></li>
+<li><a href="#org18e0dce">阻塞</a>
+<ul>
+<li><a href="#org058d7c0">条件</a></li>
+<li><a href="#orgaae0e1c">过程</a></li>
+<li><a href="#org6804ccf">取消</a>
+<ul>
+<li><a href="#org136d732">策略</a></li>
+</ul>
+</li>
+<li><a href="#org148532f">超时</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<p>
+<span class="underline">REDIS_LIST</span> <b>列表</b> 是 <span class="underline">LPUSH</span> ,  <span class="underline">LRANGE</span> 等命令的操作对象， 它使用 <span class="underline">REDIS_ENCODING_ZIPLIST</span> 和 <span class="underline">REDIS_ENCODING_LINKEDLIST</span> 这两种方式编码：
+</p>
+
+
+<div id="orgc69004f" class="figure">
+<p><img src="../pic/graphviz-9d1b937227cf948b8a9bfb3137570475e5407d2c.svg" alt="graphviz-9d1b937227cf948b8a9bfb3137570475e5407d2c.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<div id="outline-container-orgb2b4faf" class="outline-2">
+<h2 id="orgb2b4faf">编码</h2>
+<div class="outline-text-2" id="text-orgb2b4faf">
+<p>
+创建新列表时 Redis 默认使用 <span class="underline">REDIS_ENCODING_ZIPLIST</span> 编码， 当以下任意一个条件被满足时， 列表会被转换成 <span class="underline">REDIS_ENCODING_LINKEDLIST</span> 编码：
+</p>
+<ul class="org-ul">
+<li>试图往列表新添加一个 <span class="underline">字符串值</span> ，且这个字符串的长度超过 <span class="underline">server.list_max_ziplist_value</span> （默认值为 <span class="underline">64</span> ）</li>
+<li>ziplist 包含的节点超过 <span class="underline">server.list_max_ziplist_entries</span> （默认值为 <span class="underline">512</span> ）</li>
+</ul>
+
+<p width="90%">
+<a href="../pic/" width="90%">../pic/</a>
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd089d80" class="outline-2">
+<h2 id="orgd089d80">命令</h2>
+<div class="outline-text-2" id="text-orgd089d80">
+<pre class="example" id="orgbde853e">
+因为两种底层实现的抽象方式和列表的抽象方式非常接近， 所以列表命令几乎就是通过一对一地映射到底层数据结构的操作来实现的
+
+既然这些映射都非常直观， 这里就不做赘述了
+</pre>
+<p>
+在以下的内容中， 将焦点放在 <span class="underline">BLPOP</span>  ,  <span class="underline">BRPOP</span> 和 <span class="underline">BRPOPLPUSH</span> 这个几个 <b>阻塞</b> 命令的实现原理上
+</p>
+</div>
+</div>
+
+<div id="outline-container-org18e0dce" class="outline-2">
+<h2 id="org18e0dce">阻塞</h2>
+<div class="outline-text-2" id="text-org18e0dce">
+</div>
+<div id="outline-container-org058d7c0" class="outline-3">
+<h3 id="org058d7c0">条件</h3>
+<div class="outline-text-3" id="text-org058d7c0">
+<p>
+<span class="underline">BLPOP</span> , <span class="underline">BRPOP</span> 和 <span class="underline">BRPOPLPUSH</span> 三个命令都可能造成 *客户端被阻塞*， 以下将这些命令统称为 <span class="underline">列表的阻塞原语</span> 。阻塞原语并不一定会造成客户端阻塞：
+</p>
+<ul class="org-ul">
+<li>只有当这些命令被用于 <b>空列表</b> 时， 它们才会阻塞客户端</li>
+<li>如果被处理的列表不为空的话， 它们就执行无阻塞版本的 LPOP 、 RPOP 或 RPOPLPUSH 命令</li>
+</ul>
+
+<p>
+作为例子，以下流程图展示了 BLPOP 决定是否对客户端进行阻塞过程：
+</p>
+
+
+<div id="orgaf59fca" class="figure">
+<p><img src="../pic/graphviz-657d8e78e1f1357fdff05173a259334670b87f85.svg" alt="graphviz-657d8e78e1f1357fdff05173a259334670b87f85.svg" class="org-svg" width="90%" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgaae0e1c" class="outline-3">
+<h3 id="orgaae0e1c">过程</h3>
+<div class="outline-text-3" id="text-orgaae0e1c">
+<p>
+阻塞一个客户端需要执行以下步骤：
+</p>
+<ol class="org-ol">
+<li>将 <span class="underline">客户端的状态</span> 设为 *正在阻塞*，并记录阻塞这个 <span class="underline">客户端的各个键</span> ，以及阻塞的最长时限 <span class="underline">timeout</span> 等数据</li>
+<li>将客户端的信息记录到 <span class="underline">server.db[i]-&gt;blocking_keys</span> 中（其中 i 为 <span class="underline">客户端所使用的数据库号码</span> ）</li>
+<li>继续 <b>维持</b> 客户端和服务器之间的 <span class="underline">网络连接</span> ，但 <b>不再向</b> 客户端传送任何信息，造成客户端阻塞</li>
+</ol>
+
+<p>
+步骤 2 是将来解除阻塞的关键， <span class="underline">server.db[i]-&gt;blocking_keys</span> 是一个 <b>字典</b> ：
+</p>
+<ul class="org-ul">
+<li>字典的键：那些造成客户端阻塞的键</li>
+<li>字典的值：一个链表， 链表里保存了所有因为这个键而被阻塞的客户端 （被同一个键所阻塞的客户端可能不止一个）</li>
+</ul>
+
+
+
+<div id="orgd227e43" class="figure">
+<p><img src="../pic/graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg" alt="graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<pre class="example" id="orgeb174bd">
+在上图展示的 例子中， client2 、 client5 和 client1 三个客户端就正被 key1 阻塞
+
+而其他几个客户端也正在被别的两个 key 阻塞
+</pre>
+
+<p>
+当客户端被阻塞之后，脱离阻塞状态有以下三种方法：
+</p>
+<ol class="org-ol">
+<li><b>被动</b> 脱离：有其他客户端为造成阻塞的键推入了新元素</li>
+<li><b>主动</b> 脱离：到达执行阻塞原语时设定的最大阻塞时间</li>
+<li><b>强制</b> 脱离：客户端强制终止和服务器的连接，或者服务器停机</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org6804ccf" class="outline-3">
+<h3 id="org6804ccf">取消</h3>
+<div class="outline-text-3" id="text-org6804ccf">
+</div>
+<div id="outline-container-org136d732" class="outline-4">
+<h4 id="org136d732">策略</h4>
+</div>
+</div>
+
+<div id="outline-container-org148532f" class="outline-3">
+<h3 id="org148532f">超时</h3>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
