@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -227,7 +248,7 @@
 </p>
 
 
-<div id="orgc69004f" class="figure">
+<div id="org33d2ca7" class="figure">
 <p><img src="../pic/graphviz-9d1b937227cf948b8a9bfb3137570475e5407d2c.svg" alt="graphviz-9d1b937227cf948b8a9bfb3137570475e5407d2c.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -252,7 +273,7 @@
 <div id="outline-container-orgd089d80" class="outline-2">
 <h2 id="orgd089d80">命令</h2>
 <div class="outline-text-2" id="text-orgd089d80">
-<pre class="example" id="orgbde853e">
+<pre class="example" id="org191f599">
 因为两种底层实现的抽象方式和列表的抽象方式非常接近， 所以列表命令几乎就是通过一对一地映射到底层数据结构的操作来实现的
 
 既然这些映射都非常直观， 这里就不做赘述了
@@ -283,7 +304,7 @@
 </p>
 
 
-<div id="orgaf59fca" class="figure">
+<div id="org677af27" class="figure">
 <p><img src="../pic/graphviz-657d8e78e1f1357fdff05173a259334670b87f85.svg" alt="graphviz-657d8e78e1f1357fdff05173a259334670b87f85.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -312,12 +333,12 @@
 
 
 
-<div id="orgd227e43" class="figure">
+<div id="org81d01d9" class="figure">
 <p><img src="../pic/graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg" alt="graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg" class="org-svg" width="90%" />
 </p>
 </div>
 
-<pre class="example" id="orgeb174bd">
+<pre class="example" id="orgfbd7b45">
 在上图展示的 例子中， client2 、 client5 和 client1 三个客户端就正被 key1 阻塞
 
 而其他几个客户端也正在被别的两个 key 阻塞
@@ -336,14 +357,182 @@
 <div id="outline-container-org6804ccf" class="outline-3">
 <h3 id="org6804ccf">取消</h3>
 <div class="outline-text-3" id="text-org6804ccf">
+<p>
+通过将新元素推入造成客户端阻塞的某个键中， 可以让相应的客户端从阻塞状态中脱离出来 （取消阻塞的客户端数量取决于推入元素的数量）。LPUSH 、 RPUSH 和 LINSERT 这三个添加新元素到列表的命令， 在底层都由一个 <span class="underline">pushGenericCommand</span> 的函数实现， 这个函数的运作流程如下图：
+</p>
+
+
+<div id="orgb1108fc" class="figure">
+<p><img src="../pic/graphviz-be4975476661a3e683475377d30b659d70bee64c.svg" alt="graphviz-be4975476661a3e683475377d30b659d70bee64c.svg" class="org-svg" width="90%" />
+</p>
 </div>
+
+<p>
+当向一个空键推入新元素时， pushGenericCommand 函数执行以下两件事：
+</p>
+<ol class="org-ol">
+<li>检查这个键是否存在于前面提到的 <span class="underline">server.db[i]-&gt;blocking_keys</span> 字典里：
+<ul class="org-ul">
+<li>如果是的话， 那么说明有至少一个客户端因为这个 key 而被阻塞，程序会为这个键 <b>创建</b> 一个 <span class="underline">redis.h/readyList</span> 结构， 并将它 <b>添加</b> 到 <span class="underline">server.ready_keys</span> 链表中</li>
+</ul></li>
+<li>将给定的值添加到列表键中</li>
+</ol>
+
+<p>
+<span class="underline">readyList</span> 结构的定义如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">readyList</span> {
+  <span style="color: #98fb98;">redisDb</span> *<span style="color: #eedd82;">db</span>;
+  <span style="color: #98fb98;">robj</span> *<span style="color: #eedd82;">key</span>;
+} <span style="color: #98fb98;">readyList</span>;
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>key 属性指向 <span class="underline">造成阻塞的键</span></li>
+<li>db 则指向 <span class="underline">该键所在的数据库</span></li>
+</ul>
+
+<p>
+举个例子， 假设某个非阻塞客户端正在使用 \(0\) 号数据库， 而这个数据库当前的 <span class="underline">blocking_keys</span> 属性的值如下：
+</p>
+
+<div id="orgdbd5327" class="figure">
+<p><img src="../pic/graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg" alt="graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+如果这时客户端对该数据库执行 <span class="underline">PUSH key3 value</span> ， 那么 pushGenericCommand 将创建一个 db 属性指向 \(0\) 号数据库、 key 属性指向 key3 键对象的 readyList 结构 ， 并将它添加到服务器 server.ready_keys 属性的链表中：
+</p>
+
+<div id="org3fa191e" class="figure">
+<p><img src="../pic/graphviz-f2450c693b205a3c1cf1e82a4a09150c614ed631.svg" alt="graphviz-f2450c693b205a3c1cf1e82a4a09150c614ed631.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+到目前为止， pushGenericCommand 函数完成了以下两件事：
+</p>
+<ol class="org-ol">
+<li>将 readyList 添加到服务器</li>
+<li>将新元素 value 添加到键 key3</li>
+</ol>
+
+<pre class="example" id="orgd8eb098">
+虽然 key3 已经不再是空键， 但到目前为止， 被 key3 阻塞的客户端还没有任何一个被解除阻塞状态
+</pre>
+<p>
+为了做到这一点， Redis 的主进程在执行完 pushGenericCommand 函数之后， 会继续调用 <span class="underline">handleClientsBlockedOnLists</span> 函数， 这个函数执行以下操作：
+</p>
+<ol class="org-ol">
+<li>如果 server.ready_keys 不为空，那么弹出该链表的表头元素，并取出元素中的 readyList 值</li>
+<li>根据 readyList 值所保存的 key 和 db ，在 server.blocking_keys 中查找所有因为 key 而被阻塞的客户端（以链表的形式保存）</li>
+<li>如果 key 不为空，那么从 key 中弹出一个元素，并弹出客户端链表的第一个客户端，然后将被弹出元素返回给被弹出客户端作为阻塞原语的返回值</li>
+<li>根据 readyList 结构的属性，删除 server.blocking_keys 中相应的客户端数据，取消客户端的阻塞状态</li>
+<li>继续执行步骤 3 和 4 ，直到 key 没有元素可弹出，或者所有因为 key 而阻塞的客户端都取消阻塞为止</li>
+<li><p>
+继续执行步骤 1 ，直到 ready_keys 链表里的所有 readyList 结构都被处理完为止
+</p>
+
+<p>
+用一段伪代码描述以上操作可能会更直观一些：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">handleClientsBlockedOnLists</span>():
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25191;&#34892;&#30452;&#21040; ready_keys &#20026;&#31354;</span>
+    <span style="color: #00ffff;">while</span> server.ready_keys != <span style="color: #eedd82;">NULL</span>:
+
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24377;&#20986;&#38142;&#34920;&#20013;&#30340;&#31532;&#19968;&#20010; readyList</span>
+        rl = server.ready_keys.pop_first_node()
+
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36941;&#21382;&#25152;&#26377;&#22240;&#20026;&#36825;&#20010;&#38190;&#32780;&#34987;&#38459;&#22622;&#30340;&#23458;&#25143;&#31471;</span>
+        <span style="color: #00ffff;">for</span> client <span style="color: #00ffff;">in</span> all_client_blocking_by_key(rl.key, rl.db):
+
+            <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21482;&#35201;&#36824;&#26377;&#23458;&#25143;&#31471;&#34987;&#36825;&#20010;&#38190;&#38459;&#22622;&#65292;&#23601;&#19968;&#30452;&#20174;&#38190;&#20013;&#24377;&#20986;&#20803;&#32032;</span>
+            <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#26524;&#34987;&#38459;&#22622;&#23458;&#25143;&#31471;&#25191;&#34892;&#30340;&#26159; BLPOP &#65292;&#37027;&#20040;&#23545;&#38190;&#25191;&#34892; LPOP</span>
+            <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#26524;&#25191;&#34892;&#30340;&#26159; BRPOP &#65292;&#37027;&#20040;&#23545;&#38190;&#25191;&#34892; RPOP</span>
+            <span style="color: #eedd82;">element</span> = rl.key.pop_element()
+
+            <span style="color: #00ffff;">if</span> element == NULL:
+                <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#38190;&#20026;&#31354;&#65292;&#36339;&#20986; for &#24490;&#29615;</span>
+                <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20313;&#19979;&#30340;&#26410;&#35299;&#38500;&#38459;&#22622;&#30340;&#23458;&#25143;&#31471;&#21482;&#33021;&#31561;&#24453;&#19979;&#27425;&#26032;&#20803;&#32032;&#30340;&#36827;&#20837;&#20102;</span>
+                <span style="color: #00ffff;">break</span>
+            <span style="color: #00ffff;">else</span>:
+                <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#28165;&#38500;&#23458;&#25143;&#31471;&#30340;&#38459;&#22622;&#20449;&#24687;</span>
+                server.blocking_keys.remove_blocking_info(client)
+                <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#20803;&#32032;&#36820;&#22238;&#32473;&#23458;&#25143;&#31471;&#65292;&#33073;&#31163;&#38459;&#22622;&#29366;&#24577;</span>
+                client.reply_list_item(element)
+</pre>
+</div></li>
+</ol>
+</div>
+
 <div id="outline-container-org136d732" class="outline-4">
 <h4 id="org136d732">策略</h4>
+<div class="outline-text-4" id="text-org136d732">
+<p>
+值得一提的是：
+</p>
+<ul class="org-ul">
+<li>当程序添加一个新的被阻塞客户端到 server.blocking_keys 字典的链表中时， 它将该客户端放在链表的最后</li>
+<li>当 handleClientsBlockedOnLists 取消客户端的阻塞时， 它从链表的最前面开始取消阻塞</li>
+</ul>
+
+<p>
+这个链表形成了一个 FIFO 队列， 最先被阻塞的客户端总是最先脱离阻塞状态， Redis 文档称这种模式为 <b>先阻塞先服务</b>  <span class="underline">FBFS(first-block-first-serve)</span> 。举个例子，在下图所示的阻塞状况中：
+</p>
+<ul class="org-ul">
+<li>如果客户端对数据库执行 PUSH key3 value ， 那么只有 client3 会被取消阻塞， client6 和 client4 仍然阻塞</li>
+<li>如果客户端对数据库执行 PUSH key3 value1 value2 ， 那么 client3 和 client4 的阻塞都会被取消， 而客户端 client6 依然处于阻塞状态</li>
+</ul>
+
+
+<div id="orgfea9e4f" class="figure">
+<p><img src="../pic/graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg" alt="graphviz-72233dd6a912518ff6874fdad4e20356091a6063.svg" class="org-svg" width="90%" />
+</p>
+</div>
+</div>
 </div>
 </div>
 
 <div id="outline-container-org148532f" class="outline-3">
 <h3 id="org148532f">超时</h3>
+<div class="outline-text-3" id="text-org148532f">
+<pre class="example" id="orgd245b7e">
+当客户端被阻塞时， 所有造成它阻塞的键， 以及阻塞的最长时限会被记录， 并且该客户端的状态会被设置为“正在阻塞”
+</pre>
+
+<p>
+每次 Redis 服务器常规操作函数 <span class="underline">server cron job</span> 执行时， 程序都会检查所有连接到服务器的客户端， 查看那些处于“正在阻塞”状态的客户端的最大阻塞时限是否已经 <b>过期</b> ， 如果是的话， 就给客户端返回一个空白回复， 然后撤销对客户端的阻塞。可以用一段伪代码来描述这个过程：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">server_cron_job</span>():
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20854;&#20182;&#25805;&#20316; ...</span>
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36941;&#21382;&#25152;&#26377;&#24050;&#36830;&#25509;&#23458;&#25143;&#31471;</span>
+    <span style="color: #00ffff;">for</span> client <span style="color: #00ffff;">in</span> server.all_connected_client:
+
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#26524;&#23458;&#25143;&#31471;&#29366;&#24577;&#20026;&#8220;&#27491;&#22312;&#38459;&#22622;&#8221;&#65292;&#24182;&#19988;&#26368;&#22823;&#38459;&#22622;&#26102;&#38480;&#24050;&#21040;&#36798;</span>
+        <span style="color: #00ffff;">if</span> client.state == BLOCKING <span style="color: #00ffff;">and</span> \
+           client.max_blocking_timestamp &lt; current_timestamp():
+
+            <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#37027;&#20040;&#32473;&#23458;&#25143;&#31471;&#21457;&#36865;&#31354;&#22238;&#22797;,&#33073;&#31163;&#38459;&#22622;&#29366;&#24577;</span>
+            client.send_empty_reply()
+
+            <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24182;&#28165;&#38500;&#23458;&#25143;&#31471;&#22312;&#26381;&#21153;&#22120;&#19978;&#30340;&#38459;&#22622;&#20449;&#24687;</span>
+            server.blocking_keys.remove_blocking_info(client)
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20854;&#20182;&#25805;&#20316; ...</span>
+</pre>
+</div>
+</div>
 </div>
 </div>
 </div>
