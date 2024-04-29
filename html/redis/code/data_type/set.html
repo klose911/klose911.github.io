@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -211,6 +232,13 @@
 <li><a href="#orgb85b926">字典</a></li>
 </ul>
 </li>
+<li><a href="#org7f8947d">命令</a>
+<ul>
+<li><a href="#orge3a32b8">交集</a></li>
+<li><a href="#orga9663e7">并集</a></li>
+<li><a href="#org62ab165">差集</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -218,7 +246,7 @@
 <span class="underline">REDIS_SET</span>  <b>集合</b> 是 <span class="underline">SADD</span> ,  <span class="underline">SRANDMEMBER</span> 等命令的操作对象， 它使用 <span class="underline">REDIS_ENCODING_INTSET</span> 和 <span class="underline">REDIS_ENCODING_HT</span> 两种方式编码：
 </p>
 
-<div id="orga8e3c3c" class="figure">
+<div id="orgfb7ebf1" class="figure">
 <p><img src="../pic/graphviz-2f54a5b62b3507f0e6d579358e426c78b0dfbd5c.svg" alt="graphviz-2f54a5b62b3507f0e6d579358e426c78b0dfbd5c.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -256,9 +284,169 @@
 </p>
 
 
-<div id="org691d938" class="figure">
+<div id="org15067d5" class="figure">
 <p><img src="../pic/graphviz-3b62c50ed475dc6c91adbb8079f0e0104f644931.svg" alt="graphviz-3b62c50ed475dc6c91adbb8079f0e0104f644931.svg" class="org-svg" width="90%" />
 </p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org7f8947d" class="outline-2">
+<h2 id="org7f8947d">命令</h2>
+<div class="outline-text-2" id="text-org7f8947d">
+<p>
+Redis 集合类型命令的实现， 主要是对 <span class="underline">intset</span> 和 <span class="underline">dict</span> 两个数据结构的操作函数的包装， 以及一些在两种编码之间进行转换的函数， 大部分都没有什么需要解释的地方， 唯一比较有趣的是 <span class="underline">SINTER</span> , <span class="underline">SUNION</span> 等命令之下的算法实现， 以下三个小节就分别讨论它们所使用的算法
+</p>
+</div>
+
+<div id="outline-container-orge3a32b8" class="outline-3">
+<h3 id="orge3a32b8">交集</h3>
+<div class="outline-text-3" id="text-orge3a32b8">
+<p>
+<span class="underline">SINTER</span> 和 <span class="underline">SINTERSTORE</span> 两个命令所使用的求并交集算法可以用 Python 表示如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">coding: utf-8</span>
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">sinter</span>(*multi_set):
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26681;&#25454;&#38598;&#21512;&#30340;&#22522;&#25968;&#36827;&#34892;&#25490;&#24207;</span>
+    <span style="color: #eedd82;">sorted_multi_set</span> = <span style="color: #b0c4de;">sorted</span>(multi_set, <span style="color: #00ffff;">lambda</span> x, y: <span style="color: #b0c4de;">len</span>(x) - <span style="color: #b0c4de;">len</span>(y))
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20351;&#29992;&#22522;&#25968;&#26368;&#23567;&#30340;&#38598;&#21512;&#20316;&#20026;&#22522;&#30784;&#32467;&#26524;&#38598;&#65292;&#26377;&#21161;&#20110;&#38477;&#20302;&#24120;&#25968;&#39033;</span>
+    <span style="color: #eedd82;">result</span> = sorted_multi_set[0].copy()
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21076;&#38500;&#25152;&#26377;&#22312; sorted_multi_set[0] &#20013;&#23384;&#22312;</span>
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20294;&#22312;&#20854;&#20182;&#26576;&#20010;&#38598;&#21512;&#20013;&#19981;&#23384;&#22312;&#30340;&#20803;&#32032;</span>
+    <span style="color: #00ffff;">for</span> elem <span style="color: #00ffff;">in</span> sorted_multi_set[0]:
+
+        <span style="color: #00ffff;">for</span> s <span style="color: #00ffff;">in</span> sorted_multi_set[1:]:
+
+            <span style="color: #00ffff;">if</span> (<span style="color: #00ffff;">not</span> elem <span style="color: #00ffff;">in</span> s):
+                result.remove(elem)
+                <span style="color: #00ffff;">break</span>
+
+    <span style="color: #00ffff;">return</span> result
+</pre>
+</div>
+
+<p>
+算法的复杂度为 \(O(N^2)\) ， 执行步数为 \(S*T\) ， 其中 \(S\) 为 <span class="underline">输入集合中基数最小的集合元素数量</span> ， 而 \(T\) 则为 <span class="underline">输入集合的数量</span> 
+</p>
+</div>
+</div>
+<div id="outline-container-orga9663e7" class="outline-3">
+<h3 id="orga9663e7">并集</h3>
+<div class="outline-text-3" id="text-orga9663e7">
+<p>
+<span class="underline">SUNION</span> 和 <span class="underline">SUNIONSTORE</span> 两个命令所使用的求并集算法可以用 Python 表示如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">coding: utf-8</span>
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">sunion</span>(*multi_set):
+
+    <span style="color: #eedd82;">result</span> = <span style="color: #b0c4de;">set</span>()
+
+    <span style="color: #00ffff;">for</span> s <span style="color: #00ffff;">in</span> multi_set:
+        <span style="color: #00ffff;">for</span> elem <span style="color: #00ffff;">in</span> s:
+            <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#37325;&#22797;&#30340;&#20803;&#32032;&#20250;&#34987;&#33258;&#21160;&#24573;&#30053;</span>
+            result.add(elem)
+
+    <span style="color: #00ffff;">return</span> result
+</pre>
+</div>
+
+<p>
+算法的复杂度为 \(O(N)\) 
+</p>
+</div>
+</div>
+<div id="outline-container-org62ab165" class="outline-3">
+<h3 id="org62ab165">差集</h3>
+<div class="outline-text-3" id="text-org62ab165">
+<p>
+Redis 为 <span class="underline">SDIFF</span> 和 <span class="underline">SDIFFSTORE</span> 两个命令准备了两种求集合差的算法：
+</p>
+<ul class="org-ul">
+<li><p>
+算法一定义如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">coding: utf-8</span>
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">sdiff_1</span>(*multi_set):
+
+    <span style="color: #eedd82;">result</span> = multi_set[0].copy()
+
+    <span style="color: #eedd82;">sorted_multi_set</span> = <span style="color: #b0c4de;">sorted</span>(multi_set[1:], <span style="color: #00ffff;">lambda</span> x, y: <span style="color: #b0c4de;">len</span>(x) - <span style="color: #b0c4de;">len</span>(y))
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24403; elem &#23384;&#22312;&#20110;&#38500; multi_set[0] &#20043;&#22806;&#30340;&#38598;&#21512;&#26102;</span>
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558; elem &#20174; result &#20013;&#21024;&#38500;</span>
+    <span style="color: #00ffff;">for</span> elem <span style="color: #00ffff;">in</span> multi_set[0]:
+
+        <span style="color: #00ffff;">for</span> s <span style="color: #00ffff;">in</span> sorted_multi_set:
+
+            <span style="color: #00ffff;">if</span> elem <span style="color: #00ffff;">in</span> s:
+                result.remove(elem)
+                <span style="color: #00ffff;">break</span>
+
+    <span style="color: #00ffff;">return</span> result
+</pre>
+</div>
+<p>
+这个算法的复杂度为 \(O(N^2)\) ， 执行步数为 \(S*T\) ， 其中 \(S\) 为 <span class="underline">输入集合中基数最小的集合元素数量</span> ， 而 \(T\) 则为 <span class="underline">除第一个集合之外其他集合的数量</span> 
+</p></li>
+<li><p>
+算法二定于如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">coding: utf-8</span>
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">sdiff_2</span>(*multi_set):
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#29992;&#31532;&#19968;&#20010;&#38598;&#21512;&#20316;&#20026;&#32467;&#26524;&#38598;&#30340;&#36215;&#22987;&#20540;</span>
+    <span style="color: #eedd82;">result</span> = multi_set[0].copy()
+
+    <span style="color: #00ffff;">for</span> s <span style="color: #00ffff;">in</span> multi_set[1:]:
+        <span style="color: #00ffff;">for</span> elem <span style="color: #00ffff;">in</span> s:
+            <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20174;&#32467;&#26524;&#38598;&#20013;&#21024;&#21435;&#20854;&#20182;&#38598;&#21512;&#20013;&#21253;&#21547;&#30340;&#20803;&#32032;</span>
+            <span style="color: #00ffff;">if</span> elem <span style="color: #00ffff;">in</span> result:
+                result.remove(elem)
+
+    <span style="color: #00ffff;">return</span> result
+</pre>
+</div>
+<p>
+这个算法的复杂度同样为 \(O(N^2)\) ， 执行步数为 \(S\) ， 其中 \(S\) 为 <span class="underline">所有集合的基数总和</span> 
+</p></li>
+</ul>
+
+<p>
+Redis 使用代码决定该使用那个求差集算法， 程序用 Python 表示如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">coding: utf-8</span>
+
+<span style="color: #00ffff;">from</span> sdiff_1 <span style="color: #00ffff;">import</span> sdiff_1
+<span style="color: #00ffff;">from</span> sdiff_2 <span style="color: #00ffff;">import</span> sdiff_2
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">sdiff</span>(*multi_set):
+
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#31639;&#27861;&#19968;&#30340;&#24120;&#25968;&#39033;&#36739;&#20302;&#65292;&#32473;&#23427;&#19968;&#28857;&#39069;&#22806;&#30340;&#20248;&#20808;&#32423;</span>
+    <span style="color: #eedd82;">algo_one_advantage</span> = 2 
+    <span style="color: #eedd82;">algo_one_weight</span> = <span style="color: #b0c4de;">len</span>(multi_set[0]) * <span style="color: #b0c4de;">len</span>(multi_set[1:]) / algo_one_advantage
+
+    <span style="color: #eedd82;">algo_two_weight</span> = <span style="color: #b0c4de;">sum</span>(<span style="color: #b0c4de;">map</span>(<span style="color: #b0c4de;">len</span>, multi_set))
+
+    <span style="color: #00ffff;">if</span> algo_one_weight &lt;= algo_two_weight:
+        <span style="color: #00ffff;">return</span> sdiff_1(*multi_set)
+    <span style="color: #00ffff;">else</span>:
+        <span style="color: #00ffff;">return</span> sdiff_2(*multi_set)
+</pre>
 </div>
 </div>
 </div>

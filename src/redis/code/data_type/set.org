@@ -24,3 +24,118 @@ _REDIS_SET_  *集合* 是 _SADD_ ,  _SRANDMEMBER_ 等命令的操作对象， �
 #+ATTR_HTML: image :width 90% 
 [[file:../pic/graphviz-3b62c50ed475dc6c91adbb8079f0e0104f644931.svg]]
 
+* 命令
+Redis 集合类型命令的实现， 主要是对 _intset_ 和 _dict_ 两个数据结构的操作函数的包装， 以及一些在两种编码之间进行转换的函数， 大部分都没有什么需要解释的地方， 唯一比较有趣的是 _SINTER_ , _SUNION_ 等命令之下的算法实现， 以下三个小节就分别讨论它们所使用的算法
+
+** 交集
+_SINTER_ 和 _SINTERSTORE_ 两个命令所使用的求并交集算法可以用 Python 表示如下：
+
+#+begin_src python 
+  # coding: utf-8
+
+  def sinter(*multi_set):
+
+      # 根据集合的基数进行排序
+      sorted_multi_set = sorted(multi_set, lambda x, y: len(x) - len(y))
+
+      # 使用基数最小的集合作为基础结果集，有助于降低常数项
+      result = sorted_multi_set[0].copy()
+
+      # 剔除所有在 sorted_multi_set[0] 中存在
+      # 但在其他某个集合中不存在的元素
+      for elem in sorted_multi_set[0]:
+
+	  for s in sorted_multi_set[1:]:
+
+	      if (not elem in s):
+		  result.remove(elem)
+		  break
+
+      return result
+#+end_src
+
+算法的复杂度为 $O(N^2)$ ， 执行步数为 $S*T$ ， 其中 $S$ 为 _输入集合中基数最小的集合元素数量_ ， 而 $T$ 则为 _输入集合的数量_ 
+** 并集
+_SUNION_ 和 _SUNIONSTORE_ 两个命令所使用的求并集算法可以用 Python 表示如下：
+
+#+begin_src python 
+  # coding: utf-8
+
+  def sunion(*multi_set):
+
+      result = set()
+
+      for s in multi_set:
+	  for elem in s:
+	      # 重复的元素会被自动忽略
+	      result.add(elem)
+
+      return result
+#+end_src
+
+算法的复杂度为 $O(N)$ 
+** 差集
+Redis 为 _SDIFF_ 和 _SDIFFSTORE_ 两个命令准备了两种求集合差的算法：
++ 算法一定义如下：
+  #+begin_src python 
+    # coding: utf-8
+
+    def sdiff_1(*multi_set):
+
+	result = multi_set[0].copy()
+
+	sorted_multi_set = sorted(multi_set[1:], lambda x, y: len(x) - len(y))
+
+	# 当 elem 存在于除 multi_set[0] 之外的集合时
+	# 将 elem 从 result 中删除
+	for elem in multi_set[0]:
+
+	    for s in sorted_multi_set:
+
+		if elem in s:
+		    result.remove(elem)
+		    break
+
+	return result
+  #+end_src
+  这个算法的复杂度为 $O(N^2)$ ， 执行步数为 $S*T$ ， 其中 $S$ 为 _输入集合中基数最小的集合元素数量_ ， 而 $T$ 则为 _除第一个集合之外其他集合的数量_ 
++ 算法二定于如下：
+  #+begin_src python 
+    # coding: utf-8
+
+    def sdiff_2(*multi_set):
+	# 用第一个集合作为结果集的起始值
+	result = multi_set[0].copy()
+
+	for s in multi_set[1:]:
+	    for elem in s:
+		# 从结果集中删去其他集合中包含的元素
+		if elem in result:
+		    result.remove(elem)
+
+	return result
+  #+end_src
+  这个算法的复杂度同样为 $O(N^2)$ ， 执行步数为 $S$ ， 其中 $S$ 为 _所有集合的基数总和_ 
+
+Redis 使用代码决定该使用那个求差集算法， 程序用 Python 表示如下：
+
+#+begin_src python 
+  # coding: utf-8
+
+  from sdiff_1 import sdiff_1
+  from sdiff_2 import sdiff_2
+
+  def sdiff(*multi_set):
+
+      # 算法一的常数项较低，给它一点额外的优先级
+      algo_one_advantage = 2 
+      algo_one_weight = len(multi_set[0]) * len(multi_set[1:]) / algo_one_advantage
+
+      algo_two_weight = sum(map(len, multi_set))
+
+      if algo_one_weight <= algo_two_weight:
+	  return sdiff_1(*multi_set)
+      else:
+	  return sdiff_2(*multi_set)
+#+end_src
+
