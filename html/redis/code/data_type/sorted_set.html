@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -205,7 +226,13 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#orgd9c8093">编码</a></li>
+<li><a href="#orgd9c8093">编码</a>
+<ul>
+<li><a href="#orgdc7e637">转换</a></li>
+<li><a href="#orgb9c6704">ziplist</a></li>
+<li><a href="#org33c298f">skiplist</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -215,13 +242,138 @@
 
 
 
-<div id="orgcb7e62b" class="figure">
+<div id="orgb88a847" class="figure">
 <p><img src="../pic/graphviz-4d10098056ec25ed0e239f64bbcac524bce31bc8.svg" alt="graphviz-4d10098056ec25ed0e239f64bbcac524bce31bc8.svg" class="org-svg" width="90%" />
 </p>
 </div>
 
 <div id="outline-container-orgd9c8093" class="outline-2">
 <h2 id="orgd9c8093">编码</h2>
+<div class="outline-text-2" id="text-orgd9c8093">
+<p>
+在通过 ZADD 命令添加第一个元素到空 key 时， 程序通过检查输入的第一个元素来决定该创建什么编码的有序集。如果 <b>第一个</b> 元素符合以下条件的话， 就创建一个 <span class="underline">REDIS_ENCODING_ZIPLIST</span> 编码的有序集：
+</p>
+<ul class="org-ul">
+<li>服务器属性 <span class="underline">server.zset_max_ziplist_entries</span> 的值 <b>大于</b> \(0\) （默认为 \(128\) ）</li>
+<li>元素的 <span class="underline">member 长度</span> <b>小于</b> 服务器属性 <span class="underline">server.zset_max_ziplist_value</span> 的值（默认为 \(64\) ）</li>
+</ul>
+
+<p>
+否则，程序就创建一个 <span class="underline">REDIS_ENCODING_SKIPLIST</span> 编码的有序集
+</p>
+</div>
+
+<div id="outline-container-orgdc7e637" class="outline-3">
+<h3 id="orgdc7e637">转换</h3>
+<div class="outline-text-3" id="text-orgdc7e637">
+<p>
+对于一个 REDIS_ENCODING_ZIPLIST 编码的有序集， 只要满足以下 <b>任一</b> 条件， 就将它转换为 REDIS_ENCODING_SKIPLIST 编码：
+</p>
+<ul class="org-ul">
+<li>ziplist 所保存的 <span class="underline">元素数量</span> <b>超过</b> 服务器属性 <span class="underline">server.zset_max_ziplist_entries</span> 的值（默认值为 \(128\) ）</li>
+<li>新添加元素的 <span class="underline">member 的长度</span> <b>大于</b> 服务器属性 <span class="underline">server.zset_max_ziplist_value</span> 的值（默认值为 \(64\) ）</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orgb9c6704" class="outline-3">
+<h3 id="orgb9c6704">ziplist</h3>
+<div class="outline-text-3" id="text-orgb9c6704">
+<p>
+当使用 REDIS_ENCODING_ZIPLIST 编码时， 有序集将元素保存到 ziplist 数据结构里面。其中：
+</p>
+<ul class="org-ul">
+<li>每个有序集元素以 <span class="underline">两个相邻的 ziplist 节点</span> 表示：
+<ul class="org-ul">
+<li>第一个节点保存元素的 <span class="underline">member 域</span></li>
+<li>第二个元素保存元素的 <span class="underline">score 域</span></li>
+</ul></li>
+<li>多个元素之间按 <span class="underline">score 值</span> <b>从小到大</b> 排序
+<ul class="org-ul">
+<li>如果两个元素的 score 相同， 那么按 <b>字典序</b> 对 <span class="underline">member</span> 进行对比， 决定那个元素排在前面， 那个元素排在后面</li>
+</ul></li>
+</ul>
+
+<pre class="example" id="org2cb5478">
+	  |&lt;--  element 1 --&gt;|&lt;--  element 2 --&gt;|&lt;--   .......   --&gt;|
+
++---------+---------+--------+---------+--------+---------+---------+---------+
+| ZIPLIST |         |        |         |        |         |         | ZIPLIST |
+| ENTRY   | member1 | score1 | member2 | score2 |   ...   |   ...   | ENTRY   |
+| HEAD    |         |        |         |        |         |         | END     |
++---------+---------+--------+---------+--------+---------+---------+---------+
+
+score1 &lt;= score2 &lt;= ...
+</pre>
+
+<p>
+虽然元素是按 score 域有序排序的， 但对 ziplist 的节点指针只能 <b>线性</b> 地移动， 所以在 REDIS_ENCODING_ZIPLIST 编码的有序集中，  <span class="underline">查找</span> 某个给定元素的复杂度为 \(O(N)\)
+</p>
+
+<p>
+每次执行 <span class="underline">添加/删除/更新</span> 操作都需要执行一次 <b>查找</b> 元素的操作， 因此这些函数的复杂度都不低于 \(O(N)\)， 至于这些操作的实际复杂度， 取决于它们底层所执行的 ziplist 操作
+</p>
+</div>
+</div>
+
+<div id="outline-container-org33c298f" class="outline-3">
+<h3 id="org33c298f">skiplist</h3>
+<div class="outline-text-3" id="text-org33c298f">
+<p>
+当使用 REDIS_ENCODING_SKIPLIST 编码时， 有序集元素由 <span class="underline">redis.h/zset</span> 结构来保存：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">/*</span>
+<span style="color: #ff4500;"> * &#26377;&#24207;&#38598;</span>
+<span style="color: #ff4500;"> */</span>
+<span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">zset</span> {
+  <span style="color: #98fb98;">dict</span> *<span style="color: #eedd82;">dict</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23383;&#20856;</span>
+  <span style="color: #98fb98;">zskiplist</span> *<span style="color: #eedd82;">zsl</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36339;&#36291;&#34920;</span>
+} <span style="color: #98fb98;">zset</span>;
+</pre>
+</div>
+
+<p>
+<span class="underline">zset</span> 同时使用 <span class="underline">字典</span> 和 <span class="underline">跳跃表</span> 两个数据结构来保存有序集元素。其中：
+</p>
+<ul class="org-ul">
+<li>元素的 <span class="underline">member</span> 由一个 <span class="underline">redisObject 结构</span> 表示</li>
+<li>而元素的 <span class="underline">score</span> 则是一个 <span class="underline">double 类型的浮点数</span></li>
+<li>字典和跳跃表两个结构通过将 <b>指针共同指向这两个值</b> 来节约空间 （不用每个元素都复制两份）</li>
+</ul>
+
+<p>
+下图展示了一个 REDIS_ENCODING_SKIPLIST 编码的有序集：
+</p>
+
+
+<div id="org035cf12" class="figure">
+<p><img src="../pic/graphviz-66d218f87c15bc835d88c696af175d2ba39ae420.svg" alt="graphviz-66d218f87c15bc835d88c696af175d2ba39ae420.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+通过使用 <span class="underline">字典</span> 结构， 并将 <span class="underline">member</span> 作为 <b>键</b> ，  <span class="underline">score</span> 作为 *值*， 有序集可以在 \(O(1)\) 复杂度内：
+</p>
+<ul class="org-ul">
+<li><b>检查</b> 给定 <span class="underline">member</span> <b>是否存在</b> 于有序集（被很多底层函数使用）</li>
+<li><b>取出</b> member 对应的 <span class="underline">score 值</span> （实现 <span class="underline">ZSCORE</span> 命令）</li>
+</ul>
+
+<p>
+另一方面， 通过使用 <span class="underline">跳跃表</span> ， 可以让有序集支持以下两种操作：
+</p>
+<ul class="org-ul">
+<li>在 \(O(\log{N})\) 期望时间 \(O(N)\) 最坏时间内根据 score 对 <span class="underline">member</span> 进行 <b>定位</b> （被很多底层函数使用）</li>
+<li><b>范围性</b> <span class="underline">查找</span> 和 <span class="underline">处理</span> 操作，这是（高效地）实现  <span class="underline">ZRANGE</span>  ,  <span class="underline">ZRANK</span> 和 <span class="underline">ZINTERSTORE</span> 等命令的关键</li>
+</ul>
+
+<pre class="example" id="org1b780be">
+通过同时使用字典和跳跃表， 有序集可以高效地实现按成员查找和按顺序查找两种操作
+</pre>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
