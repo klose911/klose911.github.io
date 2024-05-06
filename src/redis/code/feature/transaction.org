@@ -9,5 +9,167 @@ Redis 通过 _MULTI_ ,  _DISCARD_ , _EXEC_ 和 _WATCH_ 四个命令来实现事�
 2. 然后再来讨论带有 WATCH 的事务的实现。
 
 因为事务的安全性也非常重要， 所以最后通过常见的 _ACID 性质_ 对 Redis *事务的安全性* 进行了说明
+* 事务
+事务提供了一种 *将多个命令打包， 然后一次性、按顺序地执行* 的机制， 并且 *事务在执行的期间不会主动中断* （服务器在执行完事务中的所有命令之后， 才会继续处理其他客户端的其他命令）。以下是一个事务的例子， 它先以 _MULTI_  *开始* 一个事务， 然后将 _多个命令_ *入队* 到事务中， 最后由 _EXEC_ 命令 *触发* 事务， 一并执行事务中的所有命令：
 
+#+begin_example
+  redis> MULTI
+  OK
+
+  redis> SET book-name "Mastering C++ in 21 days"
+  QUEUED
+
+  redis> GET book-name
+  QUEUED
+
+  redis> SADD tag "C++" "Programming" "Mastering Series"
+  QUEUED
+
+  redis> SMEMBERS tag
+  QUEUED
+
+  redis> EXEC
+  1) OK
+  2) "Mastering C++ in 21 days"
+  3) (integer) 3
+  4) 1) "Mastering Series"
+     2) "C++"
+     3) "Programming"
+#+end_example
+
+一个事务从开始到执行会经历以下三个阶段：
+1. 开始事务
+2. 命令入队
+3. 执行事务
+
+下面将分别介绍事务的这三个阶段
+** 开始事务
+_MULTI_ 命令的执行标记着事务的开始：
+
+#+begin_example
+  redis> MULTI
+  OK
+#+end_example
+
+这个命令唯一做的就是， 将客户端的 _REDIS_MULTI_ 选项打开， 让客户端从非事务状态切换到事务状态
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-0ff9f2e58803dbb8c1c400e1f8191f77d4c2917e.svg]]
+
+** 命令入队
+当客户端处于非事务状态下时， 所有发送给服务器端的命令都会立即被服务器执行：
+
+#+begin_example
+  redis> SET msg "hello moto"
+  OK
+
+  redis> GET msg
+  "hello moto"
+#+end_example
+
+但是， 当客户端进入事务状态之后， 服务器在收到来自客户端的命令时， 不会立即执行命令， 而是将这些命令全部放进一个事务队列里， 然后返回 _QUEUED_ ， 表示命令已入队：
+
+#+begin_example
+  redis> MULTI
+  OK
+
+  redis> SET msg "hello moto"
+  QUEUED
+
+  redis> GET msg
+  QUEUED
+#+end_example
+
+以下流程图展示了这一行为：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-8a0f8eae0bb8180e877b799921dd690267c2d3b4.svg]]
+
+事务队列是一个数组， 每个数组项是都包含三个属性：
+1. 要执行的命令 _cmd_ 
+2. 命令的参数 _argv_ 
+3. 参数的个数 _argc_
+
+举个例子， 如果客户端执行以下命令：
+
+#+begin_example
+  redis> MULTI
+  OK
+
+  redis> SET book-name "Mastering C++ in 21 days"
+  QUEUED
+
+  redis> GET book-name
+  QUEUED
+
+  redis> SADD tag "C++" "Programming" "Mastering Series"
+  QUEUED
+
+  redis> SMEMBERS tag
+  QUEUED
+#+end_example
+
+那么程序将为客户端创建以下事务队列：
+
+#+CAPTION: command queue for transaction 
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 数组索引 | cmd      | argv                                              | argc |
+|        0 | SET      | ["book-name", "Mastering C++ in 21 days"]         |    2 |
+|        1 | GET      | ["book-name"]                                     |    1 |
+|        2 | SADD     | ["tag", "C++", "Programming", "Mastering Series"] |    4 |
+|        3 | SMEMBERS | ["tag"]                                           |    1 |
+** 执行事务
+#+begin_example
+前面说到， 当客户端进入事务状态之后， 客户端发送的命令就会被放进事务队列里
+#+end_example
+但其实并不是所有的命令都会被放进事务队列， 其中的例外就是 _EXEC_  ,  _DISCARD_ ,  _MULTI_ 和 _WATCH_ 这四个命令
+
+#+begin_example
+当这四个命令从客户端发送到服务器时， 它们会像客户端处于非事务状态一样， 直接被服务器执行
+#+end_example
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-836c8a3dc33526a649d9ecf5b7b959d72b38cc7d.svg]]
+
+如果客户端正处于事务状态， 那么当 _EXEC_ 命令执行时， 服务器根据客户端所保存的事务队列， 以先进先出 _FIFO_ 的方式执行事务队列中的命令：  *最先入队的命令最先执行， 而最后入队的命令最后执行* 。比如说，对于以下事务队列：
+
+#+CAPTION: command queue for transaction 
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 数组索引 | cmd      | argv                                              | argc |
+|        0 | SET      | ["book-name", "Mastering C++ in 21 days"]         |    2 |
+|        1 | GET      | ["book-name"]                                     |    1 |
+|        2 | SADD     | ["tag", "C++", "Programming", "Mastering Series"] |    4 |
+|        3 | SMEMBERS | ["tag"]                                           |    1 |
+
+#+CAPTION: reply queue for transaction
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 数组索引 | 回复类型          | 回复内容                                   |
+|        0 | status code reply | OK                                         |
+|        1 | bulk reply        | "Mastering C++ in 21 days"                 |
+|        2 | integer reply     | 3                                          |
+|        3 | multi-bulk reply  | ["Mastering Series", "C++", "Programming"] |
+
+当事务队列里的所有命令被执行完之后，  _EXEC_ 命令会将 _回复队列_ 作为自己的 _执行结果_ 返回给客户端， 客户端从 _事务状态_ 返回到 _非事务状态_ ， 至此， 事务执行完毕。事务的整个执行过程可以用以下伪代码表示：
+
+#+begin_src python 
+  def execute_transaction():
+      reply_queue = [] # 创建空白的回复队列
+
+      # 取出事务队列里的所有命令、参数和参数数量
+      for cmd, argv, argc in client.transaction_queue:
+	  reply = execute_redis_command(cmd, argv, argc) # 执行命令，并取得命令的返回值
+	  reply_queue.append(reply) # 将返回值追加到回复队列末尾 
+
+      clear_transaction_state(client) # 清除客户端的事务状态
+      clear_transaction_queue(client) # 清空事务队列
+      send_reply_to_client(client, reply_queue) # 将事务的执行结果返回给客户端
+#+end_src
+*** 在事务和非事务状态下执行命令
+无论在事务状态下， 还是在非事务状态下， Redis 命令都由同一个函数执行， 所以它们共享很多服务器的一般设置， 比如 _AOF 的配置_ , _RDB 的配置_ ，以及 _内存限制_ ，等等。不过事务中的命令和普通命令在执行上还是有一点区别的，其中最重要的两点是：
+1. 
+   + 非事务状态下的命令以单个命令为单位执行， *前一个命令和后一个命令的客户端不一定是同一个* 
+   + 而事务状态则是以一个事务为单位，执行事务队列中的所有命令：除非当前事务执行完毕，否则服务器不会中断事务，也不会执行其他客户端的其他命令
+2. 
+   + 在非事务状态下，执行命令所得的结果会立即被返回给客户端
+   + 而事务则是将所有命令的结果集合到回复队列，再作为 EXEC 命令的结果返回给客户端 
+* 事务状态下的 DISCARD 、 MULTI 和 WATCH 命令
 
