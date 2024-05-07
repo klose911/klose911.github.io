@@ -172,4 +172,98 @@ _MULTI_ 命令的执行标记着事务的开始：
    + 在非事务状态下，执行命令所得的结果会立即被返回给客户端
    + 而事务则是将所有命令的结果集合到回复队列，再作为 EXEC 命令的结果返回给客户端 
 * 事务状态下的 DISCARD 、 MULTI 和 WATCH 命令
+除了 EXEC 之外， 服务器在客户端处于事务状态时， 不加入到事务队列而直接执行的另外三个命令是 _DISCARD_ ,  _MULTI_ 和 _WATCH_ ：
++ DISCARD 命令用于 *取消* 一个事务：
+  1. *清空* _客户端的整个事务队列_
+  2. 将客户端从事务状态调整回 _非事务状态_
+  3. 返回字符串 _OK_ 给客户端， 说明事务已被取消
++ Redis 的事务是 *不可嵌套* 的， 当客户端已经处于事务状态， 而客户端又再向服务器发送 MULTI 时， 服务器只是简单地向客户端 *发送一个错误* ， 然后继续等待其他命令的入队
+  #+begin_example
+     MULTI 命令的发送不会造成整个事务失败， 也不会修改事务队列中已有的数据
+  #+end_example
++ WATCH 只能在客户端 *进入事务状态之前* 执行， 在事务状态下发送 WATCH 命令会引发一个错误， 但它不会造成整个事务失败， 也不会修改事务队列中已有的数据（和前面处理 MULTI 的情况一样）
+* 带 WATCH 的事务
+WATCH 命令用于在 _事务开始之前_ *监视* _任意数量的键_ ： 当调用 EXEC 命令执行事务时， 如果 *任意一个* _被监视的键_ 已经被 _其他客户端修改_ 了， 那么 *整个事务不再执行， 直接返回失败* 。以下示例展示了一个执行失败的事务例子：
+#+begin_example
+  redis> WATCH name
+  OK
 
+  redis> MULTI
+  OK
+
+  redis> SET name peter
+  QUEUED
+
+  redis> EXEC
+  (nil)
+#+end_example
+
+以下执行序列展示了上面的例子是如何失败的：
+
+#+CAPTION: watch example 
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 时间 | 客户端 A       | 客户端 B      |
+| T1   | WATCH name     |               |
+| T2   | MULTI          |               |
+| T3   | SET name peter |               |
+| T4   |                | SET name john |
+| T5   | EXEC           |               |
+
+在时间 T4 ，客户端 B 修改了 name 键的值， 当客户端 A 在 T5 执行 EXEC 时，Redis 会发现 name 这个被监视的键已经被修改， 因此客户端 A 的事务不会被执行，而是直接返回失败
+
+#+begin_example
+下面就来介绍 WATCH 的实现机制，并且看看事务系统是如何检查某个被监视的键是否被修改，从而保证事务的安全性的
+#+end_example
+** WATCH 命令的实现
+在每个代表数据库的 _redis.h/redisDb_ 结构类型中， 都保存了一个 _watched_keys_ 字典， 字典的键是 *这个数据库被监视的键* ， 而字典的值则是 _一个链表_ ， 链表中保存了 *所有监视这个键的客户端* 。比如说，以下字典就展示了一个 watched_keys 字典的例子：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-9aea81f33da1373550c590eb0b7ca0c2b3d38366.svg]]
+
+#+begin_example
+其中 键 key1 正在被 client2 、 client5 和 client1 三个客户端监视， 其他一些键也分别被其他别的客户端监视着
+#+end_example
+WATCH 命令的作用， 就是将当前客户端和要监视的键在 watched_keys 中进行关联。举个例子， 如果当前客户端为 client10086 ， 那么当客户端执行 WATCH key1 key2 时， 前面展示的 watched_keys 将被修改成这个样子：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-fe5e31054c282a3cdd86656994fe1678a3d4f201.svg]]
+
+通过 watched_keys 字典：
++ 如果程序想检查某个键是否被监视， 那么它只要检查字典中是否存在这个键即可
++ 如果程序要获取监视某个键的所有客户端， 那么只要取出键的值（一个链表）， 然后对链表进行遍历即可
+**  WATCH 的触发
+在任何对数据库键空间 _key space_ 进行修改的命令成功执行之后 （比如 FLUSHDB , SET , DEL , LPUSH , SADD , ZREM 诸如此类）， _multi.c/touchWatchedKey_ 函数都会被调用：
++ 它检查数据库的 watched_keys 字典， 看是否有客户端在监视已经被命令修改的键
+  + 如果有的话， 程序将 *所有监视* 这个/这些被修改键的 _客户端_ 的 _REDIS_DIRTY_CAS_ 选项打开
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-e5c66122242aa10939b696dfeeb905343c5202bd.svg]]
+
+客户端发送 _EXEC_ 命令、触发事务执行时， 服务器会对客户端的状态进行检查：
++ 如果客户端的 REDIS_DIRTY_CAS 选项已经被打开，那么说明被客户端监视的键至少有一个已经被修改了，事务的安全性已经被破坏。服务器会放弃执行这个事务，直接向客户端返回空回复，表示事务执行失败
++ 如果 REDIS_DIRTY_CAS 选项没有被打开，那么说明所有监视键都安全，服务器正式执行事务
+
+可以用一段伪代码来表示这个检查：
+
+#+begin_src python 
+  def check_safety_before_execute_trasaction():
+      if client.state & REDIS_DIRTY_CAS:
+	  clear_transaction_state(client) # 安全性已破坏，清除事务状态
+	  clear_transaction_queue(client) # 清空事务队列
+	  send_empty_reply(client) # 返回空回复给客户端
+      else:
+	  execute_transaction() # 安全性完好，执行事务
+#+end_src
+
+举个例子，假设数据库的 watched_keys 字典如下图所示：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-9aea81f33da1373550c590eb0b7ca0c2b3d38366.svg]]
+
+#+begin_example
+  如果某个客户端对 key1 进行了修改（比如执行 DEL key1 ）
+
+  那么所有监视 key1 的客户端， 包括 client2 、 client5 和 client1 的 REDIS_DIRTY_CAS 选项都会被打开
+
+  当客户端 client2 、 client5 和 client1 执行 EXEC 的时候， 它们的事务都会以失败告终
+#+end_example
+
+最后，当一个客户端结束它的事务时，无论事务是成功执行，还是失败， _watched_keys 字典_ 中和 _这个客户端相关的资料_ 都会被 *清除* 
+* 事务的 ACID 性质
