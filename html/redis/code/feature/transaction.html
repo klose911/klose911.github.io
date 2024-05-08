@@ -224,6 +224,7 @@
 </ul>
 </li>
 <li><a href="#orgc8e0f9c">事务的 ACID 性质</a></li>
+<li><a href="#org520aa44">总结</a></li>
 </ul>
 </div>
 </div>
@@ -245,7 +246,7 @@ Redis 通过 <span class="underline">MULTI</span> ,  <span class="underline">DIS
 事务提供了一种 <b>将多个命令打包， 然后一次性、按顺序地执行</b> 的机制， 并且 <b>事务在执行的期间不会主动中断</b> （服务器在执行完事务中的所有命令之后， 才会继续处理其他客户端的其他命令）。以下是一个事务的例子， 它先以 <span class="underline">MULTI</span>  <b>开始</b> 一个事务， 然后将 <span class="underline">多个命令</span> <b>入队</b> 到事务中， 最后由 <span class="underline">EXEC</span> 命令 <b>触发</b> 事务， 一并执行事务中的所有命令：
 </p>
 
-<pre class="example" id="org52b1255">
+<pre class="example" id="org325a9a1">
 redis&gt; MULTI
 OK
 
@@ -290,7 +291,7 @@ redis&gt; EXEC
 <span class="underline">MULTI</span> 命令的执行标记着事务的开始：
 </p>
 
-<pre class="example" id="orgf9c4bc3">
+<pre class="example" id="org3d3cddb">
 redis&gt; MULTI
 OK
 </pre>
@@ -300,7 +301,7 @@ OK
 </p>
 
 
-<div id="org69501a8" class="figure">
+<div id="org0f3c8bc" class="figure">
 <p><img src="../pic/graphviz-0ff9f2e58803dbb8c1c400e1f8191f77d4c2917e.svg" alt="graphviz-0ff9f2e58803dbb8c1c400e1f8191f77d4c2917e.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -314,7 +315,7 @@ OK
 当客户端处于非事务状态下时， 所有发送给服务器端的命令都会立即被服务器执行：
 </p>
 
-<pre class="example" id="org14a84bf">
+<pre class="example" id="org6468d63">
 redis&gt; SET msg "hello moto"
 OK
 
@@ -326,7 +327,7 @@ redis&gt; GET msg
 但是， 当客户端进入事务状态之后， 服务器在收到来自客户端的命令时， 不会立即执行命令， 而是将这些命令全部放进一个事务队列里， 然后返回 <span class="underline">QUEUED</span> ， 表示命令已入队：
 </p>
 
-<pre class="example" id="org5e536a0">
+<pre class="example" id="org4e63d43">
 redis&gt; MULTI
 OK
 
@@ -341,7 +342,7 @@ QUEUED
 以下流程图展示了这一行为：
 </p>
 
-<div id="orga2bea83" class="figure">
+<div id="org1a8d0bd" class="figure">
 <p><img src="../pic/graphviz-8a0f8eae0bb8180e877b799921dd690267c2d3b4.svg" alt="graphviz-8a0f8eae0bb8180e877b799921dd690267c2d3b4.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -359,7 +360,7 @@ QUEUED
 举个例子， 如果客户端执行以下命令：
 </p>
 
-<pre class="example" id="org10ce12d">
+<pre class="example" id="org4da7966">
 redis&gt; MULTI
 OK
 
@@ -434,19 +435,19 @@ QUEUED
 <div id="outline-container-org87968b7" class="outline-3">
 <h3 id="org87968b7">执行事务</h3>
 <div class="outline-text-3" id="text-org87968b7">
-<pre class="example" id="orga1f7973">
+<pre class="example" id="org8883d71">
 前面说到， 当客户端进入事务状态之后， 客户端发送的命令就会被放进事务队列里
 </pre>
 <p>
 但其实并不是所有的命令都会被放进事务队列， 其中的例外就是 <span class="underline">EXEC</span>  ,  <span class="underline">DISCARD</span> ,  <span class="underline">MULTI</span> 和 <span class="underline">WATCH</span> 这四个命令
 </p>
 
-<pre class="example" id="org147df53">
+<pre class="example" id="org31bd46b">
 当这四个命令从客户端发送到服务器时， 它们会像客户端处于非事务状态一样， 直接被服务器执行
 </pre>
 
 
-<div id="orgc86b881" class="figure">
+<div id="orgfa4a76f" class="figure">
 <p><img src="../pic/graphviz-836c8a3dc33526a649d9ecf5b7b959d72b38cc7d.svg" alt="graphviz-836c8a3dc33526a649d9ecf5b7b959d72b38cc7d.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -603,7 +604,7 @@ QUEUED
 <li><p>
 Redis 的事务是 <b>不可嵌套</b> 的， 当客户端已经处于事务状态， 而客户端又再向服务器发送 MULTI 时， 服务器只是简单地向客户端 <b>发送一个错误</b> ， 然后继续等待其他命令的入队
 </p>
-<pre class="example" id="org2590854">
+<pre class="example" id="org8f4bfe1">
 MULTI 命令的发送不会造成整个事务失败， 也不会修改事务队列中已有的数据
 </pre></li>
 <li>WATCH 只能在客户端 <b>进入事务状态之前</b> 执行， 在事务状态下发送 WATCH 命令会引发一个错误， 但它不会造成整个事务失败， 也不会修改事务队列中已有的数据（和前面处理 MULTI 的情况一样）</li>
@@ -616,7 +617,7 @@ MULTI 命令的发送不会造成整个事务失败， 也不会修改事务队�
 <p>
 WATCH 命令用于在 <span class="underline">事务开始之前</span> <b>监视</b> <span class="underline">任意数量的键</span> ： 当调用 EXEC 命令执行事务时， 如果 <b>任意一个</b> <span class="underline">被监视的键</span> 已经被 <span class="underline">其他客户端修改</span> 了， 那么 <b>整个事务不再执行， 直接返回失败</b> 。以下示例展示了一个执行失败的事务例子：
 </p>
-<pre class="example" id="org6c06c6d">
+<pre class="example" id="orgb0b3689">
 redis&gt; WATCH name
 OK
 
@@ -687,7 +688,7 @@ redis&gt; EXEC
 在时间 T4 ，客户端 B 修改了 name 键的值， 当客户端 A 在 T5 执行 EXEC 时，Redis 会发现 name 这个被监视的键已经被修改， 因此客户端 A 的事务不会被执行，而是直接返回失败
 </p>
 
-<pre class="example" id="org323519d">
+<pre class="example" id="orgdfb0206">
 下面就来介绍 WATCH 的实现机制，并且看看事务系统是如何检查某个被监视的键是否被修改，从而保证事务的安全性的
 </pre>
 </div>
@@ -699,19 +700,19 @@ redis&gt; EXEC
 </p>
 
 
-<div id="org1622b22" class="figure">
+<div id="org49c5c76" class="figure">
 <p><img src="../pic/graphviz-9aea81f33da1373550c590eb0b7ca0c2b3d38366.svg" alt="graphviz-9aea81f33da1373550c590eb0b7ca0c2b3d38366.svg" class="org-svg" width="90%" />
 </p>
 </div>
 
-<pre class="example" id="orgc9905ca">
+<pre class="example" id="orgf7fa47d">
 其中 键 key1 正在被 client2 、 client5 和 client1 三个客户端监视， 其他一些键也分别被其他别的客户端监视着
 </pre>
 <p>
 WATCH 命令的作用， 就是将当前客户端和要监视的键在 watched_keys 中进行关联。举个例子， 如果当前客户端为 client10086 ， 那么当客户端执行 WATCH key1 key2 时， 前面展示的 watched_keys 将被修改成这个样子：
 </p>
 
-<div id="org4b46bdc" class="figure">
+<div id="org0002090" class="figure">
 <p><img src="../pic/graphviz-fe5e31054c282a3cdd86656994fe1678a3d4f201.svg" alt="graphviz-fe5e31054c282a3cdd86656994fe1678a3d4f201.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -738,7 +739,7 @@ WATCH 命令的作用， 就是将当前客户端和要监视的键在 watched_k
 </ul></li>
 </ul>
 
-<div id="orgb163184" class="figure">
+<div id="org466e891" class="figure">
 <p><img src="../pic/graphviz-e5c66122242aa10939b696dfeeb905343c5202bd.svg" alt="graphviz-e5c66122242aa10939b696dfeeb905343c5202bd.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -770,12 +771,12 @@ WATCH 命令的作用， 就是将当前客户端和要监视的键在 watched_k
 举个例子，假设数据库的 watched_keys 字典如下图所示：
 </p>
 
-<div id="orge0b7c05" class="figure">
+<div id="orgb9810a0" class="figure">
 <p><img src="../pic/graphviz-9aea81f33da1373550c590eb0b7ca0c2b3d38366.svg" alt="graphviz-9aea81f33da1373550c590eb0b7ca0c2b3d38366.svg" class="org-svg" width="90%" />
 </p>
 </div>
 
-<pre class="example" id="orgc7f634f">
+<pre class="example" id="org9a13905">
 如果某个客户端对 key1 进行了修改（比如执行 DEL key1 ）
 
 那么所有监视 key1 的客户端， 包括 client2 、 client5 和 client1 的 REDIS_DIRTY_CAS 选项都会被打开
@@ -791,6 +792,43 @@ WATCH 命令的作用， 就是将当前客户端和要监视的键在 watched_k
 </div>
 <div id="outline-container-orgc8e0f9c" class="outline-2">
 <h2 id="orgc8e0f9c">事务的 ACID 性质</h2>
+<div class="outline-text-2" id="text-orgc8e0f9c">
+<p>
+<b>ACID合规性</b> 是一组数据库特性，包括 <b>原子性</b> <span class="underline">Atomicity</span> , <b>一致性</b> <span class="underline">Consistency</span> , <b>隔离性</b> <span class="underline">Isolation</span> 和 <b>持久性</b> <span class="underline">Durability</span> ，确保数据库事务高效完成。如果数据库满足ACID合规性的方面，则被认为是ACID合规的：
+</p>
+<ul class="org-ul">
+<li>原子性：数据库事务，可以被分解为更小的部分，确保整个数据库事务的完整性</li>
+<li>一致性：事务遵循适当的数据验证规则，只有符合验证规则的数据才被写入数据库</li>
+<li>隔离性：可以同时处理而不会产生冲突</li>
+<li>持久性：事务确保数据被保存</li>
+</ul>
+
+<pre class="example" id="org4878395">
+Redis确保了原子性，因为在上一个事务完成之前，您无法进行下一个事务
+Redis无法保证一致性，因为Redis有丢失写入数据的风险
+Redis确保了隔离性，因为事务彼此分开，并确保之前的事务完成后才能进行下一个事务
+Redis无法保证持久性，但是当启用appendonly时，可能会增加Redis数据库的持久性，但会牺牲性能
+</pre>
+<p>
+因此Redis并不完全符合ACID标准，因为它 <b>不满足</b> <span class="underline">一致性</span> 和 <span class="underline">持久性</span>
+</p>
+</div>
+</div>
+
+<div id="outline-container-org520aa44" class="outline-2">
+<h2 id="org520aa44">总结</h2>
+<div class="outline-text-2" id="text-org520aa44">
+<ul class="org-ul">
+<li>事务提供了一种将多个命令打包，然后一次性、有序地执行的机制</li>
+<li>事务在执行过程中不会被中断，所有事务命令执行完之后，事务才能结束</li>
+<li>多个命令会被入队到事务队列中，然后按先进先出（FIFO）的顺序执行</li>
+<li>带 WATCH 命令的事务会将客户端和被监视的键在数据库的 watched_keys 字典中进行关联，当键被修改时，程序会将所有监视被修改键的客户端的 REDIS_DIRTY_CAS 选项打开
+<ul class="org-ul">
+<li>只有在客户端的 REDIS_DIRTY_CAS 选项未被打开时，才能执行事务，否则事务直接返回失败</li>
+</ul></li>
+<li>Redis 的事务保证了 ACID 中的原子性(A)和隔离性(I)，但并不保证一致性(C)和持久性(D)</li>
+</ul>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
