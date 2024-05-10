@@ -205,7 +205,21 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org261e428">频道</a></li>
+<li><a href="#org261e428">频道</a>
+<ul>
+<li><a href="#org0517041">订阅频道</a></li>
+<li><a href="#org2eea021">发送消息到某个频道</a></li>
+<li><a href="#orge517936">退订频道</a></li>
+</ul>
+</li>
+<li><a href="#orgfb73dcf">模式</a>
+<ul>
+<li><a href="#org1c35a16">订阅模式</a></li>
+<li><a href="#org3ede0dd">发送信息到模式</a></li>
+<li><a href="#orge645094">退订模式</a></li>
+</ul>
+</li>
+<li><a href="#org0eec9aa">小结</a></li>
 </ul>
 </div>
 </div>
@@ -214,6 +228,303 @@ Redis 通过 <span class="underline">PUBLISH</span> , <span class="underline">SU
 </p>
 <div id="outline-container-org261e428" class="outline-2">
 <h2 id="org261e428">频道</h2>
+<div class="outline-text-2" id="text-org261e428">
+<p>
+Redis 的 <span class="underline">SUBSCRIBE</span> 命令可以让客户端订阅任意数量的频道， 每当有新信息发送到被订阅的频道时， 信息就会被发送给所有订阅指定频道的客户端。作为例子， 下图展示了频道 <span class="underline">channel1</span> ， 以及订阅这个频道的三个客户端 <span class="underline">client2</span>  , <span class="underline">client5</span> 和 <span class="underline">client1</span> 之间的关系：
+</p>
+
+
+<div id="org555cd2f" class="figure">
+<p><img src="../pic/graphviz-58f7b1f1f52b28f59291d194555fc9f4b1462a4c.svg" alt="graphviz-58f7b1f1f52b28f59291d194555fc9f4b1462a4c.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+当有新消息通过 <span class="underline">PUBLISH</span> 命令发送给频道 <span class="underline">channel1</span> 时， 这个消息就会被发送给订阅它的三个客户端：
+</p>
+
+
+<div id="org3600ba0" class="figure">
+<p><img src="../pic/graphviz-84c95abf88d6c0ac55b007da08805a4b9a582fdf.svg" alt="graphviz-84c95abf88d6c0ac55b007da08805a4b9a582fdf.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+接下来将探讨 SUBSCRIBE 和 PUBLISH 命令的实现， 以及这套订阅与发布机制的运作原理
+</p>
+</div>
+
+<div id="outline-container-org0517041" class="outline-3">
+<h3 id="org0517041">订阅频道</h3>
+<div class="outline-text-3" id="text-org0517041">
+<p>
+每个 Redis 服务器进程都维持着一个表示服务器状态的 <span class="underline">redis.h/redisServer</span> 结构， 结构的 <span class="underline">pubsub_channels</span> 属性是一个字典， 这个字典就用于 <b>保存</b> <span class="underline">订阅频道</span> 的信息：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">redisServer</span> {
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+  <span style="color: #98fb98;">dict</span> *<span style="color: #eedd82;">pubsub_channels</span>;
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+};
+</pre>
+</div>
+
+<p>
+其中，字典的键为 <span class="underline">正在被订阅的频道</span> ， 而字典的值则是一个 <span class="underline">链表</span> ， 链表中保存了 <span class="underline">所有订阅这个频道的客户端</span> 。比如说，在下图展示的这个 pubsub_channels 示例中， client2 , client5 和 client1 就订阅了 channel1 ， 而其他频道也分别被别的客户端所订阅：
+</p>
+
+<div id="orgea9ab18" class="figure">
+<p><img src="../pic/graphviz-241c988b86bb9bed6bf26537e654baaab4eef77b.svg" alt="graphviz-241c988b86bb9bed6bf26537e654baaab4eef77b.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+当客户端调用 <span class="underline">SUBSCRIBE</span> 命令时， 程序就将客户端和要订阅的频道在 <span class="underline">pubsub_channels</span> 字典中关联起来。举个例子，如果客户端 client10086 执行命令 <span class="underline">SUBSCRIBE channel1 channel2 channel3</span> ，那么前面展示的 pubsub_channels 将变成下面这个样子：
+</p>
+
+<div id="org0ad3e14" class="figure">
+<p><img src="../pic/graphviz-cb250b1be4aaaedc9d5ddde113a80998d7f9c480.svg" alt="graphviz-cb250b1be4aaaedc9d5ddde113a80998d7f9c480.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+SUBSCRIBE 命令的行为可以用伪代码表示如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">SUBSCRIBE</span>(client, channels):
+    <span style="color: #00ffff;">for</span> channel <span style="color: #00ffff;">in</span> channels: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36941;&#21382;&#25152;&#26377;&#36755;&#20837;&#39057;&#36947;</span>
+        redisServer.pubsub_channels[channel].append(client) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#23458;&#25143;&#31471;&#28155;&#21152;&#21040;&#38142;&#34920;&#30340;&#26411;&#23614;</span>
+</pre>
+</div>
+<p>
+通过 pubsub_channels 字典：
+</p>
+<ul class="org-ul">
+<li>只要检查某个频道是否为字典的键， 就可以知道该频道是否正在被客户端订阅</li>
+<li>只要取出某个键的值， 就可以得到所有订阅该频道的客户端的信息</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org2eea021" class="outline-3">
+<h3 id="org2eea021">发送消息到某个频道</h3>
+<div class="outline-text-3" id="text-org2eea021">
+<pre class="example" id="org9dfd207">
+了解了 pubsub_channels 字典的结构之后， 解释 PUBLISH 命令的实现就非常简单了
+</pre>
+
+<p>
+当调用 <span class="underline">PUBLISH channel message</span> 命令， 程序首先根据 <span class="underline">channel</span> 定位到字典的键， 然后将信息发送给字典值链表中的所有客户端。比如说，对于以下这个 pubsub_channels 实例， 如果某个客户端执行命令 <span class="underline">PUBLISH channel1 "hello moto"</span> ，那么 client2 、 client5 和 client1 三个客户端都将接收到 "hello moto" 信息：
+</p>
+
+
+<div id="orgb0599f4" class="figure">
+<p><img src="../pic/graphviz-241c988b86bb9bed6bf26537e654baaab4eef77b.svg" alt="graphviz-241c988b86bb9bed6bf26537e654baaab4eef77b.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+PUBLISH 命令的实现可以用以下伪代码来描述：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">PUBLISH</span>(channel, message):
+    <span style="color: #00ffff;">for</span> client <span style="color: #00ffff;">in</span> server.pubsub_channels[channel]: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36941;&#21382;&#25152;&#26377;&#35746;&#38405;&#39057;&#36947; channel &#30340;&#23458;&#25143;&#31471;</span>
+        send_message(client, message) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#20449;&#24687;&#21457;&#36865;&#32473;&#23427;&#20204;</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orge517936" class="outline-3">
+<h3 id="orge517936">退订频道</h3>
+<div class="outline-text-3" id="text-orge517936">
+<p>
+使用 <span class="underline">UNSUBSCRIBE</span> 命令可以 <b>退订</b> 指定的频道， 这个命令执行的是订阅的反操作： 它从 pubsub_channels 字典的给定频道（键）中，  <b>删除</b> 关于 <span class="underline">当前客户端</span> 的信息， 这样被退订频道的信息就不会再发送给这个客户端
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgfb73dcf" class="outline-2">
+<h2 id="orgfb73dcf">模式</h2>
+<div class="outline-text-2" id="text-orgfb73dcf">
+<p>
+当使用 <span class="underline">PUBLISH</span> 命令发送信息到某个频道时， 不仅所有订阅该频道的客户端会收到信息， 如果有某个/某些 <span class="underline">模式</span> 和这个 <span class="underline">频道</span> <b>匹配</b> 的话， 那么所有订阅这个/这些频道的客户端也同样会收到信息。下图展示了一个带有频道和模式的例子， 其中 <span class="underline">tweet.shop.*</span> 模式匹配了 <span class="underline">tweet.shop.kindle</span> 频道和 <span class="underline">tweet.shop.ipad</span> 频道， 并且有不同的客户端分别订阅它们三个：
+</p>
+
+<div id="org13c1b85" class="figure">
+<p><img src="../pic/graphviz-49c2b60cc3c2b52ec1623fbd8a9002eb6f335a54.svg" alt="graphviz-49c2b60cc3c2b52ec1623fbd8a9002eb6f335a54.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+当有信息发送到 <span class="underline">tweet.shop.kindle 频道</span> 时， 信息除了发送给 clientX 和 clientY 之外， 还会发送给订阅 <span class="underline">tweet.shop.* 模式</span> 的 <span class="underline">client123</span> 和 <span class="underline">client256</span> ：
+</p>
+
+<div id="org02163bd" class="figure">
+<p><img src="../pic/graphviz-3d1f513ee0718a326d53152b2b97f82977e38ad6.svg" alt="graphviz-3d1f513ee0718a326d53152b2b97f82977e38ad6.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+另一方面， 如果接收到信息的是频道 <span class="underline">tweet.shop.ipad</span> ， 那么 client123 和 client256 同样会收到信息：
+</p>
+
+<div id="orgec00425" class="figure">
+<p><img src="../pic/graphviz-ba8c4d4dd538464659aeb52d6c366f23ad3d0dc1.svg" alt="graphviz-ba8c4d4dd538464659aeb52d6c366f23ad3d0dc1.svg" class="org-svg" width="90%" />
+</p>
+</div>
+</div>
+<div id="outline-container-org1c35a16" class="outline-3">
+<h3 id="org1c35a16">订阅模式</h3>
+<div class="outline-text-3" id="text-org1c35a16">
+<p>
+<span class="underline">redisServer.pubsub_patterns</span> 属性是一个 <span class="underline">链表</span> ，链表中保存着所有和 <b>模式相关</b> 的信息：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">redisServer</span> {
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+  <span style="color: #98fb98;">list</span> *<span style="color: #eedd82;">pubsub_patterns</span>;
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+};
+</pre>
+</div>
+
+<p>
+链表中的每个 <b>节点</b> 都包含一个 <span class="underline">redis.h/pubsubPattern 结构</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">pubsubPattern</span> {
+  <span style="color: #98fb98;">redisClient</span> *<span style="color: #eedd82;">client</span>;
+  <span style="color: #98fb98;">robj</span> *<span style="color: #eedd82;">pattern</span>;
+} <span style="color: #98fb98;">pubsubPattern</span>;
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>client 属性：保存着 <span class="underline">订阅模式的客户端</span></li>
+<li>pattern 属性：保存着 <span class="underline">被订阅的模式</span></li>
+</ul>
+
+<p>
+每当调用 <span class="underline">PSUBSCRIBE</span> 命令 <b>订阅</b> 一个 <span class="underline">模式</span> 时， 程序就 <b>创建</b> 一个包含 <span class="underline">客户端信息</span> 和 <span class="underline">被订阅模式</span> 的 <span class="underline">pubsubPattern 结构</span> ， 并将该结构 <b>添加</b> 到 <span class="underline">redisServer.pubsub_patterns 链表</span> 中。作为例子，下图展示了一个包含两个模式的 pubsub_patterns 链表， 其中 client123 和 client256 都正在订阅 tweet.shop.* 模式：
+</p>
+
+
+<div id="org5febef6" class="figure">
+<p><img src="../pic/graphviz-b8d101c1b582531bce2b0daef87adbaf30ebc195.svg" alt="graphviz-b8d101c1b582531bce2b0daef87adbaf30ebc195.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+如果这时客户端 client10086 执行 <span class="underline">PSUBSCRIBE broadcast.list.*</span> ， 那么 <span class="underline">pubsub_patterns 链表</span> 将被更新成这样：
+</p>
+
+<div id="orgdc592ce" class="figure">
+<p><img src="../pic/graphviz-a84f3abf466ca19297faaa4e11d37f9257355c60.svg" alt="graphviz-a84f3abf466ca19297faaa4e11d37f9257355c60.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+通过 <b>遍历</b> 整个 <span class="underline">pubsub_patterns 链表</span> ，程序可以 <b>检查</b> 所有 <span class="underline">正在被订阅的模式</span> ，以及 <span class="underline">订阅这些模式的客户端</span> 
+</p>
+</div>
+</div>
+<div id="outline-container-org3ede0dd" class="outline-3">
+<h3 id="org3ede0dd">发送信息到模式</h3>
+<div class="outline-text-3" id="text-org3ede0dd">
+<p>
+发送信息到模式的工作也是由 <span class="underline">PUBLISH</span> 命令进行的， 在前面讲解频道的时候， 曾经给出了这样一段伪代码， 说它定义了 PUBLISH 命令的行为：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">PUBLISH</span>(channel, message):
+    <span style="color: #00ffff;">for</span> client <span style="color: #00ffff;">in</span> server.pubsub_channels[channel]: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36941;&#21382;&#25152;&#26377;&#35746;&#38405;&#39057;&#36947; channel &#30340;&#23458;&#25143;&#31471;</span>
+        send_message(client, message) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#20449;&#24687;&#21457;&#36865;&#32473;&#23427;&#20204;</span>
+</pre>
+</div>
+
+<p>
+但是，这段伪代码并没有完整描述 PUBLISH 命令的行为， 因为 PUBLISH 除了将 message 发送到所有订阅 channel 的客户端之外， 它还会将 <span class="underline">channel</span> 和 <span class="underline">pubsub_patterns 中的模式</span> 进行对比， 如果 channel 和某个模式 <b>匹配</b> 的话， 那么也将 message <b>发送</b> 到 <span class="underline">订阅那个模式的客户端</span> 。完整描述 PUBLISH 功能的伪代码定于如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">PUBLISH</span>(channel, message):
+    <span style="color: #00ffff;">for</span> client <span style="color: #00ffff;">in</span> server.pubsub_channels[channel]: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36941;&#21382;&#25152;&#26377;&#35746;&#38405;&#39057;&#36947; channel &#30340;&#23458;&#25143;&#31471;</span>
+        send_message(client, message) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#20449;&#24687;&#21457;&#36865;&#32473;&#23427;&#20204;</span>
+
+    <span style="color: #00ffff;">for</span> pattern, client <span style="color: #00ffff;">in</span> server.pubsub_patterns: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21462;&#20986;&#25152;&#26377;&#27169;&#24335;&#65292;&#20197;&#21450;&#35746;&#38405;&#27169;&#24335;&#30340;&#23458;&#25143;&#31471;</span>
+        <span style="color: #00ffff;">if</span> match(channel, pattern): <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#26524; channel &#21644;&#27169;&#24335;&#21305;&#37197;</span>
+            send_message(client, message) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#37027;&#20040;&#20063;&#23558;&#20449;&#24687;&#21457;&#32473;&#35746;&#38405;&#36825;&#20010;&#27169;&#24335;&#30340;&#23458;&#25143;&#31471;</span>
+</pre>
+</div>
+
+<p>
+举个例子，如果 Redis 服务器的 pubsub_patterns 状态如下：
+</p>
+
+<div id="org7f71bd4" class="figure">
+<p><img src="../pic/graphviz-a84f3abf466ca19297faaa4e11d37f9257355c60.svg" alt="graphviz-a84f3abf466ca19297faaa4e11d37f9257355c60.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+那么当某个客户端发送信息 "Amazon Kindle, $69." 到 <span class="underline">tweet.shop.kindle 频道</span> 时， 除了所有订阅了 tweet.shop.kindle 频道的客户端会收到信息之外， 客户端 client123 和 client256 也同样会收到信息， 因为这两个客户端订阅的 <span class="underline">tweet.shop.* 模式</span> 和 <span class="underline">tweet.shop.kindle 频道</span> <b>匹配</b> 
+</p>
+</div>
+</div>
+<div id="outline-container-orge645094" class="outline-3">
+<h3 id="orge645094">退订模式</h3>
+<div class="outline-text-3" id="text-orge645094">
+<p>
+使用 <span class="underline">PUNSUBSCRIBE</span> 命令可以 <b>退订</b> 指定的 <span class="underline">模式</span> ：删除 <span class="underline">redisServer.pubsub_patterns 链表</span> 中， 所有和被退订模式相关联的 <span class="underline">pubsubPattern 结构</span> ， 这样客户端就不会再收到和模式相匹配的频道发来的信息
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org0eec9aa" class="outline-2">
+<h2 id="org0eec9aa">小结</h2>
+<div class="outline-text-2" id="text-org0eec9aa">
+<ul class="org-ul">
+<li>订阅信息由服务器进程维持的 redisServer.pubsub_channels 字典保存
+<ul class="org-ul">
+<li>字典的键为被订阅的频道</li>
+<li>字典的值为订阅频道的所有客户端</li>
+</ul></li>
+<li>当有新消息发送到频道时，程序遍历频道（键）所对应的（值）所有客户端，然后将消息发送到所有订阅频道的客户端上</li>
+<li>订阅模式的信息由服务器进程维持的 redisServer.pubsub_patterns 链表保存，链表的每个节点都保存着一个 pubsubPattern 结构
+<ul class="org-ul">
+<li>结构中保存着被订阅的模式，以及订阅该模式的客户端</li>
+<li>程序通过遍历链表来查找某个频道是否和某个模式匹配</li>
+</ul></li>
+<li>当有新消息发送到频道时，除了订阅频道的客户端会收到消息之外，所有订阅了匹配频道的模式的客户端，也同样会收到消息</li>
+<li><p>
+退订频道和退订模式分别是订阅频道和订阅模式的反操作
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="slowlog.html">Next：慢查询日志</a></td>
+<td class="org-left"><a href="transaction.html">Previous：事务</a></td>
+<td class="org-left"><a href="feature.html">Home：功能实现</a></td>
+</tr>
+</tbody>
+</table></li>
+</ul>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
