@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -206,6 +227,9 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org2de86bc">数据结构</a></li>
+<li><a href="#orgea191e9">记录慢查询日志</a></li>
+<li><a href="#org5616e8a">操作</a></li>
+<li><a href="#org8b83785">小结</a></li>
 </ul>
 </div>
 </div>
@@ -213,7 +237,7 @@
 <span class="underline">慢查询日志</span> 是 Redis 提供的一个用于 <b>观察</b> <span class="underline">系统性能</span> 的功能， 这个功能的实现非常简单
 </p>
 
-<pre class="example" id="orgc1ca3f3">
+<pre class="example" id="orgfeb7470">
 先介绍和慢查询功能相关的数据结构和变量
 
 然后介绍 Redis 是如何记录命令的执行时间
@@ -222,6 +246,147 @@
 </pre>
 <div id="outline-container-org2de86bc" class="outline-2">
 <h2 id="org2de86bc">数据结构</h2>
+<div class="outline-text-2" id="text-org2de86bc">
+<p>
+每条慢查询日志都以一个 <span class="underline">slowlog.h/slowlogEntry</span> 结构定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">slowlogEntry</span> {
+    <span style="color: #98fb98;">robj</span> **<span style="color: #eedd82;">argv</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21629;&#20196;&#21442;&#25968;</span>
+    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">argc</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21629;&#20196;&#21442;&#25968;&#25968;&#37327;</span>
+    <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">id</span>;     <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21807;&#19968;&#26631;&#35782;&#31526;</span>
+    <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">duration</span>;  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25191;&#34892;&#21629;&#20196;&#28040;&#32791;&#30340;&#26102;&#38388;&#65292;&#20197;&#32435;&#31186;&#65288;1 / 1,000,000,000 &#31186;&#65289;&#20026;&#21333;&#20301;</span>
+    <span style="color: #98fb98;">time_t</span> <span style="color: #eedd82;">time</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21629;&#20196;&#25191;&#34892;&#26102;&#30340;&#26102;&#38388;</span>
+} <span style="color: #98fb98;">slowlogEntry</span>;
+</pre>
+</div>
+
+<p>
+记录服务器状态的 <span class="underline">redis.h/redisServer</span> 结构里保存了几个和慢查询有关的属性：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">redisServer</span> {
+    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">... other fields</span>
+    <span style="color: #98fb98;">list</span> *<span style="color: #eedd82;">slowlog</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20445;&#23384;&#24930;&#26597;&#35810;&#26085;&#24535;&#30340;&#38142;&#34920;    </span>
+    <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">slowlog_entry_id</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24930;&#26597;&#35810;&#26085;&#24535;&#30340;&#24403;&#21069; id &#20540;</span>
+    <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">slowlog_log_slower_than</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24930;&#26597;&#35810;&#26102;&#38388;&#38480;&#21046;</span>
+    <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">slowlog_max_len</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24930;&#26597;&#35810;&#26085;&#24535;&#30340;&#26368;&#22823;&#26465;&#30446;&#25968;&#37327;</span>
+    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">... other fields</span>
+};
+</pre>
+</div>
+
+<ul class="org-ul">
+<li><span class="underline">slowlog</span> 属性是一个 <b>链表</b> ， 链表里的每个 <b>节点</b> 保存了一个 <span class="underline">慢查询日志结构</span> ， 所有日志按添加时间 <b>从新到旧</b> 排序，新的日志在链表的左端，旧的日志在链表的右端</li>
+<li><p>
+<span class="underline">slowlog_entry_id</span> 在创建每条新的慢查询日志时 <b>增一</b> ，用于产生慢查询日志的 ID
+</p>
+<pre class="example" id="org1631db2">
+这个 ID 在执行 SLOWLOG RESET 之后会被重置
+</pre></li>
+<li><span class="underline">slowlog_log_slower_than</span> 是用户指定的 <b>命令执行时间上限</b> ，执行时间大于等于这个值的命令会被慢查询日志记录</li>
+<li><span class="underline">slowlog_max_len</span> 慢查询日志的 *最大数量*，当日志数量等于这个值时，添加一条新日志会造成最旧的一条日志被删除</li>
+</ul>
+
+<p>
+下图展示了一个 slowlog 属性的实例：
+</p>
+
+
+<div id="org6cc7e33" class="figure">
+<p><img src="../pic/graphviz-e28cd61cb3d560503a1c2bc0e5f1f1e2cd4fcf92.svg" alt="graphviz-e28cd61cb3d560503a1c2bc0e5f1f1e2cd4fcf92.svg" class="org-svg" width="90%" />
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgea191e9" class="outline-2">
+<h2 id="orgea191e9">记录慢查询日志</h2>
+<div class="outline-text-2" id="text-orgea191e9">
+<p>
+在每次执行命令之前， Redis 都会用一个参数 <b>记录</b> <span class="underline">命令执行前的时间</span>  在命令执行完之后， 再计算一次当前时间， 然后将两个时间值相减， 得出执行命令所耗费的时间值 <span class="underline">duration</span> ， 并将 duration 传给 <span class="underline">slowlogPushEntryIfNeed</span> 函数。
+</p>
+<ul class="org-ul">
+<li>如果 duration 超过服务器设置的执行时间上限 <span class="underline">server.slowlog_log_slower_than</span> 的话， slowlogPushEntryIfNeed 就会 <b>创建</b> 一条新的 <span class="underline">慢查询日志</span> ， 并将它 <b>加入</b> 到 <span class="underline">慢查询日志链表</span> 里</li>
+</ul>
+
+<p>
+可以用一段伪代码来表示这个过程：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">execute_redis_command_with_slowlog</span>():
+    <span style="color: #eedd82;">start</span> = ustime() <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21629;&#20196;&#25191;&#34892;&#21069;&#30340;&#26102;&#38388;</span>
+
+    execute_command(argv, argc) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25191;&#34892;&#21629;&#20196;</span>
+
+    <span style="color: #eedd82;">duration</span> = ustime() - start <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35745;&#31639;&#21629;&#20196;&#25191;&#34892;&#25152;&#32791;&#36153;&#30340;&#26102;&#38388;</span>
+
+    <span style="color: #00ffff;">if</span> slowlog_is_enabled:
+        slowlogPushEntryIfNeed(argv, argc, duration)
+
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">slowlogPushEntryIfNeed</span>(argv, argc, duration)
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#26524;&#25191;&#34892;&#21629;&#20196;&#32791;&#36153;&#30340;&#26102;&#38388;&#36229;&#36807;&#26381;&#21153;&#22120;&#35774;&#32622;&#21629;&#20196;&#25191;&#34892;&#26102;&#38388;&#19978;&#38480;</span>
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#37027;&#20040;&#21019;&#24314;&#19968;&#26465;&#26032;&#30340; slowlog</span>
+    <span style="color: #00ffff;">if</span> duration &gt; server.<span style="color: #eedd82;">slowlog_log_slower_than</span>:
+
+        log = new slowlogEntry() <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#26032; slowlog</span>
+
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#21508;&#20010;&#22495;</span>
+        log.<span style="color: #eedd82;">argv</span> = argv
+        log.<span style="color: #eedd82;">argc</span> = argc
+        log.<span style="color: #eedd82;">duration</span> = duration
+        log.<span style="color: #b0c4de;">id</span> = server.slowlog_entry_id
+        log.<span style="color: #eedd82;">time</span> = now()
+
+        server.slowlog.append(log) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#26032; slowlog &#36861;&#21152;&#21040;&#26085;&#24535;&#38142;&#34920;&#26411;&#23614;</span>
+        server.<span style="color: #eedd82;">slowlog_entry_id</span> += 1 <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26356;&#26032;&#26381;&#21153;&#22120; slowlog</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org5616e8a" class="outline-2">
+<h2 id="org5616e8a">操作</h2>
+<div class="outline-text-2" id="text-org5616e8a">
+<p>
+针对慢查询日志有三种操作，分别是 <span class="underline">查看</span> , <span class="underline">清空</span> 和 <span class="underline">获取日志数量</span> ：
+</p>
+<ul class="org-ul">
+<li>查看日志：在日志链表中遍历指定数量的日志节点，复杂度为 \(O(N)\)</li>
+<li>清空日志：释放日志链表中的所有日志节点，复杂度为 \(O(N)\)</li>
+<li>获取日志数量：获取日志的数量等同于获取 server.slowlog 链表的数量，复杂度为 \(O(1)\)</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org8b83785" class="outline-2">
+<h2 id="org8b83785">小结</h2>
+<div class="outline-text-2" id="text-org8b83785">
+<ul class="org-ul">
+<li>Redis 用一个链表以 FIFO 的顺序保存着所有慢查询日志</li>
+<li><p>
+每条慢查询日志以一个慢查询节点表示，节点中记录着执行超时的命令、命令的参数、命令执行时的时间，以及执行命令所消耗的时间等信息
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="pubsub.html">Previous：订阅与发布</a></td>
+<td class="org-left"><a href="feature.html">Home：功能实现</a></td>
+</tr>
+</tbody>
+</table></li>
+</ul>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
