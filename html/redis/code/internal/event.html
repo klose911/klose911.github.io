@@ -205,7 +205,13 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org9f7a1d2">文件事件</a></li>
+<li><a href="#org9f7a1d2">文件事件</a>
+<ul>
+<li><a href="#orgb82a8bb">读事件</a></li>
+<li><a href="#org53ba68d">写事件</a></li>
+</ul>
+</li>
+<li><a href="#orgde729a1">时间事件</a></li>
 </ul>
 </div>
 </div>
@@ -217,12 +223,277 @@
 <li>时间事件：实现服务器定时操作 <span class="underline">server cron job</span></li>
 </ul>
 
-<pre class="example" id="orga9e0b14">
+<pre class="example" id="org15120f9">
 下面就来介绍这两种事件， 以及它们背后的运作模式
 </pre>
 
 <div id="outline-container-org9f7a1d2" class="outline-2">
 <h2 id="org9f7a1d2">文件事件</h2>
+<div class="outline-text-2" id="text-org9f7a1d2">
+<p>
+Redis 服务器通过在 <b>多个</b> <span class="underline">客户端</span> 之间进行 *多路复用*， 从而实现高效的命令请求处理
+</p>
+
+<pre class="example" id="org494c767">
+多个客户端通过套接字连接到 Redis 服务器中， 但只有在套接字可以“无阻塞”地进行读或者写时， 服务器才会和这些客户端进行交互
+</pre>
+
+<p>
+Redis 将这类因为对套接字进行多路复用而产生的事件称为 <b>文件事件</b> <span class="underline">file event</span> ， 文件事件可以分为 <span class="underline">读事件</span> 和 <span class="underline">写事件</span> 两类
+</p>
+</div>
+
+<div id="outline-container-orgb82a8bb" class="outline-3">
+<h3 id="orgb82a8bb">读事件</h3>
+<div class="outline-text-3" id="text-orgb82a8bb">
+<p>
+读事件标志着 <span class="underline">客户端命令请求</span> 的 <b>发送</b> 状态。当一个新的客户端连接到服务器时， 服务器会给为该客户端绑定读事件， 直到客户端断开连接之后， 这个读事件才会被移除。读事件在整个网络连接的生命期内， 都会在 <span class="underline">等待</span> 和 <span class="underline">就绪</span> 两种状态之间切换：
+</p>
+<ul class="org-ul">
+<li>当客户端只是连接到服务器，但并 <b>没有</b> 向 <span class="underline">服务器发送命令</span> 时，该客户端的读事件就处于 <span class="underline">等待</span> 状态</li>
+<li>当客户端给服务器发送命令请求，并且 <b>请求已到达</b> 时（相应的套接字可以 <b>无阻塞</b> 地执行读操作），该客户端的读事件处于 <span class="underline">就绪</span> 状态</li>
+</ul>
+
+<p>
+作为例子， 下图展示了三个已连接到服务器、但并没有发送命令的客户端：
+</p>
+
+
+<div id="orge1d3a74" class="figure">
+<p><img src="../pic/graphviz-b34667a48cb66a804038c7eec759ec0289167da9.svg" alt="graphviz-b34667a48cb66a804038c7eec759ec0289167da9.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+这三个客户端的状态如下表：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">客户端</td>
+<td class="org-left">读事件状态</td>
+<td class="org-left">命令发送状态</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 X</td>
+<td class="org-left">等待</td>
+<td class="org-left">未发送</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 Y</td>
+<td class="org-left">等待</td>
+<td class="org-left">未发送</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 Z</td>
+<td class="org-left">等待</td>
+<td class="org-left">未发送</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+之后， 当客户端 X 向服务器发送命令请求， 并且命令请求已到达时， 客户端 X 的读事件状态变为就绪：
+</p>
+
+
+<div id="org11362f8" class="figure">
+<p><img src="../pic/graphviz-c7d00af9c8ecdddd84ca97815c785fc1a740fc64.svg" alt="graphviz-c7d00af9c8ecdddd84ca97815c785fc1a740fc64.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+这时， 三个客户端的状态如下表（只有客户端 X 的状态被更新了）：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">客户端</td>
+<td class="org-left">读事件状态</td>
+<td class="org-left">命令发送状态</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 X</td>
+<td class="org-left"><b>就绪</b></td>
+<td class="org-left"><b>已发送，命令已达到</b></td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 Y</td>
+<td class="org-left">等待</td>
+<td class="org-left">未发送</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 Z</td>
+<td class="org-left">等待</td>
+<td class="org-left">未发送</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+当事件处理器被执行时， 就绪的文件事件会被识别到， 相应的 <span class="underline">命令请求</span> 会被 <b>发送</b> 到 <span class="underline">命令执行器</span> ， 并对命令进行 <b>求值</b> 
+</p>
+</div>
+</div>
+<div id="outline-container-org53ba68d" class="outline-3">
+<h3 id="org53ba68d">写事件</h3>
+<div class="outline-text-3" id="text-org53ba68d">
+<p>
+写事件标志着 <span class="underline">客户端</span> 对 <span class="underline">命令结果</span> 的 <b>接收</b> 状态。和客户端自始至终都关联着读事件不同， 服务器 <b>只会</b> 在 <span class="underline">有命令结果</span> 要传回给客户端时， 才会为客户端 <b>关联</b> 写事件， 并且在 <span class="underline">命令结果传送完毕</span> 之后， 客户端和写事件的关联就会被 <b>移除</b> 。一个写事件会在两种状态之间切换：
+</p>
+<ul class="org-ul">
+<li>当服务器有命令结果需要返回给客户端，但客户端还 <b>未能</b> 执行无阻塞写，那么写事件处于 <span class="underline">等待</span> 状态</li>
+<li>当服务器有命令结果需要返回给客户端，并且客户端 <b>可以</b> 进行无阻塞写，那么写事件处于 <span class="underline">就绪</span> 状态</li>
+</ul>
+
+<p>
+当客户端向服务器发送命令请求， 并且请求被接受并执行之后， 服务器就需要将保存在缓存内的命令执行结果返回给客户端， 这时服务器就会为客户端关联写事件。作为例子， 下图展示了三个连接到服务器的客户端， 其中服务器正等待客户端 X 变得可写， 从而将命令的执行结果返回给它：  
+</p>
+
+<div id="org3d451d1" class="figure">
+<p><img src="../pic/graphviz-3fa5735cd763caa71e083a6bfe45f2f01eb506f9.svg" alt="graphviz-3fa5735cd763caa71e083a6bfe45f2f01eb506f9.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+此时三个客户端的事件状态分别如下表：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">客户端</td>
+<td class="org-left">读事件状态</td>
+<td class="org-left">写事件状态</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 X</td>
+<td class="org-left">等待</td>
+<td class="org-left">等待</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 Y</td>
+<td class="org-left">等待</td>
+<td class="org-left">无</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 Z</td>
+<td class="org-left">等待</td>
+<td class="org-left">无</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+当客户端 X 的套接字可以进行无阻塞写操作时， 写事件就绪， 服务器将保存在缓存内的命令执行结果返回给客户端：
+</p>
+
+
+<div id="org314568c" class="figure">
+<p><img src="../pic/graphviz-dc7ecfee261001e09df0232990301cf3dc834de7.svg" alt="graphviz-dc7ecfee261001e09df0232990301cf3dc834de7.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+此时三个客户端的事件状态分别如下表（只有客户端 X 的状态被更新了）：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">客户端</td>
+<td class="org-left">读事件状态</td>
+<td class="org-left">写事件状态</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 X</td>
+<td class="org-left">等待</td>
+<td class="org-left"><b>就绪</b></td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 Y</td>
+<td class="org-left">等待</td>
+<td class="org-left">无</td>
+</tr>
+
+<tr>
+<td class="org-left">客户端 Z</td>
+<td class="org-left">等待</td>
+<td class="org-left">无</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+当命令执行结果被传送回客户端之后， 客户端和写事件之间的关联会被解除（只剩下读事件）， 至此， 返回命令执行结果的动作执行完毕：
+</p>
+
+<div id="org0541c3d" class="figure">
+<p><img src="../pic/graphviz-b34667a48cb66a804038c7eec759ec0289167da9.svg" alt="graphviz-b34667a48cb66a804038c7eec759ec0289167da9.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<pre class="example" id="orgbdad5d9">
+前面提到过，读事件只有在客户端断开和服务器的连接时，才会被移除。
+
+这也就是说，当客户端关联写事件的时候，实际上它在同时关联读/写两种事件。
+
+因为在同一次文件事件处理器的调用中， 单个客户端只能执行其中一种事件（要么读，要么写，但不能又读又写）， 当出现读事件和写事件同时就绪的情况时， 事件处理器优先处理读事件。
+
+这也就是说， 当服务器有命令结果要返回客户端， 而客户端又有新命令请求进入时， 服务器先处理新命令请求
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgde729a1" class="outline-2">
+<h2 id="orgde729a1">时间事件</h2>
 </div>
 </div>
 <div id="postamble" class="status">
