@@ -211,7 +211,12 @@
 <li><a href="#org53ba68d">写事件</a></li>
 </ul>
 </li>
-<li><a href="#orgde729a1">时间事件</a></li>
+<li><a href="#orgde729a1">时间事件</a>
+<ul>
+<li><a href="#org74abb1d">时间事件实例</a></li>
+</ul>
+</li>
+<li><a href="#org679778e">事件调度</a></li>
 </ul>
 </div>
 </div>
@@ -223,7 +228,7 @@
 <li>时间事件：实现服务器定时操作 <span class="underline">server cron job</span></li>
 </ul>
 
-<pre class="example" id="org15120f9">
+<pre class="example" id="orga3df3c8">
 下面就来介绍这两种事件， 以及它们背后的运作模式
 </pre>
 
@@ -234,7 +239,7 @@
 Redis 服务器通过在 <b>多个</b> <span class="underline">客户端</span> 之间进行 *多路复用*， 从而实现高效的命令请求处理
 </p>
 
-<pre class="example" id="org494c767">
+<pre class="example" id="orgbf9a0f4">
 多个客户端通过套接字连接到 Redis 服务器中， 但只有在套接字可以“无阻塞”地进行读或者写时， 服务器才会和这些客户端进行交互
 </pre>
 
@@ -259,7 +264,7 @@ Redis 将这类因为对套接字进行多路复用而产生的事件称为 <b>�
 </p>
 
 
-<div id="orge1d3a74" class="figure">
+<div id="org75e366f" class="figure">
 <p><img src="../pic/graphviz-b34667a48cb66a804038c7eec759ec0289167da9.svg" alt="graphviz-b34667a48cb66a804038c7eec759ec0289167da9.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -310,7 +315,7 @@ Redis 将这类因为对套接字进行多路复用而产生的事件称为 <b>�
 </p>
 
 
-<div id="org11362f8" class="figure">
+<div id="org485312a" class="figure">
 <p><img src="../pic/graphviz-c7d00af9c8ecdddd84ca97815c785fc1a740fc64.svg" alt="graphviz-c7d00af9c8ecdddd84ca97815c785fc1a740fc64.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -375,7 +380,7 @@ Redis 将这类因为对套接字进行多路复用而产生的事件称为 <b>�
 当客户端向服务器发送命令请求， 并且请求被接受并执行之后， 服务器就需要将保存在缓存内的命令执行结果返回给客户端， 这时服务器就会为客户端关联写事件。作为例子， 下图展示了三个连接到服务器的客户端， 其中服务器正等待客户端 X 变得可写， 从而将命令的执行结果返回给它：  
 </p>
 
-<div id="org3d451d1" class="figure">
+<div id="orgc4689b0" class="figure">
 <p><img src="../pic/graphviz-3fa5735cd763caa71e083a6bfe45f2f01eb506f9.svg" alt="graphviz-3fa5735cd763caa71e083a6bfe45f2f01eb506f9.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -426,7 +431,7 @@ Redis 将这类因为对套接字进行多路复用而产生的事件称为 <b>�
 </p>
 
 
-<div id="org314568c" class="figure">
+<div id="org3217b24" class="figure">
 <p><img src="../pic/graphviz-dc7ecfee261001e09df0232990301cf3dc834de7.svg" alt="graphviz-dc7ecfee261001e09df0232990301cf3dc834de7.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -475,12 +480,12 @@ Redis 将这类因为对套接字进行多路复用而产生的事件称为 <b>�
 当命令执行结果被传送回客户端之后， 客户端和写事件之间的关联会被解除（只剩下读事件）， 至此， 返回命令执行结果的动作执行完毕：
 </p>
 
-<div id="org0541c3d" class="figure">
+<div id="org3c11682" class="figure">
 <p><img src="../pic/graphviz-b34667a48cb66a804038c7eec759ec0289167da9.svg" alt="graphviz-b34667a48cb66a804038c7eec759ec0289167da9.svg" class="org-svg" width="90%" />
 </p>
 </div>
 
-<pre class="example" id="orgbdad5d9">
+<pre class="example" id="org4ca1e25">
 前面提到过，读事件只有在客户端断开和服务器的连接时，才会被移除。
 
 这也就是说，当客户端关联写事件的时候，实际上它在同时关联读/写两种事件。
@@ -494,6 +499,109 @@ Redis 将这类因为对套接字进行多路复用而产生的事件称为 <b>�
 </div>
 <div id="outline-container-orgde729a1" class="outline-2">
 <h2 id="orgde729a1">时间事件</h2>
+<div class="outline-text-2" id="text-orgde729a1">
+<p>
+<b>时间事件</b> 记录着那些要在 <span class="underline">指定时间点运行的事件</span> ， 多个时间事件以 <span class="underline">无序链表</span> 的形式保存在服务器状态中。每个时间事件主要由三个属性组成：
+</p>
+<ol class="org-ol">
+<li>when ：以毫秒格式的 UNIX 时间戳为单位，记录了应该在什么时间点执行事件处理函数</li>
+<li>timeProc ：事件处理函数</li>
+<li>next 指向下一个时间事件，形成链表</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">/* </span><span style="color: #ff4500;">Time event structure</span><span style="color: #ff4500;"> */</span>
+<span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">aeTimeEvent</span> {
+    <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">id</span>; <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">time event identifier.</span><span style="color: #ff4500;"> */</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23450;&#26102;&#20107;&#20214;&#30340;id</span>
+    <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">when_sec</span>; <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">seconds</span><span style="color: #ff4500;"> */</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#39044;&#23450;&#26102;&#38388; &#31186;</span>
+    <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">when_ms</span>; <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">milliseconds</span><span style="color: #ff4500;"> */</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#39044;&#23450;&#26102;&#38388; &#32435;&#31186;</span>
+    <span style="color: #98fb98;">aeTimeProc</span> *<span style="color: #eedd82;">timeProc</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23450;&#26102;&#20107;&#20214;&#22788;&#29702;&#20989;&#25968;&#25351;&#38024;</span>
+    <span style="color: #98fb98;">aeEventFinalizerProc</span> *<span style="color: #eedd82;">finalizerProc</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23450;&#26102;&#20107;&#20214;&#28165;&#29702;&#20989;&#25968;&#25351;&#38024;</span>
+    <span style="color: #98fb98;">void</span> *<span style="color: #eedd82;">clientData</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#19978;&#38754;&#20004;&#20010;&#20989;&#25968;&#25351;&#38024;&#35843;&#29992;&#25152;&#38656;&#35201;&#30340;&#21442;&#25968;</span>
+    <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">aeTimeEvent</span> *<span style="color: #eedd82;">next</span>; <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#25351;&#21521;&#19979;&#19968;&#20010;&#23450;&#26102;&#20107;&#20214;&#65292;&#24418;&#25104;&#19968;&#20010;&#21333;&#21521;&#38142;&#34920;</span>
+} <span style="color: #98fb98;">aeTimeEvent</span>;
+</pre>
+</div>
+
+<p>
+根据 timeProc 函数的返回值，可以将时间事件划分为两类：
+</p>
+<ul class="org-ul">
+<li>如果事件处理函数返回 <span class="underline">ae.h/AE_NOMORE</span> ，那么这个事件为 <b>单次</b> 执行*事件：该事件会在指定的时间被处理一次，之后该事件就会被 <b>删除</b> ，不再执行</li>
+<li>如果事件处理函数返回一个 <span class="underline">非 AE_NOMORE</span> 的整数值，那么这个事件为 <b>循环</b> 执行事件：该事件会在指定的时间被处理，之后它会按照事件处理函数的返回值， <b>更新</b> 事件的 <span class="underline">when 属性</span> ，让这个事件在之后的某个时间点再次运行，并以这种方式一直更新并运行下去</li>
+</ul>
+
+<p>
+可以用伪代码来表示这两种事件的处理方式：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">handle_time_event</span>(server, time_event):
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25191;&#34892;&#20107;&#20214;&#22788;&#29702;&#22120;&#65292;&#24182;&#33719;&#21462;&#36820;&#22238;&#20540;</span>
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36820;&#22238;&#20540;&#21487;&#20197;&#26159; AE_NOMORE &#65292;&#25110;&#32773;&#19968;&#20010;&#34920;&#31034;&#27627;&#31186;&#25968;&#30340;&#38750;&#31526;&#25972;&#25968;&#20540;</span>
+    <span style="color: #eedd82;">retval</span> = time_event.timeProc()
+
+    <span style="color: #00ffff;">if</span> retval == AE_NOMORE:
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#26524;&#36820;&#22238; AE_NOMORE &#65292;&#37027;&#20040;&#23558;&#20107;&#20214;&#20174;&#38142;&#34920;&#20013;&#21024;&#38500;&#65292;&#19981;&#20877;&#25191;&#34892;</span>
+        server.time_event_linked_list.delete(time_event)
+    <span style="color: #00ffff;">else</span>:
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21542;&#21017;&#65292;&#26356;&#26032;&#20107;&#20214;&#30340; when &#23646;&#24615;</span>
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35753;&#23427;&#22312;&#24403;&#21069;&#26102;&#38388;&#20043;&#21518;&#30340; retval &#27627;&#31186;&#20043;&#21518;&#20877;&#27425;&#36816;&#34892;</span>
+        time_event.when = unix_ts_in_ms() + retval
+</pre>
+</div>
+
+<p>
+当时间事件处理器被执行时， 它 <b>遍历</b> 所有 <span class="underline">时间事件链表</span> ， 检查它们的到达事件 <span class="underline">when 属性</span> ， 并执行其中的已到达事件：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">process_time_event</span>(server):
+    <span style="color: #00ffff;">for</span> time_event <span style="color: #00ffff;">in</span> server.time_event_linked_list: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36941;&#21382;&#26102;&#38388;&#20107;&#20214;&#38142;&#34920;</span>
+        <span style="color: #00ffff;">if</span> time_event.when &lt;= unix_ts_in_ms(): <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26816;&#26597;&#20107;&#20214;&#26159;&#21542;&#24050;&#32463;&#21040;&#36798;</span>
+            handle_time_event(server, time_event) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22788;&#29702;&#24050;&#21040;&#36798;&#20107;&#20214;</span>
+</pre>
+</div>
+
+<pre class="example" id="org0ea89de">
+无序链表并不影响时间事件处理器的性能
+
+在目前的版本中， 正常模式下的 Redis 只带有 serverCron 一个时间事件， 而在 benchmark 模式下， Redis 也只使用两个时间事件
+
+在这种情况下， 程序几乎是将无序链表退化成一个指针来使用， 所以使用无序链表来保存时间事件， 并不影响事件处理器的性能
+</pre>
+</div>
+<div id="outline-container-org74abb1d" class="outline-3">
+<h3 id="org74abb1d">时间事件实例</h3>
+<div class="outline-text-3" id="text-org74abb1d">
+<p>
+对于持续运行的服务器来说， 服务器需要定期对自身的资源和状态进行必要的检查和整理， 从而让服务器维持在一个健康稳定的状态， 这类操作被统称为定时任务 <span class="underline">cron job</span> 。在 Redis 中， 常规操作由 <span class="underline">redis.c/serverCron</span> 实现， 它主要执行以下操作：
+</p>
+<ul class="org-ul">
+<li>更新服务器的各类统计信息，比如时间、内存占用、数据库占用情况等</li>
+<li>清理数据库中的过期键值对</li>
+<li>对不合理的数据库进行大小调整</li>
+<li>关闭和清理连接失效的客户端</li>
+<li>尝试进行 AOF 或 RDB 持久化操作</li>
+<li>如果服务器是主节点的话，对附属节点进行定期同步</li>
+<li>如果处于集群模式的话，对集群进行定期同步和连接测试</li>
+</ul>
+
+<p>
+Redis 将 serverCron 作为 <span class="underline">时间事件</span> 来运行， 从而确保它每隔一段时间就会自动运行一次， 又因为 serverCron 需要在 Redis 服务器运行期间一直定期运行， 所以它是一个 <b>循环</b> 时间事件： serverCron 会一直定期执行，直到服务器关闭为止。
+</p>
+
+<pre class="example" id="org5d94b82">
+在 Redis 2.6 版本中， 程序规定 serverCron 每秒运行 10 次， 平均每 100 毫秒运行一次
+
+从 Redis 2.8 开始， 用户可以通过修改 hz 选项来调整 serverCron 的每秒执行次数
+
+具体信息请参考 redis.conf 文件中关于 hz 选项的说明
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org679778e" class="outline-2">
+<h2 id="org679778e">事件调度</h2>
 </div>
 </div>
 <div id="postamble" class="status">
