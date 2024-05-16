@@ -103,13 +103,13 @@ Redis 将这类因为对套接字进行多路复用而产生的事件称为 *文
 #+begin_src c 
   /* Time event structure */
   typedef struct aeTimeEvent {
-      long long id; /* time event identifier. */ // 定时事件的id
-      long when_sec; /* seconds */ // 预定时间 秒
-      long when_ms; /* milliseconds */ // 预定时间 纳秒
-      aeTimeProc *timeProc; // 定时事件处理函数指针
-      aeEventFinalizerProc *finalizerProc; // 定时事件清理函数指针
-      void *clientData; // 上面两个函数指针调用所需要的参数
-      struct aeTimeEvent *next; //指向下一个定时事件，形成一个单向链表
+	  long long id; /* time event identifier. */ // 定时事件的id
+	  long when_sec; /* seconds */ // 预定时间 秒
+	  long when_ms; /* milliseconds */ // 预定时间 纳秒
+	  aeTimeProc *timeProc; // 定时事件处理函数指针
+	  aeEventFinalizerProc *finalizerProc; // 定时事件清理函数指针
+	  void *clientData; // 上面两个函数指针调用所需要的参数
+	  struct aeTimeEvent *next; //指向下一个定时事件，形成一个单向链表
   } aeTimeEvent;
 #+end_src
 
@@ -169,3 +169,126 @@ Redis 将 serverCron 作为 _时间事件_ 来运行， 从而确保它每隔一
   具体信息请参考 redis.conf 文件中关于 hz 选项的说明
 #+end_example
 * 事件调度
+#+begin_example
+  既然 Redis 里面既有文件事件， 又有时间事件， 那么如何调度这两种事件就成了一个关键问题
+#+end_example
+
+简单地说， Redis 里面的两种事件呈合作关系， 它们之间包含以下三种属性：
+1. 一种事件会等待另一种事件执行完毕之后，才开始执行，事件之间不会出现抢占
+2. 事件处理器先处理文件事件（处理命令请求），再执行时间事件（调用 serverCron）
+3. 文件事件的 *等待时间* （类 poll 函数的最大阻塞时间），由 _距离到达时间最短的时间事件_ 决定
+
+这些属性表明， 实际处理时间事件的时间， 通常会比时间事件所预定的时间要晚
+
+#+begin_example
+ 至于延迟的时间有多长， 取决于时间事件执行之前， 执行文件事件所消耗的时间
+#+end_example
+
+比如说， 以下图表就展示了， 虽然时间事件 TE 1 预定在 t1 时间执行， 但因为文件事件 FE 1 正在运行， 所以 TE 1 的执行被延迟了：
+
+#+begin_example
+			t1
+			|
+			V
+  time -----------------+------------------->|
+
+       |       FE 1              |   TE 1    |
+
+			|<------>|
+			  TE 1
+			  delay
+			  time
+#+end_example
+
+另外， 对于像 serverCron 这类循环执行的时间事件来说， 如果事件处理器的返回值是 t ， 那么 Redis 只保证：
++ 如果两次执行时间事件处理器之间的时间间隔大于等于 t ， 那么这个时间事件至少会被处理一次
++ 而并不是说， 每隔 t 时间， 就一定要执行一次事件
+  #+begin_example
+    这对于不使用抢占调度的 Redis 事件处理器来说，也是不可能做到的
+  #+end_example
+
+举个例子， 虽然 serverCron 设定的间隔为 10 毫秒， 但它并不是像如下那样每隔 10 毫秒就运行一次：
+
+#+begin_example
+  time ----------------------------------------------------->|
+
+       |<---- 10 ms ---->|<---- 10 ms ---->|<---- 10 ms ---->|
+
+       | FE 1 | FE 2     | sC 1 | FE 3     |  sC 2 |  FE 4   |
+
+       ^                 ^      ^          ^       ^
+       |                 |      |          |       |
+     file event      time event |      time event  |
+     handler         handler    |      handler     |
+     run             run        |      run         |
+			    file event          file event
+			    handler             handler
+			    run                 run
+#+end_example
+
+在实际中， serverCron 的运行方式更可能是这样子的：
+
+#+begin_example
+  time ----------------------------------------------------------------------->|
+
+       |<---- 10 ms ---->|<---- 10 ms ---->|<---- 10 ms ---->|<---- 10 ms ---->|
+
+       | FE 1         | FE 2     | sC 1 | FE 3 | FE 4 |   FE 5  |    sC 2  |
+
+       |<-------- 15 ms -------->|      |<------- 12 ms ------->|
+	      >= 10 ms                          >= 10 ms
+       ^                         ^      ^                       ^
+       |                         |      |                       |
+    file event              time event  |                  time event
+    handler                 handler     |                  handler
+    run                     run         |                  run
+				   file event
+				   handler
+				   run
+#+end_example
+
+根据情况， 如果处理文件事件耗费了非常多的时间， serverCron 被推迟到一两秒之后才能执行， 也是有可能的。整个事件处理器程序可以用以下伪代码描述：
+
+#+begin_src python 
+  def process_event():
+      te = get_nearest_time_event(server.time_event_linked_list) # 获取执行时间最接近现在的一个时间事件
+
+      # 检查该事件的执行时间和现在时间之差
+      # 如果值 <= 0 ，那么说明至少有一个时间事件已到达
+      # 如果值 > 0 ，那么说明目前没有任何时间事件到达
+      nearest_te_remaind_ms = te.when - now_in_ms()
+
+      if nearest_te_remaind_ms <= 0:
+	  poll(timeout=None) # 如果有时间事件已经到达, 那么调用不阻塞的文件事件等待函数
+      else:
+	  poll(timeout=nearest_te_remaind_ms) # 如果时间事件还没到达，那么阻塞的最大时间不超过 te 的到达时间
+
+      process_file_events() # 处理已就绪文件事件
+      process_time_event() # 处理已到达时间事件
+#+end_src
+
+通过这段代码， 可以清晰地看出：
++ 到达时间最近的时间事件，决定了 poll 的最大阻塞时长
++ 文件事件先于时间事件处理。
+
+将这个事件处理函数置于一个 _循环_ 中， 加上初始化和清理函数， 这就构成了 Redis 服务器的主函数调用：
+
+#+begin_src python 
+  def redis_main():
+      init_server() # 初始化服务器
+
+      while server_is_not_shutdown(): # 一直处理事件，直到服务器关闭为止
+	  process_event()
+
+      clean_server() # 清理服务器
+#+end_src
+* 小结
++ Redis 的事件分为时间事件和文件事件两类
++ 文件事件分为读事件和写事件两类：
+  + 读事件实现了命令请求的接收
+  + 写事件实现了命令结果的返回
++ 时间事件分为单次执行事件和循环执行事件
+  + 服务器常规操作 serverCron 就是循环事件
++ 文件事件和时间事件之间是合作关系：一种事件会等待另一种事件完成之后再执行，不会出现抢占情况
++ 时间事件的实际执行时间通常会比预定时间晚一些
+
