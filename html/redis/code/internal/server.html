@@ -201,6 +201,24 @@
  <a accesskey="H" href="./internal.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">服务器与客户端</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orge5dc3a9">初始化服务器</a>
+<ul>
+<li><a href="#orgedaefe6">初始化服务器全局状态</a></li>
+<li><a href="#orgc3d8212">载入配置文件</a></li>
+<li><a href="#org93a9360">创建 daemon 进程</a></li>
+<li><a href="#orgafe4096">初始化服务器功能模块</a></li>
+<li><a href="#orgb5d29f6">载入数据</a></li>
+<li><a href="#orge54605e">开始事件循环</a></li>
+</ul>
+</li>
+<li><a href="#org0c489d3">客户端连接到服务器</a></li>
+</ul>
+</div>
+</div>
 <p>
 服务器本身并没有多少需要介绍的新东西， 因为服务器除了维持服务器状态之外， 最重要的就是将各个功能模块组合起来。所以接下来将焦点放在服务器的初始化过程， 以及服务器对命令的处理过程上
 </p>
@@ -209,6 +227,241 @@
 <li>接着介绍客户端是如何 <span class="underline">连接</span> 到服务器的， 而服务器又是如何维持多个客户端的不同状态的</li>
 <li>最后介绍命令从 <span class="underline">发送</span> 到 <span class="underline">处理</span> 的整个过程， 并列举了一个 SET 命令的执行过程作为例子</li>
 </ol>
+<div id="outline-container-orge5dc3a9" class="outline-2">
+<h2 id="orge5dc3a9">初始化服务器</h2>
+<div class="outline-text-2" id="text-orge5dc3a9">
+<p>
+从启动 Redis 服务器， 到服务器可以接受外来客户端的网络连接这段时间， Redis 需要执行一系列初始化操作。整个初始化过程可以分为以下六个步骤：
+</p>
+<ol class="org-ol">
+<li>初始化服务器全局状态</li>
+<li>载入配置文件</li>
+<li>创建 daemon 进程</li>
+<li>初始化服务器功能模块</li>
+<li>载入数据</li>
+<li>开始事件循环</li>
+</ol>
+
+<p>
+以下将介绍 Redis 服务器初始化的各个步骤
+</p>
+</div>
+<div id="outline-container-orgedaefe6" class="outline-3">
+<h3 id="orgedaefe6">初始化服务器全局状态</h3>
+<div class="outline-text-3" id="text-orgedaefe6">
+<p>
+<span class="underline">redis.h/redisServer</span> 结构记录了和服务器相关的所有数据， 这个结构主要包含以下信息：
+</p>
+<ul class="org-ul">
+<li>服务器中的 <b>所有数据库</b></li>
+<li><b>命令表</b> ：在执行命令时，根据字符来查找相应命令的实现函数</li>
+<li><b>事件</b> 状态</li>
+<li>服务器的 <b>网络连接信息</b> ：套接字地址、端口，以及套接字描述符</li>
+<li>所有 <b>已连接客户端</b> 的信息</li>
+<li><span class="underline">Lua 脚本的运行环境</span> 及相关选项</li>
+<li>实现 <b>订阅与发布</b> <span class="underline">pub/sub</span> 功能所需的数据结构</li>
+<li><b>日志</b>  <span class="underline">log</span> 和慢查询日志 <span class="underline">slowlog</span> 的选项和相关信息</li>
+<li>数据 <b>持久化</b>  <span class="underline">AOF</span> 和 <span class="underline">RDB</span> 的配置和状态</li>
+<li><b>服务器配置选项</b> ：
+<ul class="org-ul">
+<li>要创建多少个数据库</li>
+<li>是否将服务器进程作为 daemon 进程来运行</li>
+<li>最大连接多少个客户端</li>
+<li>压缩结构 <span class="underline">zip structure</span> 的实体数量</li>
+<li>。。。。。。。</li>
+</ul></li>
+<li>统计信息：
+<ul class="org-ul">
+<li>键有多少次命令不命中</li>
+<li>服务器的运行时间</li>
+<li>内存占用</li>
+<li>。。。。。。</li>
+</ul></li>
+</ul>
+
+
+<pre class="example" id="org3e5c554">
+为了简洁起见，上面只列出了单机情况下的 Redis 服务器信息，不包含 SENTINEL 、 MONITOR 、 CLUSTER 等功能的信息
+</pre>
+
+<p>
+在这一步， 程序 <b>创建</b> 一个 <b>redisServer 结构的实例变量</b>  <span class="underline">server</span> 用作服务器的 <b>全局状态</b> ， 并将 server 的各个属性初始化为 <b>默认值</b> 
+</p>
+
+<pre class="example" id="org153003e">
+当 server 变量的初始化完成之后， 程序进入服务器初始化的下一步： 读入配置文件
+</pre>
+</div>
+</div>
+<div id="outline-container-orgc3d8212" class="outline-3">
+<h3 id="orgc3d8212">载入配置文件</h3>
+<div class="outline-text-3" id="text-orgc3d8212">
+<p>
+上一步中， 程序为 server 变量（也即是服务器状态）的各个属性设置了默认值， 但这些默认值有时候并不是最合适的：
+</p>
+<ul class="org-ul">
+<li>用户可能想使用 AOF 持久化，而不是默认的 RDB 持久化</li>
+<li>用户可能想用其他端口来运行 Redis ，以避免端口冲突</li>
+<li>用户可能不想使用默认的 16 个数据库，而是分配更多或更少数量的数据库</li>
+<li>用户可能想对默认的内存限制措施和回收策略做调整</li>
+<li>。。。。。。</li>
+</ul>
+
+<p>
+为了让使用者按自己的要求配置服务器， Redis 允许用户在运行服务器时， 提供相应的 <b>配置文件</b> <span class="underline">config file</span> 或者显式的 <b>选项</b>  <span class="underline">option</span> ， Redis 在初始化完 server 变量之后， 会读入配置文件和选项， 然后根据这些配置来对 server 变量的属性值做相应的修改：
+</p>
+<ol class="org-ol">
+<li>如果单纯执行 redis-server 命令，那么服务器以默认的配置来运行 Redis</li>
+
+<li><p>
+另一方面， 如果给 Redis 服务器送入一个配置文件， 那么 Redis 将按配置文件的设置来更新服务器的状态
+</p>
+<pre class="example" id="orgde4ca38">
+比如说， 通过命令 redis-server /etc/my-redis.conf ， Redis 会根据 my-redis.conf 文件的内容来对服务器状态做相应的修改
+</pre></li>
+<li><p>
+除此之外， 还可以显式地给服务器传入选项， 直接修改服务器配置
+</p>
+<pre class="example" id="orgd244c76">
+举个例子， 通过命令 redis-server --port 10086 ， 可以让 Redis 服务器端口变更为 10086
+</pre></li>
+<li><p>
+当然， 同时使用配置文件和显式选项也是可以的， 如果文件和选项有冲突的地方， 那么优先使用 <b>选项所指定的配置值</b>
+</p>
+<pre class="example" id="org1001b5f">
+如果运行命令 redis-server /etc/my-redis.conf --port 10086 ， 并且 my-redis.conf 也指定了 port 选项
+
+那么服务器将优先使用 --port 10086 （实际上是选项指定的值覆盖了配置文件中的值）
+</pre></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org93a9360" class="outline-3">
+<h3 id="org93a9360">创建 daemon 进程</h3>
+<div class="outline-text-3" id="text-org93a9360">
+<p>
+Redis 默认以 daemon 进程的方式运行。当服务器初始化进行到这一步时， 程序将 <b>创建</b> <span class="underline">daemon 进程</span> 来运行 Redis ， 并 <b>创建</b> 相应的 <span class="underline">pid 文件</span> 
+</p>
+</div>
+</div>
+<div id="outline-container-orgafe4096" class="outline-3">
+<h3 id="orgafe4096">初始化服务器功能模块</h3>
+<div class="outline-text-3" id="text-orgafe4096">
+<p>
+在这一步， 初始化程序完成两件事：
+</p>
+<ul class="org-ul">
+<li>为 <span class="underline">server 变量</span> 的 <span class="underline">子属性</span> <b>分配</b> <span class="underline">内存</span></li>
+<li><b>初始化</b> 这些子属性</li>
+</ul>
+
+<p>
+为数据结构分配内存， 并初始化这些数据结构， 等同于对相应的功能进行初始化
+</p>
+<pre class="example" id="org10ee66f">
+比如说， 当为订阅与发布所需的链表分配内存之后， 订阅与发布功能就处于就绪状态， 随时可以为 Redis 所用了
+</pre>
+
+<p>
+在这一步， 程序完成的主要动作如下：
+</p>
+<ul class="org-ul">
+<li>初始化 Redis 进程的 <b>信号</b> 功能</li>
+<li>初始化 <b>日志</b> 功能</li>
+<li>初始化 <b>客户端</b> 功能</li>
+<li>初始化 <b>共享</b> 对象</li>
+<li>初始化 <b>事件</b> 功能</li>
+<li>初始化 <b>数据库</b></li>
+<li>初始化 <b>网络连接</b></li>
+<li>初始化 <b>订阅与发布</b> 功能</li>
+<li>初始化各个 <b>统计变量</b></li>
+<li>关联 <b>服务器定时操作</b> （cron job）到 <span class="underline">时间事件</span> ，关联 <b>客户端应答处理器</b> 到 <span class="underline">文件事件</span></li>
+<li>如果 AOF 功能已打开，那么打开或创建  <span class="underline">AOF 文件</span></li>
+<li>设置 <span class="underline">内存限制</span></li>
+<li>初始化 <span class="underline">Lua 脚本环境</span></li>
+<li>初始化 <span class="underline">慢查询功能</span></li>
+<li>初始化 <span class="underline">后台定时线程</span></li>
+</ul>
+
+<p>
+完成这一步之后， 服务器打印出 Redis 的 ASCII LOGO 、服务器版本等信息， 表示所有功能模块已经就绪， 可以等待被使用了：
+</p>
+<pre class="example" id="org85972ac">
+	      _._
+	  _.-``__ ''-._
+     _.-``    `.  `_.  ''-._           Redis 2.9.7 (7a47887b/1) 32 bit
+ .-`` .-```.  ```\/    _.,_ ''-._
+(    '      ,       .-`  | `,    )     Running in stand alone mode
+|`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+|    `-._   `._    /     _.-'    |     PID: 6717
+ `-._    `-._  `-./  _.-'    _.-'
+|`-._`-._    `-.__.-'    _.-'_.-'|
+|    `-._`-._        _.-'_.-'    |           http://redis.io
+ `-._    `-._`-.__.-'_.-'    _.-'
+|`-._`-._    `-.__.-'    _.-'_.-'|
+|    `-._`-._        _.-'_.-'    |
+ `-._    `-._`-.__.-'_.-'    _.-'
+     `-._    `-.__.-'    _.-'
+	 `-._        _.-'
+	     `-.__.-'
+</pre>
+
+<p>
+虽然所有功能已经就绪， 但这时服务器的数据库还是一片空白
+</p>
+<pre class="example" id="org27dd59c">
+程序还需要将服务器上一次执行时记录的数据载入到当前服务器中， 服务器的初始化才算真正完成
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb5d29f6" class="outline-3">
+<h3 id="orgb5d29f6">载入数据</h3>
+<div class="outline-text-3" id="text-orgb5d29f6">
+<p>
+在这一步， 程序需要将持久化在 RDB 或者 AOF 文件里的数据， 载入到服务器进程里面。
+</p>
+<ul class="org-ul">
+<li>如果服务器有 <b>启用</b> AOF 功能的话， 那么使用 AOF 文件来还原数据</li>
+<li>否则， 程序使用 RDB 文件来还原数据</li>
+</ul>
+
+<p>
+当执行完这一步时， 服务器打印出一段载入完成信息：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">[6717] 22 Feb 11:59:14.830 * DB loaded from disk: 0.068 seconds
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orge54605e" class="outline-3">
+<h3 id="orge54605e">开始事件循环</h3>
+<div class="outline-text-3" id="text-orge54605e">
+<p>
+到了这一步， 服务器的初始化已经完成， 程序打开事件循环， 开始 <b>接受</b> <span class="underline">客户端连接</span> 。以下是服务器在这一步打印的信息：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">[6717] 22 Feb 11:59:14.830 * The server is now ready to accept connections on port 6379
+</pre>
+</div>
+
+<p>
+初始化完成之后， 服务器状态和各个模块之间的关系图：
+</p>
+
+
+<div id="org400e8de" class="figure">
+<p><img src="../pic/server.png" alt="server.png" width="90%" />
+</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org0c489d3" class="outline-2">
+<h2 id="org0c489d3">客户端连接到服务器</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
