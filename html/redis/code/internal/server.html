@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -216,6 +237,12 @@
 </ul>
 </li>
 <li><a href="#org0c489d3">客户端连接到服务器</a></li>
+<li><a href="#org892e8b2">命令的请求、处理和结果返回</a>
+<ul>
+<li><a href="#orgede2c3d">命令请求实例： SET 的执行过程</a></li>
+</ul>
+</li>
+<li><a href="#orgb94bd4f">小结</a></li>
 </ul>
 </div>
 </div>
@@ -280,7 +307,7 @@
 </ul>
 
 
-<pre class="example" id="org3e5c554">
+<pre class="example" id="org660ea86">
 为了简洁起见，上面只列出了单机情况下的 Redis 服务器信息，不包含 SENTINEL 、 MONITOR 、 CLUSTER 等功能的信息
 </pre>
 
@@ -288,7 +315,7 @@
 在这一步， 程序 <b>创建</b> 一个 <b>redisServer 结构的实例变量</b>  <span class="underline">server</span> 用作服务器的 <b>全局状态</b> ， 并将 server 的各个属性初始化为 <b>默认值</b> 
 </p>
 
-<pre class="example" id="org153003e">
+<pre class="example" id="orgcd5cb6f">
 当 server 变量的初始化完成之后， 程序进入服务器初始化的下一步： 读入配置文件
 </pre>
 </div>
@@ -316,19 +343,19 @@
 <li><p>
 另一方面， 如果给 Redis 服务器送入一个配置文件， 那么 Redis 将按配置文件的设置来更新服务器的状态
 </p>
-<pre class="example" id="orgde4ca38">
+<pre class="example" id="orgfe5a087">
 比如说， 通过命令 redis-server /etc/my-redis.conf ， Redis 会根据 my-redis.conf 文件的内容来对服务器状态做相应的修改
 </pre></li>
 <li><p>
 除此之外， 还可以显式地给服务器传入选项， 直接修改服务器配置
 </p>
-<pre class="example" id="orgd244c76">
+<pre class="example" id="org9fdec03">
 举个例子， 通过命令 redis-server --port 10086 ， 可以让 Redis 服务器端口变更为 10086
 </pre></li>
 <li><p>
 当然， 同时使用配置文件和显式选项也是可以的， 如果文件和选项有冲突的地方， 那么优先使用 <b>选项所指定的配置值</b>
 </p>
-<pre class="example" id="org1001b5f">
+<pre class="example" id="org94f04dc">
 如果运行命令 redis-server /etc/my-redis.conf --port 10086 ， 并且 my-redis.conf 也指定了 port 选项
 
 那么服务器将优先使用 --port 10086 （实际上是选项指定的值覆盖了配置文件中的值）
@@ -358,7 +385,7 @@ Redis 默认以 daemon 进程的方式运行。当服务器初始化进行到这
 <p>
 为数据结构分配内存， 并初始化这些数据结构， 等同于对相应的功能进行初始化
 </p>
-<pre class="example" id="org10ee66f">
+<pre class="example" id="orgf7610a0">
 比如说， 当为订阅与发布所需的链表分配内存之后， 订阅与发布功能就处于就绪状态， 随时可以为 Redis 所用了
 </pre>
 
@@ -386,7 +413,7 @@ Redis 默认以 daemon 进程的方式运行。当服务器初始化进行到这
 <p>
 完成这一步之后， 服务器打印出 Redis 的 ASCII LOGO 、服务器版本等信息， 表示所有功能模块已经就绪， 可以等待被使用了：
 </p>
-<pre class="example" id="org85972ac">
+<pre class="example" id="org2ded86b">
 	      _._
 	  _.-``__ ''-._
      _.-``    `.  `_.  ''-._           Redis 2.9.7 (7a47887b/1) 32 bit
@@ -409,7 +436,7 @@ Redis 默认以 daemon 进程的方式运行。当服务器初始化进行到这
 <p>
 虽然所有功能已经就绪， 但这时服务器的数据库还是一片空白
 </p>
-<pre class="example" id="org27dd59c">
+<pre class="example" id="orgbe09ef5">
 程序还需要将服务器上一次执行时记录的数据载入到当前服务器中， 服务器的初始化才算真正完成
 </pre>
 </div>
@@ -451,7 +478,7 @@ Redis 默认以 daemon 进程的方式运行。当服务器初始化进行到这
 </p>
 
 
-<div id="org400e8de" class="figure">
+<div id="orgd641a97" class="figure">
 <p><img src="../pic/server.png" alt="server.png" width="90%" />
 </p>
 </div>
@@ -461,6 +488,121 @@ Redis 默认以 daemon 进程的方式运行。当服务器初始化进行到这
 
 <div id="outline-container-org0c489d3" class="outline-2">
 <h2 id="org0c489d3">客户端连接到服务器</h2>
+<div class="outline-text-2" id="text-org0c489d3">
+<pre class="example" id="org33ddf18">
+当 Redis 服务器完成初始化之后， 它就准备好可以接受外来客户端的连接了
+</pre>
+<p>
+当一个客户端通过 <b>套接字函数</b> <span class="underline">connect</span> 到服务器时， 服务器执行以下步骤：
+</p>
+<ol class="org-ol">
+<li>服务器通过 <span class="underline">文件事件</span> <b>无阻塞</b> 地 <span class="underline">accept</span> 客户端连接，并返回一个 <b>套接字描述符</b> <span class="underline">fd</span></li>
+<li>服务器为 fd <b>创建</b> 一个对应的 <span class="underline">redis.h/redisClient 结构</span> 实例，并将该实例 <b>加入</b> 到服务器的 <span class="underline">已连接客户端的链表</span> 中</li>
+<li>服务器在 <b>事件处理器</b> 为该  <span class="underline">fd</span> <b>关联</b> <span class="underline">读文件事件</span></li>
+</ol>
+
+<pre class="example" id="org51ff5e9">
+完成这三步之后，服务器就可以等待客户端发来命令请求了
+</pre>
+
+<p>
+Redis 以 <span class="underline">多路复用</span> 的方式来处理多个客户端， 为了让多个客户端之间 <b>独立分开</b> 、不互相干扰， 服务器为每个已连接客户端维持一个 redisClient 结构， 从而单独保存该客户端的状态信息。redisClient 结构主要包含以下信息：
+</p>
+<ul class="org-ul">
+<li><b>套接字描述符</b></li>
+<li>客户端正在使用的 <b>数据库指针</b> 和 <b>数据库号码</b></li>
+<li>客户端的 <b>查询缓冲</b> <span class="underline">query buffer</span> 和 <b>回复缓存</b> <span class="underline">reply buffer</span></li>
+<li>一个指向 <span class="underline">命令函数</span> 的 <b>指针</b> ，以及 字符串形式的命令、命令参数和命令个数，这些属性会在命令执行时使用</li>
+<li>客户端 <b>状态</b> ：记录了客户端是否处于 <span class="underline">SLAVE</span>  ,  <span class="underline">MONITOR</span> 或者 <span class="underline">事务</span> 状态</li>
+<li>实现 <b>事务</b> 功能（比如 <span class="underline">MULTI</span> 和 _WATCH_）所需的数据结构</li>
+<li>实现 <b>阻塞</b> 功能（比如 <span class="underline">BLPOP</span> 和 <span class="underline">BRPOPLPUSH</span> ）所需的数据结构</li>
+<li>实现 <b>订阅与发布</b> 功能（比如 <span class="underline">PUBLISH</span> 和 <span class="underline">SUBSCRIBE</span> ）所需的数据结构</li>
+<li><b>统计</b> 数据和选项：
+<ul class="org-ul">
+<li>客户端创建的时间</li>
+<li>客户端和服务器最后交互的时间</li>
+<li>缓存的大小</li>
+<li>。。。。。。</li>
+</ul></li>
+</ul>
+
+<pre class="example" id="orgc36cfbf">
+为了简洁起见，上面列出的客户端结构信息不包含复制（replication）的相关属性。
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org892e8b2" class="outline-2">
+<h2 id="org892e8b2">命令的请求、处理和结果返回</h2>
+<div class="outline-text-2" id="text-org892e8b2">
+<pre class="example" id="org117fbce">
+当客户端连上服务器之后， 客户端就可以向服务器发送命令请求了
+</pre>
+
+<p>
+从客户端发送命令请求， 到命令被服务器处理、并将结果返回客户端， 整个过程有以下步骤：
+</p>
+<ol class="org-ol">
+<li>客户端通过 <span class="underline">套接字</span> 向服务器 <b>传送</b> <span class="underline">命令协议数据</span></li>
+<li>服务器通过 <span class="underline">读事件</span> 来处理传入数据，并将 <span class="underline">数据</span> <b>保存</b> 在客户端对应 <span class="underline">redisClient 结构</span> 的 <b>查询缓存</b></li>
+<li>根据客户端查询缓存中的内容，程序从 <span class="underline">命令表</span> 中 <b>查找</b> 相应 <span class="underline">命令的实现函数</span></li>
+<li>程序执行命令的实现函数， <b>修改</b> 服务器的 <span class="underline">全局状态 server 变量</span> ，并将 <span class="underline">命令的执行结果</span> <b>保存</b> 到 客户端 <span class="underline">redisClient 结构</span> 的 <b>回复缓存</b> 中，然后为该 <span class="underline">客户端的 fd</span> <b>关联</b> <span class="underline">写事件</span></li>
+<li>当客户端 fd 的写事件 <b>就绪</b> 时，将回复缓存中的 <span class="underline">命令结果</span> <b>传回</b> 给 <span class="underline">客户端</span> 。至此，命令执行完毕</li>
+</ol>
+</div>
+<div id="outline-container-orgede2c3d" class="outline-3">
+<h3 id="orgede2c3d">命令请求实例： SET 的执行过程</h3>
+<div class="outline-text-3" id="text-orgede2c3d">
+<pre class="example" id="org83d986e">
+为了更直观地理解命令执行的整个过程， 用一个实际执行 SET 命令的例子来讲解命令执行的过程。
+</pre>
+<p>
+假设现在客户端 C1 是连接到服务器 S 的一个客户端， 当用户执行命令 <span class="underline">SET YEAR 2013</span> 时：
+</p>
+<ol class="org-ol">
+<li>客户端调用 写入 <span class="underline">send</span> 函数 ， 将协议内容 <span class="underline">*3\r\n$3\r\nSET\r\n$4\r\nYEAR\r\n$4\r\n2013\r\n"</span>  <b>写入</b> 连接到服务器的 <span class="underline">套接字</span> 中</li>
+<li>当 S 的 <span class="underline">文件事件处理器</span> 执行时， 它会察觉到 <span class="underline">C1 所对应的读事件</span> 已经 <b>就绪</b> ， 于是它将协议文本读入， 并 <b>保存</b> 在 <span class="underline">查询缓存</span></li>
+<li>通过对查询缓存进行 <b>分析</b> <span class="underline">parse</span> ， 服务器在 <span class="underline">命令表</span> 中 <b>查找</b> <span class="underline">SET 字符串所对应的命令实现函数</span> ， 最终定位到 <span class="underline">t_string.c/setCommand</span> 函数， 另外， 两个命令参数 <span class="underline">YEAR</span> 和 <span class="underline">2013</span> 也会以 <span class="underline">字符串的形式</span> <b>保存</b> 在 <span class="underline">客户端结构</span> 中</li>
+<li>接着， 程序将 <span class="underline">客户端</span> ，要 <span class="underline">执行的命令</span> ， <span class="underline">命令参数</span> 等送入 <span class="underline">命令执行器</span> ：
+<ul class="org-ul">
+<li>执行器调用 <span class="underline">setCommand 函数</span> ， 将数据库中 YEAR 键的值修改为 2013</li>
+<li>然后将 <span class="underline">命令的执行结果</span> <b>保存</b> 在 <span class="underline">客户端的回复缓存</span> 中</li>
+<li><p>
+并为 <span class="underline">客户端 fd</span> <b>关联</b> <span class="underline">写事件</span> ， 用于将结果回写给客户端
+</p>
+<pre class="example" id="org0594479">
+因为 YEAR 键的修改， 其他和数据库命名空间相关程序， 比如 AOF 、REPLICATION 还有事务安全性检查（是否修改了被 WATCH 监视的键？）也会被触发
+
+当这些后续程序也执行完毕之后， 命令执行器退出， 服务器其他程序（比如时间事件处理器）继续运行
+</pre></li>
+</ul></li>
+<li>当 <span class="underline">C1 对应的写事件</span> <b>就绪</b> 时， 程序就会将保存在客户端结构 <span class="underline">回复缓存中的数据</span> <b>回写</b> 给 <span class="underline">客户端</span> ， 当客户端接收到数据之后， 它就将结果打印出来， 显示给用户看</li>
+</ol>
+
+<pre class="example" id="org186699a">
+以上就是 SET YEAR 2013 命令执行的整个过程
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgb94bd4f" class="outline-2">
+<h2 id="orgb94bd4f">小结</h2>
+<div class="outline-text-2" id="text-orgb94bd4f">
+<ul class="org-ul">
+<li>服务器经过初始化之后，才能开始接受命令</li>
+<li>服务器初始化可以分为六个步骤：
+<ol class="org-ol">
+<li>初始化服务器全局状态</li>
+<li>载入配置文件</li>
+<li>创建 daemon 进程</li>
+<li>初始化服务器功能模块</li>
+<li>载入数据</li>
+<li>开始事件循环</li>
+</ol></li>
+<li>服务器为每个已连接的客户端维持一个客户端结构，这个结构保存了这个客户端的所有状态信息</li>
+<li>客户端向服务器发送命令，服务器接受命令然后将命令传给命令执行器，执行器执行给定命令的实现函数，执行完成之后，将结果保存在缓存，最后回传给客户端</li>
+</ul>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
