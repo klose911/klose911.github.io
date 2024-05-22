@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -206,6 +227,21 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org97fa926">数据库结构</a></li>
+<li><a href="#org697d1fb">数据库的切换</a></li>
+<li><a href="#orgece149c">数据库键空间</a>
+<ul>
+<li><a href="#org85950e9">键空间的操作</a>
+<ul>
+<li><a href="#org082648e">添加</a></li>
+<li><a href="#org1589d52">删除</a></li>
+<li><a href="#org0ecee64">更新</a></li>
+<li><a href="#org6061df1">查询</a></li>
+<li><a href="#org891efcc">其他</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org6ae5b09">键过期</a></li>
 </ul>
 </div>
 </div>
@@ -213,11 +249,262 @@
 接下来对 Redis 数据库的构造和实现进行讨论
 </p>
 
-<pre class="example" id="orga413f7f">
+<pre class="example" id="org41109f7">
 除了说明数据库是如何储存数据对象之外，还会讨论键的过期信息是如何保存，而 Redis 又是如何删除过期键的
 </pre>
 <div id="outline-container-org97fa926" class="outline-2">
 <h2 id="org97fa926">数据库结构</h2>
+<div class="outline-text-2" id="text-org97fa926">
+<p>
+Redis 中的每个数据库，都由一个 <span class="underline">redis.h/redisDb</span> 结构表示：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">redisDb</span> {
+    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">id</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20445;&#23384;&#30528;&#25968;&#25454;&#24211;&#20197;&#25972;&#25968;&#34920;&#31034;&#30340;&#21495;&#30721;</span>
+
+    <span style="color: #98fb98;">dict</span> *<span style="color: #eedd82;">dict</span>;     <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20445;&#23384;&#30528;&#25968;&#25454;&#24211;&#20013;&#30340;&#25152;&#26377;&#38190;&#20540;&#23545;&#25968;&#25454;&#65292;&#36825;&#20010;&#23646;&#24615;&#20063;&#34987;&#31216;&#20026;&#38190;&#31354;&#38388;&#65288;key space&#65289;</span>
+
+    <span style="color: #98fb98;">dict</span> *<span style="color: #eedd82;">expires</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20445;&#23384;&#30528;&#38190;&#30340;&#36807;&#26399;&#20449;&#24687;</span>
+
+    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23454;&#29616;&#21015;&#34920;&#38459;&#22622;&#21407;&#35821;&#65292;&#22914; BLPOP&#65292;&#22312;&#21015;&#34920;&#31867;&#22411;&#19968;&#31456;&#26377;&#35814;&#32454;&#30340;&#35752;&#35770;</span>
+    <span style="color: #98fb98;">dict</span> *<span style="color: #eedd82;">blocking_keys</span>;
+    <span style="color: #98fb98;">dict</span> *<span style="color: #eedd82;">ready_keys</span>;
+
+    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29992;&#20110;&#23454;&#29616; WATCH &#21629;&#20196;&#65292;&#22312;&#20107;&#21153;&#31456;&#33410;&#26377;&#35814;&#32454;&#30340;&#35752;&#35770;</span>
+    <span style="color: #98fb98;">dict</span> *<span style="color: #eedd82;">watched_keys</span>;
+} <span style="color: #98fb98;">redisDb</span>;
+</pre>
+</div>
+
+<p>
+下面将详细讨论 <span class="underline">id</span> , <span class="underline">dict</span> 和 <span class="underline">expires</span> 三个属性， 以及针对这三个属性所执行的数据库操作
+</p>
+</div>
+</div>
+<div id="outline-container-org697d1fb" class="outline-2">
+<h2 id="org697d1fb">数据库的切换</h2>
+<div class="outline-text-2" id="text-org697d1fb">
+<p>
+redisDb 结构的 <span class="underline">id</span> 域保存着 <span class="underline">数据库的号码</span>
+</p>
+<pre class="example" id="orgbd6d7aa">
+这个号码很容易让人将它和切换数据库的 SELECT 命令联系在一起
+
+但是， 实际上， id 属性并不是用来实现 SELECT 命令， 而是给 Redis 内部程序使用的
+</pre>
+<p>
+当 Redis 服务器初始化时， 它会创建出 <span class="underline">redis.h/REDIS_DEFAULT_DBNUM</span> 个 <b>数据库</b> ， 并将所有数据库 <b>保存</b> 到 <span class="underline">redis.h/redisServer.db 数组</span> 中， 每个数据库的 id 为从 \(0\) 到 <span class="underline">REDIS_DEFAULT_DBNUM - 1</span> 的值
+</p>
+<ul class="org-ul">
+<li>当执行 <span class="underline">SELECT number</span> 命令时，程序直接使用 <span class="underline">redisServer.db[number]</span> 来切换数据库</li>
+</ul>
+
+<pre class="example" id="orga991701">
+但是， 一些内部程序， 比如 AOF 程序、复制程序和 RDB 程序， 需要知道当前数据库的号码
+
+如果没有 id 域的话， 程序就只能在当前使用的数据库的指针， 和 redisServer.db 数组中所有数据库的指针进行对比
+
+以此来弄清楚自己正在使用的是那个数据库
+</pre>
+
+<p>
+以下伪代码描述了这个对比过程：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">PSEUDO_GET_CURRENT_DB_NUMBER</span>(current_db_pointer):
+    <span style="color: #eedd82;">i</span> = 0
+    <span style="color: #00ffff;">for</span> db_pointer <span style="color: #00ffff;">in</span> redisServer.db:
+        <span style="color: #00ffff;">if</span> db_pointer == current_db_pointer:
+            <span style="color: #00ffff;">break</span>
+        i += 1
+    <span style="color: #00ffff;">return</span> i
+</pre>
+</div>
+
+<p>
+有了 id 域的话， 程序就可以通过读取 id 域来了解自己正在使用的是哪个数据库， 这样就不用对比指针那么麻烦了
+</p>
+</div>
+</div>
+<div id="outline-container-orgece149c" class="outline-2">
+<h2 id="orgece149c">数据库键空间</h2>
+<div class="outline-text-2" id="text-orgece149c">
+<p>
+因为 Redis 是一个 <b>键值对数据库</b> <span class="underline">key-value pairs database</span> ， 所以它的数据库本身也是一个 <b>字典</b> （俗称 <span class="underline">key space</span> ）：
+</p>
+<ul class="org-ul">
+<li>字典的 <span class="underline">键</span> 是一个 <b>字符串</b> 对象</li>
+<li>字典的 <b>值</b> 则可以是包括 <span class="underline">字符串</span> ， <span class="underline">列表</span> ， <span class="underline">哈希表</span> ， <span class="underline">集合</span> 或 <span class="underline">有序集</span> 在内的任意一种 <b>Redis 类型对象</b></li>
+</ul>
+
+<p>
+在 redisDb 结构的 <span class="underline">dict 属性</span> 中，保存着数据库的所有 <span class="underline">键值对数据</span> 。下图展示了一个包含 number 、 book 、 message 三个键的数据库：
+</p>
+
+<div id="org82bbbbb" class="figure">
+<p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<pre class="example" id="orgf94bcb1">
+number 键是一个列表，列表中包含三个整数值
+
+book 键是一个哈希表，表中包含三个键值对
+
+而 message 键则指向另一个字符串
+</pre>
+</div>
+<div id="outline-container-org85950e9" class="outline-3">
+<h3 id="org85950e9">键空间的操作</h3>
+<div class="outline-text-3" id="text-org85950e9">
+<p>
+因为数据库本身是一个字典， 所以对数据库的操作基本上都是对字典的操作， 加上以下一些 <b>维护</b> 操作：
+</p>
+<ul class="org-ul">
+<li><b>更新</b> 键的 <span class="underline">命中率</span> 和 <span class="underline">不命中率</span> ，这个值可以用 <span class="underline">INFO</span> 命令查看</li>
+<li><b>更新</b> 键的 <span class="underline">LRU 时间</span> ，这个值可以用 <span class="underline">OBJECT</span> 命令来查看</li>
+<li><b>删除</b> <span class="underline">过期键</span> （稍后会详细说明）</li>
+<li>如果键被 <b>修改</b> 了的话，那么将键设为 <span class="underline">脏</span> （用于事务监视），并将服务器设为 <span class="underline">脏</span> （等待 RDB 保存）</li>
+<li>将对键的修改发送到 <span class="underline">AOF 文件</span> 和 <span class="underline">附属节点</span> ，保持 <b>数据库状态的一致</b></li>
+</ul>
+
+<p>
+作为例子，以下会展示键的 <span class="underline">添加</span> 、 <span class="underline">删除</span> 、 <span class="underline">更新</span> 、 <span class="underline">取值</span> 等几个主要操作
+</p>
+</div>
+
+<div id="outline-container-org082648e" class="outline-4">
+<h4 id="org082648e">添加</h4>
+<div class="outline-text-4" id="text-org082648e">
+<p>
+添加一个新键对到数据库， 实际上就是将一个 <span class="underline">新的键值对</span> <b>添加</b> 到 <span class="underline">键空间字典</span> 中
+</p>
+<ul class="org-ul">
+<li>其中键为字符串对象</li>
+<li>而值则是任意一种 Redis 类型值对象</li>
+</ul>
+
+<p>
+举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
+</p>
+
+<div id="orgbf4255b" class="figure">
+<p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+那么在客户端执行 <span class="underline">SET date 2013.2.1</span> 命令之后，数据库更新为下图状态：
+</p>
+
+<div id="org4d976e6" class="figure">
+<p><img src="../pic/graphviz-574f2a7d4969f29d50d0b3a5fba6f152ec118676.svg" alt="graphviz-574f2a7d4969f29d50d0b3a5fba6f152ec118676.svg" class="org-svg" width="90%" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org1589d52" class="outline-4">
+<h4 id="org1589d52">删除</h4>
+<div class="outline-text-4" id="text-org1589d52">
+<p>
+删除数据库中的一个键， 实际上就是 <b>删除</b> <span class="underline">字典空间</span> 中对应的 <span class="underline">键对象</span> 和 <span class="underline">值对象</span> 。举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
+</p>
+
+<div id="org6abc1ac" class="figure">
+<p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+那么在客户端执行 <span class="underline">DEL message</span> 命令之后，数据库更新为下图状态：
+</p>
+
+
+<div id="orgf6612b8" class="figure">
+<p><img src="../pic/graphviz-e5ee0986e5626ab032382bce64e2b41a60008e25.svg" alt="graphviz-e5ee0986e5626ab032382bce64e2b41a60008e25.svg" class="org-svg" width="90%" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org0ecee64" class="outline-4">
+<h4 id="org0ecee64">更新</h4>
+<div class="outline-text-4" id="text-org0ecee64">
+<p>
+当对一个已存在于数据库的键执行更新操作时， 数据库 <b>释放</b> 键 <span class="underline">原来的值对象</span> ， 然后将指针 <b>指向</b> <span class="underline">新的值对象</span> 。举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
+</p>
+
+<div id="org22a2c00" class="figure">
+<p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+那么在客户端执行 <span class="underline">SET message "blah blah"</span> 命令之后，数据库更新为下图状态：
+</p>
+
+<div id="orgd48cfb6" class="figure">
+<p><img src="../pic/graphviz-baa230ed027a28ac6bb0de0767a91876c1993195.svg" alt="graphviz-baa230ed027a28ac6bb0de0767a91876c1993195.svg" class="org-svg" width="90%" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org6061df1" class="outline-4">
+<h4 id="org6061df1">查询</h4>
+<div class="outline-text-4" id="text-org6061df1">
+<p>
+在数据库中取值实际上就是在 <span class="underline">字典空间</span> 中 <b>取值</b> ， 再加上一些 <b>额外的</b> <span class="underline">类型检查</span> ：
+</p>
+<ul class="org-ul">
+<li>键 *不存在*，返回 <span class="underline">空回复</span></li>
+<li>键 <b>存在</b> ，且 <b>类型正确</b> ，按照通讯协议返回 <span class="underline">值对象</span></li>
+<li>键 <b>存在</b> ，但 <b>类型不正确</b> ，返回 <span class="underline">类型错误</span></li>
+</ul>
+
+<p>
+举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）
+</p>
+
+<div id="orged2868e" class="figure">
+<p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<pre class="example" id="org171ecfd">
+当客户端执行 GET message 时，服务器返回 "hello moto" 
+
+当客户端执行 GET not-exists-key 时，服务器返回空回复
+
+当服务器执行 GET book 时，服务器返回类型错误
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org891efcc" class="outline-4">
+<h4 id="org891efcc">其他</h4>
+<div class="outline-text-4" id="text-org891efcc">
+<p>
+除了上面展示的键值操作之外，还有很多针对数据库本身的命令，也是通过对键空间进行处理来完成的：
+</p>
+<ul class="org-ul">
+<li><span class="underline">FLUSHDB</span> 命令：删除键空间中的所有键值对</li>
+<li><span class="underline">RANDOMKEY</span> 命令：从键空间中随机返回一个键</li>
+<li><span class="underline">DBSIZE</span> 命令：返回键空间中键值对的数量</li>
+<li><span class="underline">EXISTS</span> 命令：检查给定键是否存在于键空间中</li>
+<li><span class="underline">RENAME</span> 命令：在键空间中，对给定键进行改名</li>
+<li>。。。。。。</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org6ae5b09" class="outline-2">
+<h2 id="org6ae5b09">键过期</h2>
 </div>
 </div>
 <div id="postamble" class="status">

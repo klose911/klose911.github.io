@@ -10,3 +10,141 @@
 除了说明数据库是如何储存数据对象之外，还会讨论键的过期信息是如何保存，而 Redis 又是如何删除过期键的
 #+end_example
 * 数据库结构
+Redis 中的每个数据库，都由一个 _redis.h/redisDb_ 结构表示：
+
+#+begin_src c 
+  typedef struct redisDb {
+	  int id; // 保存着数据库以整数表示的号码
+
+	  dict *dict;     // 保存着数据库中的所有键值对数据，这个属性也被称为键空间（key space）
+    
+	  dict *expires; // 保存着键的过期信息
+
+	  // 实现列表阻塞原语，如 BLPOP，在列表类型一章有详细的讨论
+	  dict *blocking_keys;
+	  dict *ready_keys;
+
+	  // 用于实现 WATCH 命令，在事务章节有详细的讨论
+	  dict *watched_keys;
+  } redisDb;
+#+end_src
+
+下面将详细讨论 _id_ , _dict_ 和 _expires_ 三个属性， 以及针对这三个属性所执行的数据库操作
+* 数据库的切换
+redisDb 结构的 _id_ 域保存着 _数据库的号码_
+#+begin_example
+  这个号码很容易让人将它和切换数据库的 SELECT 命令联系在一起
+
+  但是， 实际上， id 属性并不是用来实现 SELECT 命令， 而是给 Redis 内部程序使用的
+#+end_example
+当 Redis 服务器初始化时， 它会创建出 _redis.h/REDIS_DEFAULT_DBNUM_ 个 *数据库* ， 并将所有数据库 *保存* 到 _redis.h/redisServer.db 数组_ 中， 每个数据库的 id 为从 $0$ 到 _REDIS_DEFAULT_DBNUM - 1_ 的值
++ 当执行 _SELECT number_ 命令时，程序直接使用 _redisServer.db[number]_ 来切换数据库
+
+#+begin_example
+  但是， 一些内部程序， 比如 AOF 程序、复制程序和 RDB 程序， 需要知道当前数据库的号码
+
+  如果没有 id 域的话， 程序就只能在当前使用的数据库的指针， 和 redisServer.db 数组中所有数据库的指针进行对比
+
+  以此来弄清楚自己正在使用的是那个数据库
+#+end_example
+
+以下伪代码描述了这个对比过程：
+
+#+begin_src python 
+  def PSEUDO_GET_CURRENT_DB_NUMBER(current_db_pointer):
+      i = 0
+      for db_pointer in redisServer.db:
+	  if db_pointer == current_db_pointer:
+	      break
+	  i += 1
+      return i
+#+end_src
+
+有了 id 域的话， 程序就可以通过读取 id 域来了解自己正在使用的是哪个数据库， 这样就不用对比指针那么麻烦了
+* 数据库键空间
+因为 Redis 是一个 *键值对数据库* _key-value pairs database_ ， 所以它的数据库本身也是一个 *字典* （俗称 _key space_ ）：
++ 字典的 _键_ 是一个 *字符串* 对象
++ 字典的 *值* 则可以是包括 _字符串_ ， _列表_ ， _哈希表_ ， _集合_ 或 _有序集_ 在内的任意一种 *Redis 类型对象*
+
+在 redisDb 结构的 _dict 属性_ 中，保存着数据库的所有 _键值对数据_ 。下图展示了一个包含 number 、 book 、 message 三个键的数据库：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg]]
+
+#+begin_example
+  number 键是一个列表，列表中包含三个整数值
+
+  book 键是一个哈希表，表中包含三个键值对
+
+  而 message 键则指向另一个字符串
+#+end_example
+** 键空间的操作
+因为数据库本身是一个字典， 所以对数据库的操作基本上都是对字典的操作， 加上以下一些 *维护* 操作：
++ *更新* 键的 _命中率_ 和 _不命中率_ ，这个值可以用 _INFO_ 命令查看
++ *更新* 键的 _LRU 时间_ ，这个值可以用 _OBJECT_ 命令来查看
++ *删除* _过期键_ （稍后会详细说明）
++ 如果键被 *修改* 了的话，那么将键设为 _脏_ （用于事务监视），并将服务器设为 _脏_ （等待 RDB 保存）
++ 将对键的修改发送到 _AOF 文件_ 和 _附属节点_ ，保持 *数据库状态的一致* 
+
+作为例子，以下会展示键的 _添加_ 、 _删除_ 、 _更新_ 、 _取值_ 等几个主要操作
+
+*** 添加
+添加一个新键对到数据库， 实际上就是将一个 _新的键值对_ *添加* 到 _键空间字典_ 中
++ 其中键为字符串对象
++ 而值则是任意一种 Redis 类型值对象
+
+举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg]]
+
+那么在客户端执行 _SET date 2013.2.1_ 命令之后，数据库更新为下图状态：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-574f2a7d4969f29d50d0b3a5fba6f152ec118676.svg]]
+
+*** 删除
+删除数据库中的一个键， 实际上就是 *删除* _字典空间_ 中对应的 _键对象_ 和 _值对象_ 。举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg]]
+
+那么在客户端执行 _DEL message_ 命令之后，数据库更新为下图状态：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-e5ee0986e5626ab032382bce64e2b41a60008e25.svg]]
+
+*** 更新
+当对一个已存在于数据库的键执行更新操作时， 数据库 *释放* 键 _原来的值对象_ ， 然后将指针 *指向* _新的值对象_ 。举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg]]
+
+那么在客户端执行 _SET message "blah blah"_ 命令之后，数据库更新为下图状态：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-baa230ed027a28ac6bb0de0767a91876c1993195.svg]]
+
+*** 查询
+在数据库中取值实际上就是在 _字典空间_ 中 *取值* ， 再加上一些 *额外的* _类型检查_ ：
++ 键 *不存在*，返回 _空回复_ 
++ 键 *存在* ，且 *类型正确* ，按照通讯协议返回 _值对象_
++ 键 *存在* ，但 *类型不正确* ，返回 _类型错误_ 
+
+举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg]]
+
+#+begin_example
+  当客户端执行 GET message 时，服务器返回 "hello moto" 
+
+  当客户端执行 GET not-exists-key 时，服务器返回空回复
+
+  当服务器执行 GET book 时，服务器返回类型错误
+#+end_example
+
+*** 其他
+除了上面展示的键值操作之外，还有很多针对数据库本身的命令，也是通过对键空间进行处理来完成的：
++ _FLUSHDB_ 命令：删除键空间中的所有键值对
++ _RANDOMKEY_ 命令：从键空间中随机返回一个键
++ _DBSIZE_ 命令：返回键空间中键值对的数量
++ _EXISTS_ 命令：检查给定键是否存在于键空间中
++ _RENAME_ 命令：在键空间中，对给定键进行改名
++ 。。。。。。
+
+* 键过期
+
