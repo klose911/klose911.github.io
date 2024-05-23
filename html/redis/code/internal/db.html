@@ -270,6 +270,7 @@
 </ul>
 </li>
 <li><a href="#orgdae972e">数据库空间的收缩和扩展</a></li>
+<li><a href="#org1a9842c">小结</a></li>
 </ul>
 </div>
 </div>
@@ -277,7 +278,7 @@
 接下来对 Redis 数据库的构造和实现进行讨论
 </p>
 
-<pre class="example" id="orgbdd1c0d">
+<pre class="example" id="orgb93ed3a">
 除了说明数据库是如何储存数据对象之外，还会讨论键的过期信息是如何保存，而 Redis 又是如何删除过期键的
 </pre>
 <div id="outline-container-org97fa926" class="outline-2">
@@ -316,7 +317,7 @@ Redis 中的每个数据库，都由一个 <span class="underline">redis.h/redis
 <p>
 redisDb 结构的 <span class="underline">id</span> 域保存着 <span class="underline">数据库的号码</span>
 </p>
-<pre class="example" id="orgc5f1712">
+<pre class="example" id="org5c18103">
 这个号码很容易让人将它和切换数据库的 SELECT 命令联系在一起
 
 但是， 实际上， id 属性并不是用来实现 SELECT 命令， 而是给 Redis 内部程序使用的
@@ -328,7 +329,7 @@ redisDb 结构的 <span class="underline">id</span> 域保存着 <span class="un
 <li>当执行 <span class="underline">SELECT number</span> 命令时，程序直接使用 <span class="underline">redisServer.db[number]</span> 来切换数据库</li>
 </ul>
 
-<pre class="example" id="org927158d">
+<pre class="example" id="org73b6df0">
 但是， 一些内部程序， 比如 AOF 程序、复制程序和 RDB 程序， 需要知道当前数据库的号码
 
 如果没有 id 域的话， 程序就只能在当前使用的数据库的指针， 和 redisServer.db 数组中所有数据库的指针进行对比
@@ -371,12 +372,12 @@ redisDb 结构的 <span class="underline">id</span> 域保存着 <span class="un
 在 redisDb 结构的 <span class="underline">dict 属性</span> 中，保存着数据库的所有 <span class="underline">键值对数据</span> 。下图展示了一个包含 number 、 book 、 message 三个键的数据库：
 </p>
 
-<div id="orgeb208da" class="figure">
+<div id="org1a36ee3" class="figure">
 <p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
 </p>
 </div>
 
-<pre class="example" id="orge28b976">
+<pre class="example" id="org24e1be4">
 number 键是一个列表，列表中包含三个整数值
 
 book 键是一个哈希表，表中包含三个键值对
@@ -418,7 +419,7 @@ book 键是一个哈希表，表中包含三个键值对
 举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
 </p>
 
-<div id="org393378a" class="figure">
+<div id="orge5790ae" class="figure">
 <p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -427,7 +428,7 @@ book 键是一个哈希表，表中包含三个键值对
 那么在客户端执行 <span class="underline">SET date 2013.2.1</span> 命令之后，数据库更新为下图状态：
 </p>
 
-<div id="org6df7558" class="figure">
+<div id="org9541253" class="figure">
 <p><img src="../pic/graphviz-574f2a7d4969f29d50d0b3a5fba6f152ec118676.svg" alt="graphviz-574f2a7d4969f29d50d0b3a5fba6f152ec118676.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -441,7 +442,7 @@ book 键是一个哈希表，表中包含三个键值对
 删除数据库中的一个键， 实际上就是 <b>删除</b> <span class="underline">字典空间</span> 中对应的 <span class="underline">键对象</span> 和 <span class="underline">值对象</span> 。举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
 </p>
 
-<div id="org8c76b42" class="figure">
+<div id="org687ed8e" class="figure">
 <p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -451,7 +452,7 @@ book 键是一个哈希表，表中包含三个键值对
 </p>
 
 
-<div id="org3af631b" class="figure">
+<div id="org0acf63c" class="figure">
 <p><img src="../pic/graphviz-e5ee0986e5626ab032382bce64e2b41a60008e25.svg" alt="graphviz-e5ee0986e5626ab032382bce64e2b41a60008e25.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -465,7 +466,7 @@ book 键是一个哈希表，表中包含三个键值对
 当对一个已存在于数据库的键执行更新操作时， 数据库 <b>释放</b> 键 <span class="underline">原来的值对象</span> ， 然后将指针 <b>指向</b> <span class="underline">新的值对象</span> 。举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）：
 </p>
 
-<div id="orge24a5c4" class="figure">
+<div id="org572bf55" class="figure">
 <p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -474,7 +475,7 @@ book 键是一个哈希表，表中包含三个键值对
 那么在客户端执行 <span class="underline">SET message "blah blah"</span> 命令之后，数据库更新为下图状态：
 </p>
 
-<div id="org0a09279" class="figure">
+<div id="orgd85d140" class="figure">
 <p><img src="../pic/graphviz-baa230ed027a28ac6bb0de0767a91876c1993195.svg" alt="graphviz-baa230ed027a28ac6bb0de0767a91876c1993195.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -497,12 +498,12 @@ book 键是一个哈希表，表中包含三个键值对
 举个例子，如果数据库的目前状态如下图所示（和前面展示的数据库状态图一样）
 </p>
 
-<div id="orga284d17" class="figure">
+<div id="orgf273563" class="figure">
 <p><img src="../pic/graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" alt="graphviz-f7d41d371c9e008ce371e7303e6bb07fb8a48257.svg" class="org-svg" width="90%" />
 </p>
 </div>
 
-<pre class="example" id="org769574b">
+<pre class="example" id="org11ad3f6">
 当客户端执行 GET message 时，服务器返回 "hello moto" 
 
 当客户端执行 GET not-exists-key 时，服务器返回空回复
@@ -534,7 +535,7 @@ book 键是一个哈希表，表中包含三个键值对
 <div id="outline-container-org6ae5b09" class="outline-2">
 <h2 id="org6ae5b09">键过期</h2>
 <div class="outline-text-2" id="text-org6ae5b09">
-<pre class="example" id="org58896ab">
+<pre class="example" id="org7b52de9">
 在前面的内容中， 讨论了很多涉及数据库本身、以及对数据库中的键值对进行处理的操作
 
 但是， 关于数据库如何保存键的过期时间， 以及如何处理过期键这一问题， 还没有讨论到
@@ -544,7 +545,7 @@ book 键是一个哈希表，表中包含三个键值对
 通过 <span class="underline">EXPIRE</span> ,  <span class="underline">PEXPIRE</span> ,  <span class="underline">EXPIREAT</span> 和 <span class="underline">PEXPIREAT</span> 四个命令， 客户端可以给某个 <b>存在的</b> <span class="underline">键</span> 设置 <span class="underline">过期时间</span> ， 当键的过期时间到达时， 键就不再可用：
 </p>
 
-<pre class="example" id="orgd7439d8">
+<pre class="example" id="org9571003">
 redis&gt; SETEX key 5 value
 OK
 
@@ -559,7 +560,7 @@ redis&gt; GET key   // 5 秒过后
 命令 <span class="underline">TTL</span> 和 <span class="underline">PTTL</span> 则用于返回给定键距离过期还有 <span class="underline">多长时间</span> ：
 </p>
 
-<pre class="example" id="orgc785fe2">
+<pre class="example" id="org9e9e1b4">
 redis&gt; SETEX key 10086 value
 OK
 
@@ -600,12 +601,12 @@ redis&gt; PTTL key
 </p>
 
 
-<div id="org923f0b8" class="figure">
+<div id="orge049353" class="figure">
 <p><img src="../pic/graphviz-db4eb6451979faf62da12bc0943cd00a9e0097e4.svg" alt="graphviz-db4eb6451979faf62da12bc0943cd00a9e0097e4.svg" class="org-svg" width="90%" />
 </p>
 </div>
 
-<pre class="example" id="orgb77180d">
+<pre class="example" id="org567d832">
 为了展示的方便， 图中重复出现了两次 number 键和 book 键
 
 在实际中， 键空间字典的键和过期时间字典的键都指向同一个字符串对象， 所以不会浪费任何空间
@@ -629,7 +630,7 @@ Redis 有四个命令可以设置键的生存时间（可以存活多久）和�
 <p>
 虽然有那么多种不同单位和不同形式的设置方式， 但是 expires 字典的值只保存 <b>以毫秒为单位的过期 UNIX 时间戳</b>
 </p>
-<pre class="example" id="orgfba5943">
+<pre class="example" id="org8cdc199">
 这就是说， 通过进行转换， 所有命令的效果最后都和 PEXPIREAT 命令的效果一样
 </pre>
 
@@ -647,7 +648,7 @@ Redis 有四个命令可以设置键的生存时间（可以存活多久）和�
 </pre>
 </div>
 
-<pre class="example" id="org148a09b">
+<pre class="example" id="org57b2786">
 其他函数的转换方式也是类似的
 </pre>
 
@@ -655,7 +656,7 @@ Redis 有四个命令可以设置键的生存时间（可以存活多久）和�
 作为例子， 下图展示了一个 expires 字典示例， 字典中 <span class="underline">number</span> 键的过期时间是 <span class="underline">2013 年 2 月 10 日</span> （农历新年）， 而 <span class="underline">book</span> 键的过期时间则是 <span class="underline">2013 年 2 月 14 日</span> （情人节）：
 </p>
 
-<div id="org6888ce4" class="figure">
+<div id="org9e81037" class="figure">
 <p><img src="../pic/graphviz-3bd6730e0529a24b3a3d6e11a751b395e2039717.svg" alt="graphviz-3bd6730e0529a24b3a3d6e11a751b395e2039717.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -702,7 +703,7 @@ Redis 有四个命令可以设置键的生存时间（可以存活多久）和�
 <div id="outline-container-orga1da1bc" class="outline-3">
 <h3 id="orga1da1bc">过期键的清除</h3>
 <div class="outline-text-3" id="text-orga1da1bc">
-<pre class="example" id="org696ade0">
+<pre class="example" id="orgc471a4b">
 已经知道了过期时间保存在 expires 字典里， 又知道了该如何判定一个键是否过期
 
 现在剩下的问题是， 如果一个键是过期的， 那它什么时候会被删除？
@@ -727,7 +728,7 @@ Redis 有四个命令可以设置键的生存时间（可以存活多久）和�
 <li><p>
 它对 <b>CPU</b> 时间是最不友好的： 因为删除操作可能会占用大量的 CPU 时间
 </p>
-<pre class="example" id="org8f91f6b">
+<pre class="example" id="org1be74d6">
 在内存不紧张、但是 CPU 时间非常紧张的时候 （比如说，进行交集计算或排序的时候）
 
 将 CPU 时间花在删除那些和当前任务无关的过期键上， 这种做法毫无疑问会是低效的
@@ -735,7 +736,7 @@ Redis 有四个命令可以设置键的生存时间（可以存活多久）和�
 <li><p>
 目前 Redis 事件处理器对时间事件的实现方式 <span class="underline">无序链表</span> ， 查找一个时间复杂度为 \(O(N)\)
 </p>
-<pre class="example" id="org1783b70">
+<pre class="example" id="org55908aa">
 所以 redis 并不适合用来处理大量时间事件
 </pre></li>
 </ul></li>
@@ -750,13 +751,13 @@ Redis 有四个命令可以设置键的生存时间（可以存活多久）和�
 <li><p>
 惰性删除对 <b>CPU 时间来说是最友好的</b> ： 它只会在取出键时进行检查， 这可以保证删除操作只会在非做不可的情况下进行
 </p>
-<pre class="example" id="org75bf640">
+<pre class="example" id="org761d71a">
 并且删除的目标仅限于当前处理的键， 这个策略不会在删除其他无关的过期键上花费任何 CPU 时间
 </pre></li>
 <li>惰性删除的缺点是， 它对 <b>内存是最不友好</b> 的： 如果一个键已经过期， 而这个键又仍然保留在数据库中， 那么 dict 字典和 expires 字典都需要继续保存这个键的信息， 只要这个过期键不被删除， 它占用的内存就不会被释放</li>
 </ul>
 
-<pre class="example" id="org7ee79f3">
+<pre class="example" id="org02b336d">
 举个例子， 对于一些按时间点来更新的数据， 比如日志（log）， 在某个时间点之后， 对它们的访问就会大大减少
 
 如果大量的这些过期数据积压在数据库里面， 用户以为它们已经过期了（已经被删除了）
@@ -802,7 +803,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 实现过期键惰性删除策略的核心是 <span class="underline">db.c/expireIfNeeded</span> 函数，所有命令在 <b>读取</b> 或 <b>写入</b> 数据库之前，程序都会调用 <span class="underline">expireIfNeeded</span> 对 <span class="underline">输入键</span> 进行 <b>检查</b> ， 并将 <span class="underline">过期键</span> <b>删除</b> ：
 </p>
 
-<div id="org6aa5bac" class="figure">
+<div id="org7920454" class="figure">
 <p><img src="../pic/graphviz-efb7f7ae1a793feea33285531dfe0023f3017b90.svg" alt="graphviz-efb7f7ae1a793feea33285531dfe0023f3017b90.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -811,7 +812,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 比如说， GET 命令的执行流程可以用下图来表示：
 </p>
 
-<div id="org48c48c7" class="figure">
+<div id="org37da66e" class="figure">
 <p><img src="../pic/graphviz-acca43b0dd583eb92a1ce7193dc6b9bb14e9c0f9.svg" alt="graphviz-acca43b0dd583eb92a1ce7193dc6b9bb14e9c0f9.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -857,7 +858,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 </pre>
 </div>
 
-<pre class="example" id="orgb502465">
+<pre class="example" id="orgcecf4cb">
 每当 Redis 的例行处理程序 serverCron 执行时， activeExpireCycle 都会被调用 
 </pre>
 </div>
@@ -868,7 +869,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 <div id="outline-container-org09364c4" class="outline-3">
 <h3 id="org09364c4">过期键对 AOF 、RDB 和复制的影响</h3>
 <div class="outline-text-3" id="text-org09364c4">
-<pre class="example" id="org6059c01">
+<pre class="example" id="org8ab1aa1">
 前面的内容讨论了过期键对 CPU 时间和内存的影响
 
 现在，是时候说说过期键在 RDB 文件、 AOF 文件、 AOF 重写以及复制中的影响了
@@ -889,7 +890,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 在创建新的 RDB 文件时，程序会对键进行检查， <span class="underline">过期的键</span> <b>不会被</b> 写入到更新后的 RDB 文件中。
 </p>
 
-<pre class="example" id="orgb5f24a8">
+<pre class="example" id="orgc2ba4d5">
 因此，过期键对更新后的 RDB 文件没有影响
 </pre>
 </div>
@@ -904,7 +905,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 当过期键被惰性删除、或者定期删除之后，程序会向 AOF 文件追加一条 <span class="underline">DEL</span> 命令，来 <b>显式</b> 地记录该键已被删除
 </p>
 
-<pre class="example" id="org817309a">
+<pre class="example" id="orgf0204a3">
 举个例子， 如果客户端使用 GET message 试图访问 message 键的值， 但 message 已经过期了， 那么服务器执行以下三个动作：
     1. 从数据库中删除 message
     2. 追加一条 DEL message 命令到 AOF 文件
@@ -921,7 +922,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 和 RDB 文件类似， 当进行 AOF 重写时， 程序会对键进行检查， 过期的键 <b>不会</b> 被保存到重写后的 AOF 文件。
 </p>
 
-<pre class="example" id="orga2e619a">
+<pre class="example" id="org3e24c26">
 因此，过期键对重写后的 AOF 文件没有影响
 </pre>
 </div>
@@ -938,7 +939,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 <li><p>
 如果服务器是 <span class="underline">附属节点</span> ，那么当它碰到一个过期键的时候，它会向程序 <b>返回</b> <span class="underline">键已过期</span> 的回复，但并不真正的删除过期键
 </p>
-<pre class="example" id="orgf192ca3">
+<pre class="example" id="org15b978e">
 因为程序只根据键是否已经过期、而不是键是否已经被删除来决定执行流程，所以这种处理并不影响命令的正确执行结果
 
 当接到从主节点发来的 DEL 命令之后，附属节点才会真正的将过期键删除掉
@@ -949,7 +950,7 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 附属节点不自主对键进行删除是为了和主节点的数据保持 <b>绝对一致</b> ， 因此， 当一个过期键还存在于主节点时，这个键在所有附属节点的副本也不会被删除
 </p>
 
-<pre class="example" id="orgc285ed8">
+<pre class="example" id="org209f45c">
 这种处理机制对那些使用大量附属节点，并且带有大量过期键的应用来说，可能会造成一部分内存不能立即被释放
 
 但是，因为过期键通常很快会被主节点发现并删除，所以这实际上也算不上什么大问题
@@ -961,6 +962,81 @@ Redis 使用的过期键删除策略是 <span class="underline">惰性删除</sp
 
 <div id="outline-container-orgdae972e" class="outline-2">
 <h2 id="orgdae972e">数据库空间的收缩和扩展</h2>
+<div class="outline-text-2" id="text-orgdae972e">
+<pre class="example" id="orgf3656c4">
+因为数据库空间是由字典来实现的， 所以数据库空间的扩展/收缩规则和字典的扩展/收缩规则完全一样
+
+具体的信息可以参考前面的《字典》这一章
+</pre>
+<p>
+因为对字典进行收缩的时机是由使用字典的程序决定的， 所以 Redis 使用 <span class="underline">redis.c/tryResizeHashTables</span> 函数来检查数据库所使用的字典 <b>是否需要</b> 进行收缩。tryResizeHashTables 函数的完整定义如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">/*</span>
+<span style="color: #ff4500;"> * &#23545;&#26381;&#21153;&#22120;&#20013;&#30340;&#25152;&#26377;&#25968;&#25454;&#24211;&#38190;&#31354;&#38388;&#23383;&#20856;&#12289;&#20197;&#21450;&#36807;&#26399;&#26102;&#38388;&#23383;&#20856;&#36827;&#34892;&#26816;&#26597;&#65292;&#30475;&#26159;&#21542;&#38656;&#35201;&#23545;&#36825;&#20123;&#23383;&#20856;&#36827;&#34892;&#25910;&#32553;</span>
+<span style="color: #ff4500;"> *</span>
+<span style="color: #ff4500;"> * &#22914;&#26524;&#23383;&#20856;&#30340;&#20351;&#29992;&#31354;&#38388;&#27604;&#29575;&#20302;&#20110; REDIS_HT_MINFILL, &#37027;&#20040;&#23558;&#23383;&#20856;&#30340;&#22823;&#23567;&#32553;&#23567;&#65292;&#35753; USED/BUCKETS &#30340;&#27604;&#29575; &lt;= 1</span>
+<span style="color: #ff4500;"> */</span>
+<span style="color: #98fb98;">void</span> <span style="color: #87cefa;">tryResizeHashTables</span>(<span style="color: #98fb98;">void</span>) {
+    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">j</span>;
+
+    <span style="color: #00ffff;">for</span> (j = 0; j &lt; server.dbnum; j++) {
+        <span style="color: #00ffff;">if</span> (htNeedsResize(server.db[j].dict))
+            dictResize(server.db[j].dict);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#32553;&#23567;&#38190;&#31354;&#38388;&#23383;&#20856;</span>
+
+        <span style="color: #00ffff;">if</span> (htNeedsResize(server.db[j].expires))
+            dictResize(server.db[j].expires); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#32553;&#23567;&#36807;&#26399;&#26102;&#38388;&#23383;&#20856;</span>
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="orgaf89d5e">
+每次 redis.c/serverCron 函数运行的时候， 这个 tryResizeHashTables 函数都会被调用
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org1a9842c" class="outline-2">
+<h2 id="org1a9842c">小结</h2>
+<div class="outline-text-2" id="text-org1a9842c">
+<ul class="org-ul">
+<li>数据库主要由 dict 和 expires 两个字典构成，其中 dict 保存键值对，而 expires 则保存键的过期时间</li>
+<li>数据库的键总是一个字符串对象，而值可以是任意一种 Redis 数据类型，包括字符串、哈希、集合、列表和有序集</li>
+<li>expires 的某个键和 dict 的某个键共同指向同一个字符串对象，而 expires 键的值则是该键以毫秒计算的 UNIX 过期时间戳</li>
+<li>Redis 使用惰性删除和定期删除两种策略来删除过期的键</li>
+<li>更新后的 RDB 文件和重写后的 AOF 文件都不会保留已经过期的键</li>
+<li>当一个过期键被删除之后，程序会追加一条新的 DEL 命令到现有 AOF 文件末尾</li>
+<li>当主节点删除一个过期键之后，它会显式地发送一条 DEL 命令到所有附属节点</li>
+<li>附属节点即使发现过期键，也不会自作主张地删除它，而是等待主节点发来 DEL 命令，这样可以保证主节点和附属节点的数据总是一致的</li>
+<li><p>
+数据库的 dict 字典和 expires 字典的扩展策略和普通字典一样。它们的收缩策略是：
+</p>
+<ul class="org-ul">
+<li>当节点的填充百分比不足 10% 时，将可用节点数量减少至大于等于当前已用节点数量</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="rdb.html">Next：RDB</a></td>
+<td class="org-left"><a href="server.html">Previous：服务器和客户端</a></td>
+<td class="org-left"><a href="internal.html">Home：内部机制</a></td>
+</tr>
+</tbody>
+</table></li>
+</ul>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">

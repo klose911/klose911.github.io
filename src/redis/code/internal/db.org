@@ -17,7 +17,7 @@ Redis 中的每个数据库，都由一个 _redis.h/redisDb_ 结构表示：
 	  int id; // 保存着数据库以整数表示的号码
 
 	  dict *dict;     // 保存着数据库中的所有键值对数据，这个属性也被称为键空间（key space）
-    
+
 	  dict *expires; // 保存着键的过期信息
 
 	  // 实现列表阻塞原语，如 BLPOP，在列表类型一章有详细的讨论
@@ -222,7 +222,7 @@ Redis 有四个命令可以设置键的生存时间（可以存活多久）和�
 #+begin_src python 
   def EXPIRE(key, sec):
       ms = sec_to_ms(sec) # 将 TTL 从秒转换为毫秒
-    
+
       ts_in_ms = get_current_unix_timestamp_in_ms() # 获取以毫秒计算的当前 UNIX 时间戳
 
       PEXPIREAT(ms + ts_in_ms, key) # 毫秒 TTL 加上毫秒时间戳，就是 key 到期的时间戳
@@ -329,10 +329,6 @@ _expireIfNeeded_ 的作用是， 如果输入键已经 _过期_ 的话， 那么
 	  propagateDelKeyToAofAndReplication(key) # 将删除命令传播到 AOF 文件和附属节点
 #+end_src
 
-
-# #+ATTR_HTML: image :width 90% 
-# [[file:../pic/]]
-
 **** 过期键的定期删除策略
 对过期键的定期删除由 _redis.c/activeExpireCycle_ 函执行： 这个函数在 _规定的时间限制_ 内， 尽可能地 *遍历* _各个数据库_ 的 _expires 字典_ ，  *随机* 地检查 _一部分键_ 的 _过期时间_ ， 并 *删除* 其中的 _过期键_ 。整个过程可以用伪代码描述如下：
 
@@ -412,3 +408,47 @@ _expireIfNeeded_ 的作用是， 如果输入键已经 _过期_ 的话， 那么
 #+end_example
 
 * 数据库空间的收缩和扩展
+#+begin_example
+  因为数据库空间是由字典来实现的， 所以数据库空间的扩展/收缩规则和字典的扩展/收缩规则完全一样
+
+  具体的信息可以参考前面的《字典》这一章
+#+end_example
+因为对字典进行收缩的时机是由使用字典的程序决定的， 所以 Redis 使用 _redis.c/tryResizeHashTables_ 函数来检查数据库所使用的字典 *是否需要* 进行收缩。tryResizeHashTables 函数的完整定义如下：
+
+#+begin_src c 
+  /*
+   ,* 对服务器中的所有数据库键空间字典、以及过期时间字典进行检查，看是否需要对这些字典进行收缩
+   ,*
+   ,* 如果字典的使用空间比率低于 REDIS_HT_MINFILL, 那么将字典的大小缩小，让 USED/BUCKETS 的比率 <= 1
+   ,*/
+  void tryResizeHashTables(void) {
+	  int j;
+
+	  for (j = 0; j < server.dbnum; j++) {
+		  if (htNeedsResize(server.db[j].dict))
+			  dictResize(server.db[j].dict);  // 缩小键空间字典
+
+		  if (htNeedsResize(server.db[j].expires))
+			  dictResize(server.db[j].expires); // 缩小过期时间字典
+	  }
+  }
+#+end_src
+
+#+begin_example
+每次 redis.c/serverCron 函数运行的时候， 这个 tryResizeHashTables 函数都会被调用
+#+end_example
+
+* 小结
++ 数据库主要由 dict 和 expires 两个字典构成，其中 dict 保存键值对，而 expires 则保存键的过期时间
++ 数据库的键总是一个字符串对象，而值可以是任意一种 Redis 数据类型，包括字符串、哈希、集合、列表和有序集
++ expires 的某个键和 dict 的某个键共同指向同一个字符串对象，而 expires 键的值则是该键以毫秒计算的 UNIX 过期时间戳
++ Redis 使用惰性删除和定期删除两种策略来删除过期的键
++ 更新后的 RDB 文件和重写后的 AOF 文件都不会保留已经过期的键
++ 当一个过期键被删除之后，程序会追加一条新的 DEL 命令到现有 AOF 文件末尾
++ 当主节点删除一个过期键之后，它会显式地发送一条 DEL 命令到所有附属节点
++ 附属节点即使发现过期键，也不会自作主张地删除它，而是等待主节点发来 DEL 命令，这样可以保证主节点和附属节点的数据总是一致的
++ 数据库的 dict 字典和 expires 字典的扩展策略和普通字典一样。它们的收缩策略是：
+  + 当节点的填充百分比不足 10% 时，将可用节点数量减少至大于等于当前已用节点数量 
+
+  #+ATTR_HTML: :border 1 :rules all :frame boader
+  | [[file:rdb.org][Next：RDB]] | [[file:server.org][Previous：服务器和客户端]] | [[file:internal.org][Home：内部机制]] |

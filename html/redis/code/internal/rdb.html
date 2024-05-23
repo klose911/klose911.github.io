@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>内部机制</title>
+<title>RDB</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -196,30 +196,55 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="../feature/feature.html"> UP </a>
+ <a accesskey="h" href="./db.html"> UP </a>
  |
- <a accesskey="H" href="../code.html"> HOME </a>
+ <a accesskey="H" href="./internal.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">内部机制</h1>
-<p>
-现在将对 Redis 最底层也最隐蔽的模块进行探讨：
-</p>
-<ol class="org-ol">
-<li>Redis 如何处理输入命令？它又是如何将输出返回给客户端的？</li>
-<li>Redis 服务器如何初始化？传入服务器的命令又是以什么方法执行的？</li>
-<li>Redis 如何表示一个数据库？数据库操作是如何实现的？</li>
-<li>Redis 如何进行持久化？ RDB 模式和 AOF 模式有什么区别？</li>
-</ol>
+<h1 class="title">RDB</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgecd89aa">保存</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="orgd7676b2">
+在运行情况下， Redis 以数据结构的形式将数据维持在内存中
+</pre>
 
 <p>
-接下来将分别进行解答：
+为了让这些数据在 Redis 重启之后仍然可用， Redis 最初提供了 <span class="underline">RDB</span> 持久化模式：
 </p>
 <ul class="org-ul">
-<li><a href="event.html">事件</a></li>
-<li><a href="server.html">服务器与客户端</a></li>
-<li><a href="db.html">数据库</a></li>
-<li><a href="rdb.html">RDB</a></li>
+<li>在 Redis 运行时， RDB 程序将 <span class="underline">当前内存</span> 中的 <b>数据库快照</b> 保存到 <span class="underline">磁盘文件</span> 中</li>
+<li>在 Redis 重启动时， RDB 程序可以通过 <b>载入</b> <span class="underline">RDB 文件</span> 来 <b>还原</b> 数据库的状态</li>
 </ul>
+
+
+<div id="orga53633b" class="figure">
+<p><img src="../pic/graphviz-cd96bfa5c61ef2b8dd69a9b0a97cde047cb722a8.svg" alt="graphviz-cd96bfa5c61ef2b8dd69a9b0a97cde047cb722a8.svg" class="org-svg" width="90%" />
+</p>
+</div>
+
+<p>
+RDB 功能最核心的是 <span class="underline">rdbSave</span> 和 <span class="underline">rdbLoad</span> 两个函数
+</p>
+<ul class="org-ul">
+<li>前者用于 <b>生成</b> <span class="underline">RDB 文件</span> 到磁盘</li>
+<li>后者则用于将 RDB 文件中的数据重新 <b>载入</b> 到 <span class="underline">内存</span> 中</li>
+</ul>
+
+<pre class="example" id="orge99c925">
+本章先介绍 SAVE 和 BGSAVE 命令的实现， 以及 rdbSave 和 rdbLoad 两个函数的运行机制
+
+然后以图表的方式， 分部分来介绍 RDB 文件的组织形式
+
+因为涉及 RDB 运行的相关机制， 如果还没了解过 RDB 功能的话， 请先阅读 Redis 官网上的 persistence 手册 
+</pre>
+<div id="outline-container-orgecd89aa" class="outline-2">
+<h2 id="orgecd89aa">保存</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
