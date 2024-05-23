@@ -147,4 +147,268 @@ redisDb 结构的 _id_ 域保存着 _数据库的号码_
 + 。。。。。。
 
 * 键过期
+#+begin_example
+  在前面的内容中， 讨论了很多涉及数据库本身、以及对数据库中的键值对进行处理的操作
 
+  但是， 关于数据库如何保存键的过期时间， 以及如何处理过期键这一问题， 还没有讨论到
+#+end_example
+
+通过 _EXPIRE_ ,  _PEXPIRE_ ,  _EXPIREAT_ 和 _PEXPIREAT_ 四个命令， 客户端可以给某个 *存在的* _键_ 设置 _过期时间_ ， 当键的过期时间到达时， 键就不再可用：
+
+#+begin_example
+  redis> SETEX key 5 value
+  OK
+
+  redis> GET key
+  "value"
+
+  redis> GET key   // 5 秒过后
+  (nil)
+#+end_example
+
+命令 _TTL_ 和 _PTTL_ 则用于返回给定键距离过期还有 _多长时间_ ：
+
+#+begin_example
+  redis> SETEX key 10086 value
+  OK
+
+  redis> TTL key
+  (integer) 10082
+
+  redis> PTTL key
+  (integer) 10068998
+#+end_example
+
+** 过期时间的保存
+在数据库中， 所有键的过期时间都被保存在 _redisDb_ 结构的 _expires_ 字典里：
+
+#+begin_src c 
+  typedef struct redisDb {
+	  // ...
+	  dict *expires;
+	  // ...
+  } redisDb;
+#+end_src
+
+_expires 字典_ ：的
++ 键：一个指向 _dict 字典_ （键空间）里 _某个键的指针_ 
++ 值：键所指向的数据库键的 _到期时间_ ， 这个值以 _long long_ 类型表示 
+
+下图展示了一个含有三个键的数据库，其中 number 和 book 两个键带有过期时间：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-db4eb6451979faf62da12bc0943cd00a9e0097e4.svg]]
+
+#+begin_example
+  为了展示的方便， 图中重复出现了两次 number 键和 book 键
+
+  在实际中， 键空间字典的键和过期时间字典的键都指向同一个字符串对象， 所以不会浪费任何空间
+#+end_example
+
+** 设置生存时间
+Redis 有四个命令可以设置键的生存时间（可以存活多久）和过期时间（什么时候到期）：
++ EXPIRE: 以 _秒_ 为单位设置键的 _生存时间_ 
++ PEXPIRE 以 _毫秒_ 为单位设置键的 _生存时间_ 
++ EXPIREAT 以 _秒_ 为单位，设置键的 _过期 UNIX 时间戳_ 
++ PEXPIREAT 以 _毫秒_ 为单位，设置键的 _过期 UNIX 时间戳_
+
+虽然有那么多种不同单位和不同形式的设置方式， 但是 expires 字典的值只保存 *以毫秒为单位的过期 UNIX 时间戳*
+#+begin_example
+这就是说， 通过进行转换， 所有命令的效果最后都和 PEXPIREAT 命令的效果一样
+#+end_example
+
+举个例子，从 EXPIRE 命令到 PEXPIREAT 命令的转换可以用伪代码表示如下：
+
+#+begin_src python 
+  def EXPIRE(key, sec):
+      ms = sec_to_ms(sec) # 将 TTL 从秒转换为毫秒
+    
+      ts_in_ms = get_current_unix_timestamp_in_ms() # 获取以毫秒计算的当前 UNIX 时间戳
+
+      PEXPIREAT(ms + ts_in_ms, key) # 毫秒 TTL 加上毫秒时间戳，就是 key 到期的时间戳
+#+end_src
+
+#+begin_example
+其他函数的转换方式也是类似的
+#+end_example
+
+作为例子， 下图展示了一个 expires 字典示例， 字典中 _number_ 键的过期时间是 _2013 年 2 月 10 日_ （农历新年）， 而 _book_ 键的过期时间则是 _2013 年 2 月 14 日_ （情人节）：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-3bd6730e0529a24b3a3d6e11a751b395e2039717.svg]]
+
+这两个键的过期时间可能是用以上四个命令的任意一个设置的， 但它们都以统一的格式被保存在 expires 字典中
+
+** 过期键的判定
+通过 expires 字典， 可以用以下步骤检查某个键是否过期：
+1. 检查键是否 *存在* 于 _expires_ 字典：如果存在，那么 *取出* 键的 _过期时间_ 
+2. 检查 _当前 UNIX 时间戳_ 是否 *大于* _键的过期时间_ ：
+   + 如果是的话，那么键 *已经过期*
+   + 否则，键未过期 
+
+可以用伪代码来描述这一过程：
+
+#+begin_src python 
+  def is_expired(key):
+      key_expire_time = expires.get(key) # 取出键的过期时间
+
+      # 如果过期时间不为空，并且当前时间戳大于过期时间，那么键已经过期
+      if expire_time is not None and current_timestamp() > key_expire_time:
+	  return True
+
+      return False # 否则，键未过期或没有设置过期时间
+#+end_src
+
+** 过期键的清除
+#+begin_example
+  已经知道了过期时间保存在 expires 字典里， 又知道了该如何判定一个键是否过期
+
+  现在剩下的问题是， 如果一个键是过期的， 那它什么时候会被删除？
+#+end_example
+这个问题有三种可能的答案：
+1. _定时_ 删除：在设置键的过期时间时，创建一个定时事件，当过期时间到达时，由事件处理器自动执行键的删除操作
+2. _惰性_ 删除：放任键过期不管，但是在每次从 dict 字典中取出键值时，要检查键是否过期，如果过期的话，就删除它，并返回空；如果没过期，就返回键值
+3. _定期_ 删除：每隔一段时间，对 expires 字典进行检查，删除里面的过期键
+
+*** 定时删除
++ 定时删除策略对 *内存* 是最友好的： 因为它保证过期键会在第一时间被删除， 过期键所消耗的内存会立即被释放 
++ 这种策略的缺点是：
+  + 它对 *CPU* 时间是最不友好的： 因为删除操作可能会占用大量的 CPU 时间
+    #+begin_example
+      在内存不紧张、但是 CPU 时间非常紧张的时候 （比如说，进行交集计算或排序的时候）
+
+      将 CPU 时间花在删除那些和当前任务无关的过期键上， 这种做法毫无疑问会是低效的
+    #+end_example
+  + 目前 Redis 事件处理器对时间事件的实现方式 _无序链表_ ， 查找一个时间复杂度为 $O(N)$
+    #+begin_example
+      所以 redis 并不适合用来处理大量时间事件
+    #+end_example
+
+*** 惰性删除
++ 惰性删除对 *CPU 时间来说是最友好的* ： 它只会在取出键时进行检查， 这可以保证删除操作只会在非做不可的情况下进行
+  #+begin_example
+    并且删除的目标仅限于当前处理的键， 这个策略不会在删除其他无关的过期键上花费任何 CPU 时间
+  #+end_example
++ 惰性删除的缺点是， 它对 *内存是最不友好* 的： 如果一个键已经过期， 而这个键又仍然保留在数据库中， 那么 dict 字典和 expires 字典都需要继续保存这个键的信息， 只要这个过期键不被删除， 它占用的内存就不会被释放
+
+#+begin_example
+  举个例子， 对于一些按时间点来更新的数据， 比如日志（log）， 在某个时间点之后， 对它们的访问就会大大减少
+
+  如果大量的这些过期数据积压在数据库里面， 用户以为它们已经过期了（已经被删除了）
+
+  但实际上这些键却没有真正的被删除（内存也没有被释放）， 那结果肯定是非常糟糕
+#+end_example
+
+在使用惰性删除策略时， 如果数据库中有非常多的过期键， 但这些过期键又正好没有被访问的话， 那么它们就永远也不会被删除（除非用户手动执行）， 这对于性能非常依赖于内存大小的 Redis 来说， 肯定不是一个好消息
+
+*** 定期删除
+从上面对定时删除和惰性删除的讨论来看， 这两种删除方式在单一使用时都有明显的缺陷： 定时删除占用太多 CPU 时间， 惰性删除浪费太多内存。
+
+定期删除是这两种策略的一种折中：
++ 它每隔一段时间执行一次删除操作，并通过 *限制* 删除操作执行的时长和频率，籍此来减少删除操作对 CPU 时间的影响
++ 另一方面，通过定期删除过期键，它有效地减少了因惰性删除而带来的内存浪费
+
+*** Redis 使用的策略
+Redis 使用的过期键删除策略是 _惰性删除_ 加上 _定期删除_ ， 这两个策略相互配合，可以很好地在合理利用 CPU 时间和节约内存空间之间取得平衡
+
+**** 过期键的惰性删除策略
+实现过期键惰性删除策略的核心是 _db.c/expireIfNeeded_ 函数，所有命令在 *读取* 或 *写入* 数据库之前，程序都会调用 _expireIfNeeded_ 对 _输入键_ 进行 *检查* ， 并将 _过期键_ *删除* ：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-efb7f7ae1a793feea33285531dfe0023f3017b90.svg]]
+
+比如说， GET 命令的执行流程可以用下图来表示：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-acca43b0dd583eb92a1ce7193dc6b9bb14e9c0f9.svg]]
+
+_expireIfNeeded_ 的作用是， 如果输入键已经 _过期_ 的话， 那么将 _键_ 、_键的值_ 、 _键保存在 expires 字典中的过期时间_ 都 *删除* 掉。用伪代码描述的 expireIfNeeded 定义如下：
+
+#+begin_src python 
+  def expireIfNeeded(key):
+      if key.is_expired(): # 对过期键执行以下操作 。。。
+	  db.dict.remove(key) # 从键空间中删除键值对
+	  db.expires.remove(key) # 删除键的过期时间
+	  propagateDelKeyToAofAndReplication(key) # 将删除命令传播到 AOF 文件和附属节点
+#+end_src
+
+
+# #+ATTR_HTML: image :width 90% 
+# [[file:../pic/]]
+
+**** 过期键的定期删除策略
+对过期键的定期删除由 _redis.c/activeExpireCycle_ 函执行： 这个函数在 _规定的时间限制_ 内， 尽可能地 *遍历* _各个数据库_ 的 _expires 字典_ ，  *随机* 地检查 _一部分键_ 的 _过期时间_ ， 并 *删除* 其中的 _过期键_ 。整个过程可以用伪代码描述如下：
+
+#+begin_src python 
+  def activeExpireCycle():
+      for db in server.db: # 遍历数据库（不一定能全部都遍历完，看时间是否足够）
+	  i = 0 # MAX_KEY_PER_DB 是一个 DB 最大能处理的 key 个数，它保证时间不会全部用在个别的 DB 上（避免饥饿）
+
+	  while (i < MAX_KEY_PER_DB):
+	      if db.is_empty(): break # 数据库为空，跳出 while ，处理下个 DB
+
+	      key_with_ttl = db.expires.get_random_key() # 随机取出一个带 TTL 的键
+
+	      if is_expired(key_with_ttl):
+		  db.deleteExpiredKey(key_with_ttl) # 检查键是否过期，如果是的话，将它删除
+
+	      if reach_time_limit(): return # 当执行时间到达上限，函数就返回，不再继续，这确保删除操作不会占用太多的 CPU 时间
+
+	      i += 1
+#+end_src
+
+#+begin_example
+每当 Redis 的例行处理程序 serverCron 执行时， activeExpireCycle 都会被调用 
+#+end_example
+
+** 过期键对 AOF 、RDB 和复制的影响
+#+begin_example
+  前面的内容讨论了过期键对 CPU 时间和内存的影响
+
+  现在，是时候说说过期键在 RDB 文件、 AOF 文件、 AOF 重写以及复制中的影响了
+#+end_example
+过期键会被保存在更新后的 RDB 文件、 AOF 文件或者重写后的 AOF 文件里面吗？
+
+附属节点会会如何处理过期键？处理的方式和主节点一样吗？
+
+*** 更新后的 RDB 文件
+在创建新的 RDB 文件时，程序会对键进行检查， _过期的键_ *不会被* 写入到更新后的 RDB 文件中。
+
+#+begin_example
+因此，过期键对更新后的 RDB 文件没有影响
+#+end_example
+
+*** AOF 文件
++ 在键已经过期，但是还 *没有* 被 _惰性删除_ 或者 _定期删除_ 之前，这个键不会产生任何影响，AOF 文件也不会因为这个键而被修改
++ 当过期键被惰性删除、或者定期删除之后，程序会向 AOF 文件追加一条 _DEL_ 命令，来 *显式* 地记录该键已被删除
+
+  #+begin_example
+    举个例子， 如果客户端使用 GET message 试图访问 message 键的值， 但 message 已经过期了， 那么服务器执行以下三个动作：
+	1. 从数据库中删除 message
+	2. 追加一条 DEL message 命令到 AOF 文件
+	3. 向客户端返回 NIL 
+  #+end_example
+
+*** AOF 重写
+和 RDB 文件类似， 当进行 AOF 重写时， 程序会对键进行检查， 过期的键 *不会* 被保存到重写后的 AOF 文件。
+
+#+begin_example
+因此，过期键对重写后的 AOF 文件没有影响
+#+end_example
+
+*** 复制
+当服务器带有 _附属节点_ 时，  _过期键的删除_ 由 *主节点* _统一控制_ ：
++ 如果服务器是 _主节点_ ，那么它在删除一个过期键之后，会 *显式* 地向 _所有附属节点_ 发送一个 _DEL_ 命令
++ 如果服务器是 _附属节点_ ，那么当它碰到一个过期键的时候，它会向程序 *返回* _键已过期_ 的回复，但并不真正的删除过期键
+  #+begin_example
+    因为程序只根据键是否已经过期、而不是键是否已经被删除来决定执行流程，所以这种处理并不影响命令的正确执行结果
+
+    当接到从主节点发来的 DEL 命令之后，附属节点才会真正的将过期键删除掉
+  #+end_example
+
+附属节点不自主对键进行删除是为了和主节点的数据保持 *绝对一致* ， 因此， 当一个过期键还存在于主节点时，这个键在所有附属节点的副本也不会被删除
+
+#+begin_example
+  这种处理机制对那些使用大量附属节点，并且带有大量过期键的应用来说，可能会造成一部分内存不能立即被释放
+
+  但是，因为过期键通常很快会被主节点发现并删除，所以这实际上也算不上什么大问题
+#+end_example
+
+* 数据库空间的收缩和扩展
