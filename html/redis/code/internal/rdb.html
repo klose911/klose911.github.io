@@ -205,11 +205,22 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#orgecd89aa">保存</a></li>
+<li><a href="#orgecd89aa">保存</a>
+<ul>
+<li><a href="#org39323ef">SAVE 、 BGSAVE 、 AOF 写入和 BGREWRITEAOF</a>
+<ul>
+<li><a href="#orgca633ab">SAVE</a></li>
+<li><a href="#orgfbfadbd">BGSAVE</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org48ae10d">载入</a></li>
+<li><a href="#orgd3e5db7">RDB 文件结构</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="orgd7676b2">
+<pre class="example" id="orgea3a735">
 在运行情况下， Redis 以数据结构的形式将数据维持在内存中
 </pre>
 
@@ -222,7 +233,7 @@
 </ul>
 
 
-<div id="orga53633b" class="figure">
+<div id="orgfa98f54" class="figure">
 <p><img src="../pic/graphviz-cd96bfa5c61ef2b8dd69a9b0a97cde047cb722a8.svg" alt="graphviz-cd96bfa5c61ef2b8dd69a9b0a97cde047cb722a8.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -235,7 +246,7 @@ RDB 功能最核心的是 <span class="underline">rdbSave</span> 和 <span class
 <li>后者则用于将 RDB 文件中的数据重新 <b>载入</b> 到 <span class="underline">内存</span> 中</li>
 </ul>
 
-<pre class="example" id="orge99c925">
+<pre class="example" id="orgf3d908f">
 本章先介绍 SAVE 和 BGSAVE 命令的实现， 以及 rdbSave 和 rdbLoad 两个函数的运行机制
 
 然后以图表的方式， 分部分来介绍 RDB 文件的组织形式
@@ -244,6 +255,141 @@ RDB 功能最核心的是 <span class="underline">rdbSave</span> 和 <span class
 </pre>
 <div id="outline-container-orgecd89aa" class="outline-2">
 <h2 id="orgecd89aa">保存</h2>
+<div class="outline-text-2" id="text-orgecd89aa">
+<p>
+<span class="underline">rdbSave</span> 函数负责将 <span class="underline">内存中的数据库数据</span> 以 <span class="underline">RDB</span> 格式 <b>保存</b> 到 <span class="underline">磁盘</span> 中， 如果 RDB 文件已 <span class="underline">存在</span> ， 那么新的 RDB 文件将 <b>替换</b> 已有的 RDB 文件。在保存 RDB 文件期间，  <span class="underline">主进程</span> 会被 <b>阻塞</b> ， 直到保存完成为止 
+</p>
+
+<p>
+<span class="underline">SAVE</span> 和 <span class="underline">BGSAVE</span> 两个命令都会调用 rdbSave 函数，但它们调用的方式各有不同：
+</p>
+<ul class="org-ul">
+<li><p>
+SAVE: 直接调用 rdbSave ，阻塞 Redis 主进程，直到保存完成为止
+</p>
+<pre class="example" id="orgafed48f">
+在主进程阻塞期间，服务器不能处理客户端的任何请求
+</pre></li>
+<li><p>
+BGSAVE: 则 <span class="underline">fork</span> 出一个 <span class="underline">子进程</span> ，子进程负责调用 rdbSave ，并在 <span class="underline">保存完成之后</span> 向 <span class="underline">主进程</span> <b>发送</b> <span class="underline">信号</span> ，通知保存已完成
+</p>
+<pre class="example" id="org95bfcd1">
+因为 rdbSave 在子进程被调用，所以 Redis 服务器在 BGSAVE 执行期间仍然可以继续处理客户端的请求
+</pre></li>
+</ul>
+
+<p>
+通过伪代码来描述这两个命令，可以很容易地看出它们之间的区别：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">SAVE</span>():
+    rdbSave()
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">BGSAVE</span>():
+    <span style="color: #eedd82;">pid</span> = fork()
+
+    <span style="color: #00ffff;">if</span> pid == 0:
+        rdbSave() <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23376;&#36827;&#31243;&#20445;&#23384; RDB</span>
+    <span style="color: #00ffff;">elif</span> pid &gt; 0:
+        handle_request() <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#29238;&#36827;&#31243;&#32487;&#32493;&#22788;&#29702;&#35831;&#27714;&#65292;&#24182;&#31561;&#24453;&#23376;&#36827;&#31243;&#30340;&#23436;&#25104;&#20449;&#21495;</span>
+
+    <span style="color: #00ffff;">else</span>:
+        handle_fork_error() <span style="color: #ff4500;"># </span><span style="color: #ff4500;">pid == -1, &#22788;&#29702; fork &#38169;&#35823;</span>
+</pre>
+</div>
+</div>
+<div id="outline-container-org39323ef" class="outline-3">
+<h3 id="org39323ef">SAVE 、 BGSAVE 、 AOF 写入和 BGREWRITEAOF</h3>
+<div class="outline-text-3" id="text-org39323ef">
+<pre class="example" id="org2a51943">
+除了了解 RDB 文件的保存方式之外， 可能还想知道
+
+两个 RDB 保存命令能否同时使用？ 它们和 AOF 保存工作是否冲突？
+</pre>
+</div>
+
+<div id="outline-container-orgca633ab" class="outline-4">
+<h4 id="orgca633ab">SAVE</h4>
+<div class="outline-text-4" id="text-orgca633ab">
+<p>
+前面提到过， 当 <span class="underline">SAVE</span> 执行时， Redis 服务器是 <b>阻塞</b> 的， 所以当 SAVE 正在执行时， 新的 <span class="underline">SAVE</span>  、 <span class="underline">BGSAVE</span> 或 <span class="underline">BGREWRITEAOF</span> 调用都 <b>不会产生任何作用</b> 
+</p>
+
+<pre class="example" id="orgcbd02f0">
+只有在上一个 SAVE 执行完毕、 Redis 重新开始接受请求之后， 新的 SAVE 、 BGSAVE 或 BGREWRITEAOF 命令才会被处理
+</pre>
+<p>
+另外， 因为 <span class="underline">AOF</span> 写入由 <b>后台</b> 线程完成， 而 <span class="underline">BGREWRITEAOF</span> 则由 <span class="underline">子进程</span> 完成， 所以在 SAVE 执行的过程中， <span class="underline">AOF</span> 写入和已经存在的 <span class="underline">BGREWRITEAOF</span> 可以 <b>同时进行</b> 
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgfbfadbd" class="outline-4">
+<h4 id="orgfbfadbd">BGSAVE</h4>
+<div class="outline-text-4" id="text-orgfbfadbd">
+<p>
+在执行 SAVE 命令之前， 服务器会 <b>检查</b> <span class="underline">BGSAVE</span> 是否 <b>正在执行</b> 当中， 如果是的话， 服务器就不调用 rdbSave ， 而是向客户端 <span class="underline">返回</span> 一个 <span class="underline">出错信息</span> ， 告知在 BGSAVE 执行期间， 不能执行 SAVE 
+</p>
+<pre class="example" id="orga4de440">
+这样做可以避免 SAVE 和 BGSAVE 调用的两个 rdbSave 交叉执行， 造成竞争条件
+</pre>
+
+<p>
+同样当 BGSAVE 正在执行时， 调用新 BGSAVE 命令的客户端会收到一个出错信息， 告知 BGSAVE 已经在执行当中
+</p>
+
+<p>
+最后 <span class="underline">BGREWRITEAOF</span> 和 <span class="underline">BGSAVE</span> 不能同时执行：
+</p>
+<ul class="org-ul">
+<li>如果 BGSAVE 正在执行，那么 <span class="underline">BGREWRITEAOF 的重写请求</span> 会被 <b>延迟</b> 到 BGSAVE 执行完毕之后进行，执行 BGREWRITEAOF 命令的客户端会收到 <span class="underline">请求被延迟</span> 的 <span class="underline">回复</span></li>
+<li>如果 BGREWRITEAOF 正在执行，那么调用 BGSAVE 的客户端将收到 <span class="underline">出错信息</span> ，表示这两个命令 <b>不能同时执行</b></li>
+</ul>
+
+<pre class="example" id="org74ca6f1">
+BGREWRITEAOF 和 BGSAVE 两个命令在操作方面并没有什么冲突的地方， 不能同时执行它们只是一个性能方面的考虑
+
+并发出两个子进程， 并且两个子进程都同时进行大量的磁盘写入操作， 这怎么想都不会是一个好主意
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org48ae10d" class="outline-2">
+<h2 id="org48ae10d">载入</h2>
+<div class="outline-text-2" id="text-org48ae10d">
+<p>
+当 <span class="underline">Redis 服务器</span> <b>启动</b> 时， <span class="underline">rdbLoad</span> 函数就会被 <b>执行</b> ， 它读取 RDB 文件， 并将文件中的数据库数据载入到内存中
+</p>
+<ul class="org-ul">
+<li>在载入期间， 服务器每载入 <span class="underline">1000 个键</span> 就 <b>处理</b> 一次所有 <span class="underline">已到达的请求</span></li>
+<li>不过只有 <span class="underline">PUBLISH</span> 、 <span class="underline">SUBSCRIBE</span>  、 <span class="underline">PSUBSCRIBE</span> 、 <span class="underline">UNSUBSCRIBE</span> 、 <span class="underline">PUNSUBSCRIBE</span> 五个命令的请求会被正确地处理， 其他命令一律返回错误</li>
+<li><p>
+等到载入完成之后， 服务器才会开始正常处理所有命令
+</p>
+
+<pre class="example" id="org25a82c4">
+发布与订阅功能和其他数据库功能是完全隔离的，前者不写入也不读取数据库
+
+所以在服务器载入期间，订阅与发布功能仍然可以正常使用，而不必担心对载入数据的完整性产生影响
+</pre></li>
+</ul>
+
+<p>
+另外， 因为 <span class="underline">AOF 文件</span> 的保存频率 通常要 <b>高于</b> <span class="underline">RDB 文件</span> 保存的频率， 所以一般来说， AOF 文件中的数据会比 RDB 文件中的数据要新
+</p>
+
+<pre class="example" id="orgbfb9ff1">
+因此， 如果服务器在启动时， 打开了 AOF 功能， 那么程序优先使用 AOF 文件来还原数据
+
+只有在 AOF 功能未打开的情况下， Redis 才会使用 RDB 文件来还原数据
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgd3e5db7" class="outline-2">
+<h2 id="orgd3e5db7">RDB 文件结构</h2>
 </div>
 </div>
 <div id="postamble" class="status">
