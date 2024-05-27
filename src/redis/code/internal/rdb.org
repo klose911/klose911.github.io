@@ -109,3 +109,216 @@ _SAVE_ 和 _BGSAVE_ 两个命令都会调用 rdbSave 函数，但它们调用的
 #+end_example
 
 * RDB 文件结构
+#+begin_example
+  前面介绍了保存和读取 RDB 文件的两个函数，现在，是时候介绍 RDB 文件本身了
+#+end_example
+
+一个 RDB 文件可以分为以下几个部分：
+#+begin_example
+  +-------+-------------+-----------+-----------------+-----+-----------+
+  | REDIS | RDB-VERSION | SELECT-DB | KEY-VALUE-PAIRS | EOF | CHECK-SUM |
+  +-------+-------------+-----------+-----------------+-----+-----------+
+
+			|<-------- DB-DATA ---------->|
+#+end_example
+
+以下分别对这几个部分的保存和读入规则进行介绍
+
+** REDIS
+文件的最开头保存着 _REDIS_ 五个字符，标识着一个 RDB 文件的 *开始* 
+
+#+begin_example
+在读入文件的时候，程序可以通过检查一个文件的前五个字节，来快速地判断该文件是否有可能是 RDB 文件
+#+end_example
+
+** RDB-VERSION
+一个 _四字节长_ 的以字符表示的 _整数_ ，记录了该文件所使用的 RDB *版本号* 
+
+#+begin_example
+目前的 RDB 文件版本为 0006 
+
+因为不同版本的 RDB 文件互不兼容，所以在读入程序时，需要根据版本来选择不同的读入方式
+#+end_example
+** DB-DATA
+这个部分在一个 RDB 文件中会出现 *任意* 多次，每个 DB-DATA 部分保存着服务器上一个 *非空数据库的所有数据* 
+*** SELECT-DB
+这域保存着跟在后面的键值对所属的 _数据库号码_
+
+#+begin_example
+在读入 RDB 文件时，程序会根据这个域的值来切换数据库，确保数据被还原到正确的数据库上
+#+end_example
+*** KEY-VALUE-PAIRS
+因为空的数据库不会被保存到 RDB 文件，所以这个部分 *至少* 会包含 _一个键值对_ 的数据。每个键值对的数据使用以下结构来保存：
+
+#+begin_example
+  +----------------------+---------------+-----+-------+
+  | OPTIONAL-EXPIRE-TIME | TYPE-OF-VALUE | KEY | VALUE |
+  +----------------------+---------------+-----+-------+
+#+end_example
+
++ _OPTIONAL-EXPIRE-TIME_ 域是 *可选* 的：
+  + 如果键没有设置过期时间，那么这个域就不会出现
+  + 如果这个域出现的话，那么它记录着键的过期时间
+    #+begin_example
+      在当前版本的 RDB 中，过期时间是一个以毫秒为单位的 UNIX 时间戳
+    #+end_example
++ _KEY_ 域保存着键，格式和 _REDIS_ENCODING_RAW_ 编码的 *字符串* 对象一样
++ _TYPE-OF-VALUE_ 域记录着 VALUE 域的值所使用的 *编码*
+  #+begin_example
+    根据这个域的指示， 程序会使用不同的方式来保存和读取 VALUE 的值
+
+    具体的编码在《对象处理机制》章节介绍过
+  #+end_example
+
+接下来讨论保存 VALUE 的详细格式
+****  REDIS_ENCODING_INT 编码
+REDIS_ENCODING_INT 编码的 _REDIS_STRING 类型对象_ ：
++ 如果值可以表示为 _8_ 位、 _16_ 位或 _32_ 位有符号整数，那么直接以整数类型的形式来保存它们：
+  #+begin_example
+      +---------+
+      | integer |
+      +---------+
+
+      比如说，整数 8 可以用 8 位序列 00001000 保存
+  #+end_example
+
+当读入这类值时，程序按指定的长度读入字节数据，然后将数据转换回整数类型 
+
++ 如果值不能被表示为最高 32 位的有符号整数，那么说明这是一个 _long long_ 类型的值，在 RDB 文件中，这种类型的值以 _字符序列_ 的形式保存。一个字符序列由两部分组成：
+  #+begin_example
+    +-----+---------+
+    | LEN | CONTENT |
+    +-----+---------+
+  #+end_example
+  + CONTENT 域保存了 _字符内容_
+  + LEN 则保存了以字节为单位的 _字符长度_ 
+
+当进行载入时，读入器先读入 LEN ，创建一个长度等于 LEN 的字符串对象，然后再从文件中读取 LEN 字节数据，并将这些数据设置为字符串对象的值
+**** REDIS_ENCODING_RAW
+REDIS_ENCODING_RAW 编码的 REDIS_STRING 类型值有三种保存方式：
+1. 如果值可以表示为 8 位、 16 位或 32 位长的有符号整数，那么用 _整数类型_ 的形式来保存它们
+2. 如果字符串长度大于 20 ，并且服务器开启了 _LZF_ 压缩功能 ，那么对字符串进行 *压缩* ，并保存 _压缩之后的数据*_ 。经过 LZF 压缩的字符串会被保存为以下结构：
+   #+begin_example
+     +----------+----------------+--------------------+
+     | LZF-FLAG | COMPRESSED-LEN | COMPRESSED-CONTENT |
+     +----------+----------------+--------------------+
+   #+end_example
+   + LZF-FLAG 告知读入器，后面跟着的是被 LZF 算法压缩过的数据
+   + COMPRESSED-CONTENT 是被 _压缩后的数据_
+   + COMPRESSED-LEN 则是该数据的 _字节长度_  
+3. 在其他情况下，程序直接以 _普通字节序列_ 的方式来保存字符串。这种字符串被保存为以下结构：
+   #+begin_example
+     +-----+---------+
+     | LEN | CONTENT |
+     +-----+---------+
+   #+end_example
+   + LEN 为字符串的字节长度
+   + CONTENT 为字符串
+
+当进行载入时，读入器先检测字符串保存的方式，再根据不同的保存方式，用不同的方法取出内容，并将内容保存到新建的字符串对象当中
+**** REDIS_ENCODING_LINKEDLIST
+REDIS_ENCODING_LINKEDLIST 编码的 _REDIS_LIST 类型_ 值保存为以下结构：
+#+begin_example
+  +-----------+--------------+--------------+-----+--------------+
+  | NODE-SIZE | NODE-VALUE-1 | NODE-VALUE-2 | ... | NODE-VALUE-N |
+  +-----------+--------------+--------------+-----+--------------+
+#+end_example
++ NODE-SIZE 保存链表 _节点数量_
++ 后面跟着 NODE-SIZE 个 _节点值_ ，节点值的保存方式和 _字符串_ 的保存方式一样
+
+当进行载入时，读入器读取节点的数量， *创建* 一个新的 _链表_ ，然后一直执行以下步骤，直到指定节点数量满足为止：
+1. 读取字符串表示的节点值
+2. 将包含节点值的新节点添加到链表中
+
+**** REDIS_ENCODING_HT
++ REDIS_ENCODING_HT 编码的 _REDIS_SET_ 类型值保存为以下结构：
+  #+begin_example
+    +----------+-----------+-----------+-----+-----------+
+    | SET-SIZE | ELEMENT-1 | ELEMENT-2 | ... | ELEMENT-N |
+    +----------+-----------+-----------+-----+-----------+
+  #+end_example
+  + SET-SIZE 记录了集合元素的数量
+  + 后面跟着多个元素值，元素值的保存方式和字符串的保存方式一样
+
+载入时，读入器先读入集合元素的数量 SET-SIZE ，再连续读入 SET-SIZE 个字符串，并将这些字符串作为新元素添加至新创建的集合
+
++ REDIS_ENCODING_HT 编码的 _REDIS_HASH_ 类型值保存为以下结构：
+  #+begin_example
+    +-----------+-------+---------+-------+---------+-----+-------+---------+
+    | HASH-SIZE | KEY-1 | VALUE-1 | KEY-2 | VALUE-2 | ... | KEY-N | VALUE-N |
+    +-----------+-------+---------+-------+---------+-----+-------+---------+
+  #+end_example
+  + HASH-SIZE 是哈希表包含的 _键值对的数量_
+  + KEY-i 和 VALUE-i 分别是哈希表的 _键和值_
+
+载入时，程序先 *创建* 一个 _新的哈希表_ ，然后读入 HASH-SIZE ，再执行以下步骤 HASH-SIZE 次：
+1. 读入一个字符串
+2. 再读入另一个字符串
+3. 将第一个读入的字符串作为键，第二个读入的字符串作为值，插入到新建立的哈希中 
+**** REDIS_ENCODING_SKIPLIST
+REDIS_ENCODING_SKIPLIST 编码的 _REDIS_ZSET_ 类型值保存为以下结构：
+#+begin_example
+  +--------------+-------+---------+-------+---------+-----+-------+---------+
+  | ELEMENT-SIZE | MEB-1 | SCORE-1 | MEB-2 | SCORE-2 | ... | MEB-N | SCORE-N |
+  +--------------+-------+---------+-------+---------+-----+-------+---------+
+#+end_example
++ ELEMENT-SIZE 为有序集元素的数量
++ MEB-i 为第 i 个有序集元素的成员
++ SCORE-i 为第 i 个有序集元素的分值
+
+当进行载入时，读入器读取有序集元素数量， *创建* 一个 _新的有序集_ ，然后一直执行以下步骤，直到指定元素数量满足为止：
++ 读入字符串形式保存的成员 _member_ 
++ 读入字符串形式保存的分值 _score_ ，并将它转换为 *浮点数*
++ 添加 member 为成员、 score 为分值的新元素到有序集
+
+**** REDIS_ENCODING_ZIPLIST
+REDIS_ENCODING_ZIPLIST 编码的 _REDIS_LIST_ 类型、  _REDIS_HASH_ 类型和 _REDIS_ZSET_ 类型。 ziplist 在 RDB 中的保存方式如下：
+#+begin_example
+  +-----+---------+
+  | LEN | ZIPLIST |
+  +-----+---------+
+#+end_example
+载入时，读入器先读入 ziplist 的 _字节长_ ，再根据该字节长读入 _数据_ ，最后将数据 *还原* 成一个 _ziplist_ 
+
+**** REDIS_ENCODING_INTSET
+REDIS_ENCODING_INTSET 编码的 _REDIS_SET_ 类型值保存为以下结构：
+
+#+begin_example
+  +-----+--------+
+  | LEN | INTSET |
+  +-----+--------+
+#+end_example
+
+载入时，读入器先读入 intset 的 _字节长度_ ，再根据长度读入 _数据_ ，最后将数据 *还原* 成 _intset_ 
+** EOF 
+标志着 _数据库内容_ 的 *结尾* （不是文件的结尾），值为 _rdb.h/EDIS_RDB_OPCODE_EOF_ （ $255$ ）
+** CHECK-SUM 
+RDB 文件 *所有内容的校验和* ， 一个 _uint_64t_ 类型值。
++ REDIS 在写入 RDB 文件时将校验和保存在 RDB 文件的末尾
++ 当读取时， 根据它的值对内容进行校验 
+
+#+begin_example
+  如果这个域的值为 0 ， 那么表示 Redis 关闭了校验和功能
+#+end_example
+* 小结
++ rdbSave 会将数据库数据保存到 RDB 文件，并在保存完成之前阻塞调用者
++ SAVE 命令直接调用 rdbSave ，阻塞 Redis 主进程； BGSAVE 用子进程调用 rdbSave ，主进程仍可继续处理命令请求
++ SAVE 执行期间， AOF 写入可以在后台线程进行， BGREWRITEAOF 可以在子进程进行，所以这三种操作可以同时进行
++ 为了避免产生竞争条件， BGSAVE 执行时， SAVE 命令不能执行
++ 为了避免性能问题， BGSAVE 和 BGREWRITEAOF 不能同时执行
++ 调用 rdbLoad 函数载入 RDB 文件时，不能进行任何和数据库相关的操作，不过订阅与发布方面的命令可以正常执行，因为它们和数据库不相关联
++ RDB 文件的组织方式如下：
+  #+begin_example
+    +-------+-------------+-----------+-----------------+-----+-----------+
+    | REDIS | RDB-VERSION | SELECT-DB | KEY-VALUE-PAIRS | EOF | CHECK-SUM |
+    +-------+-------------+-----------+-----------------+-----+-----------+
+
+			  |<-------- DB-DATA ---------->|
+  #+end_example
++ 键值对在 RDB 文件中的组织方式如下：
+  #+begin_example
+    +----------------------+---------------+-----+-------+
+    | OPTIONAL-EXPIRE-TIME | TYPE-OF-VALUE | KEY | VALUE |
+    +----------------------+---------------+-----+-------+
+  #+end_example
+  + RDB 文件使用不同的格式来保存不同类型的值

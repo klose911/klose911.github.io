@@ -193,6 +193,27 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -216,11 +237,35 @@
 </ul>
 </li>
 <li><a href="#org48ae10d">载入</a></li>
-<li><a href="#orgd3e5db7">RDB 文件结构</a></li>
+<li><a href="#orgd3e5db7">RDB 文件结构</a>
+<ul>
+<li><a href="#org2c8ee6d">REDIS</a></li>
+<li><a href="#org9aae90f">RDB-VERSION</a></li>
+<li><a href="#org5e3240b">DB-DATA</a>
+<ul>
+<li><a href="#org7bfa3d7">SELECT-DB</a></li>
+<li><a href="#org646fcc7">KEY-VALUE-PAIRS</a>
+<ul>
+<li><a href="#org8d34cae">REDIS_ENCODING_INT 编码</a></li>
+<li><a href="#orge3a82c8">REDIS_ENCODING_RAW</a></li>
+<li><a href="#org6a7a59b">REDIS_ENCODING_LINKEDLIST</a></li>
+<li><a href="#org879ff7e">REDIS_ENCODING_HT</a></li>
+<li><a href="#org0f5878e">REDIS_ENCODING_SKIPLIST</a></li>
+<li><a href="#orgb4c8092">REDIS_ENCODING_ZIPLIST</a></li>
+<li><a href="#orgf6db960">REDIS_ENCODING_INTSET</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org1ff3445">EOF</a></li>
+<li><a href="#org94e29fe">CHECK-SUM</a></li>
+</ul>
+</li>
+<li><a href="#orgf4d8ace">小结</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="orgea3a735">
+<pre class="example" id="orgd574099">
 在运行情况下， Redis 以数据结构的形式将数据维持在内存中
 </pre>
 
@@ -233,7 +278,7 @@
 </ul>
 
 
-<div id="orgfa98f54" class="figure">
+<div id="org65deb0a" class="figure">
 <p><img src="../pic/graphviz-cd96bfa5c61ef2b8dd69a9b0a97cde047cb722a8.svg" alt="graphviz-cd96bfa5c61ef2b8dd69a9b0a97cde047cb722a8.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -246,7 +291,7 @@ RDB 功能最核心的是 <span class="underline">rdbSave</span> 和 <span class
 <li>后者则用于将 RDB 文件中的数据重新 <b>载入</b> 到 <span class="underline">内存</span> 中</li>
 </ul>
 
-<pre class="example" id="orgf3d908f">
+<pre class="example" id="org9de835d">
 本章先介绍 SAVE 和 BGSAVE 命令的实现， 以及 rdbSave 和 rdbLoad 两个函数的运行机制
 
 然后以图表的方式， 分部分来介绍 RDB 文件的组织形式
@@ -267,13 +312,13 @@ RDB 功能最核心的是 <span class="underline">rdbSave</span> 和 <span class
 <li><p>
 SAVE: 直接调用 rdbSave ，阻塞 Redis 主进程，直到保存完成为止
 </p>
-<pre class="example" id="orgafed48f">
+<pre class="example" id="orge3337ad">
 在主进程阻塞期间，服务器不能处理客户端的任何请求
 </pre></li>
 <li><p>
 BGSAVE: 则 <span class="underline">fork</span> 出一个 <span class="underline">子进程</span> ，子进程负责调用 rdbSave ，并在 <span class="underline">保存完成之后</span> 向 <span class="underline">主进程</span> <b>发送</b> <span class="underline">信号</span> ，通知保存已完成
 </p>
-<pre class="example" id="org95bfcd1">
+<pre class="example" id="org1eb93f4">
 因为 rdbSave 在子进程被调用，所以 Redis 服务器在 BGSAVE 执行期间仍然可以继续处理客户端的请求
 </pre></li>
 </ul>
@@ -301,7 +346,7 @@ BGSAVE: 则 <span class="underline">fork</span> 出一个 <span class="underline
 <div id="outline-container-org39323ef" class="outline-3">
 <h3 id="org39323ef">SAVE 、 BGSAVE 、 AOF 写入和 BGREWRITEAOF</h3>
 <div class="outline-text-3" id="text-org39323ef">
-<pre class="example" id="org2a51943">
+<pre class="example" id="org2b03bd3">
 除了了解 RDB 文件的保存方式之外， 可能还想知道
 
 两个 RDB 保存命令能否同时使用？ 它们和 AOF 保存工作是否冲突？
@@ -315,7 +360,7 @@ BGSAVE: 则 <span class="underline">fork</span> 出一个 <span class="underline
 前面提到过， 当 <span class="underline">SAVE</span> 执行时， Redis 服务器是 <b>阻塞</b> 的， 所以当 SAVE 正在执行时， 新的 <span class="underline">SAVE</span>  、 <span class="underline">BGSAVE</span> 或 <span class="underline">BGREWRITEAOF</span> 调用都 <b>不会产生任何作用</b> 
 </p>
 
-<pre class="example" id="orgcbd02f0">
+<pre class="example" id="org52679e3">
 只有在上一个 SAVE 执行完毕、 Redis 重新开始接受请求之后， 新的 SAVE 、 BGSAVE 或 BGREWRITEAOF 命令才会被处理
 </pre>
 <p>
@@ -330,7 +375,7 @@ BGSAVE: 则 <span class="underline">fork</span> 出一个 <span class="underline
 <p>
 在执行 SAVE 命令之前， 服务器会 <b>检查</b> <span class="underline">BGSAVE</span> 是否 <b>正在执行</b> 当中， 如果是的话， 服务器就不调用 rdbSave ， 而是向客户端 <span class="underline">返回</span> 一个 <span class="underline">出错信息</span> ， 告知在 BGSAVE 执行期间， 不能执行 SAVE 
 </p>
-<pre class="example" id="orga4de440">
+<pre class="example" id="org0975e6f">
 这样做可以避免 SAVE 和 BGSAVE 调用的两个 rdbSave 交叉执行， 造成竞争条件
 </pre>
 
@@ -346,7 +391,7 @@ BGSAVE: 则 <span class="underline">fork</span> 出一个 <span class="underline
 <li>如果 BGREWRITEAOF 正在执行，那么调用 BGSAVE 的客户端将收到 <span class="underline">出错信息</span> ，表示这两个命令 <b>不能同时执行</b></li>
 </ul>
 
-<pre class="example" id="org74ca6f1">
+<pre class="example" id="org7f455c6">
 BGREWRITEAOF 和 BGSAVE 两个命令在操作方面并没有什么冲突的地方， 不能同时执行它们只是一个性能方面的考虑
 
 并发出两个子进程， 并且两个子进程都同时进行大量的磁盘写入操作， 这怎么想都不会是一个好主意
@@ -369,7 +414,7 @@ BGREWRITEAOF 和 BGSAVE 两个命令在操作方面并没有什么冲突的地�
 等到载入完成之后， 服务器才会开始正常处理所有命令
 </p>
 
-<pre class="example" id="org25a82c4">
+<pre class="example" id="orgadcff6d">
 发布与订阅功能和其他数据库功能是完全隔离的，前者不写入也不读取数据库
 
 所以在服务器载入期间，订阅与发布功能仍然可以正常使用，而不必担心对载入数据的完整性产生影响
@@ -380,7 +425,7 @@ BGREWRITEAOF 和 BGSAVE 两个命令在操作方面并没有什么冲突的地�
 另外， 因为 <span class="underline">AOF 文件</span> 的保存频率 通常要 <b>高于</b> <span class="underline">RDB 文件</span> 保存的频率， 所以一般来说， AOF 文件中的数据会比 RDB 文件中的数据要新
 </p>
 
-<pre class="example" id="orgbfb9ff1">
+<pre class="example" id="org8eacf43">
 因此， 如果服务器在启动时， 打开了 AOF 功能， 那么程序优先使用 AOF 文件来还原数据
 
 只有在 AOF 功能未打开的情况下， Redis 才会使用 RDB 文件来还原数据
@@ -390,6 +435,391 @@ BGREWRITEAOF 和 BGSAVE 两个命令在操作方面并没有什么冲突的地�
 
 <div id="outline-container-orgd3e5db7" class="outline-2">
 <h2 id="orgd3e5db7">RDB 文件结构</h2>
+<div class="outline-text-2" id="text-orgd3e5db7">
+<pre class="example" id="org54ce7a2">
+前面介绍了保存和读取 RDB 文件的两个函数，现在，是时候介绍 RDB 文件本身了
+</pre>
+
+<p>
+一个 RDB 文件可以分为以下几个部分：
+</p>
+<pre class="example" id="orgc826bf5">
++-------+-------------+-----------+-----------------+-----+-----------+
+| REDIS | RDB-VERSION | SELECT-DB | KEY-VALUE-PAIRS | EOF | CHECK-SUM |
++-------+-------------+-----------+-----------------+-----+-----------+
+
+		      |&lt;-------- DB-DATA ----------&gt;|
+</pre>
+
+<p>
+以下分别对这几个部分的保存和读入规则进行介绍
+</p>
+</div>
+
+<div id="outline-container-org2c8ee6d" class="outline-3">
+<h3 id="org2c8ee6d">REDIS</h3>
+<div class="outline-text-3" id="text-org2c8ee6d">
+<p>
+文件的最开头保存着 <span class="underline">REDIS</span> 五个字符，标识着一个 RDB 文件的 <b>开始</b> 
+</p>
+
+<pre class="example" id="org994be0f">
+在读入文件的时候，程序可以通过检查一个文件的前五个字节，来快速地判断该文件是否有可能是 RDB 文件
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org9aae90f" class="outline-3">
+<h3 id="org9aae90f">RDB-VERSION</h3>
+<div class="outline-text-3" id="text-org9aae90f">
+<p>
+一个 <span class="underline">四字节长</span> 的以字符表示的 <span class="underline">整数</span> ，记录了该文件所使用的 RDB <b>版本号</b> 
+</p>
+
+<pre class="example" id="org313186c">
+目前的 RDB 文件版本为 0006 
+
+因为不同版本的 RDB 文件互不兼容，所以在读入程序时，需要根据版本来选择不同的读入方式
+</pre>
+</div>
+</div>
+<div id="outline-container-org5e3240b" class="outline-3">
+<h3 id="org5e3240b">DB-DATA</h3>
+<div class="outline-text-3" id="text-org5e3240b">
+<p>
+这个部分在一个 RDB 文件中会出现 <b>任意</b> 多次，每个 DB-DATA 部分保存着服务器上一个 <b>非空数据库的所有数据</b> 
+</p>
+</div>
+<div id="outline-container-org7bfa3d7" class="outline-4">
+<h4 id="org7bfa3d7">SELECT-DB</h4>
+<div class="outline-text-4" id="text-org7bfa3d7">
+<p>
+这域保存着跟在后面的键值对所属的 <span class="underline">数据库号码</span>
+</p>
+
+<pre class="example" id="org0582f6e">
+在读入 RDB 文件时，程序会根据这个域的值来切换数据库，确保数据被还原到正确的数据库上
+</pre>
+</div>
+</div>
+<div id="outline-container-org646fcc7" class="outline-4">
+<h4 id="org646fcc7">KEY-VALUE-PAIRS</h4>
+<div class="outline-text-4" id="text-org646fcc7">
+<p>
+因为空的数据库不会被保存到 RDB 文件，所以这个部分 <b>至少</b> 会包含 <span class="underline">一个键值对</span> 的数据。每个键值对的数据使用以下结构来保存：
+</p>
+
+<pre class="example" id="org042bf6f">
++----------------------+---------------+-----+-------+
+| OPTIONAL-EXPIRE-TIME | TYPE-OF-VALUE | KEY | VALUE |
++----------------------+---------------+-----+-------+
+</pre>
+
+<ul class="org-ul">
+<li><span class="underline">OPTIONAL-EXPIRE-TIME</span> 域是 <b>可选</b> 的：
+<ul class="org-ul">
+<li>如果键没有设置过期时间，那么这个域就不会出现</li>
+<li><p>
+如果这个域出现的话，那么它记录着键的过期时间
+</p>
+<pre class="example" id="orga9dda76">
+在当前版本的 RDB 中，过期时间是一个以毫秒为单位的 UNIX 时间戳
+</pre></li>
+</ul></li>
+<li><span class="underline">KEY</span> 域保存着键，格式和 <span class="underline">REDIS_ENCODING_RAW</span> 编码的 <b>字符串</b> 对象一样</li>
+<li><p>
+<span class="underline">TYPE-OF-VALUE</span> 域记录着 VALUE 域的值所使用的 <b>编码</b>
+</p>
+<pre class="example" id="orgd8b1a57">
+根据这个域的指示， 程序会使用不同的方式来保存和读取 VALUE 的值
+
+具体的编码在《对象处理机制》章节介绍过
+</pre></li>
+</ul>
+
+<p>
+接下来讨论保存 VALUE 的详细格式
+</p>
+</div>
+<div id="outline-container-org8d34cae" class="outline-5">
+<h5 id="org8d34cae">REDIS_ENCODING_INT 编码</h5>
+<div class="outline-text-5" id="text-org8d34cae">
+<p>
+REDIS_ENCODING_INT 编码的 <span class="underline">REDIS_STRING 类型对象</span> ：
+</p>
+<ul class="org-ul">
+<li><p>
+如果值可以表示为 <span class="underline">8</span> 位、 <span class="underline">16</span> 位或 <span class="underline">32</span> 位有符号整数，那么直接以整数类型的形式来保存它们：
+</p>
+<pre class="example" id="org214c536">
++---------+
+| integer |
++---------+
+
+比如说，整数 8 可以用 8 位序列 00001000 保存
+</pre></li>
+</ul>
+
+<p>
+当读入这类值时，程序按指定的长度读入字节数据，然后将数据转换回整数类型 
+</p>
+
+<ul class="org-ul">
+<li><p>
+如果值不能被表示为最高 32 位的有符号整数，那么说明这是一个 <span class="underline">long long</span> 类型的值，在 RDB 文件中，这种类型的值以 <span class="underline">字符序列</span> 的形式保存。一个字符序列由两部分组成：
+</p>
+<pre class="example" id="orgb01c796">
++-----+---------+
+| LEN | CONTENT |
++-----+---------+
+</pre>
+<ul class="org-ul">
+<li>CONTENT 域保存了 <span class="underline">字符内容</span></li>
+<li>LEN 则保存了以字节为单位的 <span class="underline">字符长度</span></li>
+</ul></li>
+</ul>
+
+<p>
+当进行载入时，读入器先读入 LEN ，创建一个长度等于 LEN 的字符串对象，然后再从文件中读取 LEN 字节数据，并将这些数据设置为字符串对象的值
+</p>
+</div>
+</div>
+<div id="outline-container-orge3a82c8" class="outline-5">
+<h5 id="orge3a82c8">REDIS_ENCODING_RAW</h5>
+<div class="outline-text-5" id="text-orge3a82c8">
+<p>
+REDIS_ENCODING_RAW 编码的 REDIS_STRING 类型值有三种保存方式：
+</p>
+<ol class="org-ol">
+<li>如果值可以表示为 8 位、 16 位或 32 位长的有符号整数，那么用 <span class="underline">整数类型</span> 的形式来保存它们</li>
+<li><p>
+如果字符串长度大于 20 ，并且服务器开启了 <span class="underline">LZF</span> 压缩功能 ，那么对字符串进行 <b>压缩</b> ，并保存 <span class="underline">压缩之后的数据*</span> 。经过 LZF 压缩的字符串会被保存为以下结构：
+</p>
+<pre class="example" id="orgc59a050">
++----------+----------------+--------------------+
+| LZF-FLAG | COMPRESSED-LEN | COMPRESSED-CONTENT |
++----------+----------------+--------------------+
+</pre>
+<ul class="org-ul">
+<li>LZF-FLAG 告知读入器，后面跟着的是被 LZF 算法压缩过的数据</li>
+<li>COMPRESSED-CONTENT 是被 <span class="underline">压缩后的数据</span></li>
+<li>COMPRESSED-LEN 则是该数据的 <span class="underline">字节长度</span></li>
+</ul></li>
+<li><p>
+在其他情况下，程序直接以 <span class="underline">普通字节序列</span> 的方式来保存字符串。这种字符串被保存为以下结构：
+</p>
+<pre class="example" id="org7a357a7">
++-----+---------+
+| LEN | CONTENT |
++-----+---------+
+</pre>
+<ul class="org-ul">
+<li>LEN 为字符串的字节长度</li>
+<li>CONTENT 为字符串</li>
+</ul></li>
+</ol>
+
+<p>
+当进行载入时，读入器先检测字符串保存的方式，再根据不同的保存方式，用不同的方法取出内容，并将内容保存到新建的字符串对象当中
+</p>
+</div>
+</div>
+<div id="outline-container-org6a7a59b" class="outline-5">
+<h5 id="org6a7a59b">REDIS_ENCODING_LINKEDLIST</h5>
+<div class="outline-text-5" id="text-org6a7a59b">
+<p>
+REDIS_ENCODING_LINKEDLIST 编码的 <span class="underline">REDIS_LIST 类型</span> 值保存为以下结构：
+</p>
+<pre class="example" id="orgf166656">
++-----------+--------------+--------------+-----+--------------+
+| NODE-SIZE | NODE-VALUE-1 | NODE-VALUE-2 | ... | NODE-VALUE-N |
++-----------+--------------+--------------+-----+--------------+
+</pre>
+<ul class="org-ul">
+<li>NODE-SIZE 保存链表 <span class="underline">节点数量</span></li>
+<li>后面跟着 NODE-SIZE 个 <span class="underline">节点值</span> ，节点值的保存方式和 <span class="underline">字符串</span> 的保存方式一样</li>
+</ul>
+
+<p>
+当进行载入时，读入器读取节点的数量， <b>创建</b> 一个新的 <span class="underline">链表</span> ，然后一直执行以下步骤，直到指定节点数量满足为止：
+</p>
+<ol class="org-ol">
+<li>读取字符串表示的节点值</li>
+<li>将包含节点值的新节点添加到链表中</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-org879ff7e" class="outline-5">
+<h5 id="org879ff7e">REDIS_ENCODING_HT</h5>
+<div class="outline-text-5" id="text-org879ff7e">
+<ul class="org-ul">
+<li><p>
+REDIS_ENCODING_HT 编码的 <span class="underline">REDIS_SET</span> 类型值保存为以下结构：
+</p>
+<pre class="example" id="orgff2065d">
++----------+-----------+-----------+-----+-----------+
+| SET-SIZE | ELEMENT-1 | ELEMENT-2 | ... | ELEMENT-N |
++----------+-----------+-----------+-----+-----------+
+</pre>
+<ul class="org-ul">
+<li>SET-SIZE 记录了集合元素的数量</li>
+<li>后面跟着多个元素值，元素值的保存方式和字符串的保存方式一样</li>
+</ul></li>
+</ul>
+
+<p>
+载入时，读入器先读入集合元素的数量 SET-SIZE ，再连续读入 SET-SIZE 个字符串，并将这些字符串作为新元素添加至新创建的集合
+</p>
+
+<ul class="org-ul">
+<li><p>
+REDIS_ENCODING_HT 编码的 <span class="underline">REDIS_HASH</span> 类型值保存为以下结构：
+</p>
+<pre class="example" id="orga508937">
++-----------+-------+---------+-------+---------+-----+-------+---------+
+| HASH-SIZE | KEY-1 | VALUE-1 | KEY-2 | VALUE-2 | ... | KEY-N | VALUE-N |
++-----------+-------+---------+-------+---------+-----+-------+---------+
+</pre>
+<ul class="org-ul">
+<li>HASH-SIZE 是哈希表包含的 <span class="underline">键值对的数量</span></li>
+<li>KEY-i 和 VALUE-i 分别是哈希表的 <span class="underline">键和值</span></li>
+</ul></li>
+</ul>
+
+<p>
+载入时，程序先 <b>创建</b> 一个 <span class="underline">新的哈希表</span> ，然后读入 HASH-SIZE ，再执行以下步骤 HASH-SIZE 次：
+</p>
+<ol class="org-ol">
+<li>读入一个字符串</li>
+<li>再读入另一个字符串</li>
+<li>将第一个读入的字符串作为键，第二个读入的字符串作为值，插入到新建立的哈希中</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org0f5878e" class="outline-5">
+<h5 id="org0f5878e">REDIS_ENCODING_SKIPLIST</h5>
+<div class="outline-text-5" id="text-org0f5878e">
+<p>
+REDIS_ENCODING_SKIPLIST 编码的 <span class="underline">REDIS_ZSET</span> 类型值保存为以下结构：
+</p>
+<pre class="example" id="org4c713e8">
++--------------+-------+---------+-------+---------+-----+-------+---------+
+| ELEMENT-SIZE | MEB-1 | SCORE-1 | MEB-2 | SCORE-2 | ... | MEB-N | SCORE-N |
++--------------+-------+---------+-------+---------+-----+-------+---------+
+</pre>
+<ul class="org-ul">
+<li>ELEMENT-SIZE 为有序集元素的数量</li>
+<li>MEB-i 为第 i 个有序集元素的成员</li>
+<li>SCORE-i 为第 i 个有序集元素的分值</li>
+</ul>
+
+<p>
+当进行载入时，读入器读取有序集元素数量， <b>创建</b> 一个 <span class="underline">新的有序集</span> ，然后一直执行以下步骤，直到指定元素数量满足为止：
+</p>
+<ul class="org-ul">
+<li>读入字符串形式保存的成员 <span class="underline">member</span></li>
+<li>读入字符串形式保存的分值 <span class="underline">score</span> ，并将它转换为 <b>浮点数</b></li>
+<li>添加 member 为成员、 score 为分值的新元素到有序集</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orgb4c8092" class="outline-5">
+<h5 id="orgb4c8092">REDIS_ENCODING_ZIPLIST</h5>
+<div class="outline-text-5" id="text-orgb4c8092">
+<p>
+REDIS_ENCODING_ZIPLIST 编码的 <span class="underline">REDIS_LIST</span> 类型、  <span class="underline">REDIS_HASH</span> 类型和 <span class="underline">REDIS_ZSET</span> 类型。 ziplist 在 RDB 中的保存方式如下：
+</p>
+<pre class="example" id="org6fa2fbf">
++-----+---------+
+| LEN | ZIPLIST |
++-----+---------+
+</pre>
+<p>
+载入时，读入器先读入 ziplist 的 <span class="underline">字节长</span> ，再根据该字节长读入 <span class="underline">数据</span> ，最后将数据 <b>还原</b> 成一个 <span class="underline">ziplist</span> 
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgf6db960" class="outline-5">
+<h5 id="orgf6db960">REDIS_ENCODING_INTSET</h5>
+<div class="outline-text-5" id="text-orgf6db960">
+<p>
+REDIS_ENCODING_INTSET 编码的 <span class="underline">REDIS_SET</span> 类型值保存为以下结构：
+</p>
+
+<pre class="example" id="orge4cc676">
++-----+--------+
+| LEN | INTSET |
++-----+--------+
+</pre>
+
+<p>
+载入时，读入器先读入 intset 的 <span class="underline">字节长度</span> ，再根据长度读入 <span class="underline">数据</span> ，最后将数据 <b>还原</b> 成 <span class="underline">intset</span> 
+</p>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org1ff3445" class="outline-3">
+<h3 id="org1ff3445">EOF</h3>
+<div class="outline-text-3" id="text-org1ff3445">
+<p>
+标志着 <span class="underline">数据库内容</span> 的 <b>结尾</b> （不是文件的结尾），值为 <span class="underline">rdb.h/EDIS_RDB_OPCODE_EOF</span> （ \(255\) ）
+</p>
+</div>
+</div>
+<div id="outline-container-org94e29fe" class="outline-3">
+<h3 id="org94e29fe">CHECK-SUM</h3>
+<div class="outline-text-3" id="text-org94e29fe">
+<p>
+RDB 文件 <b>所有内容的校验和</b> ， 一个 <span class="underline">uint_64t</span> 类型值。
+</p>
+<ul class="org-ul">
+<li>REDIS 在写入 RDB 文件时将校验和保存在 RDB 文件的末尾</li>
+<li>当读取时， 根据它的值对内容进行校验</li>
+</ul>
+
+<pre class="example" id="org035675a">
+如果这个域的值为 0 ， 那么表示 Redis 关闭了校验和功能
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgf4d8ace" class="outline-2">
+<h2 id="orgf4d8ace">小结</h2>
+<div class="outline-text-2" id="text-orgf4d8ace">
+<ul class="org-ul">
+<li>rdbSave 会将数据库数据保存到 RDB 文件，并在保存完成之前阻塞调用者</li>
+<li>SAVE 命令直接调用 rdbSave ，阻塞 Redis 主进程； BGSAVE 用子进程调用 rdbSave ，主进程仍可继续处理命令请求</li>
+<li>SAVE 执行期间， AOF 写入可以在后台线程进行， BGREWRITEAOF 可以在子进程进行，所以这三种操作可以同时进行</li>
+<li>为了避免产生竞争条件， BGSAVE 执行时， SAVE 命令不能执行</li>
+<li>为了避免性能问题， BGSAVE 和 BGREWRITEAOF 不能同时执行</li>
+<li>调用 rdbLoad 函数载入 RDB 文件时，不能进行任何和数据库相关的操作，不过订阅与发布方面的命令可以正常执行，因为它们和数据库不相关联</li>
+<li><p>
+RDB 文件的组织方式如下：
+</p>
+<pre class="example" id="org5795880">
++-------+-------------+-----------+-----------------+-----+-----------+
+| REDIS | RDB-VERSION | SELECT-DB | KEY-VALUE-PAIRS | EOF | CHECK-SUM |
++-------+-------------+-----------+-----------------+-----+-----------+
+
+		      |&lt;-------- DB-DATA ----------&gt;|
+</pre></li>
+<li><p>
+键值对在 RDB 文件中的组织方式如下：
+</p>
+<pre class="example" id="orgb68f5a0">
++----------------------+---------------+-----+-------+
+| OPTIONAL-EXPIRE-TIME | TYPE-OF-VALUE | KEY | VALUE |
++----------------------+---------------+-----+-------+
+</pre>
+<ul class="org-ul">
+<li>RDB 文件使用不同的格式来保存不同类型的值</li>
+</ul></li>
+</ul>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
