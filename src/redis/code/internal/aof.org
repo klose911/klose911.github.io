@@ -166,11 +166,11 @@ Redis 将所有对数据库进行过 _写入的命令_ （及其 _参数_ ） *�
 #+begin_src c 
   struct redisServer {
 
-      // 其他域...
+	  // 其他域...
 
-      sds aof_buf;
+	  sds aof_buf;
 
-      // 其他域...
+	  // 其他域...
   };
 #+end_src
 
@@ -179,3 +179,173 @@ Redis 将所有对数据库进行过 _写入的命令_ （及其 _参数_ ） *�
 2. 将命令还原成 Redis 网络通讯协议
 3. 将协议文本追加到 aof_buf 末尾 
 ** 文件写入和保存
+每当服务器常规任务 _cron_ 函数被执行、 或者 _事件处理器_ 被执行时， _aof.c/flushAppendOnlyFile_ 函数都会被调用， 这个函数执行以下两个工作：
++ WRITE：根据条件，将 _aof_buf 中的缓存_ *写入* 到 _AOF 文件_ 
++ SAVE：根据条件，调用 _fsync_ 或 _fdatasync_ 函数，将 _AOF 文件_ *保存* 到 _磁盘_ 中
+
+两个步骤都需要根据一定的条件来执行， 而这些 _条件_ 由 AOF 所使用的 *保存模式* 来决定
+*** AOF 保存模式
+Redis 目前支持三种 AOF 保存模式，它们分别是：
+1. AOF_FSYNC_NO ： _不_ 保存
+2. AOF_FSYNC_EVERYSEC ： _每一秒钟_ 保存一次
+3. AOF_FSYNC_ALWAYS ：每 _执行一个命令_ 保存一次 
+**** 不保存
+在这种模式下， 每次调用 _flushAppendOnlyFile_ 函数，  _WRITE_ 都会被 _执行_ ， 但 _SAVE_ 会被 *略过* 。SAVE 只会在以下任意一种情况中被执行：
+1. Redis 被关闭
+2. AOF 功能被关闭
+3. 系统的 _写缓存_ 被 *刷新*
+   #+begin_example
+     可能是缓存已经被写满，或者定期保存操作被执行
+   #+end_example
+
+这三种情况下的 SAVE 操作都会引起 _Redis 主进程_ *阻塞* 
+**** 每一秒钟保存一次
+在这种模式中， SAVE  *原则上* 每隔 _一秒钟_ 就会执行一次， 因为 SAVE 操作是由 *后台子线程* 调用的， 所以它不会引起服务器主进程阻塞
+
+#+begin_example
+  注意， 在上一句的说明里面使用了词语“原则上”
+
+  在实际运行中， 程序在这种模式下对 fsync 或 fdatasync 的调用并不是每秒一次
+
+  它和调用 flushAppendOnlyFile 函数时 Redis 所处的状态有关
+#+end_example
+每当 _flushAppendOnlyFile_ 函数被调用时， 可能会出现以下四种情况：
++ 子线程正在执行 SAVE ，并且：
+  1. 这个 _SAVE 的执行时间_ *未超过*  _2 秒_ ，那么程序 _直接返回_ ，并不执行 WRITE 或新的 SAVE
+  2. 这个 SAVE 已经执行 *超过* 2 秒，那么程序 _执行 WRITE_  ，但 *不执行新的 SAVE*
+     #+begin_example
+       注意，因为这时 WRITE 的写入必须等待子线程先完成（旧的） SAVE ，因此这里 WRITE 会比平时阻塞更长时间
+     #+end_example
++ 子线程没有在执行 SAVE ，并且：
+  1. _上次成功执行 SAVE_ 距今 *不超过* _1 秒_ ，那么程序 _执行 WRITE_ ，但 _不执行 SAVE_
+  2. 上次成功执行 SAVE 距今 *已经超过* 1 秒，那么程序 _执行 WRITE 和 SAVE_
+
+
+可以用流程图表示这四种情况：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-1b226a6d0f09ed1b61a30d899372834634b96504.svg]]
+
+#+begin_example
+  根据以上说明可以知道：
+
+  在“每一秒钟保存一次”模式下， 如果在情况 1 中发生故障停机， 那么用户最多损失小于 2 秒内所产生的所有数据
+
+  如果在情况 2 中发生故障停机， 那么用户损失的数据是可以超过 2 秒的
+
+  Redis 官网上所说的， AOF 在“每一秒钟保存一次”时发生故障， 只丢失 1 秒钟数据的说法， 实际上并不准确
+#+end_example
+
+**** 每执行一个命令保存一次
+在这种模式下，每次 *执行完* _一个命令_ 之后，  _WRITE_ 和 _SAVE_ *都会* 被 _执行_ 。因为  _SAVE_ 是由 _Redis 主进程_ 执行的，所以在 SAVE 执行期间， *主进程会被阻塞* ，不能接受命令请求 
+*** AOF 保存模式对性能和安全性的影响
+#+begin_example
+现在， 是时候研究一下这三个模式在安全性和性能方面的区别了
+#+end_example
+
+对于三种 AOF 保存模式， 它们对服务器主进程的阻塞情况如下：
+1. 不保存 _AOF_FSYNC_NO_ ：写入和保存都由主进程执行，两个操作都会 *阻塞* 主进程
+2. 每一秒钟保存一次 _AOF_FSYNC_EVERYSEC_ ：
+   + 写入操作由主进程执行，阻塞主进程
+   + 保存操作由子线程执行，不直接阻塞主进程，但保存操作完成的快慢会影响写入操作的阻塞时长
+3. 每执行一个命令保存一次 _AOF_FSYNC_ALWAYS_ ：和模式 1 一样
+
+因为阻塞操作会让 Redis 主进程无法持续处理请求， 所以一般说来， 阻塞操作执行得越少、完成得越快， Redis 的性能就越好
++ 模式 1 ：
+  + 保存操作只会在AOF 关闭或 Redis 关闭时执行， 或者由操作系统触发， 在一般情况下， 这种模式只需要为写入阻塞， 因此它的 _写入性能要比后面两种模式要高_ 
+  + 这种性能的提高是以降低安全性为代价的： 在这种模式下， 如果运行的中途发生停机， 那么丢失数据的数量由 _操作系统的缓存冲洗策略_ 决定
++ 模式 2 ： 这是一种 *兼顾性能和安全性* 的保存方案
+  + 在性能方面要优于模式 3
+  + 并且在通常情况下， 这种模式最多丢失不多于 2 秒的数据， 所以它的安全性要高于模式 1 
++ 模式 3 的 _安全性是最高_ 的， 但 _性能也是最差的_ ， 因为服务器必须阻塞直到命令信息被写入并保存到磁盘之后， 才能继续处理请求
+
+综合起来，三种 AOF 模式的操作特性可以总结如下：
+
+#+CAPTION:  save stratgy of redis AOF file 
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 模式               | WRITE 是否阻塞？ | SAVE 是否阻塞？ | 停机时丢失的数据量                                  |
+| AOF_FSYNC_NO       | 阻塞             | 阻塞            | 操作系统最后一次对 AOF 文件触发 SAVE 操作之后的数据 |
+| AOF_FSYNC_EVERYSEC | 阻塞             | 不阻塞          | 一般情况下不超过 2 秒钟的数据                       |
+| AOF_FSYNC_ALWAYS   | 阻塞             | 阻塞            | 最多只丢失一个命令的数据                            |
+
+* AOF 文件的读取和数据还原
+AOF 文件保存了 Redis 的数据库状态， 而文件里面包含的都是符合 _Redis 通讯协议格式_ 的 _命令文本_ 
+
+#+begin_example
+这也就是说， 只要根据 AOF 文件里的协议， 重新执行一遍里面指示的所有命令， 就可以还原 Redis 的数据库状态了
+#+end_example
+
+Redis 读取 AOF 文件并还原数据库的详细步骤如下：
+1. 创建一个 _不带网络连接_ 的 *伪客户端* _fake client_ 
+2. 读取  _AOF 所保存的文本_ ，并根据内容 *还原* 出 _命令_ 、命令的 _参数_ 以及命令的 _个数_ 
+3. 根据命令、命令的参数和命令的个数，使用 _伪客户端_ *执行* 该 _命令_ 
+4. 执行 2 和 3 ，直到 AOF 文件中的所有命令执行完毕
+
+完成第 4 步之后， AOF 文件所保存的数据库就会被完整地还原出来
+
+#+begin_example
+  注意， 因为 Redis 的命令只能在客户端的上下文中被执行
+
+  而 AOF 还原时所使用的命令来自于 AOF 文件， 而不是网络，所以程序使用了一个没有网络连接的伪客户端来执行命令
+
+  伪客户端执行命令的效果， 和带网络连接的客户端执行命令的效果， 完全一样
+#+end_example
+
+整个读取和还原过程可以用以下伪代码表示：
+#+begin_src python 
+  def READ_AND_LOAD_AOF():
+      file = open(aof_file_name) # 打开并读取 AOF 文件
+      while file.is_not_reach_eof():
+	  cmd_in_text = file.read_next_command_in_protocol_format() # 读入一条协议文本格式的 Redis 命令
+	  cmd, argv, argc = text_to_command(cmd_in_text) # 根据文本命令，查找命令函数，并创建参数和参数个数等对象
+	  execRedisCommand(cmd, argv, argc) # 执行命令
+
+      file.close() # 关闭文件
+#+end_src
+
+作为例子， 以下是一个简短的 AOF 文件的内容：
+#+begin_example
+  ,*2
+  $6
+  SELECT
+  $1
+  0
+  ,*3
+  $3
+  SET
+  $3
+  key
+  $5
+  value
+  ,*8
+  $5
+  RPUSH
+  $4
+  list
+  $1
+  1
+  $1
+  2
+  $1
+  3
+  $1
+  4
+  $1
+  5
+  $1
+  6
+#+end_example
+
+当程序读入这个 AOF 文件时， 它首先执行 _SELECT 0_ 命令
+#+begin_example
+  这个 SELECT 命令是由 AOF 写入程序自动生成的， 它确保程序可以将数据还原到正确的数据库上
+#+end_example
+
+然后执行后面的 _SET key value_ 和 _RPUSH 1 2 3 4_ 命令， 还原 key 和 list 两个键的数据
+
+#+begin_example
+  为了避免对数据的完整性产生影响， 在服务器载入数据的过程中
+
+  只有和数据库无关的订阅与发布功能可以正常使用， 其他命令一律返回错误
+#+end_example
+
+* AOF 重写
