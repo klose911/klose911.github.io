@@ -349,3 +349,183 @@ Redis 读取 AOF 文件并还原数据库的详细步骤如下：
 #+end_example
 
 * AOF 重写
+#+begin_example
+  AOF 文件通过同步 Redis 服务器所执行的命令， 从而实现了数据库状态的记录
+#+end_example
+
+但是， 这种同步方式会造成一个问题： *随着运行时间的流逝， AOF 文件会变得越来越大* 。举个例子， 如果服务器执行了以下命令：
+
+#+begin_example
+  RPUSH list 1 2 3 4      // [1, 2, 3, 4]
+
+  RPOP list               // [1, 2, 3]
+
+  LPOP list               // [2, 3]
+
+  LPUSH list 1            // [1, 2, 3]
+
+  那么光是记录 list 键的状态， AOF 文件就需要保存四条命令
+
+  有些被频繁操作的键， 对它们所调用的命令可能有成百上千、甚至上万条
+
+  如果这样被频繁操作的键有很多的话， AOF 文件的体积就会急速膨胀， 对 Redis 、甚至整个系统的造成影响
+#+end_example
+
+为了解决以上的问题， Redis 需要对 AOF 文件进行 *重写* _rewrite_ ：创建一个新的 AOF 文件来代替原有的 AOF 文件， 新 AOF 文件和原有 AOF 文件保存的数据库状态完全一样， 但新 AOF 文件的体积小于等于原有 AOF 文件的体积
+
+** 重写的实现
+实际上， AOF 重写并不需要对原有的 AOF 文件进行任何写入和读取， 它针对的是 _数据库中键的当前值_ 。考虑这样一个情况， 如果服务器对键 list 执行了以下四条命令：
+#+begin_example
+  RPUSH list 1 2 3 4      // [1, 2, 3, 4]
+
+  RPOP list               // [1, 2, 3]
+
+  LPOP list               // [2, 3]
+
+  LPUSH list 1            // [1, 2, 3]
+#+end_example
+
+那么当前列表键 _list_ 在数据库中的值就为 _[1, 2, 3]_ 。如果要保存这个列表的当前状态， 并且尽量减少所使用的命令数， 那么最简单的方式不是去 AOF 文件上分析前面执行的四条命令， 而是直接 *读取* _list_ 键在数据库的 *当前值* ， 然后用一条 _RPUSH 1 2 3_ 命令来代替前面的四条命令
+
+再考虑这样一个例子， 如果服务器对集合键 animal 执行了以下命令：
+#+begin_example
+  SADD animal cat                 // {cat}
+
+  SADD animal dog panda tiger     // {cat, dog, panda, tiger}
+
+  SREM animal cat                 // {dog, panda, tiger}
+
+  SADD animal cat lion            // {cat, lion, dog, panda, tiger}
+#+end_example
+
+那么使用一条 _SADD animal cat lion dog panda tiger_ 命令， 就可以还原 animal 集合的状态， 这比之前的四条命令调用要大大减少
+
+#+begin_example
+  除了列表和集合之外， 字符串、有序集、哈希表等键也可以用类似的方法来保存状态
+
+  并且保存这些状态所使用的命令数量 比起 之前建立这些键的状态所使用命令的数量要 大大减少
+#+end_example
+
+根据键的 _类型_ ， 使用 *适当的* _写入命令_ 来重现 _键的当前值_ ， 这就是 AOF 重写的实现原理。 整个重写过程可以用伪代码表示如下：
+
+#+begin_src python 
+  def AOF_REWRITE(tmp_tile_name):
+
+    f = create(tmp_tile_name)
+
+    for db in redisServer.db:   # 遍历所有数据库
+      if db.is_empty(): continue # 如果数据库为空，那么跳过这个数据库
+
+      f.write_command("SELECT " + db.number) # 写入 SELECT 命令，用于切换数据库
+      for key in db: # 遍历所有键
+	if key.have_expire_time() and key.is_expired(): continue # 如果键带有过期时间，并且已经过期，那么跳过这个键
+
+	if key.type == String: # 用 SET key value 命令来保存字符串键
+	  value = get_value_from_string(key)
+	  f.write_command("SET " + key + value)
+
+	elif key.type == List: # 用 RPUSH key item1 item2 ... itemN 命令来保存列表键
+	  item1, item2, ..., itemN = get_item_from_list(key)
+	  f.write_command("RPUSH " + key + item1 + item2 + ... + itemN)
+
+	elif key.type == Set: # 用 SADD key member1 member2 ... memberN 命令来保存集合键
+	  member1, member2, ..., memberN = get_member_from_set(key)
+	  f.write_command("SADD " + key + member1 + member2 + ... + memberN)
+
+	elif key.type == Hash: # 用 HMSET key field1 value1 field2 value2 ... fieldN valueN 命令来保存哈希键
+	  field1, value1, field2, value2, ..., fieldN, valueN = get_field_and_value_from_hash(key)
+	  f.write_command("HMSET " + key + field1 + value1 + field2 + value2 + ... + fieldN + valueN)
+
+	elif key.type == SortedSet: # 用 ZADD key score1 member1 score2 member2 ... scoreN memberN 命令来保存有序集键
+	  score1, member1, score2, member2, ..., scoreN, memberN = get_score_and_member_from_sorted_set(key)
+	  f.write_command("ZADD " + key + score1 + member1 + score2 + member2 + ... + scoreN + memberN)
+
+	else:
+
+	  raise_type_error()
+
+	if key.have_expire_time(): # 如果键带有过期时间，那么用 EXPIREAT key time 命令来保存键的过期时间
+	  f.write_command("EXPIREAT " + key + key.expire_time_in_unix_timestamp())
+
+      f.close() # 关闭文件
+#+end_src
+** 后台重写
+#+begin_example
+  上一节展示的 AOF 重写程序可以很好地完成创建一个新 AOF 文件的任务
+
+  但是， 在执行这个程序的时候， 调用者线程会被阻塞
+#+end_example
+
+很明显， 作为一种辅佐性的维护手段， Redis 不希望 AOF 重写造成服务器无法处理请求， 所以 Redis 决定将 _AOF 重写_ 程序放到 _后台子进程_ 里执行， 这样处理的最大好处是：
+1. 子进程进行 AOF 重写期间， _主进程_ 可以 *继续处理* _命令请求_ 
+2. 子进程带有主进程的 _数据副本_ ，使用子进程而 *不是线程* ，可以在 _避免锁_ 的情况下，保证 *数据的安全性* 
+   #+begin_example
+     所谓的数据副本，就是 redisServer结构的db链表
+   #+end_example
+
+#+begin_example
+  不过， 使用子进程也有一个问题需要解决：因为子进程在进行 AOF 重写期间， 主进程还需要继续处理命令
+
+  而新的命令可能对现有的数据进行修改， 这会让当前数据库的数据和重写后的 AOF 文件中的数据不一致
+#+end_example
+
+为了解决这个问题， Redis 增加了一个 _AOF 重写缓存_ ， 这个缓存在 _fork 出子进程_ 之后开始 *启用* ， Redis 主进程在接到新的写命令之后， 除了会将这个写命令的协议内容追加到 _现有的 AOF 文件_ 之外， 还会追加到这个 _缓存_ 中：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/graphviz-982033b83f571a133367a8830ee5cca84f6a08e5.svg]]
+
+换言之， 当子进程在执行 AOF 重写时， 主进程需要执行以下三个工作：
+1. 处理命令请求
+2. 将写命令追加到现有的 AOF 文件中
+3. 将写命令追加到 AOF 重写缓存中
+
+这样一来可以保证：
++ 现有的 AOF 功能会继续执行，即使在 AOF 重写期间发生停机，也不会有任何数据丢失
++ 所有对数据库进行修改的命令都会被记录到 AOF 重写缓存中 
+
+当 _子进程_ *完成* _AOF 重写_ 之后， 它会向 _父进程_ *发送* 一个 _完成信号_ ， 父进程在 *接到* 完成信号之后， 会 *调用* 一个 _信号处理函数_ ， 并完成以下工作：
+1. 将 _AOF 重写缓存_ 中的内容全部 *写入* 到 _新 AOF 文件_ 中
+   #+begin_example
+     当步骤 1 执行完毕之后， 现有 AOF 文件、新 AOF 文件和数据库三者的状态就完全一致了
+   #+end_example
+2. 对 _新的 AOF 文件_ 进行 *改名* ，覆盖原有的 AOF 文件
+   #+begin_example
+     当步骤 2 执行完毕之后， 程序就完成了新旧两个 AOF 文件的交替
+   #+end_example
+
+这个信号处理函数执行完毕之后， 主进程就可以继续像往常一样接受命令请求了。 在整个 AOF 后台重写过程中， 只有最后的 _写入缓存_ 和 _改名操作_ 会造成 *主进程阻塞*
+
+#+begin_example
+  在其他时候， AOF 后台重写都不会对主进程造成阻塞， 这将 AOF 重写对性能造成的影响降到了最低
+
+  这就是 AOF 后台重写， 也即是 BGREWRITEAOF 命令的工作原理
+#+end_example
+
+*** 后台重写的触发条件 
+AOF 重写可以由用户通过调用 _BGREWRITEAOF_  *手动* 触发。另外， 服务器在 _AOF 功能开启_ 的情况下， 会维持以下三个变量：
++ 记录当前 AOF 文件大小的变量 _aof_current_size_ 
++ 记录最后一次 AOF 重写之后， AOF 文件大小的变量 _aof_rewrite_base_size_ 
++ 增长百分比变量  _aof_rewrite_perc_ 
+
+每次当 _serverCron_ 函数执行时， 它都会 *检查* 以下 _条件_ 是否 *全部* 满足， 如果是的话， 就会触发自动的 AOF 重写：
+1. 没有 _BGSAVE_ 命令在进行
+2. 没有 _BGREWRITEAOF_ 在进行
+3. _当前 AOF 文件大小_ *大于* _server.aof_rewrite_min_size_ （默认值为  _1 MB_ ）
+4. _当前 AOF 文件大小_ 和 _最后一次 AOF 重写后的大小_ 之间的 _比率_ *大于等于* 指定的 _增长百分比_
+   #+begin_example
+     默认情况下， 增长百分比为 100%。也即是说， 如果前面三个条件都已经满足
+
+     并且当前 AOF 文件大小比最后一次 AOF 重写时的大小要大一倍的话， 那么触发自动 AOF 重写
+   #+end_example
+
+* 小结
++ AOF 文件通过保存所有修改数据库的命令来记录数据库的状态
++ AOF 文件中的所有命令都以 Redis 通讯协议的格式保存
++ 不同的 AOF 保存模式对数据的安全性、以及 Redis 的性能有很大的影响
++ AOF 重写的目的是用更小的体积来保存数据库状态，整个重写过程基本上不影响 Redis 主进程处理命令请求
++ AOF 重写是一个有歧义的名字，实际的重写工作是针对数据库的当前值来进行的，程序既不读写、也不使用原有的 AOF 文件
++ AOF 可以由用户手动触发，也可以由服务器自动触发
+
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:rdb.org][Previous: RDB]] | [[file:internal.org][Home：内部机制]] |
