@@ -193,15 +193,55 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="css/main.css" />
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        displayAlign: "center",
+        displayIndent: "0em",
+
+        "HTML-CSS": { scale: 100,
+                        linebreaks: { automatic: "false" },
+                        webFont: "TeX"
+                       },
+        SVG: {scale: 100,
+              linebreaks: { automatic: "false" },
+              font: "TeX"},
+        NativeMML: {scale: 100},
+        TeX: { equationNumbers: {autoNumber: "AMS"},
+               MultLineWidth: "85%",
+               TagSide: "right",
+               TagIndent: ".8em"
+             }
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_HTML"></script>
 </head>
 <body>
 <div id="content" class="content">
 <h1 class="title">Transformer</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org79f6eac">循环神经网络</a>
+<ul>
+<li><a href="#org6012ab0">长期依赖的问题</a></li>
+<li><a href="#orgddeaf86">Long-Short Term Memory (LSTM)</a>
+<ul>
+<li><a href="#org391a04e">LSTM的问题</a></li>
+</ul>
+</li>
+<li><a href="#org81060c9">Attention</a></li>
+</ul>
+</li>
+<li><a href="#org170ad5b">卷积神经网络</a></li>
+</ul>
+</div>
+</div>
 <p>
 Transformer是一类 <span class="underline">神经网络</span> 架构
 </p>
 
-<pre class="example" id="org2ff5f37">
+<pre class="example" id="org3c3f9a8">
 Transformer 现在越来越受欢迎了，最近被OpenAI用于训练他们的语言模型
 
 同时也被DeepMind的AlphaStar 采用，用于他们的程序击败那些顶级星际玩家
@@ -212,9 +252,273 @@ Transformer是为了解决 <span class="underline">序列传导</span> 问题或
 </p>
 
 
-<div id="org6936cf0" class="figure">
+<div id="org912382c" class="figure">
 <p><img src="pic/5c90b6ff201a4.gif" alt="5c90b6ff201a4.gif" width="80%" />
 </p>
+</div>
+
+<p>
+对于需要进行 <span class="underline">序列传导</span> 的模型，有必要有某种 <b>记忆</b>
+</p>
+
+<pre class="example" id="org37fa540">
+例如，将以下句子翻译到另一种语言(法语):
+
+“The Transformers” are a Japanese [[hardcore punk]] band. The band was formed in 1968, during the height of Japanese music history”
+
+本例中，第二句话中的“the band”一词指代第一句中引入的“The Transformers”
+
+当读到第二句中的"the band"，你知道它指的是“The Transformers” band
+
+这对翻译很重要。事实上，后一句话中的某个词指代前几句话中出现的某个词，像这样的例子很多
+</pre>
+
+<p>
+翻译这样的句子，模型需要找出之间的依赖和关联。 <b>循环神经网络</b>  <span class="underline">RNNs</span> 和 <b>卷积神经网络</b> <span class="underline">CNNs</span> 由于其特性已被使用来解决这个问题。 首先来回顾一下这两种架构及其缺点
+</p>
+<div id="outline-container-org79f6eac" class="outline-2">
+<h2 id="org79f6eac">循环神经网络</h2>
+<div class="outline-text-2" id="text-org79f6eac">
+<p>
+循环神经网络内部有 <span class="underline">循环</span> ，允许 <span class="underline">信息</span> <b>保存</b> 其中 
+</p>
+
+
+<div id="org9f9f292" class="figure">
+<p><img src="pic/5c90b70c90e90.png" alt="5c90b70c90e90.png" width="50%" />
+</p>
+</div>
+
+<p>
+如上图所示，可以看到神经网络的一部分 \(A\)，处理 <b>输入</b> \(x_t\)，然后 <b>输出</b> \(h_t\) ， A处循环 使得 <b>信息可从前一步传递至后一步</b>
+</p>
+
+<pre class="example" id="org9d348f7">
+换一种方式思考这些循环：循环神经网络可认为是同一网络A的多重备份，每个网络将信息传递给其后续网络
+</pre>
+<p>
+看一下如果将循环展开会如何：
+</p>
+
+<div id="org0892061" class="figure">
+<p><img src="pic/5c90b713778c5.png" alt="5c90b713778c5.png" width="80%" />
+</p>
+</div>
+
+<p>
+图中 <b>链式</b> 本质清楚地表明循环神经网络与序列和列表相关
+</p>
+<pre class="example" id="org7a1a9bf">
+如果以这种方式翻译一段文本，需要将文本中的每个单词设置为其输入
+
+循环神经网络将序列中前面的词语的信息传入后一个神经网络，这样便可以利用和处理这些信息
+</pre>
+
+<p>
+下图展示了 <span class="underline">sequence to sequence</span> 模型通常是如何用循环神经网络工作的。每个单词被单独处理，然后将 <span class="underline">编码阶段的隐状态</span> <b>传入</b> <span class="underline">解码阶段</span> 以 <b>生成</b> <span class="underline">结果句子</span> ，然后这样就产生了输出 
+</p>
+
+<div id="orgd21aacc" class="figure">
+<p><img src="pic/5c90b727ad045.gif" alt="5c90b727ad045.gif" width="80%" />
+</p>
+</div>
+</div>
+
+<div id="outline-container-org6012ab0" class="outline-3">
+<h3 id="org6012ab0">长期依赖的问题</h3>
+<div class="outline-text-3" id="text-org6012ab0">
+<p>
+考虑一下这类模型，即使用之前看到的单词预测下一个单词
+</p>
+
+<pre class="example" id="org8b8d124">
+如果需要预测这句话“the clouds in the ___”的下一个单词，不需要额外的语境信息，很显然下个单词是“sky”
+
+这个例子里，相关信息和需预测单词的距离很近
+</pre>
+
+<p>
+循环神经网络可以学习前面的信息，并找出句中下一个单词：
+</p>
+
+<div id="org6b916b1" class="figure">
+<p><img src="pic/5c90b731e6876.png" alt="5c90b731e6876.png" width="80%" />
+</p>
+</div>
+
+<p>
+但有些情况需要更多语境信息
+</p>
+
+<pre class="example" id="orgf988cd8">
+例如试图预测这句话的最后一个单词: “I grew up in France… I speak fluent ___”
+
+最靠近这个单词的信息建议这很有可能是一种语言，但当想确定具体是哪种语言时，需要语境信息France
+
+而这出现在较前面的文本中
+</pre>
+
+<div id="orgfd28328" class="figure">
+<p><img src="pic/5c90b73ccd5e8.png" alt="5c90b73ccd5e8.png" width="80%" />
+</p>
+</div>
+
+<p>
+当相关信息和词语之间距离变得很大时，RNN变得非常低效。那是因为，需要翻译的信息经过运算中的每一步，传递链越长，信息就越可能在链中丢失
+</p>
+
+<pre class="example" id="org499f00c">
+理论上RNN可以学习这些长期依赖关系，不过实践表现不佳，学不到这些信息
+
+因而出现了LSTM，一种特殊的RNN，试图解决这类问题
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgddeaf86" class="outline-3">
+<h3 id="orgddeaf86">Long-Short Term Memory (LSTM)</h3>
+<div class="outline-text-3" id="text-orgddeaf86">
+<pre class="example" id="org49eb359">
+我们平时安排日程时，通常会为不同的约会确定不同的优先级
+
+如果有什么重要行程安排，我们通常会取消一些不那么重要的会议，去参加那些重要的
+
+RNN不会那么做。无论什么时候都会不断往后面加信息，它通过应用函数转换全部现有信息
+
+在过程中所有信息都被修改了，它不去考虑哪些重要，哪些不重要
+</pre>
+<p>
+<span class="underline">LSTMs</span> 在此基础上利用 <span class="underline">乘法</span> 和 <span class="underline">加法</span> 做了一些小改进。在LSTMs里， <span class="underline">信息流</span> 经一种机制称为 <b>细胞状态</b> 。LSTM便可以选择性的记忆或遗忘那些重要或不重要的事情了。LSTM内部看起来像是这样:
+</p>
+
+<div id="orga57dd2d" class="figure">
+<p><img src="pic/5c90b74d67b86.png" alt="5c90b74d67b86.png" width="80%" />
+</p>
+</div>
+
+<p>
+每个细胞的输入为 \(x_t\) (在句子到句子翻译这类应用中 \(x_t\) 是一个单词), 上一轮细胞状态以及上一轮的输出。模型基于这些输入计算改变其中信息，然后产生新的细胞状态和输出
+</p>
+
+<pre class="example" id="org4314e96">
+这里不会详细讲每个细胞的实现机制，如果想了解这些细胞的运作机制，推荐看一下Christopher的博客:
+
+Understanding LSTM Networks -- colah's blog https://colah.github.io/posts/2015-08-Understanding-LSTMs/
+</pre>
+
+<p>
+这些循环使得循环神经网络看起来有点神秘。 但如果再细想一下，事实上采用细胞状态后，在翻译过程中，句子中对翻译单词重要的信息会被一轮一轮传递下去
+</p>
+</div>
+
+<div id="outline-container-org391a04e" class="outline-4">
+<h4 id="org391a04e">LSTM的问题</h4>
+<div class="outline-text-4" id="text-org391a04e">
+<pre class="example" id="org30887e8">
+总体来说问题LSTM的问题与RNN一样
+
+例如当句子过长LSTM也不能很好的工作
+
+原因在于保持离当前单词较远的上下文的概率以距离的指数衰减，那意味着当出现长句，模型通常会忘记序列中较远的内容
+
+RNN与LSTM模型的另一个问题，由于不得不逐个单词处理，因此难以并行化处理句子。不仅如此，也没有长短范围依赖的模型
+</pre>
+<p>
+总之，LSTM和RNN模型有三个问题:
+</p>
+<ul class="org-ul">
+<li>顺序计算，不能有效并行化</li>
+<li>没有显示的建模长短范围依赖</li>
+<li>单词之间的距离是线性的</li>
+</ul>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-org81060c9" class="outline-3">
+<h3 id="org81060c9">Attention</h3>
+<div class="outline-text-3" id="text-org81060c9">
+<pre class="example" id="org34392a4">
+为了解决其中部分问题，研究者建立了一项能对特定单词产生注意力的技能
+
+当翻译一个句子，我会特别注意我当前正在翻译的单词
+
+当我录制录音时，我会仔细聆听我正在写下的部分
+
+如果你让我描述我所在的房间，当我这样做的时候，我会瞥一眼描述的物体
+
+神经网络用attention可以做到同样的效果，专注于给出信息的那部分
+
+例如，RNN可以会注意另一RNN的输出。在每个时点它聚焦于其他RNN不同的位置
+</pre>
+
+
+<p>
+<b>注意力</b> <span class="underline">attention</span> 是一种用于神经网络的技术。 对于RNN模型，与其只编码整个句子的隐状态，可以把 <span class="underline">每个单词的隐状态</span> 一起传给 <span class="underline">解码器阶段</span> 。在RNN的每个步骤使用隐藏状态进行解码。详见下面动图
+</p>
+
+
+<div id="org1a77add" class="figure">
+<p><img src="pic/5c90b761dc460.gif" alt="5c90b761dc460.gif" width="80%" />
+</p>
+</div>
+
+<pre class="example" id="org8a9059b">
+其背后的想法是句子每个单词都有相关信息。为了精确解码，需要用注意力机制考虑输入的每个单词
+</pre>
+<p>
+对于要放入序列传导RNN模型的注意力，分成 <span class="underline">编码</span> 和 <span class="underline">解码</span> 两步。一步以绿色（编码）表示，另一步以紫色（解码）表示。
+</p>
+
+<p>
+绿色步骤负责由 <span class="underline">输入</span> <b>建立</b> <span class="underline">隐状态</span> 。把句子中每个单词产生的 <b>所有</b> <span class="underline">隐状态</span> <b>传入</b> <span class="underline">解码</span> 阶段，而不是和过去一样，仅传递一个隐状态给解码器。每个隐状态都会在解码阶段被使用，去找出网络应该注意的地方。
+</p>
+
+<pre class="example" id="orgaa56b7d">
+比如，当翻译这句 “Je suis étudiant”法语句子到英语时，需要在翻译时解码步骤去查不同的单词
+</pre>
+
+
+<div id="org10a16fa" class="figure">
+<p><img src="pic/5c90b769428f4.gif" alt="5c90b769428f4.gif" width="80%" />
+</p>
+</div>
+
+<pre class="example" id="org0619cc5">
+或再比如，当将“L’accord sur la zone économique européenne a été signé en août 1992.” 法语翻译成英语
+</pre>
+
+<p>
+下图展示了需要对每个输入赋予多少注意力：
+</p>
+
+
+<div id="orgf51ac61" class="figure">
+<p><img src="pic/5c90b7a4292b2.png" alt="5c90b7a4292b2.png" width="80%" /> 
+</p>
+</div>
+
+<pre class="example" id="org22216b5">
+不过前面讨论的一些问题，用带attention的RNN仍然无法解决
+
+比如，不可能并行处理输入的单词，这对较大的文本语料，增加了翻译文本的用时
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org170ad5b" class="outline-2">
+<h2 id="org170ad5b">卷积神经网络</h2>
+<div class="outline-text-2" id="text-org170ad5b">
+<p width="80%">
+<a href="pic/" width="80%">pic/</a> 
+</p>
+
+
+<p width="80%">
+<a href="pic/" width="80%">pic/</a> 
+</p>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
