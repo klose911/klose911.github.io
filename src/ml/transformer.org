@@ -179,9 +179,209 @@ _LSTMs_ 在此基础上利用 _乘法_ 和 _加法_ 做了一些小改进。在L
   比如，不可能并行处理输入的单词，这对较大的文本语料，增加了翻译文本的用时
 #+end_example
 * 卷积神经网络
+卷积神经网络可以帮助解决这些问题，可以做到：
++ 并行化 (按层)
++ 利用局部依赖
++ 位置间的距离是对数级的
+
+一些流行的序列传导网络, 例如 Wavenet 和 Bytenet 就采用卷积神经网络
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c904f120148e.gif]] 
+
+卷积神经网络可并行处理是因为，输入的每个单词可被同时处理并不必依赖于前一个单词翻译的结果。不仅如此，输出单词与任何CNN输入的单词的“距离”是 $\log{N}$  数量级：即输入单词到输出单词连线形成的树的高度 (如上面动图所示)。 这比RNN输出到其输入的距离要好很多，因为其距离是 $N$ 数量级
+
+#+begin_example
+  问题在于卷积神经网络在翻译句子过程中不一定有助于解决依赖问题
+
+  这就是transformers被创造出来的原因，它结合了CNN和attention机制
+#+end_example
+
+* Transformers 
+现在来看一下Transformer是如何工作的。 *Transformer* 是一类用attention来 *提速* 的模型，具体来说使用的是 _self-attention_ 
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b7af031d3.png]] 
+
+从内部来看Transformer与之前模型架构相似，只是Transformer由 _6_ 个 *编码器* 和 _6_ 个 *解码器* 组成
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b7bac6c85.png]] 
+
+编码器非常相似，所有编码器都具有相同的架构。解码器也有相同的属性诸如互相之间非常相似。编码器有两层:  _self-attention层_ 和 _前馈神经网络层_
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b7c680e20.png]]
+
+编码器的输入先进入 _self-attention层_ ，有助于编码器在编码句中特定单词时可参考输入句子中其他单词。解码器也包含这两层，不过在两层中间增加了 _attention层_ ，以帮助解码器 *聚焦* 到 _输入句子的相关部分_ 
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b7cedd28a.png]]
+
+** Self-Attention
+#+begin_example
+  注: 这部分转自Jay Allamar的博文 https://jalammar.github.io/illustrated-transformer/
+#+end_example
+
+先来看一下模型中各种不同的 _向量_ /张量，它们在已训练模型组件中如何流转，从而把输入转化成输出的。 由于这是一个NLP应用实例，我们先用 *词嵌入* _embedding_ 算法把每个输入的词语转换为 _词向量_ 
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b7d790a9a.png]] 
+
+每个单词被转换为一个 _长度512_ 的 *向量* 。图中用这些简单的 _方块_ 表示这些向量：
++ 仅在 *最底层* 的 编码器处进行词嵌入转换。对于所有编码器，它们都接收大小为512的向量列表
++ 最底层的编码器接收的是词嵌入，但其他编码器接收的输入是其下一层的直接输出
+  + 当输入序列中的单词做词嵌入转换后，数据就按 *顺序* 流经各层编码器的2层结构
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b7e1abad0.png]] 
+
+此处开始看到Transformer的一个重要特性， _每个位置上的单词_ 在 _编码器_ 中流经 *自己的* _路径_
++ 在self-attention层处理这些路径的依赖关系
++ 前馈神经网络不处理这些依赖关系，这样当数据流经前馈神经网络时，不同的路径可被 *并行* 执行
+
+#+begin_example
+接下来，将切换到一句短句实例，看一下在编码器的子层里会发生什么
+#+end_example
+
+*** 计算 self-attention  
+首先来看一下如何用向量计算self-attention，然后再看一下利用矩阵运算的实现方式：
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b7eb74c91.png]] 
+
+self-attention计算的第一步是通过编码器的 _输入向量_ (本例中是每个单词的词嵌入向量) 建立 _Query_ ,  _Key_ 和 _Value_ 三个向量，通过 _输入的词嵌入向量_ *乘以* _之前训练完成的三个矩阵_ 得到。这些 _新向量的长度_ *小于* _词嵌入向量的长度_ 。这里取 $64$，而词嵌入向量及编码器的输入输出长度为 $512$
+
+#+begin_example
+这是一个架构性选择，向量长度不需要变得更小，使得多头注意力(multiheaded attention)计算基本稳定
+#+end_example
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b7f6c549d.png]] 
+
+将 _词向量_ $x_1$ *乘以* _权重矩阵_ $W^Q$ 得到 $q_1$，即与这个单词关联的 *query* 向量
+
+#+begin_example
+  这样，最终分别得到输入句子里每个单词的“query”,“key”和“value”投射
+
+  那“query”, “key”和“value”向量是什么? 它们是一种抽象，在计算和考虑注意力时会被用到
+#+end_example
+
+计算self-attention的第二步是计算一项 *得分* _score_ 。在特定的位置编码一个单词时，该得分决定了在 _输入句子的其他部分_ *需要* 放多少 _焦点_ 。因此需要计算句中 _每个单词_ 针对 _这个词_ 的得分：
++ 得分等于 _当前词的query向量_ 与 _需评分词语的key向量_ 的 *点积*
+
+#+begin_example
+以计算句中第一个单词 "Thinking" 的self-attention为例：
+
+如果需要计算#1位置处单词的self-attention，第一个得分是q1与k1的点积，第二个得分就是q1和k2的点积 
+#+end_example
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b80044a64.png]] 
+
+第三步是将所有 _得分_ *除以* $8$ 
+#+begin_example
+论文中取的是 ”向量维数开根号“ 64，这样会得到更稳定的梯度。当然也可以用其他值，不过这是默认值)
+#+end_example
+
+第四步将结果放入一个 _softmax_ 操作来 *正则化* 这些得分，使它们都 *大于0且加和为1*
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b80e3403b.png]] 
+
+这个经过softmax的score决定了 _该单词_ 在 _这个位置_ *表达* 了 _多少_
+
+#+begin_example
+  很显然当前位置所在的单词会得到最高的softmax得分，不过有时候有助于算法注意到其他与当前单词相关的单词
+#+end_example
+
+第五步，将 _每个value向量_ *乘以*  _softmax得分_ (准备对它们求和)
+
+#+begin_example
+这里的意图是保持需要聚焦的单词的value，并且去除不相关的单词, 这时候score 会是一个很小的数字 比如0.001
+#+end_example
+
+第六步 *求和加权* 后的 _value向量_ 。这就产生了对于 _第一个单词_ 在 _self-attention层_ 上 _此位置的输出_ 
+#+ATTR_HTML: image :width 80% 
+[[file:pic/5c90b818e1a61.png]] 
+
+_self-attention的结果向量_ 就可以拿来作为 _前馈神经网络_ 的 *输入* 
+
+#+begin_example
+不过实际实现中，考虑到性能该计算由矩阵形式运算完成
+#+end_example
+
+*** 矩阵计算
+第一步是计算查询 _Query_ , 键 _Key_ 和值 _Value_  *矩阵* 。通过将 _嵌入向量_ 打包到一个矩阵 $X$ 中，然后将其与训练的权重矩阵 $W^Q$ , $W^K$ , $W^V$ *相乘* 来实现这一点：
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/self-attention-matrix-calculation.png]]
+
+#+begin_example
+  X 矩阵中的每一行对应输入句子中的一个单词
+
+  再次看到嵌入向量的大小（512，或图中的4个框）和 q/k/v 向量的大小（64，或图中的3个框）之间的差异
+#+end_example
+
+最后，由于处理的是矩阵，可以将步骤二到步骤六浓缩成一个公式来计算自注意力层的输出：
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/self-attention-matrix-calculation-2.png]]
+
+** Multihead attention 
+这篇论文通过添加一种称为 *多头* 注意力的机制进一步优化了自注意力层。这在两个方面提高了注意力层的性能：
+1. 扩展模型关注不同位置的能力：
+   #+begin_example
+     是的，在上面的例子中， z_1 包含了其他编码的一部分，但它可能会被实际单词本身所主导
+
+     如果正在翻译一句像“The animal didn’t cross the street because it was too tired”的句子，知道“it”指的是哪个单词会很有用
+   #+end_example
+2. 为注意力层提供多个 *表示子空间* ：通过多头注意力，不仅拥有一组查询/键/值权重矩阵，而是有多组。每组权重矩阵都是随机初始化的。然后，在训练之后，每组权重矩阵用于将输入的嵌入（或来自较低编码器/解码器的向量）投影到不同的表示子空间中
+   #+begin_example
+     Transformer 使用八个注意力头，所以我们最终为每个编码器/解码器得到八组
+   #+end_example
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_attention_heads_qkv.png]] 
+
+#+begin_example
+  在多头注意力机制中，我们为每个头分别保持独立的 Q/K/V 权重矩阵，从而产生不同的 Q/K/V 矩阵
+
+  与之前一样，我们将 X 矩阵乘以 W^Q/W^K/W^V 权重矩阵以生成 Q/K/V 矩
+#+end_example
+
+如果按照上面概述的自注意力计算方式，使用不同的权重矩阵重复进行八次，最终得到八个不同的 $Z$ 矩阵: 
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_attention_heads_z.png]] 
+
+#+begin_example
+  这带来了一些挑战。前馈层并不期望得到八个矩阵：它期望得到一个单独的矩阵（每个单词对应一个向量）
+
+  因此，需要一种方法将这八个矩阵压缩成一个单独的矩阵。那么如何做到这一点？
+#+end_example
+可以将这些矩阵 *连接* 起来，然后再 *乘以* 额外的 权重矩阵 $W^O$
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_attention_heads_weight_matrix_o.png]] 
+
+这基本上就是多头自注意力的全部内容了。这里有相当多的矩阵。尝试将它们都放在一个可视化图中，这样就可以一目了然地看到它们：
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_multi-headed_self-attention-recap.png]] 
+
+现在重新审视之前的例子，看看在例句中的单词“it”时，不同的注意力头部在关注哪些内容：
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_self-attention_visualization_2.png]] 
+
+#+begin_example
+  在编码单词“it”时，一个注意力头部主要关注“the animal”，而另一个注意力头部则关注“tired”
+
+  在某种意义上，模型对单词“it”的表示中融入了“animal”和“tired”的部分表示
+#+end_example
+
+如果把所有的注意力头都放入图片，那么会更难以解释：
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_self-attention_visualization_3.png]] 
+
+** Positional Encoding
 #+ATTR_HTML: image :width 80% 
 [[file:pic/]] 
 
-
-#+ATTR_HTML: image :width 80% 
-[[file:pic/]] 
