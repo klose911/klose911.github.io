@@ -442,5 +442,55 @@ _self-attention的结果向量_ 就可以拿来作为 _前馈神经网络_ 的 *
 [[file:pic/transformer_resideual_layer_norm_3.png]] 
 
 ** 解码器
+#+begin_example
+  现在已经基本涵盖了编码器部分的大部分概念，基本上也知道解码器组件是如何工作的
+
+  让我们看看它们如何共同工作
+#+end_example
+
+编码器首先处理输入序列。然后， _顶部编码器_ 的输出被 *转换* 为一组 _注意力向量_  $K$ 和 $V$ 。这些向量将被 _每个解码器_ 在其 _Encoder-Decoder-Attention_ 层中使用，帮助 _解码器_ *集中注意力* 于 _输入序列中的适当位置_ ：
 #+ATTR_HTML: image :width 80% 
-[[file:pic/]] 
+[[file:pic/transformer_decoding_1.gif]]
+
+#+begin_example
+  完成编码阶段后，开始解码阶段
+
+  解码阶段的每个步骤输出输出序列中的一个元素（在这种情况下是翻译句子到英语）
+#+end_example
+
+以下步骤重复这个过程，直到到达一个 _特殊符号_ ，表明Transformer解码器已经完成其输出。 _每个步骤的输出_ 被 *送入* 到 _下一个时间步的底部解码器中_ ，解码器像编码器一样将其解码结果逐步冒出。就像处理编码器输入一样，对这些解码器输入进行嵌入并添加位置编码，以指示每个单词的位置
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_decoding_2.gif]]
+
++ 解码器中的 _自注意力层_ 与编码器中的自注意力层操作略有不同：
+   + 在解码器中，自注意力层只能关注 *输出序列中的先前位置*
+     #+begin_example
+       在进行自注意力计算的 softmax 步骤之前，通过屏蔽未来位置（将它们设置为 -inf）来实现这一点
+     #+end_example
+     
++ _编码器-解码器注意力层_ 的工作方式类似于多头自注意力，但它的 _查询矩阵_ 来自于它 _下面的层_ ，并且它从 _编码器堆栈的输出_ 中获取 _键_ 和 _值_ 矩阵 
+
+** 最后的 Linear 和 Softmax 层
+#+begin_example
+  解码器栈输出一个浮点数向量。如何将其转换成一个单词呢？
+
+  这就是最后一个线性层和其后一个Softmax层的工作
+#+end_example
++ 线性层：一个简单的 _全连接神经网络_ ，它将 _解码器栈生成的向量_ *映射* 到一个大得多的向量中，这个向量被称为 _logits向量_
+  #+begin_example
+    假设我们的模型知道10,000个独特的英文单词（模型从训练数据集中学习到的“输出词汇表”）
+
+    这样，logits向量的宽度就是10,000个单元，每个单元对应一个独特单词的分数
+
+    这就是我们解释模型通过线性层输出的方式
+  #+end_example
++ softmax层：将这些 _分数_ *转化* 为 _概率_ （所有概率都是正值，并且总和为1.0）。具有 *最高概率* 的单元被选中，与之关联的单词被作为此时间步的输出
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_decoder_output_softmax.png]]
+  
+** 模型总结
+#+ATTR_HTML: image :width 80% 
+[[file:pic/]]
+
