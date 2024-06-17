@@ -464,11 +464,11 @@ _self-attention的结果向量_ 就可以拿来作为 _前馈神经网络_ 的 *
 [[file:pic/transformer_decoding_2.gif]]
 
 + 解码器中的 _自注意力层_ 与编码器中的自注意力层操作略有不同：
-   + 在解码器中，自注意力层只能关注 *输出序列中的先前位置*
-     #+begin_example
-       在进行自注意力计算的 softmax 步骤之前，通过屏蔽未来位置（将它们设置为 -inf）来实现这一点
-     #+end_example
-     
+  + 在解码器中，自注意力层只能关注 *输出序列中的先前位置*
+    #+begin_example
+      在进行自注意力计算的 softmax 步骤之前，通过屏蔽未来位置（将它们设置为 -inf）来实现这一点
+    #+end_example
+
 + _编码器-解码器注意力层_ 的工作方式类似于多头自注意力，但它的 _查询矩阵_ 来自于它 _下面的层_ ，并且它从 _编码器堆栈的输出_ 中获取 _键_ 和 _值_ 矩阵 
 
 ** 最后的 Linear 和 Softmax 层
@@ -491,6 +491,88 @@ _self-attention的结果向量_ 就可以拿来作为 _前馈神经网络_ 的 *
 [[file:pic/transformer_decoder_output_softmax.png]]
   
 ** 模型总结
-#+ATTR_HTML: image :width 80% 
-[[file:pic/]]
+#+begin_example
+  现在我们已经知道了训练后的 Transformer 的前向传递过程，接下来了解下训练过程
 
+#+end_example
+在训练期间，一个未训练的模型将进行完全相同的 _前向传递_ 。在带标签的训练数据集上训练它，可以将其输出与实际正确的输出进行比较
+
+#+begin_example
+  为了便于理解，假设我们的输出词汇表只包含六个词
+
+  “a”、“am”、“i”、“thanks”、“student”和“<eos>”（“end of sentence”的缩写）
+#+end_example
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/vocabulary.png]]
+
+一旦定义了输出词汇表，可以使用一个相同宽度的 _向量_ 来表示词汇表中的每个词。这也被称为 _one-hot encoding_ 。例如，可以使用以下向量来表示单词“am”：
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/one-hot-vocabulary-example.png]]
+
+#+begin_example
+  在总结了上述内容后，让我们讨论模型的损失函数
+
+  这是我们在训练阶段优化的指标，旨在最终获得一个经过训练且希望极其准确的模型
+#+end_example
+
+** 损失函数
+#+begin_example
+  假设我们正在训练模型，并且这是训练阶段的第一步
+
+  比如用一个简单的例子进行训练：将“merci”翻译成“thanks”
+#+end_example
+这意味着希望输出的是一个指示“thanks”这个词的 *概率分布* 。但是由于这个模型还没有经过训练，所以这种情况还不太可能发生
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/transformer_logits_output_and_label.png]]
+
+由于模型的参数（权重）都是随机初始化的，因此（未训练的）模型会为每个单元/单词生成具有任意值的概率分布。可以将其与实际输出进行比较，然后使用 *反向传播* 调整所有模型的权重，使输出更接近预期输出
+
+#+begin_example
+  那么如何比较两个概率分布？ 
+#+end_example
+
+可以简单地将一个概率分布从另一个中减去。想了解更多细节，可以查看 *交叉熵* _cross-entropy_ 和 *库尔贝克-莱布勒分布* _Kullback–Leibler divergence_ 
+#+begin_example
+  但请注意，这是一个过于简化的例子，更现实的情况是，我们将使用比一个单词更长的句子
+
+  例如，输入："je suis étudiant"，预期输出："i am a student"
+#+end_example
+
+这实际上意味着，希望模型 *连续* 输出概率分布，其中：
++ 每个概率分布由一个宽度为 _词汇表_ 大小的向量表示
+  #+begin_example
+    在我们的示例中为6，但更现实的数字如30,000或50,000
+  #+end_example
++ 第一个概率分布在与单词“i”关联的单元格上具有最高概率
++ 第二个概率分布在与单词“am”关联的单元格上具有最高概率
++ 以此类推，直到第五个输出分布指示‘<end of sentence>’符号，它在10,000元素的词汇表中也有一个关联的单元格
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/output_target_probability_distributions.png]]
+
+在对足够大的数据集进行充分训练后，希望生成的概率分布看起来像这样：
+#+ATTR_HTML: image :width 80% 
+[[file:pic/output_trained_model_probability_distributions.png]]
+
+#+begin_example
+  希望在训练之后，模型会输出我们期望的正确翻译
+
+  当然，如果这个短语是训练数据集的一部分，这并不能真正表明模型的泛化能力（参见：交叉验证）
+
+  请注意，每个位置都会获得一些概率，即使它不太可能是该时间步的输出，这是 softmax 的一个非常有用的特性，有助于训练过程
+#+end_example
+
++ 由于模型是逐个生成输出的，可以假设模型从概率分布中选择概率最高的词，并丢弃其余的词。这是一种方法（称为 _贪婪解码_ ）
++ 另一种方法是保留前两个词（例如，“I”和“a”），然后在下一步中运行模型两次：
+  + 一次假设第一个输出位置是词“I”
+  + 另一次假设第一个输出位置是词“a”
+  + 比较两个版本在考虑位置#1和#2时产生的误差，选择误差较小的版本保留
+  + 对位置#2和#3重复这一过程，以此类推。这种方法称为 *束搜索* _beam search_
+    #+begin_example
+      在我们的示例中，beam_size是2（意味着任何时候，内存中会保留两个部分假设（未完成的翻译））
+
+      top_beams也是2（意味着我们将返回两个翻译），这些都是可以实验的超参数
+    #+end_example
