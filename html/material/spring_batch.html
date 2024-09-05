@@ -6,10 +6,10 @@
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>解析 Spring Batch</title>
-<meta name="generator" content="Org mode" />
 <meta name="author" content="Wu, Shanliang" />
-<style type="text/css">
- <!--/*--><![CDATA[/*><!--*/
+<meta name="generator" content="Org Mode" />
+<style>
+  #content { max-width: 60em; margin: auto; }
   .title  { text-align: center;
              margin-bottom: .2em; }
   .subtitle { text-align: center;
@@ -30,8 +30,9 @@
   #postamble p, #preamble p { font-size: 90%; margin: .2em; }
   p.verse { margin-left: 3%; }
   pre {
-    border: 1px solid #ccc;
-    box-shadow: 3px 3px 3px #eee;
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
     padding: 8pt;
     font-family: monospace;
     overflow: auto;
@@ -39,22 +40,22 @@
   }
   pre.src {
     position: relative;
-    overflow: visible;
-    padding-top: 1.2em;
+    overflow: auto;
   }
   pre.src:before {
     display: none;
     position: absolute;
-    background-color: white;
-    top: -10px;
-    right: 10px;
+    top: -8px;
+    right: 12px;
     padding: 3px;
-    border: 1px solid black;
+    color: #555;
+    background-color: #f2f2f299;
   }
-  pre.src:hover:before { display: inline;}
+  pre.src:hover:before { display: inline; margin-top: 14px;}
   /* Languages per Org manual */
   pre.src-asymptote:before { content: 'Asymptote'; }
   pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
   pre.src-C:before { content: 'C'; }
   /* pre.src-C++ doesn't work in CSS */
   pre.src-clojure:before { content: 'Clojure'; }
@@ -160,6 +161,19 @@
   .footdef  { margin-bottom: 1em; }
   .figure { padding: 1em; }
   .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
   .inlinetask {
     padding: 10px;
     border: 2px solid gray;
@@ -176,107 +190,60 @@
     { font-size: 10px; font-weight: bold; white-space: nowrap; }
   .org-info-js_search-highlight
     { background-color: #ffff00; color: #000000; font-weight: bold; }
-  .org-svg { width: 90%; }
-  /*]]>*/-->
+  .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="css/main.css" />
-<script type="text/javascript">
-/*
-@licstart  The following is the entire license notice for the
-JavaScript code in this tag.
-
-Copyright (C) 2012-2019 Free Software Foundation, Inc.
-
-The JavaScript code in this tag is free software: you can
-redistribute it and/or modify it under the terms of the GNU
-General Public License (GNU GPL) as published by the Free Software
-Foundation, either version 3 of the License, or (at your option)
-any later version.  The code is distributed WITHOUT ANY WARRANTY;
-without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
-
-As additional permission under GNU GPL version 3 section 7, you
-may distribute non-source (e.g., minimized or compacted) forms of
-that code without the copy of the GNU GPL normally required by
-section 4, provided you include this license notice and a URL
-through which recipients can access the Corresponding Source.
-
-
-@licend  The above is the entire license notice
-for the JavaScript code in this tag.
-*/
-<!--/*--><![CDATA[/*><!--*/
- function CodeHighlightOn(elem, id)
- {
-   var target = document.getElementById(id);
-   if(null != target) {
-     elem.cacheClassElem = elem.className;
-     elem.cacheClassTarget = target.className;
-     target.className = "code-highlighted";
-     elem.className   = "code-highlighted";
-   }
- }
- function CodeHighlightOff(elem, id)
- {
-   var target = document.getElementById(id);
-   if(elem.cacheClassElem)
-     elem.className = elem.cacheClassElem;
-   if(elem.cacheClassTarget)
-     target.className = elem.cacheClassTarget;
- }
-/*]]>*///-->
-</script>
 </head>
 <body>
-<div id="content">
+<div id="content" class="content">
 <h1 class="title">解析 Spring Batch</h1>
-<div id="table-of-contents">
+<div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
-<div id="text-table-of-contents">
+<div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org77f4998">初识批处理典型场景</a></li>
-<li><a href="#org079f3d3">探秘领域模型及关键架构</a>
+<li><a href="#orga635560">初识批处理典型场景</a></li>
+<li><a href="#org6ab818a">探秘领域模型及关键架构</a>
 <ul>
-<li><a href="#org584616f">Job Launcher</a></li>
-<li><a href="#orgd660ed8">Job Repository</a></li>
-<li><a href="#org1fbaa22">运行期的模型</a>
+<li><a href="#orgb76e90c">Job Launcher</a></li>
+<li><a href="#orgf91d1d0">Job Repository</a></li>
+<li><a href="#orge1a0ba6">运行期的模型</a>
 <ul>
-<li><a href="#orga83f137">Step</a></li>
-<li><a href="#orgc3745b2">Job Instance</a></li>
-<li><a href="#org2e60379">Job Execution</a></li>
+<li><a href="#org8bb2aaa">Step</a></li>
+<li><a href="#org7a2c001">Job Instance</a></li>
+<li><a href="#org4a5aee9">Job Execution</a></li>
 </ul>
 </li>
-<li><a href="#org5f514fe">概念总结</a></li>
-<li><a href="#org84ac053">功能</a>
+<li><a href="#orged628c7">概念总结</a></li>
+<li><a href="#org7f997e8">功能</a>
 <ul>
-<li><a href="#orge56d398">Job</a></li>
-<li><a href="#org3c9dc21">Step</a></li>
-<li><a href="#org7f7b772">事务</a></li>
+<li><a href="#org589d5d5">Job</a></li>
+<li><a href="#org50f6818">Step</a></li>
+<li><a href="#org5d4875e">事务</a></li>
 </ul>
 </li>
-<li><a href="#org9713975">数据模型</a></li>
+<li><a href="#org3a13848">数据模型</a></li>
 </ul>
 </li>
-<li><a href="#org6b03228">实现作业健壮性与扩展性</a>
+<li><a href="#org252dd4b">实现作业健壮性与扩展性</a>
 <ul>
-<li><a href="#org27eadcf">强壮性</a></li>
-<li><a href="#orgb4aa26a">可扩展性</a>
+<li><a href="#orgd0eaa7e">强壮性</a></li>
+<li><a href="#org0906fae">可扩展性</a>
 <ul>
-<li><a href="#org092b954">Multithreaded Step</a>
+<li><a href="#org554bccb">Multithreaded Step</a>
 <ul>
-<li><a href="#org4e48372">线程安全 Step</a></li>
+<li><a href="#org084e854">线程安全 Step</a></li>
 </ul>
 </li>
-<li><a href="#org663e87e">Parallel Step</a></li>
-<li><a href="#org6554ca6">Remote Chunk</a></li>
-<li><a href="#org0814ae6">Partitioning Step</a>
+<li><a href="#org7d2e3f9">Parallel Step</a></li>
+<li><a href="#org147ce8b">Remote Chunk</a></li>
+<li><a href="#org605053a">Partitioning Step</a>
 <ul>
-<li><a href="#org9e70460">数据分区</a></li>
-<li><a href="#org3d2b528">分区处理</a></li>
-<li><a href="#org447de09">文件分区</a></li>
+<li><a href="#org432f617">数据分区</a></li>
+<li><a href="#orgaf922b4">分区处理</a></li>
+<li><a href="#org091db79">文件分区</a></li>
 </ul>
 </li>
-<li><a href="#orgf4ba7ae">扩展性总结</a></li>
+<li><a href="#org3a57389">扩展性总结</a></li>
 </ul>
 </li>
 </ul>
@@ -287,9 +254,9 @@ for the JavaScript code in this tag.
 <p>
 如今微服务架构讨论的如火如荼。但在企业架构里除了大量的OLTP交易外，还存在海量的批处理交易。在诸如银行的金融机构中，每天有3-4万笔的批处理作业需要处理。针对OLTP，业界有大量的开源框架、优秀的架构设计给予支撑；但批处理领域的框架确凤毛麟角。是时候一起来了解下批处理的世界哪些优秀的框架和设计了
 </p>
-<div id="outline-container-org77f4998" class="outline-2">
-<h2 id="org77f4998">初识批处理典型场景</h2>
-<div class="outline-text-2" id="text-org77f4998">
+<div id="outline-container-orga635560" class="outline-2">
+<h2 id="orga635560">初识批处理典型场景</h2>
+<div class="outline-text-2" id="text-orga635560">
 <p>
 <span class="underline">对账</span> 是典型的批处理业务处理场景，各个金融机构的往来业务和跨主机系统的业务都会涉及到对账的过程，如大小额支付、银联交易、人行往来、现金管理、POS业务、ATM业务、证券公司资金账户、证券公司与证券结算公司
 </p>
@@ -299,7 +266,7 @@ for the JavaScript code in this tag.
 </p>
 
 
-<div class="figure">
+<div id="org91bb475" class="figure">
 <p><img src="./pic/account_audit.jpg" alt="account_audit.jpg" width="70%" /> 
 </p>
 </div>
@@ -308,7 +275,7 @@ for the JavaScript code in this tag.
 下面是某行网银的部分日终跑批实例场景需求：
 </p>
 
-<div class="figure">
+<div id="orgf85b56b" class="figure">
 <p><img src="./pic/batch_sample.jpg" alt="batch_sample.jpg" width="50%" /> 
 </p>
 </div>
@@ -348,7 +315,7 @@ for the JavaScript code in this tag.
 </p>
 
 
-<div class="figure">
+<div id="org61072e9" class="figure">
 <p><img src="./pic/batch_charstics.jpg" alt="batch_charstics.jpg" width="70%" /> 
 </p>
 </div></li>
@@ -363,12 +330,12 @@ for the JavaScript code in this tag.
 <li><b>扩展性</b> ：通过并发或者并行技术实现应用的纵向和横向扩展，满足海量数据处理的性能需求</li>
 </ul>
 
-<pre class="example">
-    通过Spring Batch框架可以构建出轻量级的健壮的并行处理应用，支持事务、并发、流程、监控、纵向和横向扩展，提供统一的接口管理和任务管理
+<pre class="example" id="org4b9087a">
+通过Spring Batch框架可以构建出轻量级的健壮的并行处理应用，支持事务、并发、流程、监控、纵向和横向扩展，提供统一的接口管理和任务管理
 </pre>
 
 
-<div class="figure">
+<div id="org46fb68a" class="figure">
 <p><img src="./pic/spring_batch_intro.jpg" alt="spring_batch_intro.jpg" width="70%" /> 
 </p>
 </div>
@@ -387,14 +354,14 @@ for the JavaScript code in this tag.
 </div>
 </div>
 
-<div id="outline-container-org079f3d3" class="outline-2">
-<h2 id="org079f3d3">探秘领域模型及关键架构</h2>
-<div class="outline-text-2" id="text-org079f3d3">
+<div id="outline-container-org6ab818a" class="outline-2">
+<h2 id="org6ab818a">探秘领域模型及关键架构</h2>
+<div class="outline-text-2" id="text-org6ab818a">
 <p>
 先来个Hello World示例，一个典型的批处理作业：
 </p>
 
-<div class="figure">
+<div id="orgdf9a173" class="figure">
 <p><img src="./pic/hello_world_batch.jpg" alt="hello_world_batch.jpg" width="70%" /> 
 </p>
 </div>
@@ -403,15 +370,15 @@ for the JavaScript code in this tag.
 典型的一个作业分为3部分：作业读、作业处理、作业写，也是典型的三步式架构。整个批处理框架基本上围绕 <span class="underline">Read</span> 、 <span class="underline">Process</span> 、 <span class="underline">Writer</span> 来处理。除此之外，框架提供了 <b>作业调度器</b> 、 <b>作业仓库</b> （用以 <span class="underline">存放Job的元数据信息</span> ，支持 <span class="underline">内存</span> 、 <span class="underline">DB</span> 两种模式）。完整的领域概念模型参加下图：
 </p>
 
-<div class="figure">
+<div id="orgc70ebe7" class="figure">
 <p><img src="./pic/spring_batch_concept.jpg" alt="spring_batch_concept.jpg" width="70%" /> 
 </p>
 </div>
 </div>
 
-<div id="outline-container-org584616f" class="outline-3">
-<h3 id="org584616f">Job Launcher</h3>
-<div class="outline-text-3" id="text-org584616f">
+<div id="outline-container-orgb76e90c" class="outline-3">
+<h3 id="orgb76e90c">Job Launcher</h3>
+<div class="outline-text-3" id="text-orgb76e90c">
 <p>
 <b>作业调度器</b> 是Spring Batch框架基础设施层提供的 <b>运行Job的能力</b> 。通过给定的 <span class="underline">Job名称</span> 和 <span class="underline">Job Parameters</span> ，可以通过Job Launcher执行Job
 </p>
@@ -422,9 +389,9 @@ for the JavaScript code in this tag.
 </div>
 </div>
 
-<div id="outline-container-orgd660ed8" class="outline-3">
-<h3 id="orgd660ed8">Job Repository</h3>
-<div class="outline-text-3" id="text-orgd660ed8">
+<div id="outline-container-orgf91d1d0" class="outline-3">
+<h3 id="orgf91d1d0">Job Repository</h3>
+<div class="outline-text-3" id="text-orgf91d1d0">
 <p>
 <b>作业仓库</b> 是 <b>存储Job执行期的元数据</b> ，这里的元数据是指：
 </p>
@@ -446,22 +413,22 @@ for the JavaScript code in this tag.
 </div>
 </div>
 
-<div id="outline-container-org1fbaa22" class="outline-3">
-<h3 id="org1fbaa22">运行期的模型</h3>
-<div class="outline-text-3" id="text-org1fbaa22">
+<div id="outline-container-orge1a0ba6" class="outline-3">
+<h3 id="orge1a0ba6">运行期的模型</h3>
+<div class="outline-text-3" id="text-orge1a0ba6">
 <p>
 批处理框架运行期的模型也非常简单：
 </p>
 
-<div class="figure">
+<div id="org505dcf2" class="figure">
 <p><img src="./pic/spring_batch_runtime.jpg" alt="spring_batch_runtime.jpg" width="70%" /> 
 </p>
 </div>
 </div>
 
-<div id="outline-container-orga83f137" class="outline-4">
-<h4 id="orga83f137">Step</h4>
-<div class="outline-text-4" id="text-orga83f137">
+<div id="outline-container-org8bb2aaa" class="outline-4">
+<h4 id="org8bb2aaa">Step</h4>
+<div class="outline-text-4" id="text-org8bb2aaa">
 <p>
 Step表示作业中的一个 <b>完整步骤</b> ，一个Job可以有一个或者多个Step组成
 </p>
@@ -470,9 +437,9 @@ Step表示作业中的一个 <b>完整步骤</b> ，一个Job可以有一个或�
 
 
 
-<div id="outline-container-orgc3745b2" class="outline-4">
-<h4 id="orgc3745b2">Job Instance</h4>
-<div class="outline-text-4" id="text-orgc3745b2">
+<div id="outline-container-org7a2c001" class="outline-4">
+<h4 id="org7a2c001">Job Instance</h4>
+<div class="outline-text-4" id="text-org7a2c001">
 <p>
 <b>作业实例</b> 是一个运行期的概念，Job每执行一次都会涉及到一个Job Instance。Job Instance来源可能有两种：
 </p>
@@ -483,9 +450,9 @@ Step表示作业中的一个 <b>完整步骤</b> ，一个Job可以有一个或�
 </div>
 </div>
 
-<div id="outline-container-org2e60379" class="outline-4">
-<h4 id="org2e60379">Job Execution</h4>
-<div class="outline-text-4" id="text-org2e60379">
+<div id="outline-container-org4a5aee9" class="outline-4">
+<h4 id="org4a5aee9">Job Execution</h4>
+<div class="outline-text-4" id="text-org4a5aee9">
 <p>
 Job Execution表示 <b>Job执行的句柄</b> ，一次Job的执行可能成功也可能失败：
 </p>
@@ -497,9 +464,9 @@ Job Execution表示 <b>Job执行的句柄</b> ，一次Job的执行可能成功�
 </div>
 </div>
 
-<div id="outline-container-org5f514fe" class="outline-3">
-<h3 id="org5f514fe">概念总结</h3>
-<div class="outline-text-3" id="text-org5f514fe">
+<div id="outline-container-orged628c7" class="outline-3">
+<h3 id="orged628c7">概念总结</h3>
+<div class="outline-text-3" id="text-orged628c7">
 <p>
 批处理的典型概念模型，其设计非常精简的十个概念，完整支撑了整个框架： 
 </p>
@@ -572,19 +539,19 @@ Job Execution表示 <b>Job执行的句柄</b> ，一次Job的执行可能成功�
 </div>
 </div>
 
-<div id="outline-container-org84ac053" class="outline-3">
-<h3 id="org84ac053">功能</h3>
-<div class="outline-text-3" id="text-org84ac053">
+<div id="outline-container-org7f997e8" class="outline-3">
+<h3 id="org7f997e8">功能</h3>
+<div class="outline-text-3" id="text-org7f997e8">
 </div>
-<div id="outline-container-orge56d398" class="outline-4">
-<h4 id="orge56d398">Job</h4>
-<div class="outline-text-4" id="text-orge56d398">
+<div id="outline-container-org589d5d5" class="outline-4">
+<h4 id="org589d5d5">Job</h4>
+<div class="outline-text-4" id="text-org589d5d5">
 <p>
 Job提供的核心能力包括作业的抽象与继承，类似面向对象中的概念。对于执行异常的作业，提供 <b>重启</b> 的能力 
 </p>
 
 
-<div class="figure">
+<div id="org6cd540b" class="figure">
 <p><img src="./pic/job_restart.jpg" alt="job_restart.jpg" width="70%" /> 
 </p>
 </div>
@@ -594,7 +561,7 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 </p>
 
 
-<div class="figure">
+<div id="orgae4d02c" class="figure">
 <p><img src="./pic/job_execution_controll.jpg" alt="job_execution_controll.jpg" width="70%" /> 
 </p>
 </div>
@@ -604,19 +571,19 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 </p>
 </div>
 </div>
-<div id="outline-container-org3c9dc21" class="outline-4">
-<h4 id="org3c9dc21">Step</h4>
-<div class="outline-text-4" id="text-org3c9dc21">
+<div id="outline-container-org50f6818" class="outline-4">
+<h4 id="org50f6818">Step</h4>
+<div class="outline-text-4" id="text-org50f6818">
 <p>
 为了提高多个Step的执行效率，框架提供了 <b>Step并行执行</b> 的能力。Step包含了一个实际运行的批处理任务中的所有必需的信息，其实现可以是非常简单的业务实现，也可以是非常复杂的业务处理，Step的复杂程度通常是业务决定的
 </p>
 
-<pre class="example">
-      使用split进行声明，通常该情况下需要Step之间没有任何的依赖关系，否则容易引起业务上的错误
+<pre class="example" id="org97ca4b9">
+使用split进行声明，通常该情况下需要Step之间没有任何的依赖关系，否则容易引起业务上的错误
 </pre>
 
 
-<div class="figure">
+<div id="orgbccb3c9" class="figure">
 <p><img src="./pic/job_step.jpg" alt="job_step.jpg" width="70%" /> 
 </p>
 </div>
@@ -630,16 +597,16 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 </p>
 
 
-<div class="figure">
+<div id="org92c8802" class="figure">
 <p><img src="./pic/step_execution.jpg" alt="step_execution.jpg" width="70%" /> 
 </p>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org7f7b772" class="outline-4">
-<h4 id="org7f7b772">事务</h4>
-<div class="outline-text-4" id="text-org7f7b772">
+<div id="outline-container-org5d4875e" class="outline-4">
+<h4 id="org5d4875e">事务</h4>
+<div class="outline-text-4" id="text-org5d4875e">
 <p>
 作为面向批的处理，在Step层提供了 <span class="underline">多次读 、 处理 ， 一次提交</span> 的能力。
 </p>
@@ -649,7 +616,7 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 </p>
 
 
-<div class="figure">
+<div id="orgdba1f31" class="figure">
 <p><img src="./pic/spring_batch_transaction_sample.jpg" alt="spring_batch_transaction_sample.jpg" width="70%" /> 
 </p>
 </div>
@@ -668,15 +635,15 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 </div>
 
 
-<div id="outline-container-org9713975" class="outline-3">
-<h3 id="org9713975">数据模型</h3>
-<div class="outline-text-3" id="text-org9713975">
+<div id="outline-container-org3a13848" class="outline-3">
+<h3 id="org3a13848">数据模型</h3>
+<div class="outline-text-3" id="text-org3a13848">
 <p>
 在框架资深的模型抽象方面，Spring Batch也做了极为精简的抽象：
 </p>
 
 
-<div class="figure">
+<div id="orgf03e7ec" class="figure">
 <p><img src="./pic/spring_batch_db_model.jpg" alt="spring_batch_db_model.jpg" width="70%" /> 
 </p>
 </div>
@@ -696,13 +663,13 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 </div>
 </div>
 
-<div id="outline-container-org6b03228" class="outline-2">
-<h2 id="org6b03228">实现作业健壮性与扩展性</h2>
-<div class="outline-text-2" id="text-org6b03228">
+<div id="outline-container-org252dd4b" class="outline-2">
+<h2 id="org252dd4b">实现作业健壮性与扩展性</h2>
+<div class="outline-text-2" id="text-org252dd4b">
 </div>
-<div id="outline-container-org27eadcf" class="outline-3">
-<h3 id="org27eadcf">强壮性</h3>
-<div class="outline-text-3" id="text-org27eadcf">
+<div id="outline-container-orgd0eaa7e" class="outline-3">
+<h3 id="orgd0eaa7e">强壮性</h3>
+<div class="outline-text-3" id="text-orgd0eaa7e">
 <p>
 批处理要求Job必须有较强的 <b>健壮性</b> ，通常Job是批量处理数据、无人值守的，这要求在Job执行期间能够应对各种发生的异常、错误，并对Job执行进行有效的跟踪。一个健壮的Job通常需要具备如下的几个特性：
 </p>
@@ -766,9 +733,9 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 </table>
 </div>
 </div>
-<div id="outline-container-orgb4aa26a" class="outline-3">
-<h3 id="orgb4aa26a">可扩展性</h3>
-<div class="outline-text-3" id="text-orgb4aa26a">
+<div id="outline-container-org0906fae" class="outline-3">
+<h3 id="org0906fae">可扩展性</h3>
+<div class="outline-text-3" id="text-org0906fae">
 <p>
 对于扩展性，框架提供的扩展能力包括如下的四种模式 :
 </p>
@@ -779,11 +746,11 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 <li><span class="underline">Partitioning</span> Step : 对数据进行分区，并分开执行</li>
 </ul>
 </div>
-<div id="outline-container-org092b954" class="outline-4">
-<h4 id="org092b954">Multithreaded Step</h4>
-<div class="outline-text-4" id="text-org092b954">
+<div id="outline-container-org554bccb" class="outline-4">
+<h4 id="org554bccb">Multithreaded Step</h4>
+<div class="outline-text-4" id="text-org554bccb">
 
-<div class="figure">
+<div id="org2b404d5" class="figure">
 <p><img src="./pic/multithreaded_step.jpg" alt="multithreaded_step.jpg" width="70%" /> 
 </p>
 </div>
@@ -793,20 +760,20 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 </p>
 
 
-<div class="figure">
+<div id="orgc5e7f40" class="figure">
 <p><img src="./pic/multithreaded_step_config.jpg" alt="multithreaded_step_config.jpg" width="70%" /> 
 </p>
 </div>
 </div>
-<div id="outline-container-org4e48372" class="outline-5">
-<h5 id="org4e48372">线程安全 Step</h5>
-<div class="outline-text-5" id="text-org4e48372">
+<div id="outline-container-org084e854" class="outline-5">
+<h5 id="org084e854">线程安全 Step</h5>
+<div class="outline-text-5" id="text-org084e854">
 <p>
 需要注意的是Spring Batch框架提供的大部分的 <span class="underline">ItemReader</span> 、 <span class="underline">ItemWriter</span> 等操作都是 <b>线程不安全</b> 的。可以通过扩展的方式显现线程安全的Step。下面为大家展示一个扩展的实现：
 </p>
 
 
-<div class="figure">
+<div id="org18fbdf5" class="figure">
 <p><img src="./pic/threaded_safe_step.jpg" alt="threaded_safe_step.jpg" width="70%" /> 
 </p>
 </div>
@@ -819,7 +786,7 @@ Job提供的核心能力包括作业的抽象与继承，类似面向对象中�
 对于示例中的数据库读取组件 <span class="underline">JdbcCursorItemReader</span> ，在设计数据库表时，在表中 <span class="underline">增加一个字段Flag</span> ，用于 <b>标识当前的记录是否已经读取并处理成功</b> ，如果处理成功则标识Flag=true，等下次重新读取的时候，对于已经成功读取且处理成功的记录直接跳过处理
 </p>
 
-<pre class="example">
+<pre class="example" id="orgfd77da2">
 Multithreaded Step（多线程步）提供了多个线程执行一个Step的能力，但这种场景在实际的业务中使用的并不是非常多
 
 更多的业务场景是Job中不同的Step没有明确的先后顺序，可以在执行期并行的执行
@@ -827,20 +794,20 @@ Multithreaded Step（多线程步）提供了多个线程执行一个Step的能�
 </div>
 </div>
 </div>
-<div id="outline-container-org663e87e" class="outline-4">
-<h4 id="org663e87e">Parallel Step</h4>
-<div class="outline-text-4" id="text-org663e87e">
+<div id="outline-container-org7d2e3f9" class="outline-4">
+<h4 id="org7d2e3f9">Parallel Step</h4>
+<div class="outline-text-4" id="text-org7d2e3f9">
 <p>
 提供单个节点横向扩展的能力：
 </p>
 
 
-<div class="figure">
+<div id="org48f66f1" class="figure">
 <p><img src="./pic/parallel_step.jpg" alt="parallel_step.jpg" width="70%" /> 
 </p>
 </div>
 
-<pre class="example">
+<pre class="example" id="org4b6ed38">
 Step A、Step B两个作业步由不同的线程执行
 
 两者均执行完毕后，Step C才会被执行
@@ -851,7 +818,7 @@ Step A、Step B两个作业步由不同的线程执行
 </p>
 
 
-<div class="figure">
+<div id="org5d9c87e" class="figure">
 <p><img src="./pic/parallel_step_execution.jpg" alt="parallel_step_execution.jpg" width="70%" /> 
 </p>
 </div>
@@ -860,22 +827,22 @@ Step A、Step B两个作业步由不同的线程执行
 每个作业步并行处理不同的记录，示例中三个作业步，处理同一张表中的不同数据
 </p>
 
-<pre class="example">
-      并行Step提供了在一个节点上横向处理，但随着作业处理量的增加，有可能一台节点无法满足Job的处理
+<pre class="example" id="org45787b6">
+并行Step提供了在一个节点上横向处理，但随着作业处理量的增加，有可能一台节点无法满足Job的处理
 
-      此时可以采用远程Step的方式将多个机器节点组合起来完成一个Job的处理
+此时可以采用远程Step的方式将多个机器节点组合起来完成一个Job的处理
 </pre>
 </div>
 </div>
-<div id="outline-container-org6554ca6" class="outline-4">
-<h4 id="org6554ca6">Remote Chunk</h4>
-<div class="outline-text-4" id="text-org6554ca6">
+<div id="outline-container-org147ce8b" class="outline-4">
+<h4 id="org147ce8b">Remote Chunk</h4>
+<div class="outline-text-4" id="text-org147ce8b">
 <p>
 远程Step技术本质上是将对 <span class="underline">Item读、写的处理逻辑进行分离</span> ；通常情况下 <b>读的逻辑放在一个节点</b> 进行操作，将 <b>写操作分发到另外的节点</b> 执行
 </p>
 
 
-<div class="figure">
+<div id="org23532ca" class="figure">
 <p><img src="./pic/remote_chunk.jpg" alt="remote_chunk.jpg" width="70%" /> 
 </p>
 </div>
@@ -902,7 +869,7 @@ Spring Batch中对远程Step没有默认的实现，但可以借助 <span class=
 </p>
 
 
-<div class="figure">
+<div id="org1c6b42b" class="figure">
 <p><img src="./pic/si_remote_chunk.jpg" alt="si_remote_chunk.jpg" width="70%" /> 
 </p>
 </div>
@@ -913,15 +880,15 @@ Spring Batch中对远程Step没有默认的实现，但可以借助 <span class=
 </ul>
 </div>
 </div>
-<div id="outline-container-org0814ae6" class="outline-4">
-<h4 id="org0814ae6">Partitioning Step</h4>
-<div class="outline-text-4" id="text-org0814ae6">
+<div id="outline-container-org605053a" class="outline-4">
+<h4 id="org605053a">Partitioning Step</h4>
+<div class="outline-text-4" id="text-org605053a">
 <p>
 <b>分区模式</b> 需要对数据的结构有一定的了解，如  <span class="underline">主键的范围</span> 、 <span class="underline">待处理的文件的名字</span> 等 
 </p>
 
 
-<div class="figure">
+<div id="orgb7a67cf" class="figure">
 <p><img src="./pic/partioning_step.jpg" alt="partioning_step.jpg" width="70%" /> 
 </p>
 </div>
@@ -944,9 +911,9 @@ Spring Batch中对远程Step没有默认的实现，但可以借助 <span class=
 <li>分区处理</li>
 </ol>
 </div>
-<div id="outline-container-org9e70460" class="outline-5">
-<h5 id="org9e70460">数据分区</h5>
-<div class="outline-text-5" id="text-org9e70460">
+<div id="outline-container-org432f617" class="outline-5">
+<h5 id="org432f617">数据分区</h5>
+<div class="outline-text-5" id="text-org432f617">
 <p>
 根据特殊的规则（例如：根据文件名称，数据的唯一性标识，或者哈希算法）将数据进行合理的数据切片，为不同的切片生成数据执行上下文Execution Context、作业步执行器Step Execution。可以通过接口 <span class="underline">Partitioner</span> 生成 <b>自定义的分区逻辑</b> ：
 </p>
@@ -956,9 +923,9 @@ Spring Batch中对远程Step没有默认的实现，但可以借助 <span class=
 </ul>
 </div>
 </div>
-<div id="outline-container-org3d2b528" class="outline-5">
-<h5 id="org3d2b528">分区处理</h5>
-<div class="outline-text-5" id="text-org3d2b528">
+<div id="outline-container-orgaf922b4" class="outline-5">
+<h5 id="orgaf922b4">分区处理</h5>
+<div class="outline-text-5" id="text-orgaf922b4">
 <p>
 通过数据分区后，不同的数据已经被分配到不同的作业步执行器中，接下来需要交给分区处理器进行作业，分区处理器可以本地执行也可以远程执行被划分的作业。接口 <span class="underline">PartitionHandler</span> 定义了 <b>分区处理的逻辑</b> ：
 </p>
@@ -970,11 +937,11 @@ Spring Batch中对远程Step没有默认的实现，但可以借助 <span class=
 </div>
 
 
-<div id="outline-container-org447de09" class="outline-5">
-<h5 id="org447de09">文件分区</h5>
-<div class="outline-text-5" id="text-org447de09">
+<div id="outline-container-org091db79" class="outline-5">
+<h5 id="org091db79">文件分区</h5>
+<div class="outline-text-5" id="text-org091db79">
 
-<div class="figure">
+<div id="org047cb8d" class="figure">
 <p><img src="./pic/file_partioning_step.jpg" alt="file_partioning_step.jpg" width="70%" /> 
 </p>
 </div>
@@ -984,7 +951,7 @@ Spring Batch框架提供了对文件分区的支持，实现类 <span class="und
 </p>
 
 
-<div class="figure">
+<div id="orge119f56" class="figure">
 <p><img src="./pic/file_partioning_config.jpg" alt="file_partioning_config.jpg" width="70%" /> 
 </p>
 </div>
@@ -997,9 +964,9 @@ Spring Batch框架提供了对文件分区的支持，实现类 <span class="und
 </div>
 
 
-<div id="outline-container-orgf4ba7ae" class="outline-4">
-<h4 id="orgf4ba7ae">扩展性总结</h4>
-<div class="outline-text-4" id="text-orgf4ba7ae">
+<div id="outline-container-org3a57389" class="outline-4">
+<h4 id="org3a57389">扩展性总结</h4>
+<div class="outline-text-4" id="text-org3a57389">
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
 <caption class="t-above"><span class="table-number">Table 2:</span> Spring Batch 扩展模式</caption>
 

@@ -6,10 +6,10 @@
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>进程间通信</title>
-<meta name="generator" content="Org mode" />
 <meta name="author" content="Wu, Shanliang" />
-<style type="text/css">
- <!--/*--><![CDATA[/*><!--*/
+<meta name="generator" content="Org Mode" />
+<style>
+  #content { max-width: 60em; margin: auto; }
   .title  { text-align: center;
              margin-bottom: .2em; }
   .subtitle { text-align: center;
@@ -30,8 +30,9 @@
   #postamble p, #preamble p { font-size: 90%; margin: .2em; }
   p.verse { margin-left: 3%; }
   pre {
-    border: 1px solid #ccc;
-    box-shadow: 3px 3px 3px #eee;
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
     padding: 8pt;
     font-family: monospace;
     overflow: auto;
@@ -39,22 +40,22 @@
   }
   pre.src {
     position: relative;
-    overflow: visible;
-    padding-top: 1.2em;
+    overflow: auto;
   }
   pre.src:before {
     display: none;
     position: absolute;
-    background-color: white;
-    top: -10px;
-    right: 10px;
+    top: -8px;
+    right: 12px;
     padding: 3px;
-    border: 1px solid black;
+    color: #555;
+    background-color: #f2f2f299;
   }
-  pre.src:hover:before { display: inline;}
+  pre.src:hover:before { display: inline; margin-top: 14px;}
   /* Languages per Org manual */
   pre.src-asymptote:before { content: 'Asymptote'; }
   pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
   pre.src-C:before { content: 'C'; }
   /* pre.src-C++ doesn't work in CSS */
   pre.src-clojure:before { content: 'Clojure'; }
@@ -160,6 +161,19 @@
   .footdef  { margin-bottom: 1em; }
   .figure { padding: 1em; }
   .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
   .inlinetask {
     padding: 10px;
     border: 2px solid gray;
@@ -176,227 +190,180 @@
     { font-size: 10px; font-weight: bold; white-space: nowrap; }
   .org-info-js_search-highlight
     { background-color: #ffff00; color: #000000; font-weight: bold; }
-  .org-svg { width: 90%; }
-  /*]]>*/-->
+  .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="css/main.css" />
-<script type="text/javascript">
-/*
-@licstart  The following is the entire license notice for the
-JavaScript code in this tag.
-
-Copyright (C) 2012-2019 Free Software Foundation, Inc.
-
-The JavaScript code in this tag is free software: you can
-redistribute it and/or modify it under the terms of the GNU
-General Public License (GNU GPL) as published by the Free Software
-Foundation, either version 3 of the License, or (at your option)
-any later version.  The code is distributed WITHOUT ANY WARRANTY;
-without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
-
-As additional permission under GNU GPL version 3 section 7, you
-may distribute non-source (e.g., minimized or compacted) forms of
-that code without the copy of the GNU GPL normally required by
-section 4, provided you include this license notice and a URL
-through which recipients can access the Corresponding Source.
-
-
-@licend  The above is the entire license notice
-for the JavaScript code in this tag.
-*/
-<!--/*--><![CDATA[/*><!--*/
- function CodeHighlightOn(elem, id)
- {
-   var target = document.getElementById(id);
-   if(null != target) {
-     elem.cacheClassElem = elem.className;
-     elem.cacheClassTarget = target.className;
-     target.className = "code-highlighted";
-     elem.className   = "code-highlighted";
-   }
- }
- function CodeHighlightOff(elem, id)
- {
-   var target = document.getElementById(id);
-   if(elem.cacheClassElem)
-     elem.className = elem.cacheClassElem;
-   if(elem.cacheClassTarget)
-     target.className = elem.cacheClassTarget;
- }
-/*]]>*///-->
-</script>
 </head>
 <body>
 <div id="org-div-home-and-up">
  <a accesskey="h" href="daemon.html"> UP </a>
  |
  <a accesskey="H" href="apue.html"> HOME </a>
-</div><div id="content">
+</div><div id="content" class="content">
 <h1 class="title">进程间通信</h1>
-<div id="table-of-contents">
+<div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
-<div id="text-table-of-contents">
+<div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org7f568d2">管道</a>
+<li><a href="#org6c844ca">管道</a>
 <ul>
-<li><a href="#org9cfcaee">pipe函数</a>
+<li><a href="#orge8b5e8c">pipe函数</a>
 <ul>
-<li><a href="#orgdcaee1e">实例：创建管道</a></li>
-<li><a href="#org98483cd">实例：分页展示文件</a></li>
-<li><a href="#org8845395">实例：父子进程同步</a></li>
+<li><a href="#org5ea31b2">实例：创建管道</a></li>
+<li><a href="#orgb7ee184">实例：分页展示文件</a></li>
+<li><a href="#org2a6624e">实例：父子进程同步</a></li>
 </ul>
 </li>
-<li><a href="#orgfa7937b">popen和pclose函数</a>
+<li><a href="#org11d9ee3">popen和pclose函数</a>
 <ul>
-<li><a href="#orgb4e3a12">cmdstring</a></li>
-<li><a href="#org2354d4a">使用popen实现分页读取文件</a></li>
-<li><a href="#org69a5186">实现popen和pclose函数</a></li>
-<li><a href="#orgd54992f">用popen变换输入</a></li>
+<li><a href="#org0f28e71">cmdstring</a></li>
+<li><a href="#orga4b77f9">使用popen实现分页读取文件</a></li>
+<li><a href="#orgd3f9e21">实现popen和pclose函数</a></li>
+<li><a href="#orgd331135">用popen变换输入</a></li>
 </ul>
 </li>
-<li><a href="#org4e0f1d9">协同进程</a>
+<li><a href="#org47939cf">协同进程</a>
 <ul>
-<li><a href="#org49122d0">对两个数求和的简单过滤</a>
+<li><a href="#org490667e">对两个数求和的简单过滤</a>
 <ul>
-<li><a href="#orgbf8a92c">使用标准IO改写add2</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a href="#org44b208e">FIFO</a>
-<ul>
-<li><a href="#orgff054a0">mkfifo函数</a></li>
-<li><a href="#org9838d6b">FIFO文件</a></li>
-<li><a href="#orgdd14a92">FIFO用途</a>
-<ul>
-<li><a href="#org3b67e2d">复制输出流</a></li>
-<li><a href="#org3de3633">简单客户-服务器通信</a></li>
+<li><a href="#org639fa44">使用标准IO改写add2</a></li>
 </ul>
 </li>
 </ul>
 </li>
-</ul>
-</li>
-<li><a href="#org16e243e">系统V IPC</a>
+<li><a href="#orgf4281a9">FIFO</a>
 <ul>
-<li><a href="#orgd9caaee">相似特征</a>
+<li><a href="#org169d951">mkfifo函数</a></li>
+<li><a href="#orgb04fdd5">FIFO文件</a></li>
+<li><a href="#org8a35715">FIFO用途</a>
 <ul>
-<li><a href="#org055f39e">标识符和关键字</a>
-<ul>
-<li><a href="#org764ff7d">客户机和服务器使用同一IPC结构</a></li>
-<li><a href="#orgbe62270">创建IPC结构</a></li>
-</ul>
-</li>
-<li><a href="#orgc24a113">权限结构</a>
-<ul>
-<li><a href="#org9b8b72e">mode字段</a></li>
-</ul>
-</li>
-<li><a href="#org33a9e00">资源限制</a></li>
-<li><a href="#org9c02fde">优点和缺点</a>
-<ul>
-<li><a href="#orgfae31c3">系统V IPC的缺点</a></li>
-<li><a href="#org2e2688f">IPC的优点</a></li>
-<li><a href="#orgdc6b534">总结</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a href="#org19a1ec8">消息队列</a>
-<ul>
-<li><a href="#org31c5e56">msqid_ds结构</a></li>
-<li><a href="#orgbf42343">资源限制</a></li>
-<li><a href="#orgf65a176">msgget函数</a></li>
-<li><a href="#org71795a6">msgctl函数</a>
-<ul>
-<li><a href="#orgc8e6691">cmd参数</a></li>
-</ul>
-</li>
-<li><a href="#org208a4d7">msgsnd函数</a>
-<ul>
-<li><a href="#orgc43a46b">ptr指针</a></li>
-<li><a href="#orgcbc9a1f">flag标记</a></li>
-</ul>
-</li>
-<li><a href="#orgd7ce11f">msgrcv函数</a>
-<ul>
-<li><a href="#org8d0bbee">type参数</a></li>
-</ul>
-</li>
-<li><a href="#orgb8aa1e4">实例</a></li>
-</ul>
-</li>
-<li><a href="#orga12e480">信号量</a>
-<ul>
-<li><a href="#org8bdca40">实现</a></li>
-<li><a href="#org66d5ff5">semid_ds结构</a></li>
-<li><a href="#org372c200">资源限制</a></li>
-<li><a href="#orge2de8ef">semget函数</a></li>
-<li><a href="#org6e9dd72">semctl函数</a>
-<ul>
-<li><a href="#orgcec486f">cmd参数</a></li>
-</ul>
-</li>
-<li><a href="#orgfcf7128">semop函数</a>
-<ul>
-<li><a href="#org1a0b37b">semoarray参数</a></li>
-<li><a href="#orga986e1a">exit时的信号量调整</a></li>
-</ul>
-</li>
-<li><a href="#org3f6aba1">实例</a></li>
-<li><a href="#orgd21d973">信号量 VS 文件锁</a></li>
-</ul>
-</li>
-<li><a href="#org61658f3">共享内存</a>
-<ul>
-<li><a href="#orgcbf0886">shmid_ds结构</a></li>
-<li><a href="#org26201fd">资源限制</a></li>
-<li><a href="#org9e9d653">shmget函数</a></li>
-<li><a href="#org24dc8fe">shmctl函数</a>
-<ul>
-<li><a href="#org84c308f">cmd参数</a></li>
-</ul>
-</li>
-<li><a href="#org49ef071">shmat函数</a></li>
-<li><a href="#orgd2f8e03">shmdt函数</a></li>
-<li><a href="#orgfe3c701">打印不同类型的数据所存放的位置</a></li>
-<li><a href="#org4b649c2">/dev/zero的存储映射</a>
-<ul>
-<li><a href="#org880f371">匿名存储映射</a></li>
-<li><a href="#org0f800a1">共享存储 VS mmap</a></li>
+<li><a href="#org91eeaaa">复制输出流</a></li>
+<li><a href="#org0e6749b">简单客户-服务器通信</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="#orgd3301cf">客户机-服务器模型</a>
+<li><a href="#org337df82">系统V IPC</a>
 <ul>
-<li><a href="#orgfbe7206">单向管道</a></li>
-<li><a href="#orgacc6258">FIFO</a></li>
-<li><a href="#org8d1ec0b">消息队列</a>
+<li><a href="#org5daf1a1">相似特征</a>
 <ul>
-<li><a href="#org8aeed00">实现</a></li>
-<li><a href="#orgfef7597">缺陷</a>
+<li><a href="#org3a6482c">标识符和关键字</a>
 <ul>
-<li><a href="#orgb36dfb7">安全措施</a></li>
+<li><a href="#orgda7eb86">客户机和服务器使用同一IPC结构</a></li>
+<li><a href="#org18d3e40">创建IPC结构</a></li>
+</ul>
+</li>
+<li><a href="#org63e22f2">权限结构</a>
+<ul>
+<li><a href="#orgb48b38c">mode字段</a></li>
+</ul>
+</li>
+<li><a href="#org9f4e6d8">资源限制</a></li>
+<li><a href="#orga73ff4c">优点和缺点</a>
+<ul>
+<li><a href="#orgb612dd1">系统V IPC的缺点</a></li>
+<li><a href="#org6354038">IPC的优点</a></li>
+<li><a href="#org1471129">总结</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orgb3aec5e">消息队列</a>
+<ul>
+<li><a href="#org774c1ff">msqid_ds结构</a></li>
+<li><a href="#org0f9fb4e">资源限制</a></li>
+<li><a href="#orgb4eebda">msgget函数</a></li>
+<li><a href="#orgf850e94">msgctl函数</a>
+<ul>
+<li><a href="#orgfb635ac">cmd参数</a></li>
+</ul>
+</li>
+<li><a href="#orgdcc6e53">msgsnd函数</a>
+<ul>
+<li><a href="#orgca8ed73">ptr指针</a></li>
+<li><a href="#orgd66aa4b">flag标记</a></li>
+</ul>
+</li>
+<li><a href="#org3fcde4a">msgrcv函数</a>
+<ul>
+<li><a href="#org40bdebe">type参数</a></li>
+</ul>
+</li>
+<li><a href="#org1853260">实例</a></li>
+</ul>
+</li>
+<li><a href="#orgdc4c516">信号量</a>
+<ul>
+<li><a href="#org8b2d17d">实现</a></li>
+<li><a href="#org9bb3938">semid_ds结构</a></li>
+<li><a href="#org9c973ae">资源限制</a></li>
+<li><a href="#org98cfb2a">semget函数</a></li>
+<li><a href="#org62429ab">semctl函数</a>
+<ul>
+<li><a href="#org4e17128">cmd参数</a></li>
+</ul>
+</li>
+<li><a href="#org6fd7980">semop函数</a>
+<ul>
+<li><a href="#orgb2402ea">semoarray参数</a></li>
+<li><a href="#org52cb8f5">exit时的信号量调整</a></li>
+</ul>
+</li>
+<li><a href="#org93d9dad">实例</a></li>
+<li><a href="#org309b047">信号量 VS 文件锁</a></li>
+</ul>
+</li>
+<li><a href="#orgcf4d37a">共享内存</a>
+<ul>
+<li><a href="#org902bcd7">shmid_ds结构</a></li>
+<li><a href="#orgccff110">资源限制</a></li>
+<li><a href="#orga090675">shmget函数</a></li>
+<li><a href="#orgcac8c77">shmctl函数</a>
+<ul>
+<li><a href="#org66a590a">cmd参数</a></li>
+</ul>
+</li>
+<li><a href="#org4239445">shmat函数</a></li>
+<li><a href="#orge694ed7">shmdt函数</a></li>
+<li><a href="#org9f4b2e1">打印不同类型的数据所存放的位置</a></li>
+<li><a href="#org54542f6">/dev/zero的存储映射</a>
+<ul>
+<li><a href="#org367076e">匿名存储映射</a></li>
+<li><a href="#org33bfb44">共享存储 VS mmap</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="#org4cc22b8">总结</a></li>
+<li><a href="#org69df744">客户机-服务器模型</a>
+<ul>
+<li><a href="#org3ad86da">单向管道</a></li>
+<li><a href="#orgf8240a9">FIFO</a></li>
+<li><a href="#org8fe11bd">消息队列</a>
+<ul>
+<li><a href="#org8929ca3">实现</a></li>
+<li><a href="#orgb880d23">缺陷</a>
+<ul>
+<li><a href="#orgcc046be">安全措施</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org9d4a616">总结</a></li>
 </ul>
 </div>
 </div>
-<pre class="example">
-  第8章说明了进程控制原语并且观察了如何调用多个进程
+<pre class="example" id="orgd37377c">
+第8章说明了进程控制原语并且观察了如何调用多个进程
 
-  但是这些进程之间交换信息的唯一方法是经由fork或exec传送打开文件，或通过文件系统
+但是这些进程之间交换信息的唯一方法是经由fork或exec传送打开文件，或通过文件系统
 
-  本章将说明进程之间相互通信的其他技术IPC
+本章将说明进程之间相互通信的其他技术IPC
 
 </pre>
 <p>
@@ -550,13 +517,13 @@ UNIX <span class="underline">IPC</span> 已经是而且继续是各种 <b>进程
 正如上表所示，不管哪一种UNIX实现，都可依靠的唯一一种IPC是 <b>半双工的管道</b> 
 </p>
 
-<pre class="example">
-  表中前7种IPC通常限于同一台主机的各个进程间的IPC
+<pre class="example" id="org69a5d4c">
+表中前7种IPC通常限于同一台主机的各个进程间的IPC
 
-  最后两种：套接口和流，则支持不同主机上各个进程间IPC
+最后两种：套接口和流，则支持不同主机上各个进程间IPC
 
-  虽然中间三种形式的IPC(消息队列、信号量以及共享存储器)在表中说明为只受到系统V的支持
-  但是在大多数制造商所支持的，从伯克利UNIX导出的UNIX系统中(例如，SunOS以及Ultrix)已经添加了这三种形式的IPC
+虽然中间三种形式的IPC(消息队列、信号量以及共享存储器)在表中说明为只受到系统V的支持
+但是在大多数制造商所支持的，从伯克利UNIX导出的UNIX系统中(例如，SunOS以及Ultrix)已经添加了这三种形式的IPC
 </pre>
 
 <p>
@@ -571,9 +538,9 @@ UNIX <span class="underline">IPC</span> 已经是而且继续是各种 <b>进程
 </ul>
 
 
-<div id="outline-container-org7f568d2" class="outline-2">
-<h2 id="org7f568d2">管道</h2>
-<div class="outline-text-2" id="text-org7f568d2">
+<div id="outline-container-org6c844ca" class="outline-2">
+<h2 id="org6c844ca">管道</h2>
+<div class="outline-text-2" id="text-org6c844ca">
 <p>
 <b>管道</b> 是UNIX IPC的最老形式，有两种限制; 
 </p>
@@ -582,15 +549,15 @@ UNIX <span class="underline">IPC</span> 已经是而且继续是各种 <b>进程
 <li>只能在具有 <b>公共祖先</b> 的 <span class="underline">进程之间</span> 使用：通常一个 <span class="underline">管道</span> 由一个 <span class="underline">进程创建</span> ，然后该进程调用 <span class="underline">fork</span> ，此后 <b>父、子进程之间就可应用该管道</b></li>
 </ol>
 
-<pre class="example">
-    尽管有这两种限制，半双工管道仍是最常用的IPC形式
+<pre class="example" id="org4dde1d8">
+尽管有这两种限制，半双工管道仍是最常用的IPC形式
 
-    并且所有UNIX系统都提供此种通信机制
+并且所有UNIX系统都提供此种通信机制
 </pre>
 </div>
-<div id="outline-container-org9cfcaee" class="outline-3">
-<h3 id="org9cfcaee">pipe函数</h3>
-<div class="outline-text-3" id="text-org9cfcaee">
+<div id="outline-container-orge8b5e8c" class="outline-3">
+<h3 id="orge8b5e8c">pipe函数</h3>
+<div class="outline-text-3" id="text-orge8b5e8c">
 <p>
 <span class="underline">pipe</span> 函数： <b>创建</b> 管道
 </p>
@@ -617,21 +584,21 @@ UNIX <span class="underline">IPC</span> 已经是而且继续是各种 <b>进程
 <li><span class="underline">filedes[1]的输出</span> 正好是 <span class="underline">filedes[0]的输入</span></li>
 </ul>
 
-<pre class="example">
-     有两种方法来描绘一个管道：
+<pre class="example" id="orge4c5711">
+有两种方法来描绘一个管道：
 
-     左半图显示了 管道的两端 在 一个进程 中 相互连接
+左半图显示了 管道的两端 在 一个进程 中 相互连接
 
-     右半图则说明 数据 通过 内核 在 管道 中 流动 
+右半图则说明 数据 通过 内核 在 管道 中 流动 
 </pre>
 
 
-<div class="figure">
+<div id="orgdb88389" class="figure">
 <p><img src="pic/pipe.jpg" alt="pipe.jpg" width="90%" /> 
 </p>
 </div>
 
-<pre class="example">
+<pre class="example" id="org58a06a1">
 fstat函数对管道的每一端都返回一个FIFO类型的文件描述符，可以用S_ISFIFO宏来测试管道
 </pre>
 
@@ -639,12 +606,12 @@ fstat函数对管道的每一端都返回一个FIFO类型的文件描述符，�
 单个进程中的管道几乎没有任何用处。通常 <span class="underline">调用pipe的进程</span> 接着 <b>调用fork</b> ，这样就创建了从 <span class="underline">父进程到子进程</span> 或 <span class="underline">反之的IPC通道</span> 。下图显示了这种情况：
 </p>
 
-<div class="figure">
+<div id="orge8ffcf4" class="figure">
 <p><img src="pic/pipe-fork.jpg" alt="pipe-fork.jpg" width="70%" /> 
 </p>
 </div>
 
-<pre class="example">
+<pre class="example" id="org57219bf">
 fork之后做什么取决于我们想要有的数据流的方向
 </pre>
 
@@ -656,7 +623,7 @@ fork之后做什么取决于我们想要有的数据流的方向
 <li><span class="underline">子进程</span> 则 <b>关闭</b> <span class="underline">写端</span> (fd[1])。下图显示了描述符的最后安排：</li>
 </ul>
 
-<div class="figure">
+<div id="orged2855c" class="figure">
 <p><img src="pic/pipe-fork-close.jpg" alt="pipe-fork-close.jpg" width="70%" /> 
 </p>
 </div>
@@ -667,12 +634,12 @@ fork之后做什么取决于我们想要有的数据流的方向
 <ul class="org-ul">
 <li>当 <span class="underline">读</span> 一个 <b>写端已被关闭</b> 的管道时：在所有数据都被读取后， <span class="underline">read</span> 返回 <span class="underline">0</span> ，以指示 <b>达到了文件结束处</b></li>
 </ul>
-<pre class="example">
-     从技术方面考虑，管道的写端还有进程时，就不会产生文件的结束
+<pre class="example" id="orge86a2ba">
+从技术方面考虑，管道的写端还有进程时，就不会产生文件的结束
 
-     可以复制一个管道的描述符，使得有多个进程具有写打开文件描述符
+可以复制一个管道的描述符，使得有多个进程具有写打开文件描述符
 
-     但是，通常一个管道只有一个读进程，一个写进程
+但是，通常一个管道只有一个读进程，一个写进程
 </pre>
 <ul class="org-ul">
 <li>如果 <span class="underline">写</span> 一个 <b>读端已被关闭</b> 的管道：则产生信号 <span class="underline">SIGPIPE</span>
@@ -682,18 +649,18 @@ fork之后做什么取决于我们想要有的数据流的方向
 </ul>
 
 
-<pre class="example">
-     注意：在写管道时，常数PIPE_BUF规定了内核中管道缓存器的大小
+<pre class="example" id="orge142df3">
+注意：在写管道时，常数PIPE_BUF规定了内核中管道缓存器的大小
 
-     如果对管道进行write调用，而且要求写的字节数小于等于PIPE_BUF，则此操作不会与其他进程对同一管道(或FIFO)的write操作穿插进行
+如果对管道进行write调用，而且要求写的字节数小于等于PIPE_BUF，则此操作不会与其他进程对同一管道(或FIFO)的write操作穿插进行
 
-     但是若有多个进程同时写一个管道(FIFO)，而且某个或某些进程要求写的字节数超过PIPE_BUF字节数，则数据可能会与其他写操作的数据相穿插
+但是若有多个进程同时写一个管道(FIFO)，而且某个或某些进程要求写的字节数超过PIPE_BUF字节数，则数据可能会与其他写操作的数据相穿插
 </pre>
 </div>
 
-<div id="outline-container-orgdcaee1e" class="outline-4">
-<h4 id="orgdcaee1e">实例：创建管道</h4>
-<div class="outline-text-4" id="text-orgdcaee1e">
+<div id="outline-container-org5ea31b2" class="outline-4">
+<h4 id="org5ea31b2">实例：创建管道</h4>
+<div class="outline-text-4" id="text-org5ea31b2">
 <p>
 创建了一个从 <span class="underline">父进程</span> 到 <span class="underline">子进程</span> 的 <b>管道</b> ，并且父进程经由该管道向子进程传送数据：
 </p>
@@ -702,38 +669,38 @@ fork之后做什么取决于我们想要有的数据流的方向
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">n</span>;
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">fd</span>[2];
-    <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
-    <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">n</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">fd</span>[2];
+        <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
+        <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(fd) &lt; 0)
-        err_sys(<span style="color: #deb887;">"pipe error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(fd) &lt; 0)
+                err_sys(<span style="color: #deb887;">"pipe error"</span>);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
-        err_sys(<span style="color: #deb887;">"fork error"</span>);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid &gt; 0) {       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        close(fd[0]);<span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">close read tunnel of pipe in parent process</span>
-        <span style="color: #00bfff; font-weight: bold;">if</span>(write(fd[1], <span style="color: #deb887;">"hello world\n"</span>, 12) &lt; 0)
-            err_sys(<span style="color: #deb887;">"write to pipe error"</span>);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> {                <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        close(fd[1]); <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">close write tunnel of pipe in child process</span>
-        n = read(fd[0], line, MAXLINE);
-        <span style="color: #00bfff; font-weight: bold;">if</span>(write(STDOUT_FILENO, line, n) &lt; 0)
-            err_sys(<span style="color: #deb887;">"write to console error"</span>);
-    }
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
+                err_sys(<span style="color: #deb887;">"fork error"</span>);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid &gt; 0) {       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                close(fd[0]);<span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">close read tunnel of pipe in parent process</span>
+                <span style="color: #00bfff; font-weight: bold;">if</span>(write(fd[1], <span style="color: #deb887;">"hello world\n"</span>, 12) &lt; 0)
+                        err_sys(<span style="color: #deb887;">"write to pipe error"</span>);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> {                <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                close(fd[1]); <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">close write tunnel of pipe in child process</span>
+                n = read(fd[0], line, MAXLINE);
+                <span style="color: #00bfff; font-weight: bold;">if</span>(write(STDOUT_FILENO, line, n) &lt; 0)
+                        err_sys(<span style="color: #deb887;">"write to console error"</span>);
+        }
 
-    exit(0);
+        exit(0);
 }
 </pre>
 </div>
-<pre class="example">
-      上面程序对管道描述符调用read和write
+<pre class="example" id="org80e3f7d">
+上面程序对管道描述符调用read和write
 
-      更为普遍的是将管道描述符复制为 “标准输入”和“标准输出”
+更为普遍的是将管道描述符复制为 “标准输入”和“标准输出”
 
-      在此之后通常子进程调用'exec'，执行另一个程序
-      该程序从标准输入(已创建的管道)或将数据写至其标准输出(管道)
+在此之后通常子进程调用'exec'，执行另一个程序
+该程序从标准输入(已创建的管道)或将数据写至其标准输出(管道)
 </pre>
 
 <p>
@@ -748,13 +715,13 @@ hello world
 </div>
 </div>
 
-<div id="outline-container-org98483cd" class="outline-4">
-<h4 id="org98483cd">实例：分页展示文件</h4>
-<div class="outline-text-4" id="text-org98483cd">
-<pre class="example">
-      下面程序的功能是每次一页显示已产生的输出
+<div id="outline-container-orgb7ee184" class="outline-4">
+<h4 id="orgb7ee184">实例：分页展示文件</h4>
+<div class="outline-text-4" id="text-orgb7ee184">
+<pre class="example" id="org4c279dc">
+下面程序的功能是每次一页显示已产生的输出
 
-      已经有很多UNIX公用程序具有分页功能，因此无需再构造一个新的分页程序，而是调用用户最喜爱的分页程序
+已经有很多UNIX公用程序具有分页功能，因此无需再构造一个新的分页程序，而是调用用户最喜爱的分页程序
 </pre>
 <p>
 为了 <b>避免</b> 先将 <span class="underline">所有数据写到一个临时文件</span> 中，然后再调用系统中的有关程序显示该文件，将 <span class="underline">输出</span> 通过 <b>管道</b> 直接送到 <span class="underline">分页程序</span> ：
@@ -770,70 +737,70 @@ hello world
 <pre class="src src-C"><span style="color: #ffd700;">#include</span> <span style="color: #deb887;">"apue.h"</span>
 <span style="color: #ffd700;">#include</span> <span style="color: #deb887;">&lt;sys/wait.h&gt;</span>
 
-<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">DEF_PAGER</span>   <span style="color: #deb887;">"/usr/bin/less"</span>     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">default pager program </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">DEF_PAGER</span>   <span style="color: #deb887;">"/usr/bin/less"</span>     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">default pager program</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">argc</span>, <span style="color: #98f5ff;">char</span> *<span style="color: #4eee94;">argv</span>[])
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">n</span>;
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">fd</span>[2];
-    <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
-    <span style="color: #98f5ff;">char</span>    *<span style="color: #4eee94;">pager</span>, *<span style="color: #4eee94;">argv0</span>;
-    <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
-    <span style="color: #98f5ff;">FILE</span>    *<span style="color: #4eee94;">fp</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">n</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">fd</span>[2];
+        <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
+        <span style="color: #98f5ff;">char</span>    *<span style="color: #4eee94;">pager</span>, *<span style="color: #4eee94;">argv0</span>;
+        <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
+        <span style="color: #98f5ff;">FILE</span>    *<span style="color: #4eee94;">fp</span>;
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (argc != 2)
-        err_quit(<span style="color: #deb887;">"usage: a.out &lt;pathname&gt;"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (argc != 2)
+                err_quit(<span style="color: #deb887;">"usage: a.out &lt;pathname&gt;"</span>);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((fp = fopen(argv[1], <span style="color: #deb887;">"r"</span>)) == <span style="color: #ffd700;">NULL</span>)
-        err_sys(<span style="color: #deb887;">"can't open %s"</span>, argv[1]);
-    <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(fd) &lt; 0)
-        err_sys(<span style="color: #deb887;">"pipe error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((fp = fopen(argv[1], <span style="color: #deb887;">"r"</span>)) == <span style="color: #ffd700;">NULL</span>)
+                err_sys(<span style="color: #deb887;">"can't open %s"</span>, argv[1]);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(fd) &lt; 0)
+                err_sys(<span style="color: #deb887;">"pipe error"</span>);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
-        err_sys(<span style="color: #deb887;">"fork error"</span>);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid &gt; 0) {                               <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        close(fd[0]);       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">close read end </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
+                err_sys(<span style="color: #deb887;">"fork error"</span>);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid &gt; 0) {                               <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                close(fd[0]);       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">close read end</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
-        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent copies argv[1] to pipe </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">while</span> (fgets(line, MAXLINE, fp) != <span style="color: #ffd700;">NULL</span>) {
-            n = strlen(line);
-            <span style="color: #00bfff; font-weight: bold;">if</span> (write(fd[1], line, n) != n)
-                err_sys(<span style="color: #deb887;">"write error to pipe"</span>);
+                <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent copies argv[1] to pipe</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">while</span> (fgets(line, MAXLINE, fp) != <span style="color: #ffd700;">NULL</span>) {
+                        n = strlen(line);
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (write(fd[1], line, n) != n)
+                                err_sys(<span style="color: #deb887;">"write error to pipe"</span>);
+                }
+                <span style="color: #00bfff; font-weight: bold;">if</span> (ferror(fp))
+                        err_sys(<span style="color: #deb887;">"fgets error"</span>);
+
+                close(fd[1]);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">close write end of pipe for reader</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+
+                <span style="color: #00bfff; font-weight: bold;">if</span> (waitpid(pid, <span style="color: #ffd700;">NULL</span>, 0) &lt; 0)
+                        err_sys(<span style="color: #deb887;">"waitpid error"</span>);
+                exit(0);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> {                                        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                close(fd[1]);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">close write end</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">if</span> (fd[0] != STDIN_FILENO) { <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">standard input descriptor point to fd[0]</span>
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (dup2(fd[0], STDIN_FILENO) != STDIN_FILENO)
+                                err_sys(<span style="color: #deb887;">"dup2 error to stdin"</span>);
+                        close(fd[0]);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">don't need this after dup2</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                }
+
+                <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">get arguments for execl()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">if</span> ((pager = getenv(<span style="color: #deb887;">"PAGER"</span>)) == <span style="color: #ffd700;">NULL</span>)
+                        pager = DEF_PAGER;
+                <span style="color: #00bfff; font-weight: bold;">if</span> ((argv0 = strrchr(pager, <span style="color: #deb887;">'/'</span>)) != <span style="color: #ffd700;">NULL</span>)
+                        argv0++;        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">step past rightmost slash</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">else</span>
+                        argv0 = pager;  <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">no slash in pager</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+
+                <span style="color: #00bfff; font-weight: bold;">if</span> (execl(pager, argv0, (<span style="color: #98f5ff;">char</span> *)0) &lt; 0)
+                        err_sys(<span style="color: #deb887;">"execl error for %s"</span>, pager);
         }
-        <span style="color: #00bfff; font-weight: bold;">if</span> (ferror(fp))
-            err_sys(<span style="color: #deb887;">"fgets error"</span>);
-
-        close(fd[1]);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">close write end of pipe for reader </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-
-        <span style="color: #00bfff; font-weight: bold;">if</span> (waitpid(pid, <span style="color: #ffd700;">NULL</span>, 0) &lt; 0)
-            err_sys(<span style="color: #deb887;">"waitpid error"</span>);
         exit(0);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> {                                        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        close(fd[1]);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">close write end </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">if</span> (fd[0] != STDIN_FILENO) { <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">standard input descriptor point to fd[0]</span>
-            <span style="color: #00bfff; font-weight: bold;">if</span> (dup2(fd[0], STDIN_FILENO) != STDIN_FILENO)
-                err_sys(<span style="color: #deb887;">"dup2 error to stdin"</span>);
-            close(fd[0]);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">don't need this after dup2 </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        }
-
-        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">get arguments for execl() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">if</span> ((pager = getenv(<span style="color: #deb887;">"PAGER"</span>)) == <span style="color: #ffd700;">NULL</span>)
-            pager = DEF_PAGER;
-        <span style="color: #00bfff; font-weight: bold;">if</span> ((argv0 = strrchr(pager, <span style="color: #deb887;">'/'</span>)) != <span style="color: #ffd700;">NULL</span>)
-            argv0++;        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">step past rightmost slash </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">else</span>
-            argv0 = pager;  <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">no slash in pager </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-
-        <span style="color: #00bfff; font-weight: bold;">if</span> (execl(pager, argv0, (<span style="color: #98f5ff;">char</span> *)0) &lt; 0)
-            err_sys(<span style="color: #deb887;">"execl error for %s"</span>, pager);
-    }
-    exit(0);
 }
 </pre>
 </div></li>
 </ol>
 
-<pre class="example">
+<pre class="example" id="org76630e2">
 在调用fork之前先创建一个管道
 
 fork之后父进程关闭其读端
@@ -878,30 +845,30 @@ am__is_gnu_make = { <span style="color: #deb887;">\</span>
 将一个描述符复制到另一个时，在子进程中，fd[0]复制到标准输入
 </p>
 
-<pre class="example">
-      注意：该描述符fd[0]的值不允许已经是所希望的值
+<pre class="example" id="org32b52ca">
+注意：该描述符fd[0]的值不允许已经是所希望的值
 
-      如果fd[0]已经是标准输入，并且先调用dup2，然后调用close则将关闭此进程中只有该单个描述符所代表的标准输入
+如果fd[0]已经是标准输入，并且先调用dup2，然后调用close则将关闭此进程中只有该单个描述符所代表的标准输入
 
-      在本程序中，如果shell没有打开标准输入，那么程序开始处的fopen应已使用描述符0，也就是最小未使用的描述符，所以fd[0]决不会等于标准输入
+在本程序中，如果shell没有打开标准输入，那么程序开始处的fopen应已使用描述符0，也就是最小未使用的描述符，所以fd[0]决不会等于标准输入
 
-      尽管如此，只要先调用dup2，然后调用close以复制一个描述符到另一个，作为一种保护性的编程措施，总是先将两个描述符进行比较
+尽管如此，只要先调用dup2，然后调用close以复制一个描述符到另一个，作为一种保护性的编程措施，总是先将两个描述符进行比较
 </pre>
 <p>
 先使用 <span class="underline">环境变量PAGER</span> 获得 <b>用户分页程序名称</b> 
 </p>
 
-<pre class="example">
-      如果操作没有成功，则使用系统默认值。这是环境变量的常见用法
+<pre class="example" id="orgf34db38">
+如果操作没有成功，则使用系统默认值。这是环境变量的常见用法
 </pre>
 </div>
 </div>
 
-<div id="outline-container-org8845395" class="outline-4">
-<h4 id="org8845395">实例：父子进程同步</h4>
-<div class="outline-text-4" id="text-org8845395">
-<pre class="example">
-      以前使用信号实现了TELL_WAIT、TELL_PARENT、TELL_CHILD、WAIT_PARENT以及WAIT_CHILD
+<div id="outline-container-org2a6624e" class="outline-4">
+<h4 id="org2a6624e">实例：父子进程同步</h4>
+<div class="outline-text-4" id="text-org2a6624e">
+<pre class="example" id="org5c667d0">
+以前使用信号实现了TELL_WAIT、TELL_PARENT、TELL_CHILD、WAIT_PARENT以及WAIT_CHILD
 </pre>
 <p>
 下面则是一个使用 <span class="underline">管道</span> 的实现：
@@ -913,42 +880,42 @@ am__is_gnu_make = { <span style="color: #deb887;">\</span>
 
 <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">TELL_WAIT</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(pfd1) &lt; 0 || pipe(pfd2) &lt; 0)
-        err_sys(<span style="color: #deb887;">"pipe error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(pfd1) &lt; 0 || pipe(pfd2) &lt; 0)
+                err_sys(<span style="color: #deb887;">"pipe error"</span>);
 }
 
 <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">TELL_PARENT</span>(<span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">pid</span>)
 {
-    <span style="color: #00bfff; font-weight: bold;">if</span> (write(pfd2[1], <span style="color: #deb887;">"c"</span>, 1) != 1)
-        err_sys(<span style="color: #deb887;">"write error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (write(pfd2[1], <span style="color: #deb887;">"c"</span>, 1) != 1)
+                err_sys(<span style="color: #deb887;">"write error"</span>);
 }
 
 <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">WAIT_PARENT</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">c</span>;
+        <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">c</span>;
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (read(pfd1[0], &amp;c, 1) != 1)
-        err_sys(<span style="color: #deb887;">"read error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (read(pfd1[0], &amp;c, 1) != 1)
+                err_sys(<span style="color: #deb887;">"read error"</span>);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (c != <span style="color: #deb887;">'p'</span>)
-        err_quit(<span style="color: #deb887;">"WAIT_PARENT: incorrect data"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (c != <span style="color: #deb887;">'p'</span>)
+                err_quit(<span style="color: #deb887;">"WAIT_PARENT: incorrect data"</span>);
 }
 
 <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">TELL_CHILD</span>(<span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">pid</span>)
 {
-    <span style="color: #00bfff; font-weight: bold;">if</span> (write(pfd1[1], <span style="color: #deb887;">"p"</span>, 1) != 1)
-        err_sys(<span style="color: #deb887;">"write error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (write(pfd1[1], <span style="color: #deb887;">"p"</span>, 1) != 1)
+                err_sys(<span style="color: #deb887;">"write error"</span>);
 }
 
 <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">WAIT_CHILD</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">c</span>;
+        <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">c</span>;
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (read(pfd2[0], &amp;c, 1) != 1)
-        err_sys(<span style="color: #deb887;">"read error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (read(pfd2[0], &amp;c, 1) != 1)
+                err_sys(<span style="color: #deb887;">"read error"</span>);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (c != <span style="color: #deb887;">'c'</span>)
-        err_quit(<span style="color: #deb887;">"WAIT_CHILD: incorrect data"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (c != <span style="color: #deb887;">'c'</span>)
+                err_quit(<span style="color: #deb887;">"WAIT_CHILD: incorrect data"</span>);
 }
 </pre>
 </div>
@@ -962,29 +929,29 @@ am__is_gnu_make = { <span style="color: #deb887;">\</span>
 </p>
 
 
-<div class="figure">
+<div id="org0eb09d7" class="figure">
 <p><img src="pic/pipe-tell-wait.jpg" alt="pipe-tell-wait.jpg" width="70%" /> 
 </p>
 </div></li>
 </ul>
 
-<pre class="example">
-      注意：每一个管道都有一个额外的读取进程，这没有关系
+<pre class="example" id="org032224d">
+注意：每一个管道都有一个额外的读取进程，这没有关系
 
-      也就是说除了"子进程"从pfd1[0]读取，父进程也有上一个管道的读端
-      因为父进程并没有执行对该管道的读操作，所以这不会产生任何影响
+也就是说除了"子进程"从pfd1[0]读取，父进程也有上一个管道的读端
+因为父进程并没有执行对该管道的读操作，所以这不会产生任何影响
 </pre>
 </div>
 </div>
 </div>
 
-<div id="outline-container-orgfa7937b" class="outline-3">
-<h3 id="orgfa7937b">popen和pclose函数</h3>
-<div class="outline-text-3" id="text-orgfa7937b">
-<pre class="example">
-     常见的操作是创建一个连接到另一个进程的管道，然后读其输出或向其发送输入
+<div id="outline-container-org11d9ee3" class="outline-3">
+<h3 id="org11d9ee3">popen和pclose函数</h3>
+<div class="outline-text-3" id="text-org11d9ee3">
+<pre class="example" id="org8c20a21">
+常见的操作是创建一个连接到另一个进程的管道，然后读其输出或向其发送输入
 
-     标准I/O库为实现这些操作提供了两个函数popen和pclose
+标准I/O库为实现这些操作提供了两个函数popen和pclose
 </pre>
 
 <p>
@@ -1021,7 +988,7 @@ am__is_gnu_make = { <span style="color: #deb887;">\</span>
 <li>如果type是 <span class="underline">w</span> : 则 <span class="underline">文件指针</span> 连接到 <b>cmdstring的标准输入</b></li>
 </ul>
 
-<div class="figure">
+<div id="org187b8a0" class="figure">
 <p><img src="pic/popen.jpg" alt="popen.jpg" width="90%" /> 
 </p>
 </div>
@@ -1051,9 +1018,9 @@ am__is_gnu_make = { <span style="color: #deb887;">\</span>
 </ul>
 </div>
 
-<div id="outline-container-orgb4e3a12" class="outline-4">
-<h4 id="orgb4e3a12">cmdstring</h4>
-<div class="outline-text-4" id="text-orgb4e3a12">
+<div id="outline-container-org0f28e71" class="outline-4">
+<h4 id="org0f28e71">cmdstring</h4>
+<div class="outline-text-4" id="text-org0f28e71">
 <p>
 cmdstring由 <span class="underline">Bourne shell</span> 以下列方式执行：
 </p>
@@ -1078,9 +1045,9 @@ cmdstring由 <span class="underline">Bourne shell</span> 以下列方式执行�
 </div>
 </div>
 
-<div id="outline-container-org2354d4a" class="outline-4">
-<h4 id="org2354d4a">使用popen实现分页读取文件</h4>
-<div class="outline-text-4" id="text-org2354d4a">
+<div id="outline-container-orga4b77f9" class="outline-4">
+<h4 id="orga4b77f9">使用popen实现分页读取文件</h4>
+<div class="outline-text-4" id="text-orga4b77f9">
 <p>
 shell命令 <span class="underline">${PAGER:-more}</span> 的意思是：如果shell变量 <span class="underline">PAGER</span> <b>已经定义，且其值非空，则使用其值</b> ，否则使用字符串 <span class="underline">more</span> 
 </p>
@@ -1088,40 +1055,40 @@ shell命令 <span class="underline">${PAGER:-more}</span> 的意思是：如果s
 <pre class="src src-C"><span style="color: #ffd700;">#include</span> <span style="color: #deb887;">"apue.h"</span>
 <span style="color: #ffd700;">#include</span> <span style="color: #deb887;">&lt;sys/wait.h&gt;</span>
 
-<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">PAGER</span>   <span style="color: #deb887;">"${PAGER:-more}"</span> <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">environment variable, or default </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">PAGER</span>   <span style="color: #deb887;">"${PAGER:-more}"</span> <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">environment variable, or default</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">argc</span>, <span style="color: #98f5ff;">char</span> *<span style="color: #4eee94;">argv</span>[])
 {
-    <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
-    <span style="color: #98f5ff;">FILE</span>    *<span style="color: #4eee94;">fpin</span>, *<span style="color: #4eee94;">fpout</span>;
+        <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
+        <span style="color: #98f5ff;">FILE</span>    *<span style="color: #4eee94;">fpin</span>, *<span style="color: #4eee94;">fpout</span>;
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (argc != 2)
-        err_quit(<span style="color: #deb887;">"usage: a.out &lt;pathname&gt;"</span>);
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((fpin = fopen(argv[1], <span style="color: #deb887;">"r"</span>)) == <span style="color: #ffd700;">NULL</span>)
-        err_sys(<span style="color: #deb887;">"can't open %s"</span>, argv[1]);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (argc != 2)
+                err_quit(<span style="color: #deb887;">"usage: a.out &lt;pathname&gt;"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((fpin = fopen(argv[1], <span style="color: #deb887;">"r"</span>)) == <span style="color: #ffd700;">NULL</span>)
+                err_sys(<span style="color: #deb887;">"can't open %s"</span>, argv[1]);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((fpout = popen(PAGER, <span style="color: #deb887;">"w"</span>)) == <span style="color: #ffd700;">NULL</span>)
-        err_sys(<span style="color: #deb887;">"popen error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((fpout = popen(PAGER, <span style="color: #deb887;">"w"</span>)) == <span style="color: #ffd700;">NULL</span>)
+                err_sys(<span style="color: #deb887;">"popen error"</span>);
 
-    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">copy argv[1] to pager </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">while</span> (fgets(line, MAXLINE, fpin) != <span style="color: #ffd700;">NULL</span>) {
-        <span style="color: #00bfff; font-weight: bold;">if</span> (fputs(line, fpout) == EOF)
-            err_sys(<span style="color: #deb887;">"fputs error to pipe"</span>);
-    }
-    <span style="color: #00bfff; font-weight: bold;">if</span> (ferror(fpin))
-        err_sys(<span style="color: #deb887;">"fgets error"</span>);
-    <span style="color: #00bfff; font-weight: bold;">if</span> (pclose(fpout) == -1)
-        err_sys(<span style="color: #deb887;">"pclose error"</span>);
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">copy argv[1] to pager</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">while</span> (fgets(line, MAXLINE, fpin) != <span style="color: #ffd700;">NULL</span>) {
+                <span style="color: #00bfff; font-weight: bold;">if</span> (fputs(line, fpout) == EOF)
+                        err_sys(<span style="color: #deb887;">"fputs error to pipe"</span>);
+        }
+        <span style="color: #00bfff; font-weight: bold;">if</span> (ferror(fpin))
+                err_sys(<span style="color: #deb887;">"fgets error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (pclose(fpout) == -1)
+                err_sys(<span style="color: #deb887;">"pclose error"</span>);
 
-    exit(0);
+        exit(0);
 }
 </pre>
 </div>
 </div>
 </div>
-<div id="outline-container-org69a5186" class="outline-4">
-<h4 id="org69a5186">实现popen和pclose函数</h4>
-<div class="outline-text-4" id="text-org69a5186">
+<div id="outline-container-orgd3f9e21" class="outline-4">
+<h4 id="orgd3f9e21">实现popen和pclose函数</h4>
+<div class="outline-text-4" id="text-orgd3f9e21">
 <p>
 实现popen和pclose函数需要考虑很多细节：
 </p>
@@ -1139,10 +1106,10 @@ shell命令 <span class="underline">${PAGER:-more}</span> 的意思是：如果s
 <li>因为一个进程可能 <b>调用 <span class="underline">popen</span> 多次</b> ，所以在 <b>动态分配</b> <span class="underline">childpid数组</span> 时(第一次调用popen时)，其 <span class="underline">长度</span> 必须容纳与 <b>文件描述符数相同的进程数</b></li>
 </ul>
 
-<pre class="example">
-      根据POSIX要求子进程必须从头逐个检查childpid数组的各元素，关闭仍旧打开的任一描述符
+<pre class="example" id="org705a0ad">
+根据POSIX要求子进程必须从头逐个检查childpid数组的各元素，关闭仍旧打开的任一描述符
 
-      因为“fork的子进程”可能继承了“父进程以前popen所形成的管道”
+因为“fork的子进程”可能继承了“父进程以前popen所形成的管道”
 </pre>
 
 <div class="org-src-container">
@@ -1153,129 +1120,129 @@ shell命令 <span class="underline">${PAGER:-more}</span> 的意思是：如果s
 
 <span style="color: #5f9ea0; font-style: italic;">/*</span>
 <span style="color: #5f9ea0; font-style: italic;"> * Pointer to array allocated at run-time.</span>
-<span style="color: #5f9ea0; font-style: italic;"> </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #5f9ea0; font-style: italic;"> */</span>
 <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">pid_t</span> *<span style="color: #4eee94;">childpid</span> = <span style="color: #ffd700;">NULL</span>;
 
 <span style="color: #5f9ea0; font-style: italic;">/*</span>
 <span style="color: #5f9ea0; font-style: italic;"> * From our open_max(), {Prog openmax}.</span>
-<span style="color: #5f9ea0; font-style: italic;"> </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #5f9ea0; font-style: italic;"> */</span>
 <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">maxfd</span>;
 
 <span style="color: #98f5ff;">FILE</span> *<span style="color: #daa520; font-weight: bold;">popen</span>(<span style="color: #00bfff; font-weight: bold;">const</span> <span style="color: #98f5ff;">char</span> *<span style="color: #4eee94;">cmdstring</span>, <span style="color: #00bfff; font-weight: bold;">const</span> <span style="color: #98f5ff;">char</span> *<span style="color: #4eee94;">type</span>)
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">i</span>;
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">pfd</span>[2];
-    <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
-    <span style="color: #98f5ff;">FILE</span>    *<span style="color: #4eee94;">fp</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">i</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">pfd</span>[2];
+        <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
+        <span style="color: #98f5ff;">FILE</span>    *<span style="color: #4eee94;">fp</span>;
 
-    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">only allow "r" or "w" </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((type[0] != <span style="color: #deb887;">'r'</span> &amp;&amp; type[0] != <span style="color: #deb887;">'w'</span>) || type[1] != 0) {
-        errno = EINVAL;     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">required by POSIX </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);
-    }
-
-    <span style="color: #00bfff; font-weight: bold;">if</span> (childpid == <span style="color: #ffd700;">NULL</span>) {     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">first time through </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">allocate zeroed out array for child pids </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        maxfd = open_max();
-        <span style="color: #00bfff; font-weight: bold;">if</span> ((childpid = calloc(maxfd, <span style="color: #00bfff; font-weight: bold;">sizeof</span>(pid_t))) == <span style="color: #ffd700;">NULL</span>)
-            <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);
-    }
-
-    <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(pfd) &lt; 0)
-        <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">errno set by pipe() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
-        <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">errno set by fork() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid == 0) {                          <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">if</span> (*type == <span style="color: #deb887;">'r'</span>) {
-            close(pfd[0]);
-            <span style="color: #00bfff; font-weight: bold;">if</span> (pfd[1] != STDOUT_FILENO) {
-                dup2(pfd[1], STDOUT_FILENO);
-                close(pfd[1]);
-            }
-        } <span style="color: #00bfff; font-weight: bold;">else</span> {
-            close(pfd[1]);
-            <span style="color: #00bfff; font-weight: bold;">if</span> (pfd[0] != STDIN_FILENO) {
-                dup2(pfd[0], STDIN_FILENO);
-                close(pfd[0]);
-            }
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">only allow "r" or "w"</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((type[0] != <span style="color: #deb887;">'r'</span> &amp;&amp; type[0] != <span style="color: #deb887;">'w'</span>) || type[1] != 0) {
+                errno = EINVAL;     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">required by POSIX</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);
         }
 
-        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">close all descriptors in childpid[] </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">for</span> (i = 0; i &lt; maxfd; i++)
-            <span style="color: #00bfff; font-weight: bold;">if</span> (childpid[i] &gt; 0)
-                close(i);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (childpid == <span style="color: #ffd700;">NULL</span>) {     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">first time through</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">allocate zeroed out array for child pids</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                maxfd = open_max();
+                <span style="color: #00bfff; font-weight: bold;">if</span> ((childpid = calloc(maxfd, <span style="color: #00bfff; font-weight: bold;">sizeof</span>(pid_t))) == <span style="color: #ffd700;">NULL</span>)
+                        <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);
+        }
 
-        execl(<span style="color: #deb887;">"/bin/sh"</span>, <span style="color: #deb887;">"sh"</span>, <span style="color: #deb887;">"-c"</span>, cmdstring, (<span style="color: #98f5ff;">char</span> *)0);
-        _exit(127);
-    }
+        <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(pfd) &lt; 0)
+                <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">errno set by pipe()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
-    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent continues... </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">if</span> (*type == <span style="color: #deb887;">'r'</span>) {
-        close(pfd[1]);
-        <span style="color: #00bfff; font-weight: bold;">if</span> ((fp = fdopen(pfd[0], type)) == <span style="color: #ffd700;">NULL</span>)
-            <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> {
-        close(pfd[0]);
-        <span style="color: #00bfff; font-weight: bold;">if</span> ((fp = fdopen(pfd[1], type)) == <span style="color: #ffd700;">NULL</span>)
-            <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);
-    }
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
+                <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">errno set by fork()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid == 0) {                          <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">if</span> (*type == <span style="color: #deb887;">'r'</span>) {
+                        close(pfd[0]);
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (pfd[1] != STDOUT_FILENO) {
+                                dup2(pfd[1], STDOUT_FILENO);
+                                close(pfd[1]);
+                        }
+                } <span style="color: #00bfff; font-weight: bold;">else</span> {
+                        close(pfd[1]);
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (pfd[0] != STDIN_FILENO) {
+                                dup2(pfd[0], STDIN_FILENO);
+                                close(pfd[0]);
+                        }
+                }
 
-    childpid[fileno(fp)] = pid; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">remember child pid for this fd </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">return</span>(fp);
+                <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">close all descriptors in childpid[]</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">for</span> (i = 0; i &lt; maxfd; i++)
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (childpid[i] &gt; 0)
+                                close(i);
+
+                execl(<span style="color: #deb887;">"/bin/sh"</span>, <span style="color: #deb887;">"sh"</span>, <span style="color: #deb887;">"-c"</span>, cmdstring, (<span style="color: #98f5ff;">char</span> *)0);
+                _exit(127);
+        }
+
+        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent continues...</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span> (*type == <span style="color: #deb887;">'r'</span>) {
+                close(pfd[1]);
+                <span style="color: #00bfff; font-weight: bold;">if</span> ((fp = fdopen(pfd[0], type)) == <span style="color: #ffd700;">NULL</span>)
+                        <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> {
+                close(pfd[0]);
+                <span style="color: #00bfff; font-weight: bold;">if</span> ((fp = fdopen(pfd[1], type)) == <span style="color: #ffd700;">NULL</span>)
+                        <span style="color: #00bfff; font-weight: bold;">return</span>(<span style="color: #ffd700;">NULL</span>);
+        }
+
+        childpid[fileno(fp)] = pid; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">remember child pid for this fd</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">return</span>(fp);
 }
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">pclose</span>(<span style="color: #98f5ff;">FILE</span> *<span style="color: #4eee94;">fp</span>)
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">fd</span>, <span style="color: #4eee94;">stat</span>;
-    <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">fd</span>, <span style="color: #4eee94;">stat</span>;
+        <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (childpid == <span style="color: #ffd700;">NULL</span>) {
-        errno = EINVAL;
-        <span style="color: #00bfff; font-weight: bold;">return</span>(-1);     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">popen() has never been called </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    }
+        <span style="color: #00bfff; font-weight: bold;">if</span> (childpid == <span style="color: #ffd700;">NULL</span>) {
+                errno = EINVAL;
+                <span style="color: #00bfff; font-weight: bold;">return</span>(-1);     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">popen() has never been called</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        }
 
-    fd = fileno(fp);
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = childpid[fd]) == 0) {
-        errno = EINVAL;
-        <span style="color: #00bfff; font-weight: bold;">return</span>(-1);     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">fp wasn't opened by popen() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    }
+        fd = fileno(fp);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = childpid[fd]) == 0) {
+                errno = EINVAL;
+                <span style="color: #00bfff; font-weight: bold;">return</span>(-1);     <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">fp wasn't opened by popen()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        }
 
-    childpid[fd] = <span style="color: #ffd700;">NULL</span>;
-    <span style="color: #00bfff; font-weight: bold;">if</span> (fclose(fp) == EOF)
-        <span style="color: #00bfff; font-weight: bold;">return</span>(-1);
+        childpid[fd] = <span style="color: #ffd700;">NULL</span>;
+        <span style="color: #00bfff; font-weight: bold;">if</span> (fclose(fp) == EOF)
+                <span style="color: #00bfff; font-weight: bold;">return</span>(-1);
 
-    <span style="color: #00bfff; font-weight: bold;">while</span> (waitpid(pid, &amp;stat, 0) &lt; 0)
-        <span style="color: #00bfff; font-weight: bold;">if</span> (errno != EINTR)
-            <span style="color: #00bfff; font-weight: bold;">return</span>(-1); <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">error other than EINTR from waitpid() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">while</span> (waitpid(pid, &amp;stat, 0) &lt; 0)
+                <span style="color: #00bfff; font-weight: bold;">if</span> (errno != EINTR)
+                        <span style="color: #00bfff; font-weight: bold;">return</span>(-1); <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">error other than EINTR from waitpid()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
-    <span style="color: #00bfff; font-weight: bold;">return</span>(stat);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">return child's termination status </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">return</span>(stat);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">return child's termination status</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 }
 </pre>
 </div>
 
-<pre class="example">
-      若pclose的调用者已经为信号SIGCHLD设置了一个信号处理程序，则waitpid将返回一个EINTR
+<pre class="example" id="org67863d9">
+若pclose的调用者已经为信号SIGCHLD设置了一个信号处理程序，则waitpid将返回一个EINTR
 
-      因为允许调用者捕捉此信号(或者任何其他可能中断waitpid调用的信号)，所以当waitpid被一个捕捉到的信号中断时，那就必须再次调用waitpid
+因为允许调用者捕捉此信号(或者任何其他可能中断waitpid调用的信号)，所以当waitpid被一个捕捉到的信号中断时，那就必须再次调用waitpid
 </pre>
 </div>
 </div>
 
-<div id="outline-container-orgd54992f" class="outline-4">
-<h4 id="orgd54992f">用popen变换输入</h4>
-<div class="outline-text-4" id="text-orgd54992f">
-<pre class="example">
-      考虑一个应用程序，它向标准输出写一个提示，然后从标准输入读1行
+<div id="outline-container-orgd331135" class="outline-4">
+<h4 id="orgd331135">用popen变换输入</h4>
+<div class="outline-text-4" id="text-orgd331135">
+<pre class="example" id="org4eacff8">
+考虑一个应用程序，它向标准输出写一个提示，然后从标准输入读1行
 
-      使用popen可以在应用程序和输入之间插入一个程序以对输入进行变换处理
+使用popen可以在应用程序和输入之间插入一个程序以对输入进行变换处理
 </pre>
 
 <p>
 下图显示了进程的安排：
 </p>
 
-<div class="figure">
+<div id="org50382a7" class="figure">
 <p><img src="pic/filter-input.jpg" alt="filter-input.jpg" width="70%" /> 
 </p>
 </div>
@@ -1289,17 +1256,17 @@ shell命令 <span class="underline">${PAGER:-more}</span> 的意思是：如果s
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">c</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">c</span>;
 
-    <span style="color: #00bfff; font-weight: bold;">while</span> ((c = getchar()) != EOF) {
-        <span style="color: #00bfff; font-weight: bold;">if</span> (isupper(c))
-            c = tolower(c);
-        <span style="color: #00bfff; font-weight: bold;">if</span> (putchar(c) == EOF)
-            err_sys(<span style="color: #deb887;">"output error"</span>);
-        <span style="color: #00bfff; font-weight: bold;">if</span> (c == <span style="color: #deb887;">'\n'</span>)
-            fflush(stdout);
-    }
-    exit(0);
+        <span style="color: #00bfff; font-weight: bold;">while</span> ((c = getchar()) != EOF) {
+                <span style="color: #00bfff; font-weight: bold;">if</span> (isupper(c))
+                        c = tolower(c);
+                <span style="color: #00bfff; font-weight: bold;">if</span> (putchar(c) == EOF)
+                        err_sys(<span style="color: #deb887;">"output error"</span>);
+                <span style="color: #00bfff; font-weight: bold;">if</span> (c == <span style="color: #deb887;">'\n'</span>)
+                        fflush(stdout);
+        }
+        exit(0);
 }
 </pre>
 </div>
@@ -1316,17 +1283,17 @@ shell命令 <span class="underline">${PAGER:-more}</span> 的意思是：如果s
     <span style="color: #98f5ff;">FILE</span>    *<span style="color: #4eee94;">fpin</span>;
 
     <span style="color: #00bfff; font-weight: bold;">if</span> ((fpin = popen(<span style="color: #deb887;">"myuclc"</span>, <span style="color: #deb887;">"r"</span>)) == <span style="color: #ffd700;">NULL</span>)
-    err_sys(<span style="color: #deb887;">"popen error"</span>);
+        err_sys(<span style="color: #deb887;">"popen error"</span>);
     <span style="color: #00bfff; font-weight: bold;">for</span> ( ; ; ) {
-    fputs(<span style="color: #deb887;">"prompt&gt; "</span>, stdout);
-    fflush(stdout);
-    <span style="color: #00bfff; font-weight: bold;">if</span> (fgets(line, MAXLINE, fpin) == <span style="color: #ffd700;">NULL</span>) <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">read from pipe </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">break</span>;
-    <span style="color: #00bfff; font-weight: bold;">if</span> (fputs(line, stdout) == EOF)
-        err_sys(<span style="color: #deb887;">"fputs error to pipe"</span>);
+        fputs(<span style="color: #deb887;">"prompt&gt; "</span>, stdout);
+        fflush(stdout);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (fgets(line, MAXLINE, fpin) == <span style="color: #ffd700;">NULL</span>) <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">read from pipe</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+            <span style="color: #00bfff; font-weight: bold;">break</span>;
+        <span style="color: #00bfff; font-weight: bold;">if</span> (fputs(line, stdout) == EOF)
+            err_sys(<span style="color: #deb887;">"fputs error to pipe"</span>);
     }
     <span style="color: #00bfff; font-weight: bold;">if</span> (pclose(fpin) == -1)
-    err_sys(<span style="color: #deb887;">"pclose error"</span>);
+        err_sys(<span style="color: #deb887;">"pclose error"</span>);
     putchar(<span style="color: #deb887;">'\n'</span>);
     exit(0);
 }
@@ -1343,33 +1310,33 @@ prompt&gt; ^C
 </pre>
 </div>
 
-<pre class="example">
-      因为标准输出通常是按行进行缓存的
+<pre class="example" id="orgf914f7e">
+因为标准输出通常是按行进行缓存的
 
-      而提示并不包含新行符，所以在写了提示之后，需要调用fflush
+而提示并不包含新行符，所以在写了提示之后，需要调用fflush
 </pre>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org4e0f1d9" class="outline-3">
-<h3 id="org4e0f1d9">协同进程</h3>
-<div class="outline-text-3" id="text-org4e0f1d9">
+<div id="outline-container-org47939cf" class="outline-3">
+<h3 id="org47939cf">协同进程</h3>
+<div class="outline-text-3" id="text-org47939cf">
 <p>
 UNIX过滤程序从 <span class="underline">标准输入</span> <b>读取数据</b> ，对其进行 <b>适当处理</b> 后 <b>写到</b> <span class="underline">标准输出</span> 。 <span class="underline">几个过滤进程</span> 通常在 <span class="underline">shell管道命令</span> 中 <b>线性地连接</b> 。当 <span class="underline">同一个程序</span> <b>产生</b> <span class="underline">某个过滤程序的输入</span> ，同时又 <b>读取</b> <span class="underline">该过滤程序的输出</span> 时，则该 <span class="underline">过滤程序</span> 就成为 <b>协同进程</b> 
 </p>
 
-<pre class="example">
-     协同进程通常在“shell的后台运行”，其标准输入和标准输出通过管道连接到另一个程序
+<pre class="example" id="org0c4eb19">
+协同进程通常在“shell的后台运行”，其标准输入和标准输出通过管道连接到另一个程序
 
-     虽然要求初始化一个协同进程，并将其输入和输出连接到另一个进程的shell语法是十分奇特的，但是协同进程的工作方式在C程序中也是非常有用的
+虽然要求初始化一个协同进程，并将其输入和输出连接到另一个进程的shell语法是十分奇特的，但是协同进程的工作方式在C程序中也是非常有用的
 </pre>
 
 <p>
 进程先 <b>创建</b> <span class="underline">两个管道</span> ， <span class="underline">协同进程的标准输入</span> 和 <span class="underline">协同进程的标准输出</span> 。下图显示了这种安排：
 </p>
 
-<div class="figure">
+<div id="org597b2ca" class="figure">
 <p><img src="pic/coprocess.jpg" alt="coprocess.jpg" width="90%" /> 
 </p>
 </div>
@@ -1380,9 +1347,9 @@ UNIX过滤程序从 <span class="underline">标准输入</span> <b>读取数据<
 </ul>
 </div>
 
-<div id="outline-container-org49122d0" class="outline-4">
-<h4 id="org49122d0">对两个数求和的简单过滤</h4>
-<div class="outline-text-4" id="text-org49122d0">
+<div id="outline-container-org490667e" class="outline-4">
+<h4 id="org490667e">对两个数求和的简单过滤</h4>
+<div class="outline-text-4" id="text-org490667e">
 <p>
 下面程序从标准输入读两个数，计算它们的和，然后将结果写至标准输出:
 </p>
@@ -1391,22 +1358,22 @@ UNIX过滤程序从 <span class="underline">标准输入</span> <b>读取数据<
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">n</span>, <span style="color: #4eee94;">int1</span>, <span style="color: #4eee94;">int2</span>;
-    <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">n</span>, <span style="color: #4eee94;">int1</span>, <span style="color: #4eee94;">int2</span>;
+        <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
 
-    <span style="color: #00bfff; font-weight: bold;">while</span> ((n = read(STDIN_FILENO, line, MAXLINE)) &gt; 0) {
-        line[n] = 0;        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">null terminate </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">if</span> (sscanf(line, <span style="color: #deb887;">"%d%d"</span>, &amp;int1, &amp;int2) == 2) {
-            sprintf(line, <span style="color: #deb887;">"%d\n"</span>, int1 + int2);
-            n = strlen(line);
-            <span style="color: #00bfff; font-weight: bold;">if</span> (write(STDOUT_FILENO, line, n) != n)
-                err_sys(<span style="color: #deb887;">"write error"</span>);
-        } <span style="color: #00bfff; font-weight: bold;">else</span> {
-            <span style="color: #00bfff; font-weight: bold;">if</span> (write(STDOUT_FILENO, <span style="color: #deb887;">"invalid args\n"</span>, 13) != 13)
-                err_sys(<span style="color: #deb887;">"write error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">while</span> ((n = read(STDIN_FILENO, line, MAXLINE)) &gt; 0) {
+                line[n] = 0;        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">null terminate</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">if</span> (sscanf(line, <span style="color: #deb887;">"%d%d"</span>, &amp;int1, &amp;int2) == 2) {
+                        sprintf(line, <span style="color: #deb887;">"%d\n"</span>, int1 + int2);
+                        n = strlen(line);
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (write(STDOUT_FILENO, line, n) != n)
+                                err_sys(<span style="color: #deb887;">"write error"</span>);
+                } <span style="color: #00bfff; font-weight: bold;">else</span> {
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (write(STDOUT_FILENO, <span style="color: #deb887;">"invalid args\n"</span>, 13) != 13)
+                                err_sys(<span style="color: #deb887;">"write error"</span>);
+                }
         }
-    }
-    exit(0);
+        exit(0);
 }
 </pre>
 </div>
@@ -1427,68 +1394,68 @@ UNIX过滤程序从 <span class="underline">标准输入</span> <b>读取数据<
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #ffd700;">#include</span> <span style="color: #deb887;">"apue.h"</span>
 
-<span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">sig_pipe</span>(<span style="color: #98f5ff;">int</span>);      <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">our signal handler </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">sig_pipe</span>(<span style="color: #98f5ff;">int</span>);      <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">our signal handler</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">n</span>, <span style="color: #4eee94;">fd1</span>[2], <span style="color: #4eee94;">fd2</span>[2];
-    <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
-    <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">n</span>, <span style="color: #4eee94;">fd1</span>[2], <span style="color: #4eee94;">fd2</span>[2];
+        <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
+        <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (signal(SIGPIPE, sig_pipe) == SIG_ERR)
-        err_sys(<span style="color: #deb887;">"signal error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (signal(SIGPIPE, sig_pipe) == SIG_ERR)
+                err_sys(<span style="color: #deb887;">"signal error"</span>);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(fd1) &lt; 0 || pipe(fd2) &lt; 0)
-        err_sys(<span style="color: #deb887;">"pipe error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (pipe(fd1) &lt; 0 || pipe(fd2) &lt; 0)
+                err_sys(<span style="color: #deb887;">"pipe error"</span>);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
-        err_sys(<span style="color: #deb887;">"fork error"</span>);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid &gt; 0) {                           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        close(fd1[0]);
-        close(fd2[1]);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
+                err_sys(<span style="color: #deb887;">"fork error"</span>);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid &gt; 0) {                           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                close(fd1[0]);
+                close(fd2[1]);
 
-        <span style="color: #00bfff; font-weight: bold;">while</span> (fgets(line, MAXLINE, stdin) != <span style="color: #ffd700;">NULL</span>) {
-            n = strlen(line);
-            <span style="color: #00bfff; font-weight: bold;">if</span> (write(fd1[1], line, n) != n)
-                err_sys(<span style="color: #deb887;">"write error to pipe"</span>);
-            <span style="color: #00bfff; font-weight: bold;">if</span> ((n = read(fd2[0], line, MAXLINE)) &lt; 0)
-                err_sys(<span style="color: #deb887;">"read error from pipe"</span>);
-            <span style="color: #00bfff; font-weight: bold;">if</span> (n == 0) {
-                err_msg(<span style="color: #deb887;">"child closed pipe"</span>);
-                <span style="color: #00bfff; font-weight: bold;">break</span>;
-            }
-            line[n] = 0;    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">null terminate </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-            <span style="color: #00bfff; font-weight: bold;">if</span> (fputs(line, stdout) == EOF)
-                err_sys(<span style="color: #deb887;">"fputs error"</span>);
+                <span style="color: #00bfff; font-weight: bold;">while</span> (fgets(line, MAXLINE, stdin) != <span style="color: #ffd700;">NULL</span>) {
+                        n = strlen(line);
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (write(fd1[1], line, n) != n)
+                                err_sys(<span style="color: #deb887;">"write error to pipe"</span>);
+                        <span style="color: #00bfff; font-weight: bold;">if</span> ((n = read(fd2[0], line, MAXLINE)) &lt; 0)
+                                err_sys(<span style="color: #deb887;">"read error from pipe"</span>);
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (n == 0) {
+                                err_msg(<span style="color: #deb887;">"child closed pipe"</span>);
+                                <span style="color: #00bfff; font-weight: bold;">break</span>;
+                        }
+                        line[n] = 0;    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">null terminate</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (fputs(line, stdout) == EOF)
+                                err_sys(<span style="color: #deb887;">"fputs error"</span>);
+                }
+
+                <span style="color: #00bfff; font-weight: bold;">if</span> (ferror(stdin))
+                        err_sys(<span style="color: #deb887;">"fgets error on stdin"</span>);
+                exit(0);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> {                                    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                close(fd1[1]);
+                close(fd2[0]);
+                <span style="color: #00bfff; font-weight: bold;">if</span> (fd1[0] != STDIN_FILENO) {
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (dup2(fd1[0], STDIN_FILENO) != STDIN_FILENO)
+                                err_sys(<span style="color: #deb887;">"dup2 error to stdin"</span>);
+                        close(fd1[0]);
+                }
+
+                <span style="color: #00bfff; font-weight: bold;">if</span> (fd2[1] != STDOUT_FILENO) {
+                        <span style="color: #00bfff; font-weight: bold;">if</span> (dup2(fd2[1], STDOUT_FILENO) != STDOUT_FILENO)
+                                err_sys(<span style="color: #deb887;">"dup2 error to stdout"</span>);
+                        close(fd2[1]);
+                }
+                <span style="color: #00bfff; font-weight: bold;">if</span> (execl(<span style="color: #deb887;">"./add2"</span>, <span style="color: #deb887;">"add2"</span>, (<span style="color: #98f5ff;">char</span> *)0) &lt; 0)
+                        err_sys(<span style="color: #deb887;">"execl error"</span>);
         }
-
-        <span style="color: #00bfff; font-weight: bold;">if</span> (ferror(stdin))
-            err_sys(<span style="color: #deb887;">"fgets error on stdin"</span>);
         exit(0);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> {                                    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        close(fd1[1]);
-        close(fd2[0]);
-        <span style="color: #00bfff; font-weight: bold;">if</span> (fd1[0] != STDIN_FILENO) {
-            <span style="color: #00bfff; font-weight: bold;">if</span> (dup2(fd1[0], STDIN_FILENO) != STDIN_FILENO)
-                err_sys(<span style="color: #deb887;">"dup2 error to stdin"</span>);
-            close(fd1[0]);
-        }
-
-        <span style="color: #00bfff; font-weight: bold;">if</span> (fd2[1] != STDOUT_FILENO) {
-            <span style="color: #00bfff; font-weight: bold;">if</span> (dup2(fd2[1], STDOUT_FILENO) != STDOUT_FILENO)
-                err_sys(<span style="color: #deb887;">"dup2 error to stdout"</span>);
-            close(fd2[1]);
-        }
-        <span style="color: #00bfff; font-weight: bold;">if</span> (execl(<span style="color: #deb887;">"./add2"</span>, <span style="color: #deb887;">"add2"</span>, (<span style="color: #98f5ff;">char</span> *)0) &lt; 0)
-            err_sys(<span style="color: #deb887;">"execl error"</span>);
-    }
-    exit(0);
 }
 
 <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">void</span> <span style="color: #daa520; font-weight: bold;">sig_pipe</span>(<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">signo</span>)
 {
-    printf(<span style="color: #deb887;">"SIGPIPE caught\n"</span>);
-    exit(1);
+        printf(<span style="color: #deb887;">"SIGPIPE caught\n"</span>);
+        exit(1);
 }
 </pre>
 </div>
@@ -1507,15 +1474,15 @@ SIGPIPE caught
 </div></li>
 </ul>
 
-<pre class="example">
-      当pipe4进程正等待输入时杀死add2协同进程
+<pre class="example" id="org47c33f0">
+当pipe4进程正等待输入时杀死add2协同进程
 
-      然后输入两个数，进行写操作时，由于该管道无读进程，于是调用信号处理函数sig_pipe
+然后输入两个数，进行写操作时，由于该管道无读进程，于是调用信号处理函数sig_pipe
 </pre>
 </div>
-<div id="outline-container-orgbf8a92c" class="outline-5">
-<h5 id="orgbf8a92c">使用标准IO改写add2</h5>
-<div class="outline-text-5" id="text-orgbf8a92c">
+<div id="outline-container-org639fa44" class="outline-5">
+<h5 id="org639fa44">使用标准IO改写add2</h5>
+<div class="outline-text-5" id="text-org639fa44">
 <p>
 在协同进程add2中，使用了 <span class="underline">UNIX的I/O</span> :read和write。现在使用 <b>标准I/O</b> 改写该协同进程：
 </p>
@@ -1528,13 +1495,13 @@ SIGPIPE caught
     <span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">line</span>[MAXLINE];
 
     <span style="color: #00bfff; font-weight: bold;">while</span> (fgets(line, MAXLINE, stdin) != <span style="color: #ffd700;">NULL</span>) {
-    <span style="color: #00bfff; font-weight: bold;">if</span> (sscanf(line, <span style="color: #deb887;">"%d%d"</span>, &amp;int1, &amp;int2) == 2) {
-        <span style="color: #00bfff; font-weight: bold;">if</span> (printf(<span style="color: #deb887;">"%d\n"</span>, int1 + int2) == EOF)
-        err_sys(<span style="color: #deb887;">"printf error"</span>);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> {
-        <span style="color: #00bfff; font-weight: bold;">if</span> (printf(<span style="color: #deb887;">"invalid args\n"</span>) == EOF)
-        err_sys(<span style="color: #deb887;">"printf error"</span>);
-    }
+        <span style="color: #00bfff; font-weight: bold;">if</span> (sscanf(line, <span style="color: #deb887;">"%d%d"</span>, &amp;int1, &amp;int2) == 2) {
+            <span style="color: #00bfff; font-weight: bold;">if</span> (printf(<span style="color: #deb887;">"%d\n"</span>, int1 + int2) == EOF)
+                err_sys(<span style="color: #deb887;">"printf error"</span>);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> {
+            <span style="color: #00bfff; font-weight: bold;">if</span> (printf(<span style="color: #deb887;">"invalid args\n"</span>) == EOF)
+                err_sys(<span style="color: #deb887;">"printf error"</span>);
+        }
     }
     exit(0);
 }
@@ -1550,13 +1517,13 @@ SIGPIPE caught
 </pre>
 </div>
 
-<pre class="example">
-       若pipe4调用此新的协同进程，则它不再工作，问题出在系统默认的标准I/O缓存机制上：
+<pre class="example" id="org3842cf2">
+若pipe4调用此新的协同进程，则它不再工作，问题出在系统默认的标准I/O缓存机制上：
 
-       当add2stdio被调用时，对标准输入的第一个fgets引起标准I/O库分配一个缓存，并选择缓存的类型
-       因为标准输入是个管道，所以isatty为假，于是标准I/O库由系统默认是全缓存的，对标准输出也有同样的处理
+当add2stdio被调用时，对标准输入的第一个fgets引起标准I/O库分配一个缓存，并选择缓存的类型
+因为标准输入是个管道，所以isatty为假，于是标准I/O库由系统默认是全缓存的，对标准输出也有同样的处理
 
-       当add2stdio从其标准输入读取而发生堵塞时，pipe4从管道读时也发生堵塞，于是产生了死锁
+当add2stdio从其标准输入读取而发生堵塞时，pipe4从管道读时也发生堵塞，于是产生了死锁
 </pre>
 
 <p>
@@ -1564,46 +1531,46 @@ SIGPIPE caught
 </p>
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #00bfff; font-weight: bold;">if</span> (setvbuf(stdin, <span style="color: #ffd700;">NULL</span>, _IOLBF, 0) != 0)
-    err_sys(<span style="color: #deb887;">"setvbuf error"</span>);
+        err_sys(<span style="color: #deb887;">"setvbuf error"</span>);
 
 <span style="color: #00bfff; font-weight: bold;">if</span> (setvbuf(stdout, <span style="color: #ffd700;">NULL</span>, _IOLBF, 0)!= 0)
-    err_sys(<span style="color: #deb887;">"setvbuf error"</span>);
+        err_sys(<span style="color: #deb887;">"setvbuf error"</span>);
 </pre>
 </div>
 <p>
 这使得当 <b>有一行可用时fgets即返回</b> ，并使得 <b>当输出一新行符</b> 时，printf即执行 <b>fflush操作</b> 
 </p>
 
-<pre class="example">
-       这种设置往往要求对协同进程进程代码修改，但在使用一个第三方的协同进程时不一定可以满足
+<pre class="example" id="org8423bba">
+这种设置往往要求对协同进程进程代码修改，但在使用一个第三方的协同进程时不一定可以满足
 
-       更一般解决方法是使被调用的协同进程认为它的标准输入和输出被连接到一个“伪终端”
+更一般解决方法是使被调用的协同进程认为它的标准输入和输出被连接到一个“伪终端”
 
-       这使得协同进程中的标准I/O例程对这两个I/O流进行行缓存
+这使得协同进程中的标准I/O例程对这两个I/O流进行行缓存
 </pre>
 </div>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org44b208e" class="outline-3">
-<h3 id="org44b208e">FIFO</h3>
-<div class="outline-text-3" id="text-org44b208e">
-<pre class="example">
-     管道只能由相关进程使用，它们共同的祖先进程创建了管道
+<div id="outline-container-orgf4281a9" class="outline-3">
+<h3 id="orgf4281a9">FIFO</h3>
+<div class="outline-text-3" id="text-orgf4281a9">
+<pre class="example" id="org2f8cfb6">
+管道只能由相关进程使用，它们共同的祖先进程创建了管道
 </pre>
 <p>
 <span class="underline">FIFO</span> 被称为 <b>命名管道</b> ，通过FIFO不相关的进程也能交换数据
 </p>
 </div>
 
-<div id="outline-container-orgff054a0" class="outline-4">
-<h4 id="orgff054a0">mkfifo函数</h4>
-<div class="outline-text-4" id="text-orgff054a0">
-<pre class="example">
-      曾经提及FIFO是一种文件类型
+<div id="outline-container-org169d951" class="outline-4">
+<h4 id="org169d951">mkfifo函数</h4>
+<div class="outline-text-4" id="text-org169d951">
+<pre class="example" id="org1f09c09">
+曾经提及FIFO是一种文件类型
 
-      而stat结构的成员st_mode的编码指明文件是否是FIFO类型，并且可以用S_ISFIFO宏对此进行测试
+而stat结构的成员st_mode的编码指明文件是否是FIFO类型，并且可以用S_ISFIFO宏对此进行测试
 </pre>
 
 <p>
@@ -1630,19 +1597,19 @@ SIGPIPE caught
 </ul></li>
 </ul>
 
-<pre class="example">
+<pre class="example" id="org5349448">
 mkinfo 类似于创建文件，事实上FIFO的路径名存在于文件系统中
 </pre>
 </div>
 </div>
 
-<div id="outline-container-org9838d6b" class="outline-4">
-<h4 id="org9838d6b">FIFO文件</h4>
-<div class="outline-text-4" id="text-org9838d6b">
-<pre class="example">
-      一旦已经用mkfifo创建了一个FIFO，就可用open打开它
+<div id="outline-container-orgb04fdd5" class="outline-4">
+<h4 id="orgb04fdd5">FIFO文件</h4>
+<div class="outline-text-4" id="text-orgb04fdd5">
+<pre class="example" id="org239fdff">
+一旦已经用mkfifo创建了一个FIFO，就可用open打开它
 
-      实际上，一般的文件I/O函数close、read、write、unlink等都可用于FIFO
+实际上，一般的文件I/O函数close、read、write、unlink等都可用于FIFO
 </pre>
 <ul class="org-ul">
 <li>在一般情况： 
@@ -1658,27 +1625,27 @@ mkinfo 类似于创建文件，事实上FIFO的路径名存在于文件系统中
 <li>如果 <span class="underline">写</span> 一个尚 <b>无进程为读</b> 而打开的FIFO，则产生信号 <span class="underline">SIGPIPE</span></li>
 <li>若某个FIFO的 <span class="underline">最后一个写进程</span> <b>关闭</b> 了该FIFO，则将为该FIFO的 <span class="underline">读进程</span> 产生一个 <span class="underline">文件结束标志</span></li>
 </ul>
-<pre class="example">
-      一个给定的FIFO有多个写进程是常见的，这就意味着如果不希望多个进程所写的数据互相穿插，则需考虑原子写操作
+<pre class="example" id="orgbe81c6c">
+一个给定的FIFO有多个写进程是常见的，这就意味着如果不希望多个进程所写的数据互相穿插，则需考虑原子写操作
 
-      正如对于管道一样，常数PIPE_BUF说明了可被原子写到FIFO的最大数据量
+正如对于管道一样，常数PIPE_BUF说明了可被原子写到FIFO的最大数据量
 </pre>
 </div>
 </div>
-<div id="outline-container-orgdd14a92" class="outline-4">
-<h4 id="orgdd14a92">FIFO用途</h4>
-<div class="outline-text-4" id="text-orgdd14a92">
-<pre class="example">
+<div id="outline-container-org8a35715" class="outline-4">
+<h4 id="org8a35715">FIFO用途</h4>
+<div class="outline-text-4" id="text-org8a35715">
+<pre class="example" id="org1def1eb">
 1.  shell命令使用命名管道将数据从一条管道线传送到另一条，为此无需创建中间临时文件
 
 2. 用于客户机-服务器应用程序中，以在客户机和服务器之间传递数据
 </pre>
 </div>
 
-<div id="outline-container-org3b67e2d" class="outline-5">
-<h5 id="org3b67e2d">复制输出流</h5>
-<div class="outline-text-5" id="text-org3b67e2d">
-<pre class="example">
+<div id="outline-container-org91eeaaa" class="outline-5">
+<h5 id="org91eeaaa">复制输出流</h5>
+<div class="outline-text-5" id="text-org91eeaaa">
+<pre class="example" id="orge859f51">
 FIFO可被用于复制串行管道命令之间的输出流，于是也就不需要写数据到中间磁盘文件中，类似于使用管道以避免中间磁盘文件
 
 但是管道只能用于进程间的线性连接，而FIFO因为具有名字，所以它可用于非线性连接
@@ -1688,7 +1655,7 @@ FIFO可被用于复制串行管道命令之间的输出流，于是也就不需�
 考虑这样一个操作过程，它需要对一个 <span class="underline">经过过滤的输入流</span> 同时进行 <b>两次处理</b> 。图14-9表示了这种安排：
 </p>
 
-<div class="figure">
+<div id="org4e896a9" class="figure">
 <p><img src="pic/fifo-two-handler.jpg" alt="fifo-two-handler.jpg" width="60%" /> 
 </p>
 </div>
@@ -1713,47 +1680,47 @@ $ prog1 &lt; infile | tee fifo1 | prog2 <span style="color: #5f9ea0; font-style:
 图14-10显示了有关安排：
 </p>
 
-<div class="figure">
+<div id="org2f9a0e0" class="figure">
 <p><img src="pic/fifo-tee.jpg" alt="fifo-tee.jpg" width="60%" />  
 </p>
 </div>
 
-<pre class="example">
-     这样就可以无需使用临时文件
+<pre class="example" id="orgea3ad8c">
+这样就可以无需使用临时文件
 </pre>
 </div>
 </div>
 
-<div id="outline-container-org3de3633" class="outline-5">
-<h5 id="org3de3633">简单客户-服务器通信</h5>
-<div class="outline-text-5" id="text-org3de3633">
-<pre class="example">
+<div id="outline-container-org0e6749b" class="outline-5">
+<h5 id="org0e6749b">简单客户-服务器通信</h5>
+<div class="outline-text-5" id="text-org0e6749b">
+<pre class="example" id="orgde9d407">
 FIFO的另一个应用是在客户机和服务器之间传送数据
 </pre>
 
 <p>
 如果有一个服务器，它与很多客户机有关，每个 <span class="underline">客户机</span> 都可将其请求写到一个该服务器创建的 <span class="underline">众所周知的FIFO</span> 中。
 </p>
-<pre class="example">
-       所有需与服务器联系的客户机都知道该FIFO的路径名
+<pre class="example" id="org98fca4f">
+所有需与服务器联系的客户机都知道该FIFO的路径名
 
-       因为对于该FIFO有多个写进程，客户机发送给服务器的请求其长度要小于PIPE_BUF字节，这样就能避免客户机各次写之间的穿插
+因为对于该FIFO有多个写进程，客户机发送给服务器的请求其长度要小于PIPE_BUF字节，这样就能避免客户机各次写之间的穿插
 </pre>
 
 <p>
 图14-11显示了这种安排：
 </p>
 
-<div class="figure">
+<div id="orgc0581fa" class="figure">
 <p><img src="pic/fifo-client-send-request.jpg" alt="fifo-client-send-request.jpg" width="60%" />  
 </p>
 </div>
 
-<pre class="example">
-       这种类型的客户机-服务器通信中使用FIFO的问题是：服务器如何将回答送回各个客户机
+<pre class="example" id="orgb5fdca4">
+这种类型的客户机-服务器通信中使用FIFO的问题是：服务器如何将回答送回各个客户机
 
-       不能使用单个FIFO，因为服务器会发出对各个客户机请求的响应
-       而请求者却不可能知道什么时候去读才能恰恰得到对它的响应
+不能使用单个FIFO，因为服务器会发出对各个客户机请求的响应
+而请求者却不可能知道什么时候去读才能恰恰得到对它的响应
 </pre>
 
 <p>
@@ -1764,26 +1731,26 @@ FIFO的另一个应用是在客户机和服务器之间传送数据
 例如，服务器可以用名字/tmp/serv1.XXXXX创建FIFO，其中XXXXX被替换成客户机的进程ID。图14-12显示了这种安排：
 </p>
 
-<div class="figure">
+<div id="org8ffa020" class="figure">
 <p><img src="pic/fifo-client-server.jpg" alt="fifo-client-server.jpg" width="60%" />  
 </p>
 </div></li>
 </ul>
 
-<pre class="example">
-       这种安排可以工作，但也有一些不足之处：
+<pre class="example" id="orgf31215e">
+这种安排可以工作，但也有一些不足之处：
 
-       服务器不能判断一个客户机是否崩溃终止，这就使得客户机专用的FIFO会遗留在文件系统中
+服务器不能判断一个客户机是否崩溃终止，这就使得客户机专用的FIFO会遗留在文件系统中
 
-       服务器必须捕捉SIGPIPE信号，因为客户机在发送一个请求后没有读取响应就可能终止，于是留下一个有写进程(服务器)而无读进程的客户机专用FIFO
+服务器必须捕捉SIGPIPE信号，因为客户机在发送一个请求后没有读取响应就可能终止，于是留下一个有写进程(服务器)而无读进程的客户机专用FIFO
 </pre>
 
 <p>
 按照图14-12中的安排，如果服务器以 <b>只读方式</b> 打开 <span class="underline">众所周知的FIFO</span> (因为它只需读该FIFO)，则 <span class="underline">每次客户机数</span> 从 <span class="underline">1</span> 变成 <b>0</b> ， 服务器就将在FIFO中读到一个 <b>文件结束</b> 标记
 </p>
 
-<pre class="example">
-       为使服务器免于处理这种情况，一种常见的技巧是使服务器以读-写方式打开该FIFO
+<pre class="example" id="orgd2accfb">
+为使服务器免于处理这种情况，一种常见的技巧是使服务器以读-写方式打开该FIFO
 </pre>
 </div>
 </div>
@@ -1791,9 +1758,9 @@ FIFO的另一个应用是在客户机和服务器之间传送数据
 </div>
 </div>
 
-<div id="outline-container-org16e243e" class="outline-2">
-<h2 id="org16e243e">系统V IPC</h2>
-<div class="outline-text-2" id="text-org16e243e">
+<div id="outline-container-org337df82" class="outline-2">
+<h2 id="org337df82">系统V IPC</h2>
+<div class="outline-text-2" id="text-org337df82">
 <ul class="org-ul">
 <li>消息队列</li>
 <li>信号量</li>
@@ -1801,38 +1768,38 @@ FIFO的另一个应用是在客户机和服务器之间传送数据
 </ul>
 </div>
 
-<div id="outline-container-orgd9caaee" class="outline-3">
-<h3 id="orgd9caaee">相似特征</h3>
-<div class="outline-text-3" id="text-orgd9caaee">
+<div id="outline-container-org5daf1a1" class="outline-3">
+<h3 id="org5daf1a1">相似特征</h3>
+<div class="outline-text-3" id="text-org5daf1a1">
 </div>
-<div id="outline-container-org055f39e" class="outline-4">
-<h4 id="org055f39e">标识符和关键字</h4>
-<div class="outline-text-4" id="text-org055f39e">
+<div id="outline-container-org3a6482c" class="outline-4">
+<h4 id="org3a6482c">标识符和关键字</h4>
+<div class="outline-text-4" id="text-org3a6482c">
 <p>
 每个 <span class="underline">内核</span> 中的 <b>IPC结构</b> (消息队列、信号量或共享存储段)都用一个 <span class="underline">非负整数</span> 的 <b>标识符</b> 加以引用
 </p>
-<pre class="example">
-      例如，为了对一个消息队列发送或取消息，只需知道其队列标识符
+<pre class="example" id="orge249e05">
+例如，为了对一个消息队列发送或取消息，只需知道其队列标识符
 
-      与文件描述符不同，IPC标识符不是small integer
+与文件描述符不同，IPC标识符不是small integer
 
-      当一个IPC结构被创建，以后又被删除时，与这种结构相关的标识符连续加1，直至达到一个整型数的最大正值，然后又回转到0
+当一个IPC结构被创建，以后又被删除时，与这种结构相关的标识符连续加1，直至达到一个整型数的最大正值，然后又回转到0
 
-      即使在IPC结构被删除后也记住该值，每次使用此结构时则增1，该值被称为“槽使用顺序号”
+即使在IPC结构被删除后也记住该值，每次使用此结构时则增1，该值被称为“槽使用顺序号”
 </pre>
 
 <p>
 无论何时创建IPC结构，都应指定一个 <span class="underline">关键字</span> ，关键字的数据类型由系统规定为 <b>key_t</b> ，通常在头文件 <span class="underline">&lt;sys/types.h&gt;</span> 中被规定为 <b>长整型</b> 
 </p>
 
-<pre class="example">
-      关键字由 内核 变换成 标识符
+<pre class="example" id="org4e2f18d">
+关键字由 内核 变换成 标识符
 </pre>
 </div>
 
-<div id="outline-container-org764ff7d" class="outline-5">
-<h5 id="org764ff7d">客户机和服务器使用同一IPC结构</h5>
-<div class="outline-text-5" id="text-org764ff7d">
+<div id="outline-container-orgda7eb86" class="outline-5">
+<h5 id="orgda7eb86">客户机和服务器使用同一IPC结构</h5>
+<div class="outline-text-5" id="text-orgda7eb86">
 <p>
 有多种方法使客户机和服务器在同一IPC结构上会合：
 </p>
@@ -1843,11 +1810,11 @@ FIFO的另一个应用是在客户机和服务器之间传送数据
 </ul></li>
 </ul>
 
-<pre class="example">
-       缺点： 服务器要将整型标识符写到文件中，然后客户机在此后又要读文件取得此标识符
+<pre class="example" id="org548e78f">
+缺点： 服务器要将整型标识符写到文件中，然后客户机在此后又要读文件取得此标识符
 </pre>
 
-<pre class="example">
+<pre class="example" id="orgedbc331">
 IPC_PRIVATE关键字也可用于父、子关系进程
 
 父进程指定IPC_PRIVATE创建一个新IPC结构，所返回的标识符在fork后可由子进程使用
@@ -1859,17 +1826,17 @@ IPC_PRIVATE关键字也可用于父、子关系进程
 <li>在一个 <b>公用头文件</b> 中定义一个客户机和服务器都认可的关键字。然后 <span class="underline">服务器</span> <b>指定此关键字</b> 创建一个新的IPC结构</li>
 </ul>
 
-<pre class="example">
-       问题是该关键字可能已与一个IPC结构相结合，在此情况下，get函数(msgget、semget或shmget)出错返回
+<pre class="example" id="orgf0c643d">
+问题是该关键字可能已与一个IPC结构相结合，在此情况下，get函数(msgget、semget或shmget)出错返回
 
-       服务器必须处理这一错误，删除已存在的IPC结构，然后试着再创建它
+服务器必须处理这一错误，删除已存在的IPC结构，然后试着再创建它
 </pre>
 
 <ul class="org-ul">
 <li>客户机和服务器认同一个 <b>路径名</b> 和 <b>课题ID</b> (课题ID是0~255之间的字符值)，然后调用函数 <span class="underline">ftok</span> 将这两个值变换为一个 <b>关键字</b> ，下面就和第二种做法类似</li>
 </ul>
 
-<pre class="example">
+<pre class="example" id="orgd3d4802">
 ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键字
 
 因为一般来说，客户机和服务器至少共享一个头文件，所以一个比较简单的方法是避免使用ftok
@@ -1879,9 +1846,9 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 </div>
 </div>
 
-<div id="outline-container-orgbe62270" class="outline-5">
-<h5 id="orgbe62270">创建IPC结构</h5>
-<div class="outline-text-5" id="text-orgbe62270">
+<div id="outline-container-org18d3e40" class="outline-5">
+<h5 id="org18d3e40">创建IPC结构</h5>
+<div class="outline-text-5" id="text-org18d3e40">
 <p>
 三个get函数( <span class="underline">msgget</span> 、 <span class="underline">semget</span> 和 <span class="underline">shmget</span> )都有两个类似的参数 <b>key</b> 和一个整型的 <b>flag</b> 。如若满足下列条件，则 <b>创建一个新的</b> IPC结构(通常由服务器创建)：
 </p>
@@ -1890,47 +1857,47 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 <li><span class="underline">key</span> 当前 <b>未与特定类型的IPC结构</b> 相结合， <span class="underline">flag</span> 中指定了 <b>IPC_CREAT</b> 位。</li>
 </ol>
 
-<pre class="example">
-       注意，为了访问一个现存队列，决不能指定IPC_PRIVATE作为关键字
-       因为这是一个特殊的键值，它总是用于创建一个新队列
+<pre class="example" id="org4e170a3">
+注意，为了访问一个现存队列，决不能指定IPC_PRIVATE作为关键字
+因为这是一个特殊的键值，它总是用于创建一个新队列
 
-       为了访问一个用IPC_PRIVATE关键字创建的现存队列，一定要知道与该队列相结合的标识符，并且不应指定IPC_CREAT
-       因为在其他IPC调用中(例如msgsnd、msgrcv)必须使用该标识符
+为了访问一个用IPC_PRIVATE关键字创建的现存队列，一定要知道与该队列相结合的标识符，并且不应指定IPC_CREAT
+因为在其他IPC调用中(例如msgsnd、msgrcv)必须使用该标识符
 </pre>
 
 <p>
 如果希望创建一个新的IPC结构，保证不是引用具有同一标识符的一个现行IPC结构，那么必须在 <span class="underline">flag</span> 中同时指定 <b>IPC_CREAT</b> 和 <b>IPC_EXCL</b> 位。这样做了以后，如果 <span class="underline">IPC结构已经存在</span> 就会 <b>造成出错</b> ，返回 <span class="underline">EEXIST</span> 
 </p>
 
-<pre class="example">
-       这与指定了O_CREAT和O_EXCL标志的open相类似
+<pre class="example" id="orgf483edc">
+这与指定了O_CREAT和O_EXCL标志的open相类似
 </pre>
 </div>
 </div>
 </div>
 
-<div id="outline-container-orgc24a113" class="outline-4">
-<h4 id="orgc24a113">权限结构</h4>
-<div class="outline-text-4" id="text-orgc24a113">
+<div id="outline-container-org63e22f2" class="outline-4">
+<h4 id="org63e22f2">权限结构</h4>
+<div class="outline-text-4" id="text-org63e22f2">
 <p>
 系统V IPC为每一个IPC结构设置了一个 <span class="underline">ipc_perm</span> 结构。该结构规定了 <b>许可权</b> 和 <b>所有者</b> ：
 </p>
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #ffd700;">#include</span> <span style="color: #deb887;">&lt;sys/ipc.h&gt;</span>
-<span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Data structure used to pass permission information to IPC operations.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Data structure used to pass permission information to IPC operations.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
 <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">ipc_perm</span>
 {
-    <span style="color: #98f5ff;">__key_t</span> <span style="color: #4eee94;">__key</span>;                      <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Key.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">__uid_t</span> <span style="color: #4eee94;">uid</span>;                        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Owner's user ID.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">__gid_t</span> <span style="color: #4eee94;">gid</span>;                        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Owner's group ID.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">__uid_t</span> <span style="color: #4eee94;">cuid</span>;                       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Creator's user ID.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">__gid_t</span> <span style="color: #4eee94;">cgid</span>;                       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Creator's group ID.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">mode</span>;            <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Read/write permission.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__pad1</span>;
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__seq</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Sequence number.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__pad2</span>;
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__unused1</span>;
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__unused2</span>;
+        <span style="color: #98f5ff;">__key_t</span> <span style="color: #4eee94;">__key</span>;                      <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Key.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #98f5ff;">__uid_t</span> <span style="color: #4eee94;">uid</span>;                        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Owner's user ID.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #98f5ff;">__gid_t</span> <span style="color: #4eee94;">gid</span>;                        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Owner's group ID.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #98f5ff;">__uid_t</span> <span style="color: #4eee94;">cuid</span>;                       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Creator's user ID.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #98f5ff;">__gid_t</span> <span style="color: #4eee94;">cgid</span>;                       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Creator's group ID.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">mode</span>;            <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Read/write permission.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__pad1</span>;
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__seq</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Sequence number.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__pad2</span>;
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__unused1</span>;
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">__unused2</span>;
 };
 </pre>
 </div>
@@ -1942,14 +1909,14 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 <li>为了改变这些值， <span class="underline">调用进程</span> 必须是 <b>IPC结构的创建者</b> 或 <b>超级用户</b></li>
 </ul>
 
-<pre class="example">
-      更改这些字段类似于对文件调用chown和chmod    
+<pre class="example" id="org1ae6ec3">
+更改这些字段类似于对文件调用chown和chmod    
 </pre>
 </div>
 
-<div id="outline-container-org9b8b72e" class="outline-5">
-<h5 id="org9b8b72e">mode字段</h5>
-<div class="outline-text-5" id="text-org9b8b72e">
+<div id="outline-container-orgb48b38c" class="outline-5">
+<h5 id="orgb48b38c">mode字段</h5>
+<div class="outline-text-5" id="text-orgb48b38c">
 <p>
 <span class="underline">mode</span> 字段的值类似于 <span class="underline">文件权限</span> 的，但是对于 <b>任何IPC结构都不存在 <span class="underline">执行</span> 许可权</b> 。下表中对每种IPC说明了6种许可权：
 </p>
@@ -2020,22 +1987,22 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 </div>
 </div>
 
-<div id="outline-container-org33a9e00" class="outline-4">
-<h4 id="org33a9e00">资源限制</h4>
-<div class="outline-text-4" id="text-org33a9e00">
+<div id="outline-container-org9f4e6d8" class="outline-4">
+<h4 id="org9f4e6d8">资源限制</h4>
+<div class="outline-text-4" id="text-org9f4e6d8">
 <p>
 三种形式的系统VIPC都有可能会遇到的资源限制
 </p>
 </div>
 </div>
 
-<div id="outline-container-org9c02fde" class="outline-4">
-<h4 id="org9c02fde">优点和缺点</h4>
-<div class="outline-text-4" id="text-org9c02fde">
+<div id="outline-container-orga73ff4c" class="outline-4">
+<h4 id="orga73ff4c">优点和缺点</h4>
+<div class="outline-text-4" id="text-orga73ff4c">
 </div>
-<div id="outline-container-orgfae31c3" class="outline-5">
-<h5 id="orgfae31c3">系统V IPC的缺点</h5>
-<div class="outline-text-5" id="text-orgfae31c3">
+<div id="outline-container-orgb612dd1" class="outline-5">
+<h5 id="orgb612dd1">系统V IPC的缺点</h5>
+<div class="outline-text-5" id="text-orgb612dd1">
 <ul class="org-ul">
 <li>IPC结构是在系统范围内起作用的， <b>没有访问计数</b> 
 <ul class="org-ul">
@@ -2048,10 +2015,10 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 </ul></li>
 </ul>
 
-<pre class="example">
-       与管道pipe相比，那么当最后一个访问管道的进程终止时，管道就被完全地删除了
+<pre class="example" id="orge633f8f">
+与管道pipe相比，那么当最后一个访问管道的进程终止时，管道就被完全地删除了
 
-       对于FIFO而言虽然当最后一个引用FIFO的进程终止时其名字仍保留在系统中，直至显式地删除它，但是留在FIFO中的数据却在此时全部删除
+对于FIFO而言虽然当最后一个引用FIFO的进程终止时其名字仍保留在系统中，直至显式地删除它，但是留在FIFO中的数据却在此时全部删除
 </pre>
 <ul class="org-ul">
 <li>这些IPC结构并 <b>不按名字</b> 为 <span class="underline">文件系统</span> 所知
@@ -2070,15 +2037,15 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 </ul></li>
 </ul>
 
-<pre class="example">
-       没有某种形式的忙-等待循环，就不能使一个服务器等待一个消息放在两个消息队列的任一一个中
+<pre class="example" id="org0367879">
+没有某种形式的忙-等待循环，就不能使一个服务器等待一个消息放在两个消息队列的任一一个中
 </pre>
 </div>
 </div>
 
-<div id="outline-container-org2e2688f" class="outline-5">
-<h5 id="org2e2688f">IPC的优点</h5>
-<div class="outline-text-5" id="text-org2e2688f">
+<div id="outline-container-org6354038" class="outline-5">
+<h5 id="org6354038">IPC的优点</h5>
+<div class="outline-text-5" id="text-org6354038">
 <ul class="org-ul">
 <li>避免 <b>多次</b> <span class="underline">open</span> ,  <span class="underline">write</span> ,  <span class="underline">close</span> 调用</li>
 <li><span class="underline">可靠的</span></li>
@@ -2089,9 +2056,9 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 </div>
 </div>
 
-<div id="outline-container-orgdc6b534" class="outline-5">
-<h5 id="orgdc6b534">总结</h5>
-<div class="outline-text-5" id="text-orgdc6b534">
+<div id="outline-container-org1471129" class="outline-5">
+<h5 id="org1471129">总结</h5>
+<div class="outline-text-5" id="text-org1471129">
 <p>
 下表对不同形式的IPC的某些特征进行了比较：
 </p>
@@ -2172,16 +2139,16 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 <p>
 <span class="underline">无连接</span> 指的是无需先调用某种形式的open，就能发送消息的能力
 </p>
-<pre class="example">
-       正如前述因为需要有某种技术以获得队列标识符，所以并不认为消息队列具有无连接特性
+<pre class="example" id="org49e40a6">
+正如前述因为需要有某种技术以获得队列标识符，所以并不认为消息队列具有无连接特性
 </pre>
 
 <p>
 因为所有这些形式的IPC都限制用在单主机上，所以它们都是 <span class="underline">可靠的</span> 
 </p>
 
-<pre class="example">
-       当消息通过网络传送时，丢失消息的可能性就要加以考虑
+<pre class="example" id="orgd87029c">
+当消息通过网络传送时，丢失消息的可能性就要加以考虑
 </pre>
 
 <p>
@@ -2192,7 +2159,7 @@ ftok提供的唯一服务就是由一个路径名和课题ID产生一个关键�
 <li>当 <span class="underline">流控制条件</span> <b>消失</b> 时， <span class="underline">发送进程</span> 应自动地被 <b>唤醒</b></li>
 </ul>
 
-<pre class="example">
+<pre class="example" id="org2351a29">
 表中没有表示的一个特征是：
 
 IPC设施能否自动地为每个客户机自动地创建一个到服务器的唯一连接
@@ -2204,9 +2171,9 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 </div>
 </div>
 
-<div id="outline-container-org19a1ec8" class="outline-3">
-<h3 id="org19a1ec8">消息队列</h3>
-<div class="outline-text-3" id="text-org19a1ec8">
+<div id="outline-container-orgb3aec5e" class="outline-3">
+<h3 id="orgb3aec5e">消息队列</h3>
+<div class="outline-text-3" id="text-orgb3aec5e">
 <p>
 <span class="underline">消息队列</span> 是 <b>消息的链表</b> ，存放在 <span class="underline">内核</span> 中并由 <span class="underline">消息队列标识符</span> 标识。因此可以将称消息队列为 <span class="underline">队列</span> ，其标识符为 <span class="underline">队列ID</span> 
 </p>
@@ -2227,28 +2194,28 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 </div>
 
 
-<div id="outline-container-org31c5e56" class="outline-4">
-<h4 id="org31c5e56">msqid_ds结构</h4>
-<div class="outline-text-4" id="text-org31c5e56">
+<div id="outline-container-org774c1ff" class="outline-4">
+<h4 id="org774c1ff">msqid_ds结构</h4>
+<div class="outline-text-4" id="text-org774c1ff">
 <p>
 每个队列都有一个 <span class="underline">msqid_ds结构</span> 与其相关。此结构规定了 <b>队列的当前状态</b> ：
 </p>
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">Structure of record for one message inside the kernel.</span>
-<span style="color: #5f9ea0; font-style: italic;">   The type `struct msg' is opaque.  </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #5f9ea0; font-style: italic;">   The type `struct msg' is opaque.</span><span style="color: #5f9ea0; font-style: italic;">  */</span>
 <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">msqid_ds</span>
 {
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">ipc_perm</span> <span style="color: #4eee94;">msg_perm</span>;   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">structure describing operation permission </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">msg</span> *<span style="color: #4eee94;">msg_first</span>;      <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">ptr to first message on queue </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">msg</span> *<span style="color: #4eee94;">msg_last</span>;       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">ptr to last message on queue </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">msg_stime</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last msgsnd command </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">msg_rtime</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last msgrcv command </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">msg_ctime</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last change </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">msg_cbytes</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">current number of bytes on queue </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">msgqnum_t</span> <span style="color: #4eee94;">msg_qnum</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">number of messages currently on queue </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">msglen_t</span> <span style="color: #4eee94;">msg_qbytes</span>;          <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">max number of bytes allowed on queue </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">msg_lspid</span>;            <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid of last msgsnd() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">msg_lrpid</span>;            <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid of last msgrcv() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">ipc_perm</span> <span style="color: #4eee94;">msg_perm</span>;   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">structure describing operation permission</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">msg</span> *<span style="color: #4eee94;">msg_first</span>;      <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">ptr to first message on queue</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">msg</span> *<span style="color: #4eee94;">msg_last</span>;       <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">ptr to last message on queue</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">msg_stime</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last msgsnd command</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">msg_rtime</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last msgrcv command</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">msg_ctime</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last change</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">msg_cbytes</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">current number of bytes on queue</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">msgqnum_t</span> <span style="color: #4eee94;">msg_qnum</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">number of messages currently on queue</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">msglen_t</span> <span style="color: #4eee94;">msg_qbytes</span>;          <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">max number of bytes allowed on queue</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">msg_lspid</span>;            <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid of last msgsnd()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">msg_lrpid</span>;            <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid of last msgrcv()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 };
 </pre>
 </div>
@@ -2256,15 +2223,15 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 两个指针 <span class="underline">msg_first</span> 和 <span class="underline">msg_last</span> 分别指向 <b>相应消息在内核中的存放位置</b> 
 </p>
 
-<pre class="example">
-      这两个指针对用户进程而言是无价值的
+<pre class="example" id="orgba1a0f9">
+这两个指针对用户进程而言是无价值的
 </pre>
 </div>
 </div>
 
-<div id="outline-container-orgbf42343" class="outline-4">
-<h4 id="orgbf42343">资源限制</h4>
-<div class="outline-text-4" id="text-orgbf42343">
+<div id="outline-container-org0f9fb4e" class="outline-4">
+<h4 id="org0f9fb4e">资源限制</h4>
+<div class="outline-text-4" id="text-org0f9fb4e">
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
 <caption class="t-above"><span class="table-number">Table 4:</span> 影响消息队列的系统限制</caption>
 
@@ -2310,9 +2277,9 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 </div>
 </div>
 
-<div id="outline-container-orgf65a176" class="outline-4">
-<h4 id="orgf65a176">msgget函数</h4>
-<div class="outline-text-4" id="text-orgf65a176">
+<div id="outline-container-orgb4eebda" class="outline-4">
+<h4 id="orgb4eebda">msgget函数</h4>
+<div class="outline-text-4" id="text-orgb4eebda">
 <ul class="org-ul">
 <li><p>
 <span class="underline">msgget</span> 函数：打开一个现存队列或创建一个新队列
@@ -2347,9 +2314,9 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 </div>
 </div>
 
-<div id="outline-container-org71795a6" class="outline-4">
-<h4 id="org71795a6">msgctl函数</h4>
-<div class="outline-text-4" id="text-org71795a6">
+<div id="outline-container-orgf850e94" class="outline-4">
+<h4 id="orgf850e94">msgctl函数</h4>
+<div class="outline-text-4" id="text-orgf850e94">
 <ul class="org-ul">
 <li><p>
 <span class="underline">msgctl</span> 函数：对队列 <b>执行多种操作</b> ，类似于ioctl函数
@@ -2375,9 +2342,9 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 </ul>
 </div>
 
-<div id="outline-container-orgc8e6691" class="outline-5">
-<h5 id="orgc8e6691">cmd参数</h5>
-<div class="outline-text-5" id="text-orgc8e6691">
+<div id="outline-container-orgfb635ac" class="outline-5">
+<h5 id="orgfb635ac">cmd参数</h5>
+<div class="outline-text-5" id="text-orgfb635ac">
 <p>
 <span class="underline">cmd</span> 参数指定对于由 <span class="underline">msqid</span> 规定的队列要执行的命令：
 </p>
@@ -2393,31 +2360,31 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 </ol></li>
 </ul>
 
-<pre class="example">
-       此命令只能由下列两种进程执行:
+<pre class="example" id="org075ff65">
+此命令只能由下列两种进程执行:
 
-       其有效用户ID等于msg_perm.cuid或msg_perm.uid 或 具有超级用户特权的进程
+其有效用户ID等于msg_perm.cuid或msg_perm.uid 或 具有超级用户特权的进程
 
-       只有超级用户才能增加msg_qbytes的值 
+只有超级用户才能增加msg_qbytes的值 
 </pre>
 <ul class="org-ul">
 <li><span class="underline">IPC_RMID</span> ：从系统中 <b>删除</b> 该 <span class="underline">消息队列</span> 以及仍在 <span class="underline">该队列上的所有数据</span></li>
 </ul>
 
-<pre class="example">
-       这种删除立即生效。仍在使用这一消息队列的其他进程在它们下一次试图对此队列进行操作时，将出错返回EIDRM
+<pre class="example" id="org8200ea0">
+这种删除立即生效。仍在使用这一消息队列的其他进程在它们下一次试图对此队列进行操作时，将出错返回EIDRM
 
-       此命令只能由下列两种进程执行：
+此命令只能由下列两种进程执行：
 
-       其有效用户ID等于msg_perm.cuid或msg_perm.uid 或 具有超级用户特权的进程
+其有效用户ID等于msg_perm.cuid或msg_perm.uid 或 具有超级用户特权的进程
 </pre>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org208a4d7" class="outline-4">
-<h4 id="org208a4d7">msgsnd函数</h4>
-<div class="outline-text-4" id="text-org208a4d7">
+<div id="outline-container-orgdcc6e53" class="outline-4">
+<h4 id="orgdcc6e53">msgsnd函数</h4>
+<div class="outline-text-4" id="text-orgdcc6e53">
 <ul class="org-ul">
 <li><p>
 <span class="underline">msgsnd</span> 函数：将 <span class="underline">数据</span> <b>放到</b> <span class="underline">消息队列</span> 上
@@ -2444,15 +2411,15 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 </ul>
 </div>
 
-<div id="outline-container-orgc43a46b" class="outline-5">
-<h5 id="orgc43a46b">ptr指针</h5>
-<div class="outline-text-5" id="text-orgc43a46b">
+<div id="outline-container-orgca8ed73" class="outline-5">
+<h5 id="orgca8ed73">ptr指针</h5>
+<div class="outline-text-5" id="text-orgca8ed73">
 <p>
 <span class="underline">ptr指向的消息结构</span> 中包含了 <span class="underline">正整型</span> <b>消息类型</b> ，在其后立即跟随了 <b>消息数据</b> 
 </p>
 
-<pre class="example">
-       若nbytes是0，则无消息数据
+<pre class="example" id="org4541b34">
+若nbytes是0，则无消息数据
 </pre>
 
 <p>
@@ -2461,8 +2428,8 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">mymesg</span>
 {
-    <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">mtype</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">positive message type </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">char</span> <span style="color: #4eee94;">mtext</span>[512]; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">message data of length nbytes </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #98f5ff;">long</span> <span style="color: #4eee94;">mtype</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">positive message type</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">char</span> <span style="color: #4eee94;">mtext</span>[512]; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">message data of length nbytes</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 };
 </pre>
 </div>
@@ -2470,16 +2437,16 @@ IPC设施能否自动地为每个客户机自动地创建一个到服务器的�
 ptr就是一个 <span class="underline">指向mymesg结构的指针</span> 
 </p>
 
-<pre class="example">
-       接收者可以使用消息类型以“非先进先出”的次序取消息
+<pre class="example" id="org8ca9e45">
+接收者可以使用消息类型以“非先进先出”的次序取消息
 </pre>
 </div>
 </div>
 
-<div id="outline-container-orgcbc9a1f" class="outline-5">
-<h5 id="orgcbc9a1f">flag标记</h5>
-<div class="outline-text-5" id="text-orgcbc9a1f">
-<pre class="example">
+<div id="outline-container-orgd66aa4b" class="outline-5">
+<h5 id="orgd66aa4b">flag标记</h5>
+<div class="outline-text-5" id="text-orgd66aa4b">
+<pre class="example" id="org5bb4284">
 flag的值可以指定为 IPC_NOWAIT ，这类似于文件 I/O的非阻塞I/O标志
 </pre>
 
@@ -2496,22 +2463,22 @@ flag的值可以指定为 IPC_NOWAIT ，这类似于文件 I/O的非阻塞I/O标
 </ol></li>
 </ul>
 
-<pre class="example">
-       注意：对消息队列删除的处理不是很完善
+<pre class="example" id="org94b4997">
+注意：对消息队列删除的处理不是很完善
 
-       因为对每个消息队列并没有设置一个引用计数器(对打开文件则有这种计数器)
-       所以删除一个队列使得仍在使用这一队列的进程在下次对队列进行操作时出错返回
+因为对每个消息队列并没有设置一个引用计数器(对打开文件则有这种计数器)
+所以删除一个队列使得仍在使用这一队列的进程在下次对队列进行操作时出错返回
 
-       信号量机构也以同样方式处理其删除
+信号量机构也以同样方式处理其删除
 
-       而删除一个文件则要等到使用该文件的最后一个进程关闭了它，才能删除文件的内容
+而删除一个文件则要等到使用该文件的最后一个进程关闭了它，才能删除文件的内容
 </pre>
 </div>
 </div>
 </div>
-<div id="outline-container-orgd7ce11f" class="outline-4">
-<h4 id="orgd7ce11f">msgrcv函数</h4>
-<div class="outline-text-4" id="text-orgd7ce11f">
+<div id="outline-container-org3fcde4a" class="outline-4">
+<h4 id="org3fcde4a">msgrcv函数</h4>
+<div class="outline-text-4" id="text-org3fcde4a">
 <ul class="org-ul">
 <li><p>
 <span class="underline">msgrcv</span> 函数：从队列中取消息  
@@ -2555,9 +2522,9 @@ flag的值可以指定为 IPC_NOWAIT ，这类似于文件 I/O的非阻塞I/O标
 </ul></li>
 </ul>
 </div>
-<div id="outline-container-org8d0bbee" class="outline-5">
-<h5 id="org8d0bbee">type参数</h5>
-<div class="outline-text-5" id="text-org8d0bbee">
+<div id="outline-container-org40bdebe" class="outline-5">
+<h5 id="org40bdebe">type参数</h5>
+<div class="outline-text-5" id="text-org40bdebe">
 <p>
 参数 <span class="underline">type</span> 可以指定想要 <b>哪一种</b> 消息：
 </p>
@@ -2567,20 +2534,20 @@ flag的值可以指定为 IPC_NOWAIT ，这类似于文件 I/O的非阻塞I/O标
 <li><span class="underline">type &lt; 0</span> ：返回队列中 <b>消息类型值小于或等于type绝对值</b> ，而且在这种消息中，其 <b>类型值又是最小的消息</b></li>
 </ul>
 
-<pre class="example">
-       非零的type用于以非先进先出次序读消息
+<pre class="example" id="org3e94c57">
+非零的type用于以非先进先出次序读消息
 
-       例如，若应用程序对消息赋优先权，那么type就可以是优先权值
+例如，若应用程序对消息赋优先权，那么type就可以是优先权值
 
-       如果一个消息队列由多个客户机和一个服务器使用，那么type字段可以用来包含客户机进程ID。 
+如果一个消息队列由多个客户机和一个服务器使用，那么type字段可以用来包含客户机进程ID。 
 </pre>
 </div>
 </div>
 </div>
 
-<div id="outline-container-orgb8aa1e4" class="outline-4">
-<h4 id="orgb8aa1e4">实例</h4>
-<div class="outline-text-4" id="text-orgb8aa1e4">
+<div id="outline-container-org1853260" class="outline-4">
+<h4 id="org1853260">实例</h4>
+<div class="outline-text-4" id="text-org1853260">
 <p>
 向一个消息队列写入消息，读取出对应类型的消息
 </p>
@@ -2592,52 +2559,52 @@ flag的值可以指定为 IPC_NOWAIT ，这类似于文件 I/O的非阻塞I/O标
 
 <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28040;&#24687;&#32467;&#26500;</span>
 <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">message</span>{
-    <span style="color: #98f5ff;">long</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">mtype</span>;
-    <span style="color: #98f5ff;">char</span> <span style="color: #4eee94;">mtext</span>[512];
+        <span style="color: #98f5ff;">long</span> <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">mtype</span>;
+        <span style="color: #98f5ff;">char</span> <span style="color: #4eee94;">mtext</span>[512];
 };
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21019;&#24314;&#28040;&#24687;&#38431;&#21015;</span>
-    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">msgid</span> = msgget(IPC_PRIVATE,0666);
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21019;&#24314;&#28040;&#24687;&#32467;&#26500;</span>
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">message</span> <span style="color: #4eee94;">snd</span>;
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28040;&#24687;&#31867;&#22411;</span>
-    snd.mtype = 911;
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28040;&#24687;&#20869;&#23481;</span>
-    strcpy(snd.mtext,<span style="color: #deb887;">"help"</span>);
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21457;&#36865;&#28040;&#24687;&#21040;&#38431;&#21015;</span>
-    <span style="color: #00bfff; font-weight: bold;">if</span>(msgsnd(msgid,&amp;snd,5,0) == -1){
-        printf(<span style="color: #deb887;">"msgsnd %m\n"</span>);
-        <span style="color: #00bfff; font-weight: bold;">return</span> -1;
-    }
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21019;&#24314;&#28040;&#24687;&#38431;&#21015;</span>
+        <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">msgid</span> = msgget(IPC_PRIVATE,0666);
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21019;&#24314;&#28040;&#24687;&#32467;&#26500;</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">message</span> <span style="color: #4eee94;">snd</span>;
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28040;&#24687;&#31867;&#22411;</span>
+        snd.mtype = 911;
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28040;&#24687;&#20869;&#23481;</span>
+        strcpy(snd.mtext,<span style="color: #deb887;">"help"</span>);
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21457;&#36865;&#28040;&#24687;&#21040;&#38431;&#21015;</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span>(msgsnd(msgid,&amp;snd,5,0) == -1){
+                printf(<span style="color: #deb887;">"msgsnd %m\n"</span>);
+                <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+        }
 
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#35835;&#21462;&#28040;&#24687;&#38431;&#21015;&#20449;&#24687;</span>
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">msqid_ds</span> <span style="color: #4eee94;">ds</span>;
-    <span style="color: #00bfff; font-weight: bold;">if</span>(msgctl(msgid, IPC_STAT, &amp;ds) == -1){
-        printf(<span style="color: #deb887;">"msgctl IPC_STAT %m\n"</span>);
-        <span style="color: #00bfff; font-weight: bold;">return</span> -1;
-    }
-    printf(<span style="color: #deb887;">"current bytes:%d ,current number:%d ,max bytes:%d \n"</span>,
-           ds.msg_cbytes, ds.msg_qnum, ds.msg_qbytes);
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#35835;&#21462;&#28040;&#24687;&#38431;&#21015;&#20449;&#24687;</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">msqid_ds</span> <span style="color: #4eee94;">ds</span>;
+        <span style="color: #00bfff; font-weight: bold;">if</span>(msgctl(msgid, IPC_STAT, &amp;ds) == -1){
+                printf(<span style="color: #deb887;">"msgctl IPC_STAT %m\n"</span>);
+                <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+        }
+        printf(<span style="color: #deb887;">"current bytes:%d ,current number:%d ,max bytes:%d \n"</span>,
+               ds.msg_cbytes, ds.msg_qnum, ds.msg_qbytes);
 
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">message</span> <span style="color: #4eee94;">rcv</span>;
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#38750;&#38459;&#22622;&#35835;&#21462;&#28040;&#24687;&#31867;&#22411;&#20026;910&#30340;&#28040;&#24687;&#65292;&#20986;&#38169;&#36820;&#22238;</span>
-    <span style="color: #00bfff; font-weight: bold;">if</span>(msgrcv(msgid, &amp;rcv, 512, 910, IPC_NOWAIT) == -1){
-        printf(<span style="color: #deb887;">"msgrcv1 %m\n"</span>);
-    }
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#38459;&#22622;&#35835;&#21462;&#28040;&#24687;&#31867;&#22411;&#20026;911&#30340;&#28040;&#24687;</span>
-    <span style="color: #00bfff; font-weight: bold;">if</span>(msgrcv(msgid, &amp;rcv, 521, 911, 0) == -1){
-        printf(<span style="color: #deb887;">"msgrcv2 %m\n"</span>);
-        <span style="color: #00bfff; font-weight: bold;">return</span> -1;
-    }
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#25171;&#21360;&#35835;&#21462;&#30340;&#28040;&#24687;</span>
-    printf(<span style="color: #deb887;">"%s\n"</span>,rcv.mtext);
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28165;&#38500;&#28040;&#24687;&#38431;&#21015;</span>
-    <span style="color: #00bfff; font-weight: bold;">if</span>(msgctl(msgid,IPC_RMID,<span style="color: #ffd700;">NULL</span>)==-1){
-        printf(<span style="color: #deb887;">"msgctl IPC_RMID %m\n"</span>);
-    }
-    <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">message</span> <span style="color: #4eee94;">rcv</span>;
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#38750;&#38459;&#22622;&#35835;&#21462;&#28040;&#24687;&#31867;&#22411;&#20026;910&#30340;&#28040;&#24687;&#65292;&#20986;&#38169;&#36820;&#22238;</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span>(msgrcv(msgid, &amp;rcv, 512, 910, IPC_NOWAIT) == -1){
+                printf(<span style="color: #deb887;">"msgrcv1 %m\n"</span>);
+        }
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#38459;&#22622;&#35835;&#21462;&#28040;&#24687;&#31867;&#22411;&#20026;911&#30340;&#28040;&#24687;</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span>(msgrcv(msgid, &amp;rcv, 521, 911, 0) == -1){
+                printf(<span style="color: #deb887;">"msgrcv2 %m\n"</span>);
+                <span style="color: #00bfff; font-weight: bold;">return</span> -1;
+        }
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#25171;&#21360;&#35835;&#21462;&#30340;&#28040;&#24687;</span>
+        printf(<span style="color: #deb887;">"%s\n"</span>,rcv.mtext);
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28165;&#38500;&#28040;&#24687;&#38431;&#21015;</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span>(msgctl(msgid,IPC_RMID,<span style="color: #ffd700;">NULL</span>)==-1){
+                printf(<span style="color: #deb887;">"msgctl IPC_RMID %m\n"</span>);
+        }
+        <span style="color: #00bfff; font-weight: bold;">return</span> 0;
 }
 </pre>
 </div>
@@ -2654,17 +2621,17 @@ msgrcv1 No message of desired type <span style="color: #5f9ea0; font-style: ital
 </pre>
 </div>
 
-<pre class="example">
-      如若需要客户机和服务器之间的“双向数据流”，可以使用“消息队列“或”流管道“(用Socket套接字来实现)
+<pre class="example" id="org2cd6f3c">
+如若需要客户机和服务器之间的“双向数据流”，可以使用“消息队列“或”流管道“(用Socket套接字来实现)
 
-      消息队列原来的目的是“提供比一般IPC更高速度的进程通信方法”，而现在这个优点已经不复存在，所以不推荐使用消息队列！ 
+消息队列原来的目的是“提供比一般IPC更高速度的进程通信方法”，而现在这个优点已经不复存在，所以不推荐使用消息队列！ 
 </pre>
 </div>
 </div>
 </div>
-<div id="outline-container-orga12e480" class="outline-3">
-<h3 id="orga12e480">信号量</h3>
-<div class="outline-text-3" id="text-orga12e480">
+<div id="outline-container-orgdc4c516" class="outline-3">
+<h3 id="orgdc4c516">信号量</h3>
+<div class="outline-text-3" id="text-orgdc4c516">
 <p>
 信号量与已经介绍过的IPC(管道、FIFO以及消息列队)不同。它是一个计数器，用于多进程对共享数据对象的存取。为了获得共享资源，进程需要执行下列操作：
 </p>
@@ -2679,9 +2646,9 @@ msgrcv1 No message of desired type <span style="color: #5f9ea0; font-style: ital
 </p>
 </div>
 
-<div id="outline-container-org8bdca40" class="outline-4">
-<h4 id="org8bdca40">实现</h4>
-<div class="outline-text-4" id="text-org8bdca40">
+<div id="outline-container-org8b2d17d" class="outline-4">
+<h4 id="org8b2d17d">实现</h4>
+<div class="outline-text-4" id="text-org8b2d17d">
 <p>
 为了正确地实现信息量，信号量值的测试及减1操作应当是原子操作。为此，信号量通常是在内核中实现的
 </p>
@@ -2701,20 +2668,20 @@ msgrcv1 No message of desired type <span style="color: #5f9ea0; font-style: ital
 </div>
 </div>
 
-<div id="outline-container-org66d5ff5" class="outline-4">
-<h4 id="org66d5ff5">semid_ds结构</h4>
-<div class="outline-text-4" id="text-org66d5ff5">
+<div id="outline-container-org9bb3938" class="outline-4">
+<h4 id="org9bb3938">semid_ds结构</h4>
+<div class="outline-text-4" id="text-org9bb3938">
 <p>
 内核为每个信号量设置了一个semid_ds结构：
 </p>
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">semid_ds</span>
 {
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">ipc_perm</span> <span style="color: #4eee94;">sem_perm</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">see Section 14.6.2 </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">sem</span> *<span style="color: #4eee94;">sem_base</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">ptr to first semaphore in set </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">ushort</span> <span style="color: #4eee94;">sem_nsems</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;"># of semaphores in set </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">sem_otime</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">last-semop() time </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">sem_ctime</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">last-change time </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">ipc_perm</span> <span style="color: #4eee94;">sem_perm</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">see Section 14.6.2</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">sem</span> *<span style="color: #4eee94;">sem_base</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">ptr to first semaphore in set</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">ushort</span> <span style="color: #4eee94;">sem_nsems</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;"># of semaphores in set</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">sem_otime</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">last-semop() time</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">sem_ctime</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">last-change time</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 };
 </pre>
 </div>
@@ -2725,19 +2692,19 @@ msgrcv1 No message of desired type <span style="color: #5f9ea0; font-style: ital
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">sem</span>
 {
-    <span style="color: #98f5ff;">ushort</span> <span style="color: #4eee94;">semval</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">semaphore value always &gt;= 0</span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">sempid</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid for last operation </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">ushort</span> <span style="color: #4eee94;">semncnt</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;"># processes awaiting semval &gt; currentval </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">ushort</span> <span style="color: #4eee94;">semzcnt</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;"># processes awaiting semval = 0 </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #98f5ff;">ushort</span> <span style="color: #4eee94;">semval</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">semaphore value always &gt;= 0</span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">sempid</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid for last operation</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">ushort</span> <span style="color: #4eee94;">semncnt</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;"># processes awaiting semval &gt; currentval</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">ushort</span> <span style="color: #4eee94;">semzcnt</span>; <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;"># processes awaiting semval = 0</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 };
 </pre>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org372c200" class="outline-4">
-<h4 id="org372c200">资源限制</h4>
-<div class="outline-text-4" id="text-org372c200">
+<div id="outline-container-org9c973ae" class="outline-4">
+<h4 id="org9c973ae">资源限制</h4>
+<div class="outline-text-4" id="text-org9c973ae">
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
 <caption class="t-above"><span class="table-number">Table 5:</span> 影响信号量的系统限制</caption>
 
@@ -2807,9 +2774,9 @@ msgrcv1 No message of desired type <span style="color: #5f9ea0; font-style: ital
 </div>
 </div>
 
-<div id="outline-container-orge2de8ef" class="outline-4">
-<h4 id="orge2de8ef">semget函数</h4>
-<div class="outline-text-4" id="text-orge2de8ef">
+<div id="outline-container-org98cfb2a" class="outline-4">
+<h4 id="org98cfb2a">semget函数</h4>
+<div class="outline-text-4" id="text-org98cfb2a">
 <ul class="org-ul">
 <li><p>
 semget函数：获得一个信号量ID
@@ -2848,9 +2815,9 @@ nsems是该集合中的信号量数。如果是创建新集合(一般在服务�
 </div>
 </div>
 
-<div id="outline-container-org6e9dd72" class="outline-4">
-<h4 id="org6e9dd72">semctl函数</h4>
-<div class="outline-text-4" id="text-org6e9dd72">
+<div id="outline-container-org62429ab" class="outline-4">
+<h4 id="org62429ab">semctl函数</h4>
+<div class="outline-text-4" id="text-org62429ab">
 <ul class="org-ul">
 <li><p>
 semctl函数：信号量操作函数
@@ -2870,22 +2837,22 @@ semctl函数：信号量操作函数
 
 <span style="color: #ffebcd;">   return&#65306;&#26681;&#25454;cmd&#19981;&#21516;&#65292;&#36820;&#22238;&#19981;&#21516;</span>
 <span style="color: #ffebcd;">*/</span>
-<span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">semctl</span>(<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">semid</span>, <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">semnum</span>, <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">cmd</span>, ... <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">union semun arg </span><span style="color: #5f9ea0; font-style: italic;">*/</span>);
+<span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">semctl</span>(<span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">semid</span>, <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">semnum</span>, <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">cmd</span>, ... <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">union semun arg</span><span style="color: #5f9ea0; font-style: italic;"> */</span>);
 
 <span style="color: #00bfff; font-weight: bold;">union</span> <span style="color: #98f5ff;">semun</span>
 {
-    <span style="color: #98f5ff;">int</span>              <span style="color: #4eee94;">val</span>;    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">cmd &#20026; SETVAL &#26102;&#20316;&#20026;&#25968;&#25454;&#28304; </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">semid_ds</span> *<span style="color: #4eee94;">buf</span>;    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">cmd &#20026; IPC_STAT &#21644; IPC_SET &#26102;&#30340;&#25968;&#25454;&#28304; </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span>  *<span style="color: #4eee94;">array</span>;  <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">cmd &#20026; GETALL &#21644; SETALL &#26102;&#30340;&#25968;&#25454;&#28304; </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #98f5ff;">int</span>              <span style="color: #4eee94;">val</span>;    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">cmd &#20026; SETVAL &#26102;&#20316;&#20026;&#25968;&#25454;&#28304;</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">semid_ds</span> *<span style="color: #4eee94;">buf</span>;    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">cmd &#20026; IPC_STAT &#21644; IPC_SET &#26102;&#30340;&#25968;&#25454;&#28304;</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span>  *<span style="color: #4eee94;">array</span>;  <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">cmd &#20026; GETALL &#21644; SETALL &#26102;&#30340;&#25968;&#25454;&#28304;</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 }
 </pre>
 </div></li>
 </ul>
 </div>
 
-<div id="outline-container-orgcec486f" class="outline-5">
-<h5 id="orgcec486f">cmd参数</h5>
-<div class="outline-text-5" id="text-orgcec486f">
+<div id="outline-container-org4e17128" class="outline-5">
+<h5 id="org4e17128">cmd参数</h5>
+<div class="outline-text-5" id="text-org4e17128">
 <p>
 cmd参数指定下列十种命令中的一种，使其在semid指定的信号量集合上执行此命令。其中有五条命令是针对一个特定的信号量值的，它们用semnum指定该集合中的一个成员。semnum值在0和nsems-1之间(包括0和nsems-1)：
 </p>
@@ -2928,9 +2895,9 @@ cmd参数指定下列十种命令中的一种，使其在semid指定的信号量
 </div>
 </div>
 
-<div id="outline-container-orgfcf7128" class="outline-4">
-<h4 id="orgfcf7128">semop函数</h4>
-<div class="outline-text-4" id="text-orgfcf7128">
+<div id="outline-container-org6fd7980" class="outline-4">
+<h4 id="org6fd7980">semop函数</h4>
+<div class="outline-text-4" id="text-org6fd7980">
 <ul class="org-ul">
 <li><p>
 semop函数：自动执行信号量集合上的操作数组
@@ -2957,18 +2924,18 @@ semop函数：自动执行信号量集合上的操作数组
 </div>
 
 
-<div id="outline-container-org1a0b37b" class="outline-5">
-<h5 id="org1a0b37b">semoarray参数</h5>
-<div class="outline-text-5" id="text-org1a0b37b">
+<div id="outline-container-orgb2402ea" class="outline-5">
+<h5 id="orgb2402ea">semoarray参数</h5>
+<div class="outline-text-5" id="text-orgb2402ea">
 <p>
 semoparray是一个指针，它指向一个信号量操作sembuf结构数组：
 </p>
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">sembuf</span>
 {
-    <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #4eee94;">sem_num</span>;   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">&#25351;&#23450;&#38598;&#21512;&#20013;&#30340;&#20449;&#21495;&#37327;,&#21462;&#20540; 0 ~ nsems-1 </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">short</span>          <span style="color: #4eee94;">sem_op</span>;    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">&#25351;&#23450;&#25805;&#20316;&#25968; </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">short</span>          <span style="color: #4eee94;">sem_flg</span>;   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">&#21253;&#25324; IPC_NOWAIT &#21644; SEM_UNDO </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">short</span> <span style="color: #4eee94;">sem_num</span>;   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">&#25351;&#23450;&#38598;&#21512;&#20013;&#30340;&#20449;&#21495;&#37327;,&#21462;&#20540; 0 ~ nsems-1</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">short</span>          <span style="color: #4eee94;">sem_op</span>;    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">&#25351;&#23450;&#25805;&#20316;&#25968;</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">short</span>          <span style="color: #4eee94;">sem_flg</span>;   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">&#21253;&#25324; IPC_NOWAIT &#21644; SEM_UNDO</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 }
 </pre>
 </div>
@@ -2978,8 +2945,8 @@ nops规定该数组中操作的数量(元素数)
 </div>
 
 <ul class="org-ul">
-<li><a id="org72b5381"></a>sem_op成员<br />
-<div class="outline-text-6" id="text-org72b5381">
+<li><a id="org08c3c26"></a>sem_op成员<br />
+<div class="outline-text-6" id="text-org08c3c26">
 <p>
 对集合中每个成员的操作由相应的sem_op规定。此值可以是负值、0或正值。其undo标志对应于相应sem_flg成员的SEM_UNDO位：
 </p>
@@ -3024,9 +2991,9 @@ semop具有原子性，因为它或者执行数组中的所有操作，或者一
 </li>
 </ul>
 </div>
-<div id="outline-container-orga986e1a" class="outline-5">
-<h5 id="orga986e1a">exit时的信号量调整</h5>
-<div class="outline-text-5" id="text-orga986e1a">
+<div id="outline-container-org52cb8f5" class="outline-5">
+<h5 id="org52cb8f5">exit时的信号量调整</h5>
+<div class="outline-text-5" id="text-org52cb8f5">
 <p>
 如果在进程终止时，它占用了经由信号量分配的资源，那么就会成为一个问题。无论何时只要为信号量操作指定了SEM_UNDO标志，然后分配资源(sem_op值小于0)，那么内核就会记住对于该特定信号量，分配给我们多少资源(sem_op的绝对值)。当该进程终止时，不论自愿或者不自愿，内核都将检验该进程是否还有尚未处理的信号量调整值，如果有，则按调整值对相应量值进行调整
 </p>
@@ -3038,9 +3005,9 @@ semop具有原子性，因为它或者执行数组中的所有操作，或者一
 </div>
 </div>
 
-<div id="outline-container-org3f6aba1" class="outline-4">
-<h4 id="org3f6aba1">实例</h4>
-<div class="outline-text-4" id="text-org3f6aba1">
+<div id="outline-container-org93d9dad" class="outline-4">
+<h4 id="org93d9dad">实例</h4>
+<div class="outline-text-4" id="text-org93d9dad">
 <p>
 通过信号量来同步父子进程：
 </p>
@@ -3052,37 +3019,37 @@ semop具有原子性，因为它或者执行数组中的所有操作，或者一
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">void</span>){
 
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21019;&#24314;&#20449;&#21495;&#37327;&#38598;</span>
-    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">semid</span> = semget(IPC_PRIVATE, 1, 0666);
-    <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">value</span> = 0;
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21019;&#24314;&#20449;&#21495;&#37327;&#38598;</span>
+        <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">semid</span> = semget(IPC_PRIVATE, 1, 0666);
+        <span style="color: #98f5ff;">int</span> <span style="color: #4eee94;">value</span> = 0;
 
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21021;&#22987;&#21270;&#20449;&#21495;&#37327;&#65292;&#35774;&#32622;&#20449;&#21495;&#37327;&#38598;&#30340;&#31532;&#19968;&#20010;&#20449;&#21495;&#37327;&#30340;&#24403;&#21069;&#20540;&#20026;0</span>
-    semctl(semid, 0, SETVAL, &amp;value);
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21021;&#22987;&#21270;&#20449;&#21495;&#37327;&#65292;&#35774;&#32622;&#20449;&#21495;&#37327;&#38598;&#30340;&#31532;&#19968;&#20010;&#20449;&#21495;&#37327;&#30340;&#24403;&#21069;&#20540;&#20026;0</span>
+        semctl(semid, 0, SETVAL, &amp;value);
 
-    <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">pid</span>=fork();
-    <span style="color: #00bfff; font-weight: bold;">if</span>(pid==0){<span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">child</span>
+        <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">pid</span>=fork();
+        <span style="color: #00bfff; font-weight: bold;">if</span>(pid==0){<span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">child</span>
+                <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">sembuf</span> <span style="color: #4eee94;">buf</span>;
+                buf.sem_num = 0;
+                buf.sem_op = -1;
+                printf(<span style="color: #deb887;">"child wait to exit\n"</span>);
+                <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#20174;&#20449;&#21495;&#37327;&#38598;&#30340;&#31532;&#19968;&#20010;&#20449;&#21495;&#37327;&#33719;&#21462;&#19968;&#20010;&#36164;&#28304;</span>
+                semop(semid, &amp;buf, 1);
+                printf(<span style="color: #deb887;">"child about to exit\n"</span>);
+                <span style="color: #00bfff; font-weight: bold;">return</span> 0;
+        }
+
+        sleep(2);
         <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">sembuf</span> <span style="color: #4eee94;">buf</span>;
         buf.sem_num = 0;
-        buf.sem_op = -1;
-        printf(<span style="color: #deb887;">"child wait to exit\n"</span>);
-        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#20174;&#20449;&#21495;&#37327;&#38598;&#30340;&#31532;&#19968;&#20010;&#20449;&#21495;&#37327;&#33719;&#21462;&#19968;&#20010;&#36164;&#28304;</span>
-        semop(semid, &amp;buf, 1);
-        printf(<span style="color: #deb887;">"child about to exit\n"</span>);
+        buf.sem_op = 1;
+        printf(<span style="color: #deb887;">"tell child ready\n"</span>);
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21521;&#20449;&#21495;&#37327;&#38598;&#30340;&#31532;&#19968;&#20010;&#20449;&#21495;&#37327;&#22686;&#21152;&#19968;&#20010;&#36164;&#28304;</span>
+        semop(semid,&amp;buf,1);
+        wait(<span style="color: #ffd700;">NULL</span>);
+
+        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28165;&#29702;&#20449;&#21495;&#37327;&#38598;</span>
+        semctl(semid, 0, IPC_RMID);
         <span style="color: #00bfff; font-weight: bold;">return</span> 0;
-    }
-
-    sleep(2);
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">sembuf</span> <span style="color: #4eee94;">buf</span>;
-    buf.sem_num = 0;
-    buf.sem_op = 1;
-    printf(<span style="color: #deb887;">"tell child ready\n"</span>);
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#21521;&#20449;&#21495;&#37327;&#38598;&#30340;&#31532;&#19968;&#20010;&#20449;&#21495;&#37327;&#22686;&#21152;&#19968;&#20010;&#36164;&#28304;</span>
-    semop(semid,&amp;buf,1);
-    wait(<span style="color: #ffd700;">NULL</span>);
-
-    <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#28165;&#29702;&#20449;&#21495;&#37327;&#38598;</span>
-    semctl(semid, 0, IPC_RMID);
-    <span style="color: #00bfff; font-weight: bold;">return</span> 0;
 }
 </pre>
 </div>
@@ -3102,9 +3069,9 @@ tell child ready
 </div>
 </div>
 
-<div id="outline-container-orgd21d973" class="outline-4">
-<h4 id="orgd21d973">信号量 VS 文件锁</h4>
-<div class="outline-text-4" id="text-orgd21d973">
+<div id="outline-container-org309b047" class="outline-4">
+<h4 id="org309b047">信号量 VS 文件锁</h4>
+<div class="outline-text-4" id="text-org309b047">
 <p>
 如果多个进程共享一个资源，则可使用信号量或记录锁
 </p>
@@ -3120,43 +3087,43 @@ tell child ready
 </div>
 </div>
 
-<div id="outline-container-org61658f3" class="outline-3">
-<h3 id="org61658f3">共享内存</h3>
-<div class="outline-text-3" id="text-org61658f3">
+<div id="outline-container-orgcf4d37a" class="outline-3">
+<h3 id="orgcf4d37a">共享内存</h3>
+<div class="outline-text-3" id="text-orgcf4d37a">
 <p>
 共享存储允许两个或多个进程共享一给定的存储区。因为数据不需要在客户机和服务器之间复制，所以这是最快的一种IPC。使用共享存储的唯一窍门是多个进程之间对一给定存储区 
 的同步存取。若服务器将数据放入共享存储区，则在服务器做完这一操作之前，客户机不应当去取这些数据。通常信号量被用来实现对共享存储存取的同步
 </p>
 </div>
 
-<div id="outline-container-orgcbf0886" class="outline-4">
-<h4 id="orgcbf0886">shmid_ds结构</h4>
-<div class="outline-text-4" id="text-orgcbf0886">
+<div id="outline-container-org902bcd7" class="outline-4">
+<h4 id="org902bcd7">shmid_ds结构</h4>
+<div class="outline-text-4" id="text-org902bcd7">
 <p>
 内核为每个共享存储段设置了一个shmid_ds结构：
 </p>
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">shmid_ds</span>
 {
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">ipc_perm</span> <span style="color: #4eee94;">shm_perm</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">operation permission struct </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">anop_map</span> *<span style="color: #4eee94;">shm_amp</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pointer in kernel </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">size_t</span> <span style="color: #4eee94;">shm_segsz</span>;                   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">size of segment in bytes </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">shm_atime</span>;                 <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last shmat() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">shm_dtime</span>;                 <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last shmdt() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">shm_ctime</span>;                 <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last change by shmctl() </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">shm_cpid</span>;                   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid of creator </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">shm_lpid</span>;                   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid of last shmop </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">shmatt_t</span> <span style="color: #4eee94;">shm_nattch</span>;                <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">number of current attaches </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-    <span style="color: #98f5ff;">shmatt_t</span> <span style="color: #4eee94;">shm_cattch</span>;              <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">used only for shminfo </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">ipc_perm</span> <span style="color: #4eee94;">shm_perm</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">operation permission struct</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #00bfff; font-weight: bold;">struct</span> <span style="color: #98f5ff;">anop_map</span> *<span style="color: #4eee94;">shm_amp</span>;           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pointer in kernel</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">size_t</span> <span style="color: #4eee94;">shm_segsz</span>;                   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">size of segment in bytes</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">shm_atime</span>;                 <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last shmat()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">shm_dtime</span>;                 <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last shmdt()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">time_t</span> <span style="color: #4eee94;">shm_ctime</span>;                 <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">time of last change by shmctl()</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">shm_cpid</span>;                   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid of creator</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">pid_t</span> <span style="color: #4eee94;">shm_lpid</span>;                   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">pid of last shmop</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">shmatt_t</span> <span style="color: #4eee94;">shm_nattch</span>;                <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">number of current attaches</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+        <span style="color: #98f5ff;">shmatt_t</span> <span style="color: #4eee94;">shm_cattch</span>;              <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">used only for shminfo</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 };
 </pre>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org26201fd" class="outline-4">
-<h4 id="org26201fd">资源限制</h4>
-<div class="outline-text-4" id="text-org26201fd">
+<div id="outline-container-orgccff110" class="outline-4">
+<h4 id="orgccff110">资源限制</h4>
+<div class="outline-text-4" id="text-orgccff110">
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
 <caption class="t-above"><span class="table-number">Table 6:</span> 影响共享内存的系统限制</caption>
 
@@ -3202,9 +3169,9 @@ tell child ready
 </div>
 </div>
 
-<div id="outline-container-org9e9d653" class="outline-4">
-<h4 id="org9e9d653">shmget函数</h4>
-<div class="outline-text-4" id="text-org9e9d653">
+<div id="outline-container-orga090675" class="outline-4">
+<h4 id="orga090675">shmget函数</h4>
+<div class="outline-text-4" id="text-orga090675">
 <ul class="org-ul">
 <li><p>
 shmget函数：获得一个共享存储标识符
@@ -3242,9 +3209,9 @@ size是该共享存储段的最小值。如果正在创建一个新段(一般在
 </div>
 </div>
 
-<div id="outline-container-org24dc8fe" class="outline-4">
-<h4 id="org24dc8fe">shmctl函数</h4>
-<div class="outline-text-4" id="text-org24dc8fe">
+<div id="outline-container-orgcac8c77" class="outline-4">
+<h4 id="orgcac8c77">shmctl函数</h4>
+<div class="outline-text-4" id="text-orgcac8c77">
 <ul class="org-ul">
 <li><p>
 shmctl函数：对共享存储段执行多种操作
@@ -3269,9 +3236,9 @@ shmctl函数：对共享存储段执行多种操作
 </ul>
 </div>
 
-<div id="outline-container-org84c308f" class="outline-5">
-<h5 id="org84c308f">cmd参数</h5>
-<div class="outline-text-5" id="text-org84c308f">
+<div id="outline-container-org66a590a" class="outline-5">
+<h5 id="org66a590a">cmd参数</h5>
+<div class="outline-text-5" id="text-org66a590a">
 <p>
 cmd参数指定下列5种命令中一种，使其在shmid指定的段上执行：
 </p>
@@ -3305,9 +3272,9 @@ cmd参数指定下列5种命令中一种，使其在shmid指定的段上执行�
 </div>
 </div>
 
-<div id="outline-container-org49ef071" class="outline-4">
-<h4 id="org49ef071">shmat函数</h4>
-<div class="outline-text-4" id="text-org49ef071">
+<div id="outline-container-org4239445" class="outline-4">
+<h4 id="org4239445">shmat函数</h4>
+<div class="outline-text-4" id="text-org4239445">
 <ul class="org-ul">
 <li><p>
 shmat函数：一旦创建了一个共享存储段，进程就可调用shmat将其连接到它的地址空间中
@@ -3354,9 +3321,9 @@ shmat函数：一旦创建了一个共享存储段，进程就可调用shmat将�
 </div>
 </div>
 
-<div id="outline-container-orgd2f8e03" class="outline-4">
-<h4 id="orgd2f8e03">shmdt函数</h4>
-<div class="outline-text-4" id="text-orgd2f8e03">
+<div id="outline-container-orge694ed7" class="outline-4">
+<h4 id="orge694ed7">shmdt函数</h4>
+<div class="outline-text-4" id="text-orge694ed7">
 <ul class="org-ul">
 <li>shmdt函数：当对共享存储段的操作已经结束时，则调用shmdt脱接该段</li>
 </ul>
@@ -3382,9 +3349,9 @@ shmat函数：一旦创建了一个共享存储段，进程就可调用shmat将�
 </div>
 
 
-<div id="outline-container-orgfe3c701" class="outline-4">
-<h4 id="orgfe3c701">打印不同类型的数据所存放的位置</h4>
-<div class="outline-text-4" id="text-orgfe3c701">
+<div id="outline-container-org9f4b2e1" class="outline-4">
+<h4 id="org9f4b2e1">打印不同类型的数据所存放的位置</h4>
+<div class="outline-text-4" id="text-org9f4b2e1">
 <p>
 内核将以地址0连接的共享存储段放在什么位置上与系统密切相关。下面程序打印一些信息，它们与指定系统将不同类型的数据放在什么位置有关：
 </p>
@@ -3395,36 +3362,36 @@ shmat函数：一旦创建了一个共享存储段，进程就可调用shmat将�
 <span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">ARRAY_SIZE</span>  40000
 <span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">MALLOC_SIZE</span> 100000
 <span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">SHM_SIZE</span>    100000
-<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">SHM_MODE</span>    ( SHM_R | SHM_W )   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">user read/write </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">SHM_MODE</span>    ( SHM_R | SHM_W )   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">user read/write</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
-<span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">array</span>[ARRAY_SIZE];  <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">uninitialized data = bss </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #98f5ff;">char</span>    <span style="color: #4eee94;">array</span>[ARRAY_SIZE];  <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">uninitialized data = bss</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">shmid</span>;
-    <span style="color: #98f5ff;">char</span>    *<span style="color: #4eee94;">ptr</span>, *<span style="color: #4eee94;">shmptr</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">shmid</span>;
+        <span style="color: #98f5ff;">char</span>    *<span style="color: #4eee94;">ptr</span>, *<span style="color: #4eee94;">shmptr</span>;
 
-    printf(<span style="color: #deb887;">"array[] from %lx to %lx\n"</span>, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;array[0],
-           (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;array[ARRAY_SIZE]);
-    printf(<span style="color: #deb887;">"stack around %lx\n"</span>, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;shmid);
+        printf(<span style="color: #deb887;">"array[] from %lx to %lx\n"</span>, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;array[0],
+               (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;array[ARRAY_SIZE]);
+        printf(<span style="color: #deb887;">"stack around %lx\n"</span>, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)&amp;shmid);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((ptr = malloc(MALLOC_SIZE)) == <span style="color: #ffd700;">NULL</span>)
-        err_sys(<span style="color: #deb887;">"malloc error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((ptr = malloc(MALLOC_SIZE)) == <span style="color: #ffd700;">NULL</span>)
+                err_sys(<span style="color: #deb887;">"malloc error"</span>);
 
-    printf(<span style="color: #deb887;">"malloced from %lx to %lx\n"</span>, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)ptr,
-           (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>) ptr + MALLOC_SIZE);
+        printf(<span style="color: #deb887;">"malloced from %lx to %lx\n"</span>, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)ptr,
+               (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>) ptr + MALLOC_SIZE);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((shmid = shmget(IPC_PRIVATE, SHM_SIZE, SHM_MODE)) &lt; 0)
-        err_sys(<span style="color: #deb887;">"shmget error"</span>);
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((shmptr = shmat(shmid, 0, 0)) == (<span style="color: #98f5ff;">void</span> *)-1)
-        err_sys(<span style="color: #deb887;">"shmat error"</span>);
-    printf(<span style="color: #deb887;">"shared memory attached from %lx to %lx\n"</span>,
-           (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)shmptr, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)shmptr+SHM_SIZE);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((shmid = shmget(IPC_PRIVATE, SHM_SIZE, SHM_MODE)) &lt; 0)
+                err_sys(<span style="color: #deb887;">"shmget error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((shmptr = shmat(shmid, 0, 0)) == (<span style="color: #98f5ff;">void</span> *)-1)
+                err_sys(<span style="color: #deb887;">"shmat error"</span>);
+        printf(<span style="color: #deb887;">"shared memory attached from %lx to %lx\n"</span>,
+               (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)shmptr, (<span style="color: #98f5ff;">unsigned</span> <span style="color: #98f5ff;">long</span>)shmptr+SHM_SIZE);
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> (shmctl(shmid, IPC_RMID, 0) &lt; 0)
-        err_sys(<span style="color: #deb887;">"shmctl error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> (shmctl(shmid, IPC_RMID, 0) &lt; 0)
+                err_sys(<span style="color: #deb887;">"shmctl error"</span>);
 
-    exit(0);
+        exit(0);
 }
 </pre>
 </div>
@@ -3446,7 +3413,7 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 下图显示了这种情况，这与以前讲述的典型存储区布局类似：
 </p>
 
-<div class="figure">
+<div id="orgce92379" class="figure">
 <p><img src="pic/shm.png" alt="shm.png" width="60%" />  
 </p>
 </div>
@@ -3457,9 +3424,9 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </div>
 </div>
 
-<div id="outline-container-org4b649c2" class="outline-4">
-<h4 id="org4b649c2">/dev/zero的存储映射</h4>
-<div class="outline-text-4" id="text-org4b649c2">
+<div id="outline-container-org54542f6" class="outline-4">
+<h4 id="org54542f6">/dev/zero的存储映射</h4>
+<div class="outline-text-4" id="text-org54542f6">
 <p>
 共享存储可由不相关的进程使用。但是如果进程是相关的，则SVR4提供了一种不同的技术
 </p>
@@ -3488,54 +3455,54 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 <span style="color: #ffd700;">#include</span> <span style="color: #deb887;">&lt;sys/mman.h&gt;</span>
 
 <span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">NLOOPS</span>      1000
-<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">SIZE</span>        <span style="color: #00bfff; font-weight: bold;">sizeof</span>(<span style="color: #98f5ff;">long</span>)    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">size of shared memory area </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+<span style="color: #ffd700;">#define</span> <span style="color: #4eee94;">SIZE</span>        <span style="color: #00bfff; font-weight: bold;">sizeof</span>(<span style="color: #98f5ff;">long</span>)    <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">size of shared memory area</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
 <span style="color: #00bfff; font-weight: bold;">static</span> <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">update</span>(<span style="color: #98f5ff;">long</span> *<span style="color: #4eee94;">ptr</span>)
 {
-    <span style="color: #00bfff; font-weight: bold;">return</span>((*ptr)++);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">return value before increment </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">return</span>((*ptr)++);   <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">return value before increment</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 }
 
 <span style="color: #98f5ff;">int</span> <span style="color: #daa520; font-weight: bold;">main</span>(<span style="color: #98f5ff;">void</span>)
 {
-    <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">fd</span>, <span style="color: #4eee94;">i</span>, <span style="color: #4eee94;">counter</span>;
-    <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
-    <span style="color: #98f5ff;">void</span>    *<span style="color: #4eee94;">area</span>;
+        <span style="color: #98f5ff;">int</span>     <span style="color: #4eee94;">fd</span>, <span style="color: #4eee94;">i</span>, <span style="color: #4eee94;">counter</span>;
+        <span style="color: #98f5ff;">pid_t</span>   <span style="color: #4eee94;">pid</span>;
+        <span style="color: #98f5ff;">void</span>    *<span style="color: #4eee94;">area</span>;
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((fd = open(<span style="color: #deb887;">"/dev/zero"</span>, O_RDWR)) &lt; 0)
-        err_sys(<span style="color: #deb887;">"open error"</span>);
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((area = mmap(0, SIZE, PROT_READ | PROT_WRITE, MAP_SHARED,
-             fd, 0)) == MAP_FAILED)
-        err_sys(<span style="color: #deb887;">"mmap error"</span>);
-    close(fd);      <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">can close /dev/zero now that it's mapped </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((fd = open(<span style="color: #deb887;">"/dev/zero"</span>, O_RDWR)) &lt; 0)
+                err_sys(<span style="color: #deb887;">"open error"</span>);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((area = mmap(0, SIZE, PROT_READ | PROT_WRITE, MAP_SHARED,
+                         fd, 0)) == MAP_FAILED)
+                err_sys(<span style="color: #deb887;">"mmap error"</span>);
+        close(fd);      <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">can close /dev/zero now that it's mapped</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
 
-    TELL_WAIT();
+        TELL_WAIT();
 
-    <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
-        err_sys(<span style="color: #deb887;">"fork error"</span>);
-    } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid &gt; 0) {           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">for</span> (i = 0; i &lt; NLOOPS; i += 2) {
-            <span style="color: #00bfff; font-weight: bold;">if</span> ((counter = update((<span style="color: #98f5ff;">long</span> *)area)) != i)
-                err_quit(<span style="color: #deb887;">"parent: expected %d, got %d"</span>, i, counter);
+        <span style="color: #00bfff; font-weight: bold;">if</span> ((pid = fork()) &lt; 0) {
+                err_sys(<span style="color: #deb887;">"fork error"</span>);
+        } <span style="color: #00bfff; font-weight: bold;">else</span> <span style="color: #00bfff; font-weight: bold;">if</span> (pid &gt; 0) {           <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">parent</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">for</span> (i = 0; i &lt; NLOOPS; i += 2) {
+                        <span style="color: #00bfff; font-weight: bold;">if</span> ((counter = update((<span style="color: #98f5ff;">long</span> *)area)) != i)
+                                err_quit(<span style="color: #deb887;">"parent: expected %d, got %d"</span>, i, counter);
 
-            <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">printf("parent counter: %d \n", counter);</span>
+                        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">printf("parent counter: %d \n", counter);</span>
 
-            TELL_CHILD(pid);
-            WAIT_CHILD();
+                        TELL_CHILD(pid);
+                        WAIT_CHILD();
+                }
+        } <span style="color: #00bfff; font-weight: bold;">else</span> {                        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child</span><span style="color: #5f9ea0; font-style: italic;"> */</span>
+                <span style="color: #00bfff; font-weight: bold;">for</span> (i = 1; i &lt; NLOOPS + 1; i += 2) {
+                        WAIT_PARENT();
+
+                        <span style="color: #00bfff; font-weight: bold;">if</span> ((counter = update((<span style="color: #98f5ff;">long</span> *)area)) != i)
+                                err_quit(<span style="color: #deb887;">"child: expected %d, got %d"</span>, i, counter);
+
+                        <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">printf("child counter: %d \n", counter);</span>
+
+                        TELL_PARENT(getppid());
+                }
         }
-    } <span style="color: #00bfff; font-weight: bold;">else</span> {                        <span style="color: #5f9ea0; font-style: italic;">/* </span><span style="color: #5f9ea0; font-style: italic;">child </span><span style="color: #5f9ea0; font-style: italic;">*/</span>
-        <span style="color: #00bfff; font-weight: bold;">for</span> (i = 1; i &lt; NLOOPS + 1; i += 2) {
-            WAIT_PARENT();
 
-            <span style="color: #00bfff; font-weight: bold;">if</span> ((counter = update((<span style="color: #98f5ff;">long</span> *)area)) != i)
-                err_quit(<span style="color: #deb887;">"child: expected %d, got %d"</span>, i, counter);
-
-            <span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">printf("child counter: %d \n", counter);</span>
-
-            TELL_PARENT(getppid());
-        }
-    }
-
-    exit(0);
+        exit(0);
 }
 </pre>
 </div>
@@ -3544,9 +3511,9 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </p>
 </div>
 
-<div id="outline-container-org880f371" class="outline-5">
-<h5 id="org880f371">匿名存储映射</h5>
-<div class="outline-text-5" id="text-org880f371">
+<div id="outline-container-org367076e" class="outline-5">
+<h5 id="org367076e">匿名存储映射</h5>
+<div class="outline-text-5" id="text-org367076e">
 <p>
 4.3+BSD提供了一种类似于/dev/zero的施设，称为匿名存储映射。为了使用这种功能，在调用mmap时指定MAP_ANON标志，并将描述符指定为-1。结果得到的区域是匿名的(因为它并不通过一个文件描述符与一个路径名相结合)，并且创建一个存储区，它可与后代进程共享：
 </p>
@@ -3561,16 +3528,16 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </p>
 <div class="org-src-container">
 <pre class="src src-C"><span style="color: #00bfff; font-weight: bold;">if</span> ( (area = mmap(0, SIZE, PROT_READ | PROT_WRITE,
-          MAP_ANON | MAP_SHARED, -1, 0)) == (<span style="color: #98f5ff;">caddr_t</span>) -1)
+                  MAP_ANON | MAP_SHARED, -1, 0)) == (<span style="color: #98f5ff;">caddr_t</span>) -1)
 </pre>
 </div></li>
 </ol>
 </div>
 </div>
 
-<div id="outline-container-org0f800a1" class="outline-5">
-<h5 id="org0f800a1">共享存储 VS mmap</h5>
-<div class="outline-text-5" id="text-org0f800a1">
+<div id="outline-container-org33bfb44" class="outline-5">
+<h5 id="org33bfb44">共享存储 VS mmap</h5>
+<div class="outline-text-5" id="text-org33bfb44">
 <ul class="org-ul">
 <li>mmap的优点：使用简单</li>
 <li>mmap的缺点：只能在相关进程间使用，不相关进程只能使用共享存储</li>
@@ -3581,17 +3548,17 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </div>
 </div>
 
-<div id="outline-container-orgd3301cf" class="outline-2">
-<h2 id="orgd3301cf">客户机-服务器模型</h2>
-<div class="outline-text-2" id="text-orgd3301cf">
+<div id="outline-container-org69df744" class="outline-2">
+<h2 id="org69df744">客户机-服务器模型</h2>
+<div class="outline-text-2" id="text-org69df744">
 <p>
 下面详细说明客户机和服务器的属性，这些属性受到它们之间所使用的IPC的不同类型的影响
 </p>
 </div>
 
-<div id="outline-container-orgfbe7206" class="outline-3">
-<h3 id="orgfbe7206">单向管道</h3>
-<div class="outline-text-3" id="text-orgfbe7206">
+<div id="outline-container-org3ad86da" class="outline-3">
+<h3 id="org3ad86da">单向管道</h3>
+<div class="outline-text-3" id="text-org3ad86da">
 <p>
 客户机fork并执行所希望的服务器。在fork之前先创建两个单向管道以使数据可在两个方向传输。被执行的服务器可能是设置-用户-ID的程序，这使它具有了特权。查看客户机的实际用户ID就可以决定客户机的身份
 </p>
@@ -3607,9 +3574,9 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </div>
 </div>
 
-<div id="outline-container-orgacc6258" class="outline-3">
-<h3 id="orgacc6258">FIFO</h3>
-<div class="outline-text-3" id="text-orgacc6258">
+<div id="outline-container-orgf8240a9" class="outline-3">
+<h3 id="orgf8240a9">FIFO</h3>
+<div class="outline-text-3" id="text-orgf8240a9">
 <p>
 服务器是一个守护进程，客户机则用某种形式的IPC与其联系。可以将管道用于这种形式的客户机-服务器关系。要求有一种命名的IPC，例如FIFO。如果服务器必需将数据送回客户机，则对每个客户机都要有单独使用的FIFO。如果客户机-服务器应用程序只有客户机向服务器送数据，则只需要一个众所周知的FIFO。例如，系统V行式打印机假脱机程序使用这种形式的客户机-服务器。客户机是lp(1)命令，服务器是lpsched进程。因为只有从客户机到服务器的数据流，没有任何数据需送回客户机，所以只需使用一个FIFO
 </p>
@@ -3624,9 +3591,9 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </div>
 </div>
 
-<div id="outline-container-org8d1ec0b" class="outline-3">
-<h3 id="org8d1ec0b">消息队列</h3>
-<div class="outline-text-3" id="text-org8d1ec0b">
+<div id="outline-container-org8fe11bd" class="outline-3">
+<h3 id="org8fe11bd">消息队列</h3>
+<div class="outline-text-3" id="text-org8fe11bd">
 <p>
 使用消息队列则存在多种可能性：
 </p>
@@ -3645,18 +3612,18 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </div>
 
 
-<div id="outline-container-org8aeed00" class="outline-4">
-<h4 id="org8aeed00">实现</h4>
-<div class="outline-text-4" id="text-org8aeed00">
+<div id="outline-container-org8929ca3" class="outline-4">
+<h4 id="org8929ca3">实现</h4>
+<div class="outline-text-4" id="text-org8929ca3">
 <p>
 使用消息队列的这两种技术都可以用共享存储段和同步方法(信号量或记录锁)实现。使用共享存储段的问题是一次只能有一个消息在共享存储段中（类似于队列限制为只能有一个消息）。为此，在使用共享存储IPC时，通常每个客户机使用一个共享存储段
 </p>
 </div>
 </div>
 
-<div id="outline-container-orgfef7597" class="outline-4">
-<h4 id="orgfef7597">缺陷</h4>
-<div class="outline-text-4" id="text-orgfef7597">
+<div id="outline-container-orgb880d23" class="outline-4">
+<h4 id="orgb880d23">缺陷</h4>
+<div class="outline-text-4" id="text-orgb880d23">
 <p>
 消息队列的问题在于：服务器如何准确地标识客户机。除非服务器正在执行一种非特权操作，否则服务器知道谁是客户机是很重要的。例如，若服务器是一个设置-用户-ID程序，就有这种要求。虽然，所有这几种形式的IPC都经由内核，但是它们并未提供任何措施使内核能够标识发送者
 </p>
@@ -3666,9 +3633,9 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </p>
 </div>
 
-<div id="outline-container-orgb36dfb7" class="outline-5">
-<h5 id="orgb36dfb7">安全措施</h5>
-<div class="outline-text-5" id="text-orgb36dfb7">
+<div id="outline-container-orgcc046be" class="outline-5">
+<h5 id="orgcc046be">安全措施</h5>
+<div class="outline-text-5" id="text-orgcc046be">
 <p>
 同样的技术可用于FIFO、消息队列、信号量或共享存储。下面的说明具体针对FIFO：
 </p>
@@ -3687,9 +3654,9 @@ shared memory attached from 7f6e70571000 to 7f6e705896a0 <span style="color: #5f
 </div>
 </div>
 
-<div id="outline-container-org4cc22b8" class="outline-2">
-<h2 id="org4cc22b8">总结</h2>
-<div class="outline-text-2" id="text-org4cc22b8">
+<div id="outline-container-org9d4a616" class="outline-2">
+<h2 id="org9d4a616">总结</h2>
+<div class="outline-text-2" id="text-org9d4a616">
 <ul class="org-ul">
 <li>掌握匿名管道和FIFO技术，因为它们清晰简单</li>
 <li>尽量不使用消息队列和信号量，而以流管道和记录锁代替之</li>
