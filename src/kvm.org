@@ -492,9 +492,56 @@ _virtio_blk_ 驱动使用 virtio API 为客户机提供了一个高效访问块�
 
 * 管理工具
 #+ATTR_HTML: image :width 90% 
-[[file:pic/]]
+[[file:pic/libvirt-support.png]]
 
 ** libvirt 
+libvirt 是目前使用最为广泛的对 KVM 虚拟机进行管理的 *工具* 和 *应用程序接口* （ _API_ ），而且一些常用的虚拟机管理工具（如 _virsh_ ,  _virt-install_ , _virt-manager_ 等）和云计算框架平台（如  _OpenStack_ , _OpenNebula_ , _Eucalyptus_ 等）都在底层使用 libvirt 的应用程序接口。libvirt 是为了更方便地管理平台虚拟化技术而设计的开放源代码的应用程序接口、守护进程和管理工具，它不仅提供了对虚拟化客户机的管理，也提供了对虚拟化网络和存储的管理
 
+#+begin_example
+  尽管 libvirt 项目最初是为 Xen 设计的一套API，但是目前对KVM等其他 Hypervisor 的支持也非常的好
+
+  libvirt 支持多种虚拟化方案，既支持包括 KVM、QEMU、Xen、VMware、VirtualBox 等在内的平台虚拟化方案
+
+  又支持 OpenVZ、LXC 等 Linux 容器虚拟化系统，还支持用户态 Linux（UML）的虚拟化
+#+end_example
+libvirt 作为中间适配层，让底层 Hypervisor 对上层用户空间的管理工具是可以做到完全透明的，因为 libvirt *屏蔽* 了底层 _各种 Hypervisor 的细节_ ，为上层管理工具提供了一个统一的、较稳定的接口（API）。通过 libvirt，一些用户空间管理工具可以管理各种不同的 Hypervisor 和上面运行的客户机 
 #+ATTR_HTML: image :width 90% 
-[[file:pic/]]
+[[file:pic/libvirt-manage-hypervisors.jpg]]
+
+libvirt 的管理功能主要包含如下五个部分：
++ 域的管理：包括
+  + 对 _节点上的域_ 的 *各个生命周期* 的管理
+    #+begin_example
+      如：启动、停止、暂停、保存、恢复和动态迁移
+    #+end_example
+  + 对 _多种设备类型_ 的 *热插拔* 操作
+    #+begin_example
+      包括：磁盘、网卡、内存和 CPU，当然不同的 Hypervisor 上对这些热插拔的支持程度有所不同
+    #+end_example
++ 远程节点的管理：只要物理节点上运行了 _libvirtd_ 这个守护进程， _远程的管理程序_ 就可以 *连接* 到 _该节点进程管理操作_ ，经过 _认证_ 和 _授权_ 之后，所有的 libvirt 功能都可以被访问和使用
+  #+begin_example
+    libvirt 支持多种网络远程传输类型，如 SSH、TCP 套接字、Unix domain socket、支持 TLS 的加密传输等
+
+    假设使用最简单的 SSH，则不需要额外配置工作，比如：example.com 节点上运行了 libvirtd，而且允许 SSH 访问
+
+    在远程的某台管理机器上就可以用如下的命令行来连接到 example.com 上 virsh -c qemu+ssh://root@example.com/system ，从而管理其上的域 
+  #+end_example
++ 存储的管理：任何运行了 libvirtd 守护进程的主机，都可以通过 libvirt 来管理 *不同类型的存储*
+  #+begin_example
+    如：创建不同格式的客户机镜像（qcow2、raw、qde、vmdk等）、挂载 NFS 共享存储系统、查看现有的 LVM 卷组、创建新的 LVM 卷组和逻辑卷、对磁盘设备分区、挂载 iSCSI 共享存储，等等
+
+    当然 libvirt 中，对存储的管理也是支持远程管理的
+  #+end_example
++ 网络的管理：任何运行了 libvirtd 守护进程的主机，都可以通过libvirt来管理物理的和逻辑的 *网络接口*
+  #+begin_example
+    包括：列出现有的网络接口卡，配置网络接口，创建虚拟网络接口，网络接口的桥接，VLAN 管理，NAT 网络设置，为客户机分配虚拟网络接口 ......
+  #+end_example
++ 提供一个稳定、可靠、高效的应用程序接口 _API_ 以便可以完成前面的 4 个管理功能
+
+ 
+libvirt 主要由三个部分组成，它们分别是：
+1. *应用程序编程接口*  _API_ 库：为了其他虚拟机管理工具（如 virsh、virt-manager等）提供虚拟机管理的程序库支持
+2. 一个 *守护进程*  _libvirtd_ ：负责执行对节点上的域的管理工作，在用各种工具对虚拟机进行管理之时，这个守护进程一定要处于运行状态中，而且这个守护进程可以分为两种：
+   + 一种是 root 权限的libvirtd，其权限较大，可以做所有支持的管理工作
+   + 一种是普通用户权限的 libvirtd，只能做比较受限的管理工作
+3. 一个默认 *命令行管理工具* _virsh_ 
