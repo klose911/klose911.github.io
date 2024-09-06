@@ -384,5 +384,117 @@ tap,script=/tmp/qemu-ifup.sh 指定 script 网络配置启动前启动脚本：
 #+end_src
 
 * 高级功能
-* 管理工具
+** 半虚拟驱动
+*** virtio
+#+begin_example
+  KVM 是必须使用硬件虚拟化辅助技术（如 Intel VT-x、AMD-V）的 hypervisor，在 CPU 运行效率方面有硬件支持，其效率是比较高的
 
+  在有 Intel EPT 特性支持的平台上，内存虚拟化的效率也较高
+
+  QEMU/KVM 提供了全虚拟化环境，可以让客户机不经过任何修改就能运行在 KVM 环境中
+
+  不过，KVM 在 I/O 虚拟化方面，传统的方式是使用 QEMU 纯软件的方式来模拟 I/O 设备（如模拟的网卡、磁盘、显卡等等），其效率并不非常高
+#+end_example
+在 KVM 中，可以在客户机中使用 *半虚拟化驱动* （Paravirtualized Drivers， _PV Drivers_ ）来提高客户机的性能（特别是 *I/O 性能* ）。目前，KVM 中实现半虚拟化驱动的方式是采用了 *virtio* 这个 Linux 上的设备驱动标准框架
+
+**** QEMU 模拟 I/O 设备
+使用 QEMU 模拟 I/O 的情况下，当客户机中的设备驱动程序（device driver）发起 I/O 操作请求之时：
+1. KVM 模块中的 I/O 操作捕获代码会拦截这次 I/O 请求，然后经过处理后将本次 I/O 请求的信息存放到 I/O 共享页，并通知用户控件的 QEMU 程序
+2. QEMU 模拟程序获得 I/O 操作的具体信息之后，交由硬件模拟代码来模拟出本次的 I/O 操作，完成之后，将结果放回到 I/O 共享页，并通知 KVM 模块中的 I/O 操作捕获代码
+3. 最后，由 KVM 模块中的捕获代码读取 I/O 共享页中的操作结果，并把结果返回到客户机中
+
+#+begin_example
+  当然，这个操作过程中客户机作为一个 QEMU 进程在等待I/O时也可能被阻塞
+
+  另外，当客户机通过 DMA（Direct Memory Access）访问大块 I/O 之时，QEMU 模拟程序将不会把操作结果放到 I/O 共享页中，而是通过内存映射的方式将结果直接写到客户机的内存中去，然后通过 KVM 模块告诉客户机 DMA 操作已经完成
+#+end_example
+
+#+ATTR_HTML: image :width 90% 
+[[file:pic/qemu-emulated-io.jpg]]
+
+QEMU 模拟 I/O 设备的方式：
++ 优点：可以通过软件模拟出各种各样的硬件设备，包括一些不常用的或者很老很经典的设备（如 RTL8139 网卡），而且它不用修改客户机操作系统，就可以实现模拟设备在客户机中正常工作
+  #+begin_example
+    在 KVM 客户机中使用这种方式，对于解决手上没有足够设备的软件开发及调试有非常大的好处
+  #+end_example
++ 缺点是，每次 I/O 操作的路径比较长，有较多的 VMEntry、VMExit 发生，需要多次上下文切换（context switch），也需要多次数据复制，所以它的性能较差
+
+**** virtio 的基本原理和优缺点
+virtio 是一个在 _hypervisor_ 之上的 *抽象 API 接口* ，让客户机知道自己运行在虚拟化环境中，从而与 hypervisor 根据 virtio 标准协作，从而在客户机中达到更好的性能（特别是 I/O 性能）。其中：
++ 前端驱动（frondend，如 _virtio-blk_  ,  _virtio-net_ 等）是在 *客户机* 中存在的驱动程序模块
++ 后端处理程序（backend）是在 _QEMU_ 中实现的
++ 在这前后端驱动之间，还定义了两层来支持客户机与 QEMU 之间的通信。其中
+  + virtio 这一层是 _虚拟队列接口_ ，它在概念上将 _前端驱动程序_ *附加* 到 _后端处理程序_
+    #+begin_example
+      一个前端驱动程序可以使用 0 个或多个队列，具体数量取决于需求
+
+      例如，virtio-net 网络驱动程序使用两个虚拟队列（一个用于接收，另一个用于发送），而 virtio-blk 块驱动程序仅使用一个虚拟队列
+
+      虚拟队列实际上被实现为跨越客户机操作系统和 hypervisor 的衔接点，但它可以通过任意方式实现，前提是客户机操作系统和 virtio 后端程序都遵循一定的标准，以相互匹配的方式实现它
+    #+end_example
+  + virtio-ring 实现了 *环形缓冲区* （ _ring buffer_ ），用于 *保存* 前端驱动和后端处理程序 _执行的信息_ ，并且它可以 *一次性* 保存前端驱动的 _多次 I/O 请求_ ，并且交由后端驱动去 *批量处理* ，最后实际调用 _宿主机_ 中 _设备驱动_ 实现物理上的 I/O 操作
+    #+begin_example
+      这样做就可以根据约定实现批量处理而不是客户机中每次 I/O 请求都需要处理一次，从而提高客户机与 hypervisor 信息交换的效率
+    #+end_example
+
+#+ATTR_HTML: image :width 90% 
+[[file:pic/qemu-kvm-virtio.jpg]]
+
+virtio 半虚拟化驱动的方式：
++ 优点是可以获得很好的 I/O 性能，其性能几乎可以达到和 native（即：非虚拟化环境中的原生系统）差不多的 I/O 性能
+  #+begin_example
+    所以，在使用 KVM 之时，如果宿主机内核和客户机都支持 virtio 的情况下，一般推荐使用 virtio 达到更好的性能
+  #+end_example
++ 缺点，它必须要客户机安装特定的Virtio驱动使其知道是运行在虚拟化环境中，且按照 Virtio 的规定格式进行数据传输
+  #+begin_example
+    不过客户机中可能有一些老的 Linux 系统不支持 virtio 和主流的Windows系统需要安装特定的驱动才支持 Virtio
+
+    较新的一些 Linux 发行版（如 RHEL 6.x、Fedora 17 等）默认都将 virtio 相关驱动编译为模块，可直接作为客户机使用 virtio
+
+    Windows 系统需要额外的安装相应的 virtio 区别，virtio-win
+  #+end_example
+
+*** virtio_net 和 vhost_net
+#+ATTR_HTML: image :width 90% 
+[[file:pic/virtio-vhostnet.png]]
+
++ 使用 _virtio_net_ 半虚拟化驱动，可以提高网络吞吐量和降低网络延迟
++ _vhost_net_ 能够把网络 IO 请求的后端处理在 *内核空间* 完成，则效率更高，会提高网络吞吐量和减少网络延迟。
+
+*** virtio_blk
+_virtio_blk_ 驱动使用 virtio API 为客户机提供了一个高效访问块设备 I/O 的方法。使用 virtio_blk 驱动的磁盘显示为 _/dev/vd*_  
+
+*** Device Assignment and SR-IOV
+#+ATTR_HTML: image :width 90% 
+[[file:pic/devassign-sriov.png]]
+
+** 热插拔
+热插拔可以提高服务器扩展性、灵活性以及对相关硬件问题的及时恢复能力
+
+#+begin_example
+在服务器中，可以实现热插拔的部件主要是 SATA 硬盘、CPU、内存、USB、网卡、风扇等
+#+end_example
+在 KVM 虚拟化环境中，也支持客户机相应的设备热插拔。目前，KVM 对热插拔的支持还不是很完善，主要支持 PCI 设备和 CPU 的热插拔，内存的热插拔目前还不是很完善
+
+** 动态迁移
+动态迁移：也叫在线迁移。就是在保证虚拟机上服务正常运行的同时，将一个虚拟机系统从一个物理主机移动到另一个物理主机的过程
+
+#+begin_example
+  该过程不会对最终用户造成明显的影响，从而使得管理员能够在不影响用户正常使用的情况下，对物理服务器进行离线维修或者升级
+
+  与静态迁移不同的是，为了保证迁移过程中虚拟机服务的可用，迁移过程仅有非常短暂的停机时间
+#+end_example
+迁移的前面阶段，服务在源主机的虚拟机上运行，当迁移进行到一定阶段，目的主机已经具备了运行虚拟机系统的必须资源，经过一个非常短暂的切换，源主机将控制权转移到目的主机，虚拟机系统在目的主机上继续运行。对于虚拟机服务本身而言，由于切换的时间非常短暂，用户感觉不到服务的中断，因而迁移过程对用户是透明的
+
+#+begin_example
+  动态迁移适用于对虚拟机服务可用性要求很高的场合，KVM 虚拟机在物理主机之间迁移的实现
+#+end_example
+
+* 管理工具
+#+ATTR_HTML: image :width 90% 
+[[file:pic/]]
+
+** libvirt 
+
+#+ATTR_HTML: image :width 90% 
+[[file:pic/]]
