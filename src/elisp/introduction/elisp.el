@@ -3,9 +3,9 @@
       '(
         ;; These are the main web files
         ("elisp-notes"
-         :base-directory "~/Documents/programming/html/klose911.github.io/src/elisp" 
+         :base-directory "~/Documents/programming/html/klose911.github.io/src/elisp/introduction" 
          :base-extension "org"
-         :publishing-directory "~/Documents/programming/html/klose911.github.io/html/elisp"
+         :publishing-directory "~/Documents/programming/html/klose911.github.io/html/elisp/introduction"
          :recursive t
          :publishing-function org-html-publish-to-html
          :headline-levels 4
@@ -23,16 +23,16 @@
         ("elisp-static"
          :base-directory "~/Documents/programming/html/klose911.github.io/src/css" ;; Change this to your local dir
          :base-extension "css\\|js\\|png\\|jpg\\|gif"
-         :publishing-directory "~/Documents/programming/html/klose911.github.io/html/elisp/css"
+         :publishing-directory "~/Documents/programming/html/klose911.github.io/html/elisp/introduction/css"
          :recursive t
          :publishing-function org-publish-attachment
          )
 
 	;; picture
         ("elisp-pic"
-         :base-directory "~/Documents/programming/html/klose911.github.io/src/elisp/pic"  ;; Change this to your local dir
+         :base-directory "~/Documents/programming/html/klose911.github.io/src/elisp/introduction/pic"  ;; Change this to your local dir
          :base-extension "png\\|jpg\\|gif"
-         :publishing-directory "~/Documents/programming/html/klose911.github.io/html/elisp/pic"
+         :publishing-directory "~/Documents/programming/html/klose911.github.io/html/elisp/introduction/pic"
          :recursive t
          :publishing-function org-publish-attachment
          )
