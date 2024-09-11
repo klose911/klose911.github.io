@@ -3,4 +3,273 @@
 #+HTML_LINK_UP: manual.html   
 #+HTML_LINK_HOME: manual.html
 #+OPTIONS: num:nil timestamp:nil
+* Lisp 历史
 
+Lisp（列表处理语言）最早于20世纪50年代末在麻省理工学院人工智能研究所开发
+
+#+begin_example
+Lisp语言强大的功能使其非常适合用于其他用途，例如编写编辑命令
+#+end_example
+
+多年来已经构建了数十个Lisp实现，每个都有自己的特性。他们中的许多人都受到了Maclisp的启发，该书于20世纪60年代在麻省理工学院的MAC项目中写成。最终，Maclisp后代的实现者走到了一起，为Lisp系统开发了一个标准，称为Common Lisp。与此同时，麻省理工学院的格里·苏斯曼（GerrySussman）和盖伊·斯蒂尔（GuySteele）开发了一种简化但功能强大的Lisp方言，名为Scheme
+
+GNU Emacs Lisp主要受Maclisp的启发，也有一点受Common Lisp的启发
+
+#+begin_example
+  如果您了解Common Lisp，您将注意到许多相似之处。然而，为了减少GNU Emacs的内存需求，Common Lisp的许多特性被省略或简化
+
+  有时，简化是如此剧烈，以至于Common Lisp用户可能会感到非常困惑
+
+  我们偶尔会指出GNU Emacs Lisp与Common Lisp的区别。如果你不懂Common Lisp，不要担心它；本手册是独立的
+#+end_example
+
+通过 _cl-lib_ 库可以获得一定数量的Common Lisp仿真。请参见Common Lisp扩展中的概述
+
+#+begin_example
+Emacs Lisp完全不受Scheme的影响；但是GNU项目有一个方案的实现，叫做 Guile 。我们在所有要求可扩展性的新GNU软件中使用它
+#+end_example
+* 约定
+** 条款
+在本手册中
++ 短语 _Lisp reader_ 和 _Lisp printer_ 指的是 Lisp 中将 Lisp 对象的文本表示形式转换为实际 Lisp 对象的那些例程，反之亦然
+  #+begin_example
+    有关详细信息，请参阅打印表示和读取语法
+  #+end_example
++ 你，阅读本手册的人，被认为是 程序员，被称为 _你_
++ 用户是使用 Lisp 程序的人，包括您编写的程序
+
+Lisp _代码示例_ 的格式如下：
+
+#+begin_src lisp
+  (list 1 2 3)
+#+end_src
+
+代表元句法 _变量的名称_ ，或所描述 _函数的参数_ ，格式如下：
+#+begin_src lisp 
+  first-number 
+#+end_src
+** nil和 t
+在 Emacs Lisp 中，符号 nil 具有三种不同的含义：
+1. 它是一个名称为 _nil_ 的 *符号* 
+2. 是 *逻辑真值* _假_
+3. 它是一个 *空列表*  _零元素的列表_
+
+#+begin_example
+当用作变量时， nil 始终具有 nil 值
+#+end_example
+
+就 Lisp 阅读器而言， _()_ 和 _nil_ 是相同的：它们代表同一个对象， *符号 nil* 
+
+#+begin_example
+书写符号的不同方式完全适用于人类读者。在 Lisp 阅读器读取 () 或 nil 之后，无法确定程序员实际编写的表示形式
+#+end_example
+
+在本手册中：
++ 当我们想强调它表示空列表时，我们写 ()
++ 当我们想强调它表示真值 false 时，我们写 nil
+
+#+begin_src lisp 
+  (cons 'foo ())                ; Emphasize the empty list
+  (setq foo-flag nil)           ; Emphasize the truth value false
+#+end_src
+
+#+begin_example
+这也是在 Lisp 程序中使用的一个很好的约定
+#+end_example
+
+在期望真值的情况下， _任何非零值_ 都被认为是 _真值_ 。但是， _t_ 是表示 *真值 true 的首选方式* 。当你需要选择一个代表真实的值，并且没有其他选择依据时，使用 t 。符号 t 始终具有值 t  
+
+#+begin_example
+  在 Emacs Lisp 中， nil 和 t 是特殊符号，它们总是对自己求值
+
+  这样您就不需要引用它们来将它们用作程序中的常量
+
+  尝试更改它们的值会导致设置常量错误。请参阅永不改变的变量
+#+end_example
+
+*** booleanp 函数
+#+begin_src lisp 
+  Function: booleanp object
+#+end_src
+
+如果 object 是两个规范布尔值 t 或 nil 之一，则返回非 nil  
+
+** 评估符号
+您可以评估的 _Lisp 表达式_ 称为 *形式*   _form_  。计算一个 形式 ( form ) 总是会产生一个 *结果* ，它是一个 _Lisp 对象_ 。在本手册的示例中，这用 _⇒_ 表示：
+
+#+begin_src lisp 
+  (car '(1 2))
+  ⇒ 1
+#+end_src
+
+#+begin_example
+您可以将其解读为 (car '(1 2)) 计算结果为 1
+#+end_example
+
+当一个 形式 ( form ) 是一个 _宏调用_ 时，它会 *扩展* 为一个 _新的 形式 ( form )_ 供 Lisp 计算。我们用 _→_ 显示扩展的结果。我们可能会或可能不会显示扩展 形式 ( form ) 的评估结果
+
+#+begin_src lisp 
+  (third '(a b c))
+  → (car (cdr (cdr '(a b c))))
+  ⇒ c
+#+end_src
+
+为了帮助描述一种 形式 ( form ) ，我们有时会展示另一种产生相同结果的 形式 ( form ) 。两种 形式 ( form ) 的 _精确等价_ 用 _≡_ 表示
+
+#+begin_src lisp 
+  (make-sparse-keymap) ≡ (list 'keymap)
+#+end_src
+
+** 打印符号
+本手册中的许多示例在评估时都会打印文本
+
+#+begin_example
+  如果您通过在示例的右括号后键入 C-j 在 Lisp 交互缓冲区（例如缓冲区 *scratch*）中执行示例代码，则打印的文本将插入到缓冲区中
+
+  如果您通过其他方式执行示例（例如通过评估函数 eval-region ），则打印的文本将显示在回显区域中
+#+end_example
+
+本手册中的示例用 _-|_ 表示打印文本，无论该文本位于何处。通过评估表单返回的值在单独的行后面加上 _⇒_
+
+#+begin_src lisp 
+    (progn (prin1 'foo) (princ "\n") (prin1 'bar))
+  -| foo
+  -| bar
+  ⇒ bar
+#+end_src
+** 错误信息
+一些示例表明错误。这通常会在 _回显区域_ 中显示错误消息。我们在以 _error→_ 开头的行上显示错误消息
+
+#+begin_src lisp 
+  (+ 23 'x)
+  error→ Wrong type argument: number-or-marker-p, x
+#+end_src
+
+#+begin_example
+请注意， error→ 本身不会出现在回显区域中
+#+end_example
+** 缓冲区文本符号
+一些示例通过显示文本的前后版本来描述对缓冲区内容的修改。这些示例显示了 _包含缓冲区名称的两行破折号之间_ 的缓冲区内容。此外，  _*_ 表示点的位置
+
+#+begin_src lisp 
+  ---------- Buffer: foo ----------
+  This is the ∗contents of foo.
+  ---------- Buffer: foo ----------
+
+  (insert "changed ")
+       ⇒ nil
+  ---------- Buffer: foo ----------
+  This is the changed ∗contents of foo.
+  ---------- Buffer: foo ----------
+#+end_src
+
+#+begin_example
+  当然，点的符号不是缓冲区中文本的一部分；它表示点当前所在的两个字符之间的位置
+#+end_example
+** 说明格式
+本手册以统一的格式描述了 _函数_ 、 _变量_ 、 _宏_ 、 _命令_ 、 _用户选项_ 和 _特殊形式_ ：
++ 描述的第一行包含 _项目的名称_ ，后跟其 _参数_ （如果有）
++ 类别（函数、变量或其他）出现在行首
++ 描述在随后的行中
++ 有时带有示例
+
+*** 示例函数描述
+在函数描述中，被描述函数的名称首先出现。它在同一行后面是参数名称列表。这些名称也用于描述的主体，代表参数的值
+
+参数列表中关键字 _&optional_ 的出现表明 *后面的参数可以省略*
+#+begin_example
+省略的参数默认为 nil 。调用函数时不要写 &optional 
+#+end_example
+
+关键字 _&rest_ （后面必须跟一个参数名）表示后面可以跟 *任意数量的参数* 。 _&rest 后面的单个参数名称_ 作为其值 *接收* _传递给函数的所有剩余参数的列表_ 
+
+#+begin_example
+调用函数时不要写 &rest 
+#+end_example
+
+下面是一个虚构函数 foo 的描述：
+
+#+begin_example
+  Function: foo integer1 &optional integer2 &rest integers
+#+end_example
+
+函数 foo 从 integer2 中减去 integer1 ，然后将所有其余参数添加到结果中。如果未提供 integer2 ，则默认使用数字 19
+
+#+begin_src lisp 
+  (foo 1 5 3 9)
+       ⇒ 16
+  (foo 5)
+       ⇒ 14
+#+end_src
+
+更普遍，
+
+#+begin_src lisp 
+  (foo w x y…)
+  ≡
+  (+ (- x w) y…)
+#+end_src
+
+按照惯例：
++ 任何名称包含类型名称（例如，整数、整数 1 或缓冲区）的参数都应属于该类型
++ 一个类型（例如缓冲区）的复数通常表示该类型的对象列表
++ 名为 object 的参数可以是任何类型
+  #+begin_example
+    有关 Emacs 对象类型的列表，请参阅 Lisp 数据类型
+  #+end_example
++ 具有任何其他名称（例如，新文件）的参数是特定于函数的
++ 如果函数有文档字符串，则应在此处描述参数的类型
+
+#+begin_example
+有关 &optional 和 &rest 修改的参数的更完整描述，请参阅 Lambda 表达式
+#+end_example
+
+_命令_ 、 _宏_ 和 _特殊形式的描述_ 具有相同的格式，但 *函数* 一词分别被 _命令_ 、 _宏_ 或 _特殊形式_ 取代：
++ 命令只是可以交互调用的简单函数
++ 宏处理它们的参数与函数不同（不评估参数），但以相同的方式呈现
+
+宏和特殊形式的描述使用更复杂的符号来指定可选和重复参数，因为它们可以以更复杂的方式将参数列表分解为单独的参数：
++ _'[optional-arg]'_ 表示 optional-arg 是 *可选* 的
++ _'repeated-args…'_ 代表 *零个或多个参数*
++ 当 *多个参数被分组到列表结构的其他级别* 时，使用 _括号_
+
+这是一个特殊例子：
+  #+begin_example
+    Special Form: count-loop (var [from to [inc]]) body… 
+  #+end_example
+
+在这种特殊形式中：
++ 参数 from 和 to 是可选的，但必须同时存在或不存在
+  + 如果它们存在，也可以选择指定 inc
+  + 这些参数与参数 var 一起分组到一个列表中，以将它们与 body 区分开来
++ body 包括表单的所有剩余元素
+
+#+begin_src lisp 
+  (count-loop (i 0 10)
+    (prin1 i) (princ " ")
+    (prin1 (aref vector i))
+    (terpri))
+#+end_src
+
+如果 from 和 to 被省略，则 var 在循环开始之前被绑定为 nil ，如果 var 在迭代开始时为非 nil ，则循环退出。这是一个例子：
+
+#+begin_src lisp 
+  (count-loop (done)
+    (if (pending)
+	(fixit)
+      (setq done t)))
+#+end_src
+
+*** 示例变量描述
+_变量_ 是可以 *绑定* （或设置）到对象的名称。 _变量绑定的对象_ 称为 *值* ；我们也说那个变量持有那个值。尽管几乎所有变量都可以由用户设置，但某些变量是专门存在的，因此用户可以更改它们；这些被称为 _用户选项_ 。普通变量和用户选项使用类似于 _函数的格式_ 来描述，除了没有参数。以下是虚构的电动未来图变量的描述：
+
+#+begin_example
+  Variable: electric-future-map
+
+  此变量的值是 Electric Command Future 模式使用的完整键盘映射。此地图中的功能允许您编辑尚未考虑执行的命令
+#+end_example
+
+用户选项描述具有相同的格式，但 _变量_ 被 _用户选项_ 取代
+* 版本信息
+
+* 致谢
