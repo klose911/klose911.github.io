@@ -3,3 +3,158 @@
 #+HTML_LINK_UP: introduction.html   
 #+HTML_LINK_HOME: manual.html
 #+OPTIONS: num:nil timestamp:nil
+
+Lisp 对象是 Lisp 程序使用和操作的一段数据。对于我们的目的，类型或 _数据类型_ 是一组可能的对象：
++ 每个对象至少属于一种类型
++ 相同类型的对象具有相似的结构，通常可以在相同的上下文中使用
++ 类型可以重叠，对象可以属于两种或多种类型
+  #+begin_example
+因此，我们可以询问对象是否属于特定类型，但不能询问对象的类型
+  #+end_example
+Emacs 中内置了一些 _基本的对象类型_ 。这些，所有其他类型的构造，被称为 *原始类型* 。每个对象都属于一种且仅一种原始类型：
++ 这些类型包括 _integer_  、 _float_  、 _cons_ 、 _symbol_ 、 _string_ 、 _vector_ 、 _hash-table_ 、 _subr_ 、 _byte-code function_ 和 _record_ ，以及与 *编辑* 相关的几种特殊类型，如 _缓冲区_
+  #+begin_example
+    请参阅编辑类型
+  #+end_example
++ 每个原始类型都有一个相应的 Lisp 函数，用于 *检查* 对象是否是该类型的成员
+
+Lisp 与许多其他语言的不同之处在于它的对象是 _自类型化_ 的：每个对象的原始类型都 *隐含* 在对象本身中
+
+#+begin_example
+  例如，如果一个对象是一个向量，那么没有任何东西可以将它视为一个数字
+
+  Lisp 知道它是一个向量，而不是一个数字
+#+end_example
+
+#+begin_example
+  在大多数语言中，程序员必须声明每个变量的数据类型，并且类型是编译器知道的，但不会在数据中表示出来
+#+end_example
+
+Emacs Lisp 中不存在这样的类型声明。Lisp 变量可以具有任何类型的值，并且它会记住您存储在其中的任何值，类型和所有内容
+
+#+begin_example
+  实际上，少数 Emacs Lisp 变量只能接受某种类型的值。请参阅带限制值的变量
+#+end_example
+
+本章描述了 GNU Emacs Lisp 中每种标准类型的用途、打印表示和阅读语法。关于如何使用这些类型的详细信息可以在后面的章节中找到
+
+* 打印表示和读取语法
++ 对象的 _打印表示_ 是 Lisp 函数 _print_ 为该对象生成的 *输出格式* ，每种数据类型都有 *唯一的* 打印表示
++ 对象的 _读取语法_ 是 Lisp 函数 _read_ 为该对象接受的 *输入格式* 。这不一定是唯一的； 许多种类的对象有 *不止一种* 语法
+
+在大多数情况下，对象的打印表示也是对象的读取语法。然而，有些类型 *没有读语法* ，因为在 Lisp 程序中将这些类型的对象 *作为常量输入是没有意义的* 。这些对象以 _散列符号_ 打印，由字符 _#<_ 、 _描述性字符串_ （通常是类型名称后跟对象名称）和结束符号 _>_ 组成。例如：
+
+#+begin_src lisp 
+  (current-buffer)
+  ⇒ #<buffer objects.texi>
+#+end_src
+
+哈希表示法根本无法读取，因此 Lisp 阅读器在遇到 _#<_ 时会发出错误无效读取语法的信号
+
+#+begin_example
+在其他语言中，表达式是文本； 它没有其他形式 
+#+end_example
+
+在 Lisp 中， _表达式_ 主要是 *Lisp 对象* ，其次是作为 *对象读取语法的文本*
+#+begin_example
+很多时候不需要强调这个区别，但是一定要放在脑后，不然偶尔会很迷茫
+#+end_example
+
+当以交互方式执行表达式时，Lisp 解释器：
+1. 首先读取它的文本表示，生成一个 Lisp 对象
+2. 然后 eval 该对象
+
+#+begin_example
+  但是，eval 和 read 是不同的活动
+
+  Read 返回所读文本所代表的 Lisp 对象； 该对象以后可能会或可能不会被 eval
+
+  有关读取的描述，请参阅输入函数，读取对象的基本函数
+#+end_example
+
+* 特殊读语法
+Emacs Lisp 通过 _特殊的散列符号_ 表示许多特殊的对象和结构：
++ 没有读取语法的对象
+  #+begin_example
+  ‘#<…>’
+  #+end_example
++ 名称为 _空字符串的内部符号_ 的打印表示形式
+  #+begin_example
+  ‘##’
+  #+end_example
++ 函数的快捷方式  
+  #+begin_example
+  ‘#'’
+  #+end_example
++ 名称为 foo 的非内部符号的打印表示是 '#:foo'
+  #+begin_example
+  ‘#:’
+  #+end_example
++ 打印循环结构时，此构造用于表示结构循环回到自身的位置，'N' 是起始列表计数：
+  #+begin_example
+    ‘#N’
+  #+end_example
++ '#N=' 给出对象的名称，而 '#N#' 表示该对象，因此在读回对象时，它们将是同一个对象而不是副本：
+  #+begin_example
+    (let ((a (list 1)))
+      (setcdr a a))
+    => (1 . #0)
+
+    ‘#N=’
+    ‘#N#’
+  #+end_example
++ 'N' 表示为十六进制数 ('#x2a')
+  #+begin_example
+    ‘#xN’
+  #+end_example
++ 'N' 表示为八进制数 ('#o52')
+  #+begin_example
+    ‘#bN’
+  #+end_example
++ 'N' 表示为二进制数 ('#b101010')
+  #+begin_example
+    ‘#bN’
+  #+end_example
++ 字符串文本属性
+  #+begin_example
+    ‘#(…)’
+  #+end_example
++ 字符表
+  #+begin_example
+    ‘#^’
+  #+end_example
++ 哈希表
+  #+begin_example
+    ‘#s(hash-table …)’
+  #+end_example
++ 字符
+  #+begin_example
+    ‘?C’
+  #+end_example
++ 字节编译文件中的当前文件名
+  #+begin_example
+    ‘#$’
+
+    请参阅文档字符串和编译
+  #+end_example
++ 跳过接下来的 N 个字符
+  #+begin_example
+    ‘#@N’
+
+    这在字节编译文件中使用，并不意味着在 Emacs Lisp 源文件中使用
+  #+end_example
+* 注释
+注释是写在程序中的文本，仅供阅读程序的人使用，对程序的含义没有影响：
++ 在 Lisp 中，如果未转义的分号 _;_  不在字符串或字符常量内，则它会开始注释
++ 注释继续到行尾
++ Lisp 阅读器会丢弃注释； 它们不会成为 Lisp 对象的一部分，这些对象代表 Lisp 系统中的程序
+
+_'#@count' 结构_ 会跳过下一个 count 字符，
+
+#+begin_example
+  这对于程序生成的包含二进制数据的注释很有用
+
+  Emacs Lisp 字节编译器在其输出文件中使用它（参见字节编译）。但是，它不适用于源文件
+#+end_example
+
+* 编程类型
