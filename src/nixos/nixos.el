@@ -31,7 +31,7 @@
 	;; picture
         ("nixos-pic"
          :base-directory "~/Documents/programming/html/klose911.github.io/src/nixos/pic"  ;; Change this to your local dir
-         :base-extension "png\\|jpg\\|gif"
+         :base-extension "png\\|jpg\\|gif\\|svg"
          :publishing-directory "~/Documents/programming/html/klose911.github.io/html/nixos/pic"
          :recursive t
          :publishing-function org-publish-attachment

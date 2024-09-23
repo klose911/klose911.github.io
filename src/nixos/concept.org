@@ -1,6 +1,112 @@
 #+TITLE: 伊始之章
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
-#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+#+OPTIONS: num:nil timestamp:nil ^:nil 
 #+HTML_LINK_UP: install.html
 #+HTML_LINK_HOME: nixos.html
 * 二进制分发与源码分发
++ 二进制分发：从字面意思上就很容易理解，软件包仓库开放预编译的二进制包，并供包管理器下载并部署到目标主机
++ 源码分发：从各处拉取源码，下载编译，再部署到目标主机
+  #+begin_example
+    看起来只是将编译步骤挪到了本地进行而已，但却给了软件包部署更多灵活性
+  #+end_example
+** 以 Debian 作为二进制分发的例子
+Debian 是 GNU/Linux 世界中采用二进制分发的优秀发行版之一，APT 则是它最流行的包管理器之一
+
+#+ATTR_HTML: image :width 90% 
+[[file:pic/Apt.svg]] 
+
+
+为了从远程获取预编译的二进制包，APT 需要从三个地方读取源列表：
++ /etc/apt/sources.list
++ /etc/apt/sources.list.d/*.list
++ /etc/apt/sources.list.d/*.source
+
+然后访问源列表里面的 URL ，获取软件包的元数据（名称，版本，依赖信息等）。这些元数据通常被存储在 _/var/lib/apt/lists/_  。只要有元数据的协助，APT 很快就能推算出要下载的包依赖哪些其他的包，并从软件包仓库开始下载需要的一揽子软件包。这些包被缓存到 _/var/cache/apt/archives/_ 
+
+#+begin_example
+Deb 包里面只会包含二进制文件，以及控制这些二进制文件该释放至何处的描述文件
+#+end_example
+
+假如想对这个软件包搞点个性化定制，需要自己再克隆源码，修改源码，编译和打包一条龙。 *不能从官方包仓库的软件包直接衍生变体* 
+
+#+begin_example
+不同的打包方式带来了 Linux 软件包生态的分裂。你从 Debian 系发行版和 RHEL 系发行版就能观察到 “血脉兼容” 的现象
+#+end_example
+** 以 Gentoo 作为源码分发的例子
+Gentoo 似乎是另一个极端。它的包管理器叫做 Portage，它从官方的软件仓库获取的是 _ebuild 文件_ ，而这些文件会被缓存到 _/var/db/repos/gentoo/_ 下
++ 可以将 ebuild 理解为一种构建软件的脚本。它包含了一些函数和变量，用来指定软件包的元数据、依赖关系、源码地址、编译选项、安装步骤等信息
++ Portage 会根据 ebuild 中的指令来下载、编译和安装软件包
+#+ATTR_HTML: image :width 90% 
+[[file:pic/Portage.svg]] 
+
+#+begin_example
+  https://gitweb.gentoo.org/repo/gentoo.git/tree/app-editors/neovim/neovim-9999.ebuild 是一个 ebuild 文件
+
+  试图理解其中内容可以让这个解释更生动点
+#+end_example
+
+获取到源码以后，Portage 开始了繁忙的编译流程：它需要读取一些编译变量，而它们在 _/etc/portage/make.conf_ 这个配置文件里
++ 其中包括全局的 USE 标志、编译选项、镜像源、许可证等
++ 这些变量可以控制 Portage 的功能和性能，也可以根据用户的需求进行优化和定制 
+
+#+begin_example
+每一台 Gentoo 主机都可能有不同的编译选项，因此编译出来的产物也不一致，它们已经是一种变体了
+#+end_example
+另外，许多人喜欢 Gentoo 的原因就是可以更极致地压榨运行性能
+
+#+begin_example
+  但是频繁的编译是相当耗费时间的
+
+  后面 Gentoo 又支持了分布式编译，可以让你的其他电脑分担工作量，不过依然是饮鸠止渴
+#+end_example
+** Nix之道
+Nix 是 NixOS 的包管理器，它是跨平台的，可以在 Linux 平台和 Darwin 平台使用
+#+begin_example
+  二进制分发可以保持包的一致性，使本应正常依赖的包可以正常工作（不过需要包管理器控制版本）
+
+  源码分发可以保持包的灵活性，可以自由拓展软件功能，衍生软件变体。有什么办法可以鱼与熊掌兼得呢？
+#+end_example
+Nix 则使用一种 _函数式语言_ 来 *描述* _软件包_ 及其 _依赖关系_ ， *每个软件包都被视为一个纯函数的输出* ，这个输出是 _/nix/store/ 下一个带有 *哈希值* 的目录_ :
++ /nix/store/ 下的哈希路径是根据 *软件包的表达式* _描述打包的 Nix 文件_ 和 *构建过程* _参与构建的参数_ 来 *计算* 出来的
++ _每个软件包_ 都有一个 *唯一的* _标识符_ ，它由一个 _哈希值_ 和一个 _包名_ 组成，例如：
+
+  #+begin_src sh 
+    /nix/store/7wzgkjk6l9ng015wnx7dbzq73v4yr97g-nyancat-1.5.2
+  #+end_src
+
+  其中， $7wzgkjk6l9ng015wnx7dbzq73v4yr97g$ 是一个 160 位的 SHA-256 哈希值，它是根据软件包的表达式和构建过程的所有输入参数计算出来的。这些输入参数包括：
+  + 源码或二进制文件的 URL 和哈希值
+  + 版本号和包名
+  + 依赖关系和构建工具
+  + 编译命令和参数
+  + 补丁和修改
+  + 元数据和测试
+
+  这些 _输入参数_ 都会被 *转换* 成一个 _Nix 语言的表达式_ ，然后被 *序列化* 成一个 _字符串_ ，再用  _SHA-256 算法_ *计算* 出一个 _哈希值_
+
+  #+begin_example
+    这个哈希值可以保证软件包的一致性和可复现性，因为只要输入参数不变，就会得到相同的哈希值和相同的软件包
+  #+end_example
+
+#+ATTR_HTML: image :width 90% 
+[[file:pic/HashPath.svg]]
+
+而 _哈希路径下的文件夹_ *存放* 着 _软件包的所有文件_ ，包括 _可执行文件_ 、 _库文件_ 、 _配置文件_ 、 _文档文件_ 等。这些文件都存放在 */nix/store/* 目录下，而不是在系统的其他目录下，例如 /usr/bin/ 或 /bin/ 等
+
+#+begin_example
+  这样每个软件包之间都是隔离的，管理也是异常方便
+#+end_example
+
+#+ATTR_HTML: image :width 90% 
+[[file:pic/SearchPackage.svg]]
+
+#+begin_example
+  即使是这样，还是没有解决编译时间久的问题
+#+end_example
+
+于是社区提供了许多缓存构建主机，包管理器会优先从上面下载已有的构建结果
+
+#+begin_example
+除非访问完了缓存主机列表也没找到需要的二进制缓存，才会自己拉取源码构建
+#+end_example
+* 如何让路径依赖的程序正常工作
