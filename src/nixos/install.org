@@ -1,0 +1,141 @@
+#+TITLE: 安装教程
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+#+HTML_LINK_HOME: nixos.html
+* 虚拟机安装
+* WSL2 安装
+** 启用 WSL 2 环境
+*** 快捷启用
+对于新系统（Windows 11，Windows 10 的 2004 版本或更新的系统），使用 *管理员权限* 下的 CMD 或 Powershell 执行下面的命令即可：
+#+begin_src sh 
+  wsl --install --no-distribution
+#+end_src
+
+这条命令会帮助你安装 WSL2 环境的依赖，相比逐个去启用组件是更简单快捷
+*** 手动启用
+#+begin_example
+与上面不同的是，这种方法可能适合稍旧一些的系统
+#+end_example
+需要启用两个可选功能，它们分别是 “适用于 Linux 的 Windows 子系统” 和 “虚拟机平台”：
+
+#+begin_src sh 
+  dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+  dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+#+end_src
+
+然后重新启动计算机。还需要一个完整的 Linux 内核：WSL 2 Linux 内核更新包，安装它。记得设置默认版本为 2：
+
+#+begin_src sh 
+  wsl --set-default-version 2
+#+end_src
+
+#+begin_example
+  NixOS-WSL 对 inbox 版本的 WSL（即通过 Window 可选功能启用的 WSL）是尽力支持的
+
+  如果有条件，请更新到最新 Windows 使用 Windows 商店分发（使用第一种方法安装方式）的最新 WSL 支持
+#+end_example
+
+** 下载根文件系统
+在 [[https://github.com/nix-community/NixOS-WSL/releases][NixOS-WSL 项目的最新 Release]] 中下载 _nixos-wsl.tar.gz_ 。然后决定好要将这个文件系统导入至哪里，这里以 _E:\wslDistroStorage\NixOS_ 举例，并且确认当前的工作文件夹就是你刚刚下载的根文件系统档案所在的文件夹：
+
+#+begin_src sh 
+  wsl --import NixOS E:\wslDistroStorage\NixOS nixos-wsl.tar.gz --version 2
+#+end_src
+
+然后引导到 NixOS：
+#+begin_src sh 
+  wsl -d NixOS
+#+end_src
+
+#+begin_example
+  可以通过 wsl -s NixOS 将 NixOS 设置为默认启动的发行版
+#+end_example
+
+第一次启用会稍久，但是你不够幸运的话，可能终端上会出现令人厌烦的错误码，可以在 [[https://learn.microsoft.com/zh-cn/windows/wsl/troubleshooting][疑难解答]] 页面找到找到可能期待的答案
+* 双系统安装
+* 网络问题
+#+begin_example
+  国内用户在使用 NixOS 时会存在一些网络问题：
+  一是 NixOS 高度依赖 GitHub 作为 channel/flake 数据源，在国内访问 GitHub 相当的慢
+
+  二是 NixOS 官方的包缓存服务器在国内访问速度较慢
+#+end_example
+为了解决这些问题，可以使用国内的镜像源，或者使用代理工具来加速访问
+** 使用国内的 Nix 包缓存服务器
+首先，在执行后面给出的任何 nix 相关命令时，都可以通过 --option 选项来指定镜像源，例如：
+
+#+begin_src sh 
+  # 使用上海交通大学的镜像源
+  # 官方文档: https://mirror.sjtu.edu.cn/docs/nix-channels/store
+  nixos-rebuild switch --option substituters "https://mirror.sjtu.edu.cn/nix-channels/store"
+
+  # 使用中国科学技术大学的镜像源
+  # 官方文档: https://mirrors.ustc.edu.cn/help/nix-channels.html
+  nixos-rebuild switch --option substituters "https://mirrors.ustc.edu.cn/nix-channels/store"
+
+  # 使用清华大学的镜像源
+  # 官方文档: https://mirrors.tuna.tsinghua.edu.cn/help/nix-channels/
+  nixos-rebuild switch --option substituters "https://mirrors.tuna.tsinghua.edu.cn/nix-channels/store"
+
+  # 其他 nix 命令同样可以使用 --option 选项，例如 nix shell
+  nix shell nixpkgs#cowsay --option substituters "https://mirrors.tuna.tsinghua.edu.cn/nix-channels/store"
+#+end_src
+
+#+begin_example
+  可以自己测试下上述几个镜像源的速度，选速度最快的一个
+#+end_example
+** 使用国内镜像地址加速 Flakes Inputs 的下载
+如果想使用 Flakes，但访问 GitHub 速度太慢，可以使用国内的镜像地址来加速。
+
+#+begin_example
+  但需要注意的是，这种方式下无法锁定 nixpkgs 版本，也就失去了 Flakes 锁定依赖版本的优势
+#+end_example
+示例如下，主要是将 nixpkgs.url 替换成国内镜像源的 nixexprs.tar.xz 文件的路径：
+
+#+begin_src sh 
+  {
+      inputs = {
+	  # nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
+	  nixpkgs.url = "https://mirrors.ustc.edu.cn/nix-channels/nixos-23.11/nixexprs.tar.xz";
+	  # nixpkgs.url = "https://mirrors.tuna.tsinghua.edu.cn/nix-channels/nixpkgs-23.11/nixexprs.tar.xz";
+      };
+      outputs = inputs@{ self, nixpkgs, ... }: {
+	  nixosConfigurations.my-nixos = nixpkgs.lib.nixosSystem {
+	      system = "x86_64-linux";
+	      modules = [
+		  ./configuration.nix
+	      ];
+	  };
+      };
+  }
+#+end_src
+** 使用代理工具加速访问 Channels 跟 Flake Inputs
+对于 Flake Inputs 跟 Channels 的加速访问，这个就需要使用代理工具加速访问
+
+#+begin_example
+  优先推荐使用旁路网关（软路由）或者 TUN 方式的全局网络加速方案，这是最省心的方式
+#+end_example
+如果只有 HTTP 代理，可以通过如下命令设置代理环境变量，实现使用 socks5/http 代理加速 nix 的网络访问：
+
+#+begin_src sh 
+  sudo mkdir /run/systemd/system/nix-daemon.service.d/
+  cat << EOF >/run/systemd/system/nix-daemon.service.d/override.conf
+  [Service]
+  Environment="https_proxy=socks5h://localhost:7891"
+  EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl restart nix-daemon
+#+end_src
+
+但请注意，系统重启后 /run/ 目录下的内容会被清空，所以每次重启后都需要重新执行上述命令！
+#+begin_example
+  如果希望永久设置代理，建议将上述命令保存为 shell 脚本，在每次启动系统时运行一下
+
+  或者也可以使用旁路网关或 TUN 等全局代理方案
+
+  更详细的说明与其他用法介绍，请移步添加自定义缓存服务器，注意这部分内容可能需要一定的 NixOS 使用经验才能理解
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:concept.org][Next: 伊始之章]] | [[file:nixos.org][Home: NixOS 入门]] | 
