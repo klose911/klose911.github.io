@@ -204,3 +204,165 @@ _声明式配置_ 带来的好处之一就是 *所有的包和依赖都是确定
 
 在 NixOS 中需要 *执行* _生成命令_ ，才会重新计算依赖，生成新生代（新状态）
 * 若干个函数凝聚成一个巨大的函数
+** 为什么 NixOS 采用函数式的设计
+#+begin_example
+NixOS 在设计之初就竭力遵照函数式的设计，函数式有什么迷人的气质吗？
+#+end_example
++ NixOS 需要保证构建结果的 *可复现性* ：为了实现同样的输入能有同样的输出，采用纯函数式作为设计范式可以避免构建过程被无关变量干扰或不改变环境（无副作用），保持构建结果的统一也保证了可预测性
++ *完整依赖性* ：要构建一个包时，Nix 会首先检查这个函数的所有输入（即依赖项）是否都已经存在
+  + 如果所有的输入都存在，Nix 就会执行这个函数（即进行构建）
+  + 如果有任何一个输入不存在，Nix 就会先去构建那个输入
+    #+begin_example
+      这就确保了每个包的构建过程都是完全独立的，只依赖于它自己的输入
+
+      这也意味着，如果我们改变了任何一个包的输入（例如更新了源代码或者更换了依赖项），Nix 就会重新构建这个包，这个包变动会让其他依赖它的包也会被重新构建
+
+      如果你的配置文件描述的依赖不完整，则无法进入下次构建
+    #+end_example
++ *原子性升级或回滚* ：在函数式编程中，数据是不可变的。由于包管理操作从不覆盖 /nix/store/ 中的包，而只是在不同的路径中添加新版本，因此该操作是原子性的
+  #+begin_example
+    所以在包升级期间，不存在包有一些文件来自旧版本、一些文件来自新版本的时间窗口的情况
+  #+end_example
++ *多版本并存* ：每个包都是纯函数的输出。即使是同一软件包，只要它们的构建过程不是完全一致的，就会存储在其自己的哈希目录中，因此可以在系统中同时存在多个版本的同一软件包
+  #+begin_example
+    这就像在函数式编程中，我们可以引用同一个函数的不同版本
+  #+end_example
+
+所以 NixOS 其实是一个庞大的构建系统，以用户的配置文件作为函数，Nix 包管理器则是这个函数的解释器或执行器，而函数的输出则是一个完全配置好的，可以直接使用的系统（代）
+
+#+begin_example
+  函数式的设计不只是单单体现在这个构建系统，还体现在它的打包语言 Nix 上面
+#+end_example
+** Nix 语言的语法设计
+Nix语言是一种纯函数式语言，其语法设计充分体现了函数式编程的特点：
++ *不可变性* ：在Nix中，变量一旦被赋值，就不能更改
++ *纯函数* ：Nix 语言中的函数是纯函数，也就是说，给定相同的输入，它们总是会产生相同的输出，并且没有副作用
+  #+begin_example
+    为了不破坏函数的纯净，Nix 语言没有全局变量的设计
+  #+end_example
++ *惰性求值* ：Nix 语言使用惰性求值，这意味着表达式在需要时才会被求值。可以降低开销
++ *高阶函数* ：Nix 语言支持高阶函数，也就是说，函数可以接受其他函数作为参数，或者返回函数作为结果，也可以产生不同状态的闭包
+  #+begin_example
+    如果没有接触过任何一门编程语言，可以将闭包粗略地理解为带状态的函数
+  #+end_example
+** 每一个 Nix 文件就是一个函数
+Nix 源码文件是一种以 _nix_ 为后缀的文本文件：
+
+#+begin_src nix 
+  { pkgs }:
+
+  pkgs.stdenv.mkDerivation {
+    name = "my-package";
+    src = ./source;
+    buildInputs = [ pkgs.gcc ];
+  }
+#+end_src
+
+几乎所有的 Nix 源码文件都是这种格式：
++ _;_ 前的是 *输入* 
++ _;_ 后的是 *输出* 
+
+*整个文件是被一个大函数所包裹住的，每个 Nix 文件就是一个函数*
+** 一切皆函数
+NixOS 本身就是一个超大号的函数，这个函数由它内部的若干函数驱动
+* 纯净是我们的至高追求
+** 整个构建系统并不是绝对纯净
+#+begin_example
+  前面一直在强调，NixOS 的生态系统有多函数式，好吧的确是有非常多的函数，但是这些函数似乎并不纯净
+
+  这些都要从整个函数机器的齿轮：Nix 文件说起
+#+end_example
+为了设计一个纯净的函数，应该尽量地把它设计得封闭，使之隔离外部环境。但是 Nix 并不是这样，Nix 为了编译那些 Nix 文件，依然需要访问到外部世界的东西
+#+begin_example
+  Nix 文件可以访问任意文件（如 ~/.config/nixpkgs/config.nix）、环境变量、Git仓库、Nix搜索路径（$NIX_PATH）中的文件、命令行参数（--arg）以及系统类型（builtins.currentSystem）
+#+end_example
+
+这就意味着这个函数的求值过程并不完全封闭。如果在两台不同的机器上运行相同的 Nix 表达式，可能会得到不同的结果，因为这两台机器上的环境变量或文件系统可能是不同的。所以 *建议尽量避开任何带有路径依赖的写法* 
+
+#+begin_example
+  但是这样做并不能完全解决问题，因为 Nix 文件本身就是一个路径依赖（当使用 import 函数来引入其他 Nix 文件时，必须指定一个相对或绝对路径）
+
+  这就导致了一个问题：如果想把你的 Nix 项目分享给别人，必须保证他们能够找到你引用的所有文件
+
+  这就需要你把所有相关的文件都打包成一个压缩文件或者上传到一个 Git 仓库，并且告诉别人如何正确地使用它们
+#+end_example
+
+这显然是很麻烦的，而且也违背了函数式编程的原则。 *我们希望能够用一种更简单和优雅的方式来管理和共享我们的 Nix 项目，而不需要关心它们所依赖的具体路径* 
+** 漏掉了什么细节
+#+begin_example
+  在前面的章节中，我们还一直试图给阅读者灌输 “NixOS” 只要靠配置文件就能复现系统的理念？
+
+  但是事实果真是这样吗，让我们回溯一下：不变的函数之所以能有不变的输出，是因为有不变的输入
+#+end_example
+*但是输入果真是一成不变的吗？*
+
+#+begin_example
+  我们以最大的输入 pkgs 举例，这个输入指代的是 Nix 包管理器的软件仓库 Nixpkgs，里面有数不尽的包（Nixpkgs 是事实上最大的单体包仓库）日日夜夜在提交与修改，导致 nixpkgs 一直处于 unstable 状态
+
+  与之俱来的是 options 也经常变动，这意味着你的配置文件可能对旧版包是生效的，但是新版包的 options 变动了，现在又无效了
+
+  那有要如何解决这个由依赖版本与配置不匹配的问题呢？
+#+end_example
+
+答案是现在很多语言的包管理（比如 Cargo，pnpm）都采用的 *版本锁定* 。本网站的就是被 pnpm 管理着依赖，访问本站源代码仓库，根目录下有个叫做 _pnpm-lock.yaml_ 的文件，里面 *描述* 了 _各依赖互相兼容的版本_ 。每次更新依赖时， *包管理器会在尽可能让依赖版本比较新的条件下保持最大兼容* ，并更新 Lock 文件。于是我们就有了下面的需求：
++ 尽量排除 Nix 文件互相引用时对本地文件系统路径的依赖
++ 控制输入的版本，从而达到输出的可预期性
++ 将 Nix 项目组织成一种易管理的形式
+
+#+begin_example
+因此 Flakes 诞生了
+#+end_example
+** 终极解决方案 Flakes
+#+begin_example
+Flakes 是 Nix 2.4 版本引入的一个新特性，它可以让你用一种声明式和纯净的方式来定义和使用 Nix 项目
+#+end_example
+Flakes 使用了一种 _Flake 引用_ 的方式来 *代替* _文件系统路径_ ， _URL_ 等。Flake 引用大致就是下面的用法：
++ 类 URL 句法，例如 _github:NixOS/nixpkgs_ 表示 Github 托管平台上一个叫做 NixOS 用户的 nixpkgs 仓库
+  #+begin_example
+    这与裸 URL 不同，要是哪天 Github 域名搬家了，也不用你批量替换 URL，只需要等 Nix 更新 Flakes 引用的解析规则就成
+  #+end_example
++ 类路径句法，比如 _/absolute/path/to/the/Flakes_ 和 _./relative/path/to/the/Flakes_ ， “类”在这种引用既可能指向一个 _本地文件系统路径_ ，也可能指向一个 _本地 Git 仓库_ 
+  #+begin_example
+    如果你的 URL 指向一个本地的 Git 仓库，它就会在 flake.lock 里面记录当前仓库的 commit hash，这就保证了输入的版本是不变的
+
+    那你又问，万一我要引入的目录没有版本控制呢？那我只能说你自己人工去保证输入的这个目录的内容是不变的吧
+  #+end_example
+
+为了保证输入的可获取性，一般用网络上的仓库作为输入，因为只要有网络，就能获得相同的输入。而使用本地文件系统路径作为输入则不然，我们很难保证每台主机的相应文件系统路径下都有一样的文件
+
+#+begin_example
+因此，我们的建议是更多地依赖网络上的输入，除非你有一些隐私信息，才有必要使用本地文件系统输入
+#+end_example
+
+#+begin_src nix 
+  {
+    description = "A simple Flakes";
+
+    inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    outputs = { self, nixpkgs }: {
+      packages.x86_64-linux.hello =
+	with nixpkgs.legacyPackages.x86_64-linux;
+	stdenv.mkDerivation {
+		name = "hello";
+		src = hello.src;
+		buildInputs = [ gcc ];
+		installPhase = ''
+	    mkdir -p $out/bin
+	    echo "Hello, world!" > $out/bin/hello
+	    chmod +x $out/bin/hello
+	  '';
+	};
+    };
+#+end_src
+*** 钉住版本
+当在  _Flakes.nix_ 文件中 *指定* 了一个  _Flakes引用_ （例如github:NixOS/nixpkgs/nixos-unstable）后，Nix会在第一次运行 _nix build_ 或其他 Nix 命令时会 *生成* 一个 _flake.lock_ 文件。这个文件会记录下所有输入 Flakes 的具体版本（例如，Git 提交哈希）
+
+#+begin_example
+有了版本锁，你什么时候构建，都是会根据 flake.lock 文件来确认依赖版本，使得构建结果也与之前并无二致
+#+end_example
+
+如果想更新到最新的提交，可以运行 _nix flake update_ 命令。这个命令会去更新输入，并重新钉住最新输入的版本
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:nix.org][Next: Nix语言]] | [[file:install.org][Previous: 安装教程]] | [[file:nixos.org][Home: NixOS 入门]] |
