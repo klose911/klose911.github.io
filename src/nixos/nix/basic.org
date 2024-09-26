@@ -260,7 +260,185 @@ x 未定义：
 
   2|   a = let x = 1; in x;
 			 3|   b = x;
-		   |       ^
-		   4| }
+		       |       ^
+		       4| }
+#+end_src
+* 属性访问
+使用 _._ 访问属性：
+
+#+begin_src nix
+  let
+    attrset = { x = 1; };
+  in
+  attrset.x
 #+end_src
 
+访问嵌套的属性也是同样的方式：
+#+begin_src nix 
+  let
+    attrset = { a = { b = { c = 1; }; }; };
+  in
+  attrset.a.b.c
+#+end_src
+
+当然，就像如何访问属性一样，也可以用 . 直接赋值它：
+#+begin_src nix 
+  let
+    a.b.c = 1;
+  in
+  a.b.c
+#+end_src
+** with 表达式
+with 表达式可以让人少写几次属性集的名称，是个语法糖：
+
+#+begin_src nix 
+  let
+    a = {
+      x = 1;
+      y = 2;
+      z = 3;
+    };
+  in
+  with a; [ x y z ]  # 等价 [ a.x a.y a.z ]
+#+end_src
+
+作用域被限制到了 _分号后面的第一个表达式_ 内：
+
+#+begin_src nix 
+  let
+    a = {
+      x = 1;
+      y = 2;
+      z = 3;
+    };
+  in
+  {
+    b = with a; [ x y z ];
+    c = x;  # a.x
+  } 
+#+end_src
+
+x 未定义：
+#+begin_src sh 
+  error: undefined variable 'x'
+
+  at «string»:10:11:
+
+  9|       b = with a; [ x y z ];
+  10|       c = x;  # a.x
+		   |           ^
+		   11|     }
+#+end_src
+** inherit 表达式
+inherit 本意就是继承，可以使用它完成 *一对命名相同的名称和属性之间的赋值* ：
+
+#+begin_src nix 
+  let
+    x = 1;
+    y = 2;
+  in
+  {
+    inherit x y;
+  }
+#+end_src
+
+没有这个语法糖，可能得这样写：
+
+#+begin_src nix 
+  let
+    x = 1;
+    y = 2;
+  in
+  {
+    x = x;
+    y = y;
+  }
+#+end_src
+
+加上括号，就直接从属性集继承名称：
+
+#+begin_src nix 
+  let
+    a = { x = 1; y = 2; };
+  in
+  {
+    inherit (a) x y;
+  }
+#+end_src
+
+inherit 同样可以在 let 表达式中使用：
+
+#+begin_src nix 
+  let
+    inherit ({ x = 1; y = 2; }) x y;
+  in
+  [ x y ]
+#+end_src
+
+等价于：
+
+#+begin_src nix 
+  let
+    x = { x = 1; y = 2; }.x;
+    y = { x = 1; y = 2; }.y;
+  in
+  [ x y ]
+#+end_src
+
+#+begin_example
+变相的将特定属性带到了全局作用域，实现了更方便的解构出名称的方法
+#+end_example
+* 字符串插值
+
+各大流行语言均已支持，使用 _${ ... }_ 可以 *插入* 名称的值：
+
+#+begin_src nix 
+  let
+    name = "Nix";
+  in
+    "hello ${name}"
+#+end_src
+
+输出为：
+
+#+begin_src sh 
+  "hello Nix"
+#+end_src
+
+字符串插值语法 *只支持字符串类型* ，所以引入的名称的值必须是字符串，或是可以转换为字符串的类型：
+
+#+begin_src nix 
+  let
+    x = 1;
+  in
+    "${x} + ${x} = ${x + x}"
+#+end_src
+
+因为是数字类型，所以报错：
+
+#+begin_src sh 
+  error: cannot coerce an integer to a string
+
+	 at «string»:4:2:
+
+	      3| in
+	      4| "${x} + ${x} = ${x + x}"
+	       |  ^
+	      5|
+#+end_src
+
+字符串插值是可以 _被嵌套_ 的：
+
+#+begin_src nix 
+  let
+    a = "no";
+  in
+    "${a + " ${a + " ${a}"}"}"
+#+end_src
+
+输出为：
+
+#+begin_src sh 
+  "no no no"
+#+end_src
+* 
