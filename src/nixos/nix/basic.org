@@ -260,8 +260,8 @@ x 未定义：
 
   2|   a = let x = 1; in x;
 			 3|   b = x;
-			   |       ^
-			   4| }
+			       |       ^
+			       4| }
 #+end_src
 * 属性访问
 使用 _._ 访问属性：
@@ -326,8 +326,8 @@ x 未定义：
 
   9|       b = with a; [ x y z ];
   10|       c = x;  # a.x
-		       |           ^
-		       11|     }
+			   |           ^
+			   11|     }
 #+end_src
 ** inherit 表达式
 inherit 本意就是继承，可以使用它完成 *一对命名相同的名称和属性之间的赋值* ：
@@ -423,8 +423,8 @@ inherit 同样可以在 let 表达式中使用：
 
   3| in
   4| "${x} + ${x} = ${x + x}"
-		   |  ^
-		   5|
+		       |  ^
+		       5|
 #+end_src
 
 字符串插值是可以 _被嵌套_ 的：
@@ -560,7 +560,7 @@ Nix 的多行字符串存在特殊行为，Nix 会智能地去除掉开头的缩
 #+begin_src nix 
   x: x + 1
 
-  #  «lambda @ «string»:1:1»
+    #  «lambda @ «string»:1:1»
 #+end_src
 + 引号左边是函数 _参数_
 + 引号右边跟随一个 _空格_ ，随即是 _函数体_
@@ -578,7 +578,7 @@ Nix 支持多重参数（柯里化函数）：
 #+begin_src nix 
   { a, b }: a + b
 
-  #«lambda @ «string»:1:1»
+    #«lambda @ «string»:1:1»
 #+end_src
 
 为函数指定 _默认_ 参数，在缺省该参数赋值的情况下，它就是默认值：
@@ -590,21 +590,21 @@ Nix 支持多重参数（柯里化函数）：
 
 #+begin_src nix 
   { a, b, ...}: a + b  # 明确传入的属性有 a 和 b，传入额外的属性将被忽略
-  { a, b, ...}: a + b + c  # 即使传入的属性有 c，一样不会参与计算，这里会报错 
+    { a, b, ...}: a + b + c  # 即使传入的属性有 c，一样不会参与计算，这里会报错 
 
-  #  error: undefined variable 'c'
+      #  error: undefined variable 'c'
 
-   #      at «string»:1:23:
+      #      at «string»:1:23:
 
-    #          1| { a, b, ...}: a + b + c
-     #          |                       ^
+      #          1| { a, b, ...}: a + b + c
+      #          |                       ^
 #+end_src
 
 为额外的参数 *绑定* 到参数集，然后调用：
 
 #+begin_src nix 
   args@{ a, b, ... }: a + b + args.c
-  { a, b, ... }@args: a + b + args.c  # 也可以是这样
+    { a, b, ... }@args: a + b + args.c  # 也可以是这样
 #+end_src
 
 为函数命名：
@@ -613,13 +613,13 @@ Nix 支持多重参数（柯里化函数）：
   let
     f = x: x + 1;
   in
-    f
+  f
 #+end_src
 
 调用函数，并使用函数构建新属性集：
 #+begin_src nix 
   concat = { a, b }: a + b  # 等价于 concat = x: x.a + x.b
-  concat { a = "Hello "; b = "NixOS"; }
+    concat { a = "Hello "; b = "NixOS"; }
 #+end_src
 
 输出：
@@ -633,6 +633,70 @@ Nix 支持多重参数（柯里化函数）：
 #+begin_src nix 
   (x: x + 1) 1  # 向该 Lambda 函数传入参数 1
 
-  # 2 
+    # 2 
 #+end_src
 ** 高阶函数
+将 $f (a,b,c)$ 转换为 $f (a)(b)(c)$ 的过程就是 *柯里化*
+
+#+begin_example
+为什么需要柯里化？
+#+end_example
+
++ 它很灵活，可以避免重复传入参数
++ 当传入第一个参数的时候，该函数就已经具有了第一个参数的状态 _闭包_
+
+尝试声明一个柯里化函数：
+#+begin_src nix 
+  x: y: x + y
+
+    #«lambda @ «string»:1:1»
+#+end_src
+
+为了更好的可读性：
+
+#+begin_src nix 
+  x: (y: x + y)
+#+end_src
+
+这个例子中的柯里化函数，虽然接收两个参数，但不是 *迫切* 需要：
+
+#+begin_src nix 
+  let
+    f = x: (y: x + y)
+  in
+  f 1
+#+end_src
+
+输出为：
+
+#+begin_src sh 
+  «lambda @ «string»:1:13»
+#+end_src
+
+$f (1)$ 的值依然是函数，这个函数大概是：
+
+#+begin_src nix 
+  y: 1 + y
+#+end_src
+
+可以保存这个状态的函数，稍后再来使用：
+#+begin_src nix 
+  let
+    f = x: y: x + y;
+  in
+  let g = f 1; in g 2
+#+end_src
+
+也可以一次性绑定参数：
+
+#+begin_src nix 
+  let
+    f = x: y: x + y;
+  in
+  f 1 2
+#+end_src
+** 属性集参数
+** 默认参数
+** 额外参数
+** 命名参数集
+* 函数库
