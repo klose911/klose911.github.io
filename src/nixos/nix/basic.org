@@ -555,3 +555,84 @@ Nix 的多行字符串存在特殊行为，Nix 会智能地去除掉开头的缩
 #     # 结果是 "the value of a is ''1''"
 # #+end_src
 * 函数
+函数在 Nix 语言中是人上人，先来声明一个 匿名函数 _Lambda_ ：
+
+#+begin_src nix 
+  x: x + 1
+
+  #  «lambda @ «string»:1:1»
+#+end_src
++ 引号左边是函数 _参数_
++ 引号右边跟随一个 _空格_ ，随即是 _函数体_
+
+Nix 支持多重参数（柯里化函数）：
+
+#+begin_src nix 
+  x: y: x + y
+
+    #«lambda @ «string»:1:1»
+#+end_src
+
+参数当然可以是 _属性集_ 类型：
+
+#+begin_src nix 
+  { a, b }: a + b
+
+  #«lambda @ «string»:1:1»
+#+end_src
+
+为函数指定 _默认_ 参数，在缺省该参数赋值的情况下，它就是默认值：
+#+begin_src nix 
+  { a, b ? 0 }: a + b
+#+end_src
+
+允许传入额外的属性：
+
+#+begin_src nix 
+  { a, b, ...}: a + b  # 明确传入的属性有 a 和 b，传入额外的属性将被忽略
+  { a, b, ...}: a + b + c  # 即使传入的属性有 c，一样不会参与计算，这里会报错 
+
+  #  error: undefined variable 'c'
+
+   #      at «string»:1:23:
+
+    #          1| { a, b, ...}: a + b + c
+     #          |                       ^
+#+end_src
+
+为额外的参数 *绑定* 到参数集，然后调用：
+
+#+begin_src nix 
+  args@{ a, b, ... }: a + b + args.c
+  { a, b, ... }@args: a + b + args.c  # 也可以是这样
+#+end_src
+
+为函数命名：
+
+#+begin_src nix 
+  let
+    f = x: x + 1;
+  in
+    f
+#+end_src
+
+调用函数，并使用函数构建新属性集：
+#+begin_src nix 
+  concat = { a, b }: a + b  # 等价于 concat = x: x.a + x.b
+  concat { a = "Hello "; b = "NixOS"; }
+#+end_src
+
+输出：
+
+#+begin_src sh 
+  Hello NixOS
+#+end_src
+
+由于函数与参数使用空格分隔，所以可以使用 _括号_ 将函数体与参数分开：
+
+#+begin_src nix 
+  (x: x + 1) 1  # 向该 Lambda 函数传入参数 1
+
+  # 2 
+#+end_src
+** 高阶函数
