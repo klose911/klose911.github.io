@@ -1,0 +1,109 @@
+#+TITLE: 模块系统
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil 
+#+HTML_LINK_UP: advanced.html
+#+HTML_LINK_HOME: nix.html
+
+NixOS 的配置文件是通过一个个可复用的模块实现的
+
+#+begin_example
+之前说过一个 Nix 文件就可以是一个函数，可以在里面写任意表达式，求值这个 Nix 文件都会有输出
+#+end_example
+
+*但是不是每一个 Nix 文件都是一个模块，因为模块对格式有特殊要求*
+* 工作原理
+一个成熟的模块大概由三个部分组成： *导入* _imports_ 、 *选项*  _options_ 与 *配置*  _config_ （或者叫做定义）。下面是个简单的示例，请将这三部分单独看待：
+
+#+begin_src nix 
+  {
+    imports = [
+      # 这里导入其他模块
+    ];
+    options = {
+      # 这里声明选项供其他模块设置
+    };
+    config = {
+      # 选项被激活以后进行的动作
+    };
+  }
+#+end_src
+
+先把 imports 数组撇一边去，先观察 options 与 config，两行注释还不足以诠释具体操作，直接上例子：
+
+#+begin_src nix 
+  { config, pkgs, ... }:  # 这些参数由构建系统自动输入，你先别管
+
+  {
+    /*
+      我们开始在下面的 options 属性集中声明这个模块的选项了，
+      你可以将模块声明成你任意喜欢的名字，这里示例用 “myModule”，注意小驼峰规范。
+      同时请注意一件事，那就是模块名称只取决于现在你在 options 的命名，而不是该模块的文件名，
+      我们将模块命名与文件名一致也是出于直观？
+      ,*/
+
+    options = {
+	    myModule.enable = mkOption {
+	      type = types.bool;  # 此选项的类型是布尔类型
+	      default = false;  # 默认情况下，此选项被禁用
+	      description = "描述一下这个模块";
+	    };
+    };
+
+    config = mkIf config.myModule.enable {
+	    systemd.services.myService = {  # 创建新的 systemd 服务
+	      wantedBy = [ "multi-user.target" ];  # 此服务希望在多用户目标下启动
+	      script = ''  # 服务启动时运行此脚本
+		  echo "Hello, NixOS!"
+	      '';
+	    };
+    };
+  }
+#+end_src
+
+在上面的代码中，通过向 _mkOption 函数_ *传递* 了一个 _属性集_  *生成* 了一个 _布尔选项_ ，下面的 _mkIf_ 则 *生成第一个参数为 true* 才 _执行_ 的动作
+
+#+begin_example
+  这些工具函数可以在函数库 https://nixos-cn.org/tutorials/lang/Utils.html 查询到
+#+end_example
+
+好的，现在办成了两件事，声明选项，以及定义了启用选项后会触发的动作
+
+#+begin_example
+  不知道你是否足够细心？注意到 mkIf 后面是 config.myModule.enable，即它是从参数 config 输入来的
+
+  不是在 options 里声明过这个选项了吗？为什么不直接通过 options.myModule.enable 来求值呢？
+#+end_example
+
+直接去求值 _options.myModule.enable_ 是没有意义的，因为这个选项是 *未经设置* 的，这只会求值出它的 _默认值_
+
+接下来就是 *imports* 的作用了，通过将一个模块导入到另一个模块，从而在 _其他模块_ *设置* _定义_ 被包含的模块的 options
++ *被包含的模块只有 options 是对外部可见的* ，里面定义的函数与常量都是在本地作用域定义的，对其他文件不可见
++ 被 imports 组织的模块集合中的任意模块都能访问任意模块的 options
+  #+begin_example
+    也就是说，只要是被 imports 组织的模块，其 options 是全局可见的
+  #+end_example
+
+构建系统会提取所有模块中的 options，然后求值所有模块中对 options 的定义：
+#+begin_src nix 
+  {
+    imports = [
+      ./myModule.nix
+    ];
+    myModule.enable = true;
+  }
+#+end_src
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/ModulesEval.svg]]
+
+然后构建系统再将 _所有的配置项_ （即被定义后的 options） *求值* ，然后作为 _参数 config_ *输入* 到 _每个模块_ ，这就是每个模块通常要在第一行输入 config 的原因，然后下面的 config 会根据最终值触发一系列配置动作，从而达到求值模块以生成系统目的
+
+#+begin_example
+  如果一个模块没有任何声明，就直接开始定义（config）部分，注意不需要使用 config = {} 包装
+
+  因为这个模块不包含任何声明，只有定义。可以将这里的定义理解为一种无条件配置，因为没有使用 mkIf 之类的函数
+#+end_example
+* 常见输入
+* 组织方案
+* 默认导入
+* 如何找到options 
