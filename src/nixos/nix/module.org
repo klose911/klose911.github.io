@@ -104,6 +104,90 @@ NixOS 的配置文件是通过一个个可复用的模块实现的
   因为这个模块不包含任何声明，只有定义。可以将这里的定义理解为一种无条件配置，因为没有使用 mkIf 之类的函数
 #+end_example
 * 常见输入
+
+#+CAPTION: 常见输入
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 参数名      | 描述               |
+| config       | 所有 option 的最终值  |
+| lib          | nixpkgs 提供的库     |
+| pkgs        | nixpkgs 提供的包集合 |
+| options      | 所有模块声明的选项  |
+| specialArgs  | 特殊参数           |
+| utils        | 工具库             |
+| modulesPath | 模块路径           |
+
 * 组织方案
+#+begin_example
+  由于 options 是全局可见的，所以需要一种规范组织模块，区分模块的声明与定义部分，不然一切都会被搞砸的
+
+  并且尽量不要在零散的地方定义其他模块的 options，这样会让模块的维护异常困难，还可能触发难以想象的副作用
+#+end_example
+尽量只让模块声明属于自己职能的部分，一个模块只完成它应该干的一件事。举个简单的例子，现在有两个模块，对于 _a.nix_ ，将它放到 _services_ 文件夹下。可以注意下面 _模块名_ ，这表示了 *从属* 关系：
+
+#+begin_src nix 
+  { config, lib, pkgs, ... }:
+
+  {
+    options.services.a = {
+      enable = lib.mkEnableOption "service a";
+    };
+
+    config = lib.mkIf config.services.a.enable {
+      # 模块 a 的实现
+    };
+  }
+#+end_src
+
+如果 _b.nix_ 这么写：
+
+#+begin_src nix 
+  { config, lib, pkgs, ... }:
+
+  {
+    imports = [ ./services/a.nix ]; # 导入模块 a
+
+    options.b = {
+      enable = lib.mkEnableOption "service b";
+    };
+
+    config = lib.mkIf config.b.enable {
+      services.a.enable = true;  # 不要这么做
+      # 模块 b 的实现
+    };
+  }
+#+end_src
+
+*b 模块不能这样写* 。因为如果定义了 b.enable = true，会带来了 _services.a.enable = true_ 的 *副作用* ，而模块自治的写法：
+1. 删掉 b 模块中启用 a option 的语句
+2. 在更加顶层的一个中心文件完成所有模块的 options 的定义：
+   #+begin_src nix 
+     { config, lib, pkgs, ... }:
+
+     {
+       imports = [
+	 ./a.nix
+	 ./b.nix
+       ];  # 导入模块 a 和 b
+
+       services.a.enable = true;  # 在系统配置中启用模块 a
+       b.enable = true;  # 在系统配置中启用模块 b
+     }
+   #+end_src
+
+   #+begin_example
+     在上面的文件上定义这些 options ，正如我们在 /etc/nixos/configuration.nix 所做的一致
+   #+end_example
+
+   综上，应该使用 *无副作用* 的组合来组织模块，并在 *统一的模块* 中定义 *所有模块的 options* 
 * 默认导入
+在平时修改 _/etc/nixos/configuration.nix_ 时，发现能定义一些 *不存在* 的模块的 options，它们并不是不存在，而是被 *默认* 导入了，可以点击 [[https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/module-list.nix][这里]] 查看默认导入的模块列表
 * 如何找到options 
+#+begin_example
+  安装系统的时候，也仅仅是将教程上的 options 抄下来或者根据已有的模板微调就形成了基本的配置
+
+  但是该从何处才能查询到 NixOS 提供的更多 Options 呢？
+#+end_example
+
+答案是[[https://search.nixos.org/options][官方提供里的 Options 检索工具]]，这个工具是官方在维护
+
+

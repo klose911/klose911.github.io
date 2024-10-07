@@ -217,7 +217,7 @@
 NixOS 的配置文件是通过一个个可复用的模块实现的
 </p>
 
-<pre class="example" id="orgd4061c7">
+<pre class="example" id="orgea7ee3e">
 之前说过一个 Nix 文件就可以是一个函数，可以在里面写任意表达式，求值这个 Nix 文件都会有输出
 </pre>
 
@@ -285,7 +285,7 @@ NixOS 的配置文件是通过一个个可复用的模块实现的
 在上面的代码中，通过向 <span class="underline">mkOption 函数</span> <b>传递</b> 了一个 <span class="underline">属性集</span>  <b>生成</b> 了一个 <span class="underline">布尔选项</span> ，下面的 <span class="underline">mkIf</span> 则 <b>生成第一个参数为 true</b> 才 <span class="underline">执行</span> 的动作
 </p>
 
-<pre class="example" id="org75b5651">
+<pre class="example" id="org3dac697">
 这些工具函数可以在函数库 https://nixos-cn.org/tutorials/lang/Utils.html 查询到
 </pre>
 
@@ -293,7 +293,7 @@ NixOS 的配置文件是通过一个个可复用的模块实现的
 好的，现在办成了两件事，声明选项，以及定义了启用选项后会触发的动作
 </p>
 
-<pre class="example" id="org0d0ae2e">
+<pre class="example" id="org8568976">
 不知道你是否足够细心？注意到 mkIf 后面是 config.myModule.enable，即它是从参数 config 输入来的
 
 不是在 options 里声明过这个选项了吗？为什么不直接通过 options.myModule.enable 来求值呢？
@@ -311,13 +311,13 @@ NixOS 的配置文件是通过一个个可复用的模块实现的
 <li><p>
 被 imports 组织的模块集合中的任意模块都能访问任意模块的 options
 </p>
-<pre class="example" id="org91c871f">
+<pre class="example" id="org408a947">
 也就是说，只要是被 imports 组织的模块，其 options 是全局可见的
 </pre></li>
 </ul>
 
 <p>
-接下来构建系统会提取所有模块中的 options，然后求值所有模块中对 options 的定义：
+构建系统会提取所有模块中的 options，然后求值所有模块中对 options 的定义：
 </p>
 <div class="org-src-container">
 <pre class="src src-nix">{
@@ -330,7 +330,7 @@ NixOS 的配置文件是通过一个个可复用的模块实现的
 </div>
 
 
-<div id="org7ed500d" class="figure">
+<div id="org64c1673" class="figure">
 <p><img src="../pic/ModulesEval.svg" alt="ModulesEval.svg" class="org-svg" width="90%" />
 </p>
 </div>
@@ -339,7 +339,7 @@ NixOS 的配置文件是通过一个个可复用的模块实现的
 然后构建系统再将 <span class="underline">所有的配置项</span> （即被定义后的 options） <b>求值</b> ，然后作为 <span class="underline">参数 config</span> <b>输入</b> 到 <span class="underline">每个模块</span> ，这就是每个模块通常要在第一行输入 config 的原因，然后下面的 config 会根据最终值触发一系列配置动作，从而达到求值模块以生成系统目的
 </p>
 
-<pre class="example" id="org3903c8b">
+<pre class="example" id="orge0a0220">
 如果一个模块没有任何声明，就直接开始定义（config）部分，注意不需要使用 config = {} 包装
 
 因为这个模块不包含任何声明，只有定义。可以将这里的定义理解为一种无条件配置，因为没有使用 mkIf 之类的函数
@@ -348,15 +348,163 @@ NixOS 的配置文件是通过一个个可复用的模块实现的
 </div>
 <div id="outline-container-orgaf71b43" class="outline-2">
 <h2 id="orgaf71b43">常见输入</h2>
+<div class="outline-text-2" id="text-orgaf71b43">
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 常见输入</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">参数名</td>
+<td class="org-left">描述</td>
+</tr>
+
+<tr>
+<td class="org-left">config</td>
+<td class="org-left">所有 option 的最终值</td>
+</tr>
+
+<tr>
+<td class="org-left">lib</td>
+<td class="org-left">nixpkgs 提供的库</td>
+</tr>
+
+<tr>
+<td class="org-left">pkgs</td>
+<td class="org-left">nixpkgs 提供的包集合</td>
+</tr>
+
+<tr>
+<td class="org-left">options</td>
+<td class="org-left">所有模块声明的选项</td>
+</tr>
+
+<tr>
+<td class="org-left">specialArgs</td>
+<td class="org-left">特殊参数</td>
+</tr>
+
+<tr>
+<td class="org-left">utils</td>
+<td class="org-left">工具库</td>
+</tr>
+
+<tr>
+<td class="org-left">modulesPath</td>
+<td class="org-left">模块路径</td>
+</tr>
+</tbody>
+</table>
 </div>
+</div>
+
 <div id="outline-container-org51a6a9b" class="outline-2">
 <h2 id="org51a6a9b">组织方案</h2>
+<div class="outline-text-2" id="text-org51a6a9b">
+<pre class="example" id="orgce482bb">
+由于 options 是全局可见的，所以需要一种规范组织模块，区分模块的声明与定义部分，不然一切都会被搞砸的
+
+并且尽量不要在零散的地方定义其他模块的 options，这样会让模块的维护异常困难，还可能触发难以想象的副作用
+</pre>
+<p>
+尽量只让模块声明属于自己职能的部分，一个模块只完成它应该干的一件事。举个简单的例子，现在有两个模块，对于 <span class="underline">a.nix</span> ，将它放到 <span class="underline">services</span> 文件夹下。可以注意下面 <span class="underline">模块名</span> ，这表示了 <b>从属</b> 关系：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ config, lib, pkgs, ... }:
+
+{
+  <span style="color: #eedd82;">options.services.a</span> = {
+    <span style="color: #eedd82;">enable</span> = lib.mkEnableOption <span style="color: #ffa07a;">"service a"</span>;
+  };
+
+  <span style="color: #eedd82;">config</span> = lib.mkIf config.services.a.enable {
+    <span style="color: #ff4500;"># &#27169;&#22359; a &#30340;&#23454;&#29616;</span>
+  };
+}
+</pre>
+</div>
+
+<p>
+如果 <span class="underline">b.nix</span> 这么写：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ config, lib, pkgs, ... }:
+
+{
+  <span style="color: #eedd82;">imports</span> = [ <span style="color: #7fffd4;">./services/a.nix</span> ]; <span style="color: #ff4500;"># &#23548;&#20837;&#27169;&#22359; a</span>
+
+  <span style="color: #eedd82;">options.b</span> = {
+    <span style="color: #eedd82;">enable</span> = lib.mkEnableOption <span style="color: #ffa07a;">"service b"</span>;
+  };
+
+  <span style="color: #eedd82;">config</span> = lib.mkIf config.b.enable {
+    <span style="color: #eedd82;">services.a.enable</span> = <span style="color: #b0c4de;">true</span>;  <span style="color: #ff4500;"># &#19981;&#35201;&#36825;&#20040;&#20570;</span>
+    <span style="color: #ff4500;"># &#27169;&#22359; b &#30340;&#23454;&#29616;</span>
+  };
+}
+</pre>
+</div>
+
+<p>
+<b>b 模块不能这样写</b> 。因为如果定义了 b.enable = true，会带来了 <span class="underline">services.a.enable = true</span> 的 <b>副作用</b> ，而模块自治的写法：
+</p>
+<ol class="org-ol">
+<li>删掉 b 模块中启用 a option 的语句</li>
+<li><p>
+在更加顶层的一个中心文件完成所有模块的 options 的定义：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix">{ config, lib, pkgs, ... }:
+
+{
+  <span style="color: #eedd82;">imports</span> = [
+    <span style="color: #7fffd4;">./a.nix</span>
+    <span style="color: #7fffd4;">./b.nix</span>
+  ];  <span style="color: #ff4500;"># &#23548;&#20837;&#27169;&#22359; a &#21644; b</span>
+
+  <span style="color: #eedd82;">services.a.enable</span> = <span style="color: #b0c4de;">true</span>;  <span style="color: #ff4500;"># &#22312;&#31995;&#32479;&#37197;&#32622;&#20013;&#21551;&#29992;&#27169;&#22359; a</span>
+  <span style="color: #eedd82;">b.enable</span> = <span style="color: #b0c4de;">true</span>;  <span style="color: #ff4500;"># &#22312;&#31995;&#32479;&#37197;&#32622;&#20013;&#21551;&#29992;&#27169;&#22359; b</span>
+}
+</pre>
+</div>
+
+<pre class="example" id="org9997689">
+在上面的文件上定义这些 options ，正如我们在 /etc/nixos/configuration.nix 所做的一致
+</pre>
+
+<p>
+综上，应该使用 <b>无副作用</b> 的组合来组织模块，并在 <b>统一的模块</b> 中定义 <b>所有模块的 options</b> 
+</p></li>
+</ol>
+</div>
 </div>
 <div id="outline-container-org7ef4ebe" class="outline-2">
 <h2 id="org7ef4ebe">默认导入</h2>
+<div class="outline-text-2" id="text-org7ef4ebe">
+<p>
+在平时修改 <span class="underline">/etc/nixos/configuration.nix</span> 时，发现能定义一些 <b>不存在</b> 的模块的 options，它们并不是不存在，而是被 <b>默认</b> 导入了，可以点击 <a href="https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/module-list.nix">这里</a> 查看默认导入的模块列表
+</p>
+</div>
 </div>
 <div id="outline-container-org7f7c71e" class="outline-2">
 <h2 id="org7f7c71e">如何找到options</h2>
+<div class="outline-text-2" id="text-org7f7c71e">
+<pre class="example" id="org20ac1bb">
+安装系统的时候，也仅仅是将教程上的 options 抄下来或者根据已有的模板微调就形成了基本的配置
+
+但是该从何处才能查询到 NixOS 提供的更多 Options 呢？
+</pre>
+
+<p>
+答案是<a href="https://search.nixos.org/options">官方提供里的 Options 检索工具</a>，这个工具是官方在维护
+</p>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
