@@ -6,4 +6,229 @@
 #+begin_example
 本节内容正在修缮中，当前内容可能已经过时，仅供参考
 #+end_example
+* nix-channel
 
+_nix-channel_ 是一个命令行工具，用于 *订阅* 系统频道和软件频道
+** 命令行
+
+nix-channel 命令行工具的使用：
+
+#+begin_example
+nix-channel {--add url [name] | --remove name | --list | --update [names…] | --rollback [generation] }
+#+end_example
+
+这个命令行工具提供的功能有： _订阅_ 频道， _退订_ 频道， _列出_ 频道， _更新_ 频道，还能回滚“生成”
+** 频道
+
+#+begin_example
+上面我们演示了命令行工具的使用方式，却没有告知频道从哪里获取
+#+end_example
+频道最直接的体现是一个形如 https://nixos.org/channels/nixos22.11 的 URL
+
+官方提供了官方频道集合。订阅了其中的频道以后，就会从相应的频道获取更新，大致和使用其他发行版的软件源类似
+
+#+begin_example
+不过后面会详述 NixOS 中的“频道”概念和传统发行版中“软件源”的区别
+#+end_example
+
+这是一个频道集合，根目录下的每一个子目录就代表一个频道，官方提供了若干个频道：
+
+#+begin_example
+  2022/8/4 22:51:25               0.1 kB         nixos-21.11
+  2022/8/4 22:59:10               0.1 kB         nixos-21.11-aarch64
+  2022/8/2 23:24:22               0.1 kB         nixos-21.11-small
+  2023/1/3 23:39:40               0.1 kB         nixos-22.05
+  2023/1/3 22:43:29               0.1 kB         nixos-22.05-aarch64
+  2023/1/2 04:11:11               0.1 kB         nixos-22.05-small
+  2023/3/16 05:19:03              0.1 kB         nixos-22.11
+  2023/3/16 22:18:18              0.1 kB         nixos-22.11-small
+  2023/3/16 14:55:20              0.1 kB         nixos-unstable
+  2023/3/16 21:27:06              0.1 kB         nixos-unstable-small
+  2023/1/2 21:05:38               0.1 kB         nixpkgs-22.05-darwin
+  2023/3/17 00:30:11              0.1 kB         nixpkgs-22.11-darwin
+  2023/3/16 04:06:35              0.1 kB         nixpkgs-unstable
+#+end_example
+** 项目结构
+以官方频道 _nixpkgs-unstable_ 为例，查看每个频道大致的构成。它们似乎都提供了 _nixexprs.tar.xz_ ，从文件名就了解到这是一个包含了若干 nix 文件的 tar 压缩档
+
+#+begin_example
+  Tarball 是 tar 文件格式的全称，不是 Nix 独有
+
+  它可以将多个文件打包在一起。如果你想在打包的时候压缩一下，还可以使用 gzip，bzip2 等软件压缩该档案
+
+  当你对 tar 文件启用压缩以后，后缀名会变更为 tar.gz, tar.bz2 等，具体取决于你使用的压缩软件
+#+end_example
+
+于是解压它，列出目录树：
+
+#+begin_example
+  ├─.github
+  ├─doc
+  ├─lib
+  ├─maintainers
+  ├─nixos
+  └─pkgs
+      ├─applications
+      │  ├─accessibility
+      │  │  ├─contrast
+      │  │  └─wvkbd
+      │  ├─audio
+      │  │  ├─a2jmidid
+      │  │  ├─ario
+      │  │  ├─csound
+      │  │  │  ├─csound-manual
+      │  │  │  └─csound-qt
+      ......
+#+end_example
+
+#+begin_example
+以上目录树是为了方便演示而精简过的部分，实际构成肯定有差别
+#+end_example
+
+每个频道都应该提供一个名为 nixexprs 的 Tarball。其中 _default.nix_ 既是 *根目录* 也是 *每一级目录的入口点* 
+* 系统频道与软件仓库频道
+频道在 NixOS 中大致被分为两类： _系统频道_ 和 _软件仓库频道_
+** 系统频道
+系统频道可以从 URL 中直观的体现。形如 https://nixos.org/channels/nixos22.11 很快就了解到这是一个 22.11 版本的 NixOS 的频道
+
+#+begin_example
+  NixOS 默认订阅了官方频道 nixos，即使你安装完系统什么都不做，它们也是存在的：
+
+  sudo nix-channel --list  # 列出频道
+
+  nixos https://nixos.org/channels/nixos22.11
+
+  这个频道提供了组成系统的一些驱动，设施等等
+#+end_example
+
+
+注意：这里的 nixos 与 https://nixos.org/channels/nixos22.11 并不是并列关系，前者是频道名，后面是被订阅的 URL。当有两个及两个以上频道的时候，就会理解：
+1. nixos https://nixos.org/channels/nixos22.11
+2. nixpkgs https://nixos.org/channels/nixpkgs-unstable
+   
+除非升级系统或更换镜像频道，否则不要动系统默认的 nixos 频道
+*** 一些特殊的频道
++ *稳定* _stable_ 频道。如 nixos-22.11。这些频道只能得到保守的错误修复和软件包升级
+  #+begin_example
+    例如，频道更新可能会导致系统上的Linux内核从 4.19.34 升级到 4.19.38（一个小错误修复），但不会从 4.19.x 升级到 4.20.x（一个可能会破坏一切的重大更改）
+
+    在创建下一个稳定分支之前，通常会保持稳定的频道
+  #+end_example
++ *不稳定* _unstable_ 频道。这与 nixos 的主要开发分支相对应，因此可能有破坏性更新，不建议用于生产系统
++ *小型* _small_ 频道，如 nixos-22.11-small 或 nix-unstable-small。这些频道与上述稳定和不稳定频道相同，只是它们包含较少的二进制包
+  #+begin_example
+    这意味着它们比常规通道更新得更快。例如，当一个关键的安全补丁被提交到 NixOS 的源代码树时
+
+    但可能有更多的包需要从源代码构建
+
+    它们主要用于服务器环境，因此包含很少的 GUI 应用程序
+  #+end_example
+
+  
+要查看可用的频道，请转到[[https://nixos.org/channels][官方频道]]
+
+#+begin_example
+  请注意，各种频道的 URI 重定向到一个包含最新版本频道的目录，还包括 ISO 映像和 VirtualBox 设备
+#+end_example
+
+在发布过程中，尚未发布的频道也将出现在此处
+
+#+begin_example
+请参阅官方 https://nixos.org/nixos/download.html 页面以查找最新支持的稳定版本
+#+end_example
+*** 升级系统
+可以使用以下命令获取当前的 nixos 频道：
+
+#+begin_src sh 
+  nix-channel --list | grep nixos
+#+end_src
+
+要切换到不同的NixOS通道，请执行：
+
+#+begin_src sh 
+  nix-channel --add https://nixos.org/channels/channel-name nixos
+#+end_src
+
+以 nixos 22.11 为例，命令为：
+
+#+begin_example
+nix-channel --add https://nixos.org/channels/nixos-22.11 nixos
+#+end_example
+
+使用以下命令以开始切换：
+
+#+begin_src sh 
+  nixos-rebuild switch --upgrade
+#+end_src
+
+该命令相当于 _nix-channel --update nixos; nixos-rebuild switch_ 。频道的切换是以用户为单位的。当你不以 root 权限执行时，不会影响 _/etc/nixos/configuration.nix_ 的配置
+
+#+begin_example
+  在频道之间来回切换通常是安全的
+
+  唯一的例外是，一个较新的NixOS也可能有一个较低的 Nix版本，这可能涉及到Nix数据库模式的升级
+
+  这是不容易撤消的，所以在这种情况下，您将无法返回到原始频道
+#+end_example
+** 软件仓库频道
+软件仓库频道不仅仅可以为 NixOS 使用，其他 Linux 发行版也可以安装 Nix 包管理器从中获取软件包，甚至 Darwin 也可以
+*** 订阅 nixpkgs-unstable 频道
+#+begin_example
+  nixpkgs 仓库更新非常快，所以没有稳定版
+
+  不过 darwin 是例外，因为 Nix 包管理器不能保证实时兼容当前的 darwin 平台，所以要做版本控制
+#+end_example
+
+#+begin_src sh 
+  sudo nix-channel --add https://nixos.org/channels/nixpkgs-unstable  # 添加频道，不过我更喜欢称它为 “订阅”
+  sudo nix-channel --update  # 更新频道
+#+end_src
+
+如此，便订阅上了官方的 nixpkgs-unstable 软件源
+
+#+begin_example
+这里仅供教学。在下一节会指引大家订阅国内能正常访问的镜像频道
+#+end_example
+
+键入下面的命令以退订官方的 nixpkgs-unstable 频道：
+
+#+begin_src sh 
+  sudo nix-channel --remove nixpkgs-unstable
+#+end_src
+**** 自定义频道名
+默认情况下，频道名是截取自 URL 的最后一级：
+
+#+begin_src sh 
+nix-channel --add https://host/nixpkgs-unstable
+#+end_src
+
+列出频道名：
+
+#+begin_src sh 
+nixpkgs-unstable https://host/nixpkgs-unstable
+#+end_src
+
+如果需要手动命名频道，增加一个参数即可：
+#+begin_src sh 
+  nix-channel --add https://host/nixpkgs-unstable nixpkgs
+#+end_src
+* 使用镜像频道
+由于不可抗力的因素，大陆对于环大陆主机的访问显得异常艰难，所以需要使用国内的镜像频道来替代官方频道（镜像频道通常由大学和企业公益性提供），下面列出了一些在中国可用的一些镜像频道：
++ 中国教育和科研计算机网（清华大学）https://mirrors.cernet.edu.cn/nix-channels/store
++ 中国科学技术大学 https://mirrors.ustc.edu.cn/nix-channels/store
++ 上海交通大学 https://mirror.sjtu.edu.cn/nix-channels/store
++ 北京外国语大学 https://mirrors.bfsu.edu.cn/nix-channels/store
++ 南京大学 https://mirror.nju.edu.cn/nix-channels/store
++ 中国科学院软件研究所 https://mirror.iscas.ac.cn/nix-channels/store
+
+使用镜像源替代官方的系统频道和软件仓库频道：
+#+begin_src sh 
+  sudo nix-channel --add https://mirrors.ustc.edu.cn/nix-channels/nixpkgs-unstable nixpkgs  # 订阅镜像仓库频道
+  sudo nix-channel --add https://mirrors.ustc.edu.cn/nix-channels/nixos-22.11 nixos  # 请注意系统版本
+  sudo nix-channel --list  # 列出频道
+#+end_src
+
+#+begin_example
+特地修改频道名是因为许多表达式都会把 nixpkgs 而不是 nixpkgs-unstable 作输入
+#+end_example
+* 二进制缓存
