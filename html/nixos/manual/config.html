@@ -201,9 +201,262 @@
  <a accesskey="H" href="manual.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">NixOS 配置</h1>
-<pre class="example" id="orgeb22c72">
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org45c9eaa">包管理</a>
+<ul>
+<li><a href="#orgf684cc6">声明式包管理</a>
+<ul>
+<li><a href="#org740b7f0">定制软件包</a></li>
+<li><a href="#org76d1c5e">添加自定义包</a>
+<ul>
+<li><a href="#orgc5a787a">使用 Nix 语言构建</a></li>
+<li><a href="#org5a77942">使用预构建文件</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org197e86d">非持久包管理</a></li>
+</ul>
+</li>
+<li><a href="#org6df6386">用户管理</a></li>
+<li><a href="#org66e1bbd">文件系统</a></li>
+<li><a href="#org2a02ee3">显示系统</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org82bd76c">
 本节内容正在修缮中，当前内容可能已经过时，仅供参考
 </pre>
+<div id="outline-container-org45c9eaa" class="outline-2">
+<h2 id="org45c9eaa">包管理</h2>
+<div class="outline-text-2" id="text-org45c9eaa">
+<p>
+接下来会讨论如何为系统添加额外的包。NixOS 包管理的方式有两种：
+</p>
+<ul class="org-ul">
+<li>配置文件声明：可以在配置文件为系统或用户声明需要安装的包，每次你重新生成系统，NixOS 都会确保本地包含指定的这些包。这是持久的</li>
+<li>非持久环境。使用 nix-env 管理软件包安装，升级与卸载。这种方式允许不同软件仓库频道版本的包共存。这也是非 root 用户唯一安装软件包的方式</li>
+</ul>
+</div>
+<div id="outline-container-orgf684cc6" class="outline-3">
+<h3 id="orgf684cc6">声明式包管理</h3>
+<div class="outline-text-3" id="text-orgf684cc6">
+<p>
+在 <span class="underline">configuration.nix</span> 中， 提供用于声明系统环境包含的包的 <span class="underline">environment.systemPackages</span> 数组：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">environment.systemPackages = [ pkgs.firefox ];  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#26469;&#28304;&#20110; pkgs(Nixpkgs) &#30340;&#21253;&#23433;&#35013;&#21040;&#31995;&#32479;</span>
+</pre>
+</div>
+<p>
+<b>配置文件并不是实时生效的</b>  。需要运行 <span class="underline">sudo nixos-rebuild switch</span> 来生成当前配置文件描述的系统
+</p>
+
+<pre class="example" id="org2ab51f8">
+配置依赖
+
+对于某些包（例如依赖 D-Bus 或 systemd 服务注册的包），仅仅是安装还是不够的，需要为它们对系统进行一些配置
+
+可以访问选项列表 https://nixos.org/manual/nixos/stable/options.html 来检索需要启用的 NixOS 模块
+</pre>
+
+<p>
+可以使用以下命令获取在线包仓库中可用的软件包的列表：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">nix-env -qaP <span style="color: #ffa07a;">'*'</span> --description
+nixos.firefox   firefox-23.0   Mozilla Firefox - the browser, reloaded
+...
+</pre>
+</div>
+
+<p>
+通常会输出很多行可以获取的包的信息。第一列输出是属性名（例如 <span class="underline">nixos.firefox</span> ）
+</p>
+
+<pre class="example" id="orgc86a4b9">
+nixos 前缀表明当前包是从 nixos 频道获取的
+</pre>
+
+<p>
+如果想卸载这个包，修改配置后重新生成系统即可
+</p>
+</div>
+<div id="outline-container-org740b7f0" class="outline-4">
+<h4 id="org740b7f0">定制软件包</h4>
+<div class="outline-text-4" id="text-org740b7f0">
+<p>
+一些软件包会提供一些禁用或启用功能，更改一些特性的选项。例如 Firefox 插件捆绑包（会额外提供一些诸如 Adobe Flash Player 的插件）会提供一个启用 Google Talk 的选项，如此配置便可以：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">nixpkgs.config.firefox.enableGoogleTalkPlugin</span> = <span style="color: #b0c4de;">true</span>;
+</pre>
+</div>
+
+<pre class="example" id="org1bb8374">
+遗憾的是，Nixpkgs 依然无法提供一种简易查询这些选项的方式
+</pre>
+
+<p>
+除了高阶选项外，还可以以几乎任意方式调整软件包，例如更改或禁用软件包的依赖项。例如，Nixpkgs 中的 Emacs 软件包默认依赖于 GTK 2。如果你想将其构建为使用 GTK 3 的软件包，可以按如下方式指定：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">environment.systemPackages</span> = [ (pkgs.emacs.override { <span style="color: #eedd82;">gtk</span> = pkgs.gtk3; }) ];
+</pre>
+</div>
+
+<p>
+使用了 <span class="underline">override</span> 函数指定了用户定义的参数，意味着 <b>覆写</b> 了一部分原本的参数，构建的包也因此改变了。细看这个语句，gtk 默认是接受 pkgs.gtk2 参数的，使用 pkgs.gtk3 作输入的时候，默认参数已经失效了，于是构建出来的包是依赖 GTK 3 的了
+</p>
+
+<pre class="example" id="org79968b3">
+圆括号是必要的，因为在 Nix 语言中，列表构造优先级高于函数。如果不使用括号，列表将会认为它接收了两个元素
+</pre>
+
+<p>
+还可以使用 <span class="underline">overrideAttrs</span> 函数做出更多定制。override 函数的机制是覆写了包输入函数的参数，而 overrideAttrs 允许 <b>覆写</b>  <span class="underline">传递给 mkDerivation 的属性</span> 。如此几乎能修改这个包的方方面面，甚至包括源码。如果你想覆写源码输入，可以这样做：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">environment.systemPackages</span> = [
+  (pkgs.emacs.overrideAttrs (oldAttrs: {
+    <span style="color: #eedd82;">name</span> = <span style="color: #ffa07a;">"emacs-25.0-pre"</span>;
+    <span style="color: #eedd82;">src</span> = <span style="color: #7fffd4;">/path/to/my/emacs/tree</span>;  <span style="color: #ff4500;"># &#20320;&#30340;&#28304;&#30721;&#30446;&#24405;</span>
+  }))
+];
+</pre>
+</div>
+
+<p>
+在这里，pkgs.emacs 被衍生出了一个重新调用 stdenv.mkDerivation 并替换了 name 和 src 属性的版本。然后 overrideAttrs 接收了这个衍生，成为了目前系统环境的 emacs 包
+</p>
+</div>
+</div>
+<div id="outline-container-org76d1c5e" class="outline-4">
+<h4 id="org76d1c5e">添加自定义包</h4>
+<div class="outline-text-4" id="text-org76d1c5e">
+</div>
+<div id="outline-container-orgc5a787a" class="outline-5">
+<h5 id="orgc5a787a">使用 Nix 语言构建</h5>
+</div>
+<div id="outline-container-org5a77942" class="outline-5">
+<h5 id="org5a77942">使用预构建文件</h5>
+<div class="outline-text-5" id="text-org5a77942">
+<p>
+大多数可执行文件都不能在 NixOS 上直接工作，但是将 <b>依赖一起打包</b> 的 <span class="underline">容器格式</span> 就可以，常见的容器格式有 <span class="underline">flatpaks</span> 和 <span class="underline">AppImages</span> 等 
+</p>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org197e86d" class="outline-3">
+<h3 id="org197e86d">非持久包管理</h3>
+<div class="outline-text-3" id="text-org197e86d">
+<p>
+这种方式不持久是相对于声明式包管理的。声明式包管理可以保证系统的一致性和可复制性，所以是持久的。不过 Ad-Hoc 方式非常灵活
+</p>
+
+<pre class="example" id="org89ffbfc">
+Ad-Hoc 这个词语的起源是拉丁语，意思是“为此”。它通常表示一种针对特定目的，问题或任务的解决方案，而不是一种可以适用于其他情况的通用解决方案
+
+例如，一个政府为了解决一个具体问题而设立的委员会就是一个 ad-hoc 委员会。更宽松地说，它也可以意味着“自发的 ”，“未计划的”或“即兴的”
+
+在 nixos 中，Ad-Hoc 的意义是指可以在一个临时的 shell 环境中使用任何用 nix 打包的程序，而不需要永久地安装它
+
+这样可以方便地创建和使用开发环境，而不影响系统的状态
+</pre>
+
+<p>
+通过 <span class="underline">nix-env</span> 命令，可以像常规发行版那样使用命令安装软件：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">nix-env -iA nixos.thunderbird
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>如果以 <span class="underline">root</span> 权限执行此语句，软件包将会被安装到 <span class="underline">/nix/var/nix/profiles/default</span> ，并且对 <b>所有用户可见</b></li>
+<li>如果是 <span class="underline">普通用户</span> ，软件包将会安装到 <span class="underline">/nix/var/nix/profiles/per-user/username/profile</span> ，并且仅对当前用户可见</li>
+<li><p>
+<span class="underline">-A</span> 参数指定了 <b>软件包所属的属性</b>
+</p>
+<pre class="example" id="org41e7733">
+如果不带属性，直接匹配 thunderbird 速度会较慢，同时也可能匹配到多个名称相同的包，产生歧义 
+</pre></li>
+</ul>
+
+<p>
+假设需要更新的包来自于系统频道，可以先更新系统频道，然后重新安装或更新指定包：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">nix-channel --update nixos  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26356;&#26032;&#31995;&#32479;&#39057;&#36947;</span>
+nix-env -iA nixos.thunderbird  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20877;&#27425;&#23433;&#35013;&#26102;&#65292;&#27492;&#21253;&#20250;&#34987;&#26367;&#25442;&#20026;&#26368;&#26032;&#29256;</span>
+</pre>
+</div>
+
+<p>
+上面的语句可以指定另外的频道，从而用不同频道的包去代替当前包。如果想用当前包默认的来源升级包，尝试这样做：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">nix-channel --update nixos
+nix-env -u thunderbird
+</pre>
+</div>
+
+<p>
+如果想升级所有包，可以这样：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">nix-env -u <span style="color: #ffa07a;">'*'</span>
+</pre>
+</div>
+
+<p>
+但是需要注意，  <b>它并不会升级系统配置中描述的包</b> ，那些包由 <span class="underline">nixos-rebuild switch</span> 命令管理
+</p>
+
+<pre class="example" id="orgf26e139">
+如果想更新那些包， nixos-rebuild switch --upgrade 即可，它会自动更新频道并更新系统生成
+</pre>
+
+<p>
+如果想卸载使用命令安装的包，使用以下命令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">nix-env -e thunderbird
+</pre>
+</div>
+
+<p>
+此外，用户环境的状态是可以回滚的：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">nix-env --rollback
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org6df6386" class="outline-2">
+<h2 id="org6df6386">用户管理</h2>
+</div>
+<div id="outline-container-org66e1bbd" class="outline-2">
+<h2 id="org66e1bbd">文件系统</h2>
+</div>
+<div id="outline-container-org2a02ee3" class="outline-2">
+<h2 id="org2a02ee3">显示系统</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
