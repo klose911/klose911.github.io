@@ -221,13 +221,18 @@
 <li><a href="#org197e86d">非持久包管理</a></li>
 </ul>
 </li>
-<li><a href="#org6df6386">用户管理</a></li>
+<li><a href="#org6df6386">用户管理</a>
+<ul>
+<li><a href="#org67c852b">声明式用户管理</a></li>
+<li><a href="#orga372a8a">命令行式用户管理</a></li>
+</ul>
+</li>
 <li><a href="#org66e1bbd">文件系统</a></li>
 <li><a href="#org2a02ee3">显示系统</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org82bd76c">
+<pre class="example" id="org944bc8e">
 本节内容正在修缮中，当前内容可能已经过时，仅供参考
 </pre>
 <div id="outline-container-org45c9eaa" class="outline-2">
@@ -255,7 +260,7 @@
 <b>配置文件并不是实时生效的</b>  。需要运行 <span class="underline">sudo nixos-rebuild switch</span> 来生成当前配置文件描述的系统
 </p>
 
-<pre class="example" id="org2ab51f8">
+<pre class="example" id="orgb939bb3">
 配置依赖
 
 对于某些包（例如依赖 D-Bus 或 systemd 服务注册的包），仅仅是安装还是不够的，需要为它们对系统进行一些配置
@@ -277,7 +282,7 @@ nixos.firefox   firefox-23.0   Mozilla Firefox - the browser, reloaded
 通常会输出很多行可以获取的包的信息。第一列输出是属性名（例如 <span class="underline">nixos.firefox</span> ）
 </p>
 
-<pre class="example" id="orgc86a4b9">
+<pre class="example" id="org312b652">
 nixos 前缀表明当前包是从 nixos 频道获取的
 </pre>
 
@@ -297,7 +302,7 @@ nixos 前缀表明当前包是从 nixos 频道获取的
 </pre>
 </div>
 
-<pre class="example" id="org1bb8374">
+<pre class="example" id="orgb3fc76b">
 遗憾的是，Nixpkgs 依然无法提供一种简易查询这些选项的方式
 </pre>
 
@@ -314,7 +319,7 @@ nixos 前缀表明当前包是从 nixos 频道获取的
 使用了 <span class="underline">override</span> 函数指定了用户定义的参数，意味着 <b>覆写</b> 了一部分原本的参数，构建的包也因此改变了。细看这个语句，gtk 默认是接受 pkgs.gtk2 参数的，使用 pkgs.gtk3 作输入的时候，默认参数已经失效了，于是构建出来的包是依赖 GTK 3 的了
 </p>
 
-<pre class="example" id="org79968b3">
+<pre class="example" id="org312776f">
 圆括号是必要的，因为在 Nix 语言中，列表构造优先级高于函数。如果不使用括号，列表将会认为它接收了两个元素
 </pre>
 
@@ -361,7 +366,7 @@ nixos 前缀表明当前包是从 nixos 频道获取的
 这种方式不持久是相对于声明式包管理的。声明式包管理可以保证系统的一致性和可复制性，所以是持久的。不过 Ad-Hoc 方式非常灵活
 </p>
 
-<pre class="example" id="org89ffbfc">
+<pre class="example" id="org5790164">
 Ad-Hoc 这个词语的起源是拉丁语，意思是“为此”。它通常表示一种针对特定目的，问题或任务的解决方案，而不是一种可以适用于其他情况的通用解决方案
 
 例如，一个政府为了解决一个具体问题而设立的委员会就是一个 ad-hoc 委员会。更宽松地说，它也可以意味着“自发的 ”，“未计划的”或“即兴的”
@@ -386,7 +391,7 @@ Ad-Hoc 这个词语的起源是拉丁语，意思是“为此”。它通常表�
 <li><p>
 <span class="underline">-A</span> 参数指定了 <b>软件包所属的属性</b>
 </p>
-<pre class="example" id="org41e7733">
+<pre class="example" id="orge96b90e">
 如果不带属性，直接匹配 thunderbird 速度会较慢，同时也可能匹配到多个名称相同的包，产生歧义 
 </pre></li>
 </ul>
@@ -423,7 +428,7 @@ nix-env -u thunderbird
 但是需要注意，  <b>它并不会升级系统配置中描述的包</b> ，那些包由 <span class="underline">nixos-rebuild switch</span> 命令管理
 </p>
 
-<pre class="example" id="orgf26e139">
+<pre class="example" id="org8841107">
 如果想更新那些包， nixos-rebuild switch --upgrade 即可，它会自动更新频道并更新系统生成
 </pre>
 
@@ -450,12 +455,161 @@ nix-env -u thunderbird
 
 <div id="outline-container-org6df6386" class="outline-2">
 <h2 id="org6df6386">用户管理</h2>
+<div class="outline-text-2" id="text-org6df6386">
+<p>
+类似的，NixOS 支持声明式用户管理和命令行用户管理
+</p>
 </div>
+
+<div id="outline-container-org67c852b" class="outline-3">
+<h3 id="org67c852b">声明式用户管理</h3>
+<div class="outline-text-3" id="text-org67c852b">
+<p>
+下面的例子说明声明式用户管理的大致细节：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">users.users.alice</span> = {
+  <span style="color: #eedd82;">isNormalUser</span> = <span style="color: #b0c4de;">true</span>;
+  <span style="color: #eedd82;">home</span> = <span style="color: #ffa07a;">"/home/alice"</span>;
+  <span style="color: #eedd82;">description</span> = <span style="color: #ffa07a;">"Alice Foobar"</span>;
+  <span style="color: #eedd82;">extraGroups</span> = [ <span style="color: #ffa07a;">"wheel"</span> <span style="color: #ffa07a;">"networkmanager"</span> ];
+  <span style="color: #eedd82;">openssh.authorizedKeys.keys</span> = [ <span style="color: #ffa07a;">"ssh-dss AAAAB3Nza... alice@foobar"</span> ];
+};
+</pre>
+</div>
+<ul class="org-ul">
+<li>根据描述，该用户加入了 wheel 组，意味着它可以使用 sudo 命令提权</li>
+<li>此外它还加入了 networkmanager 组，意味着该用户可以配置网络</li>
+</ul>
+
+<p>
+不过这样创建出来的用户是没有初始密码的，仍需要使用 passwd 命令为其分配密码， 每次重新生成系统的时候不会影响到密码的状态 。对于 ssh 连接，你可以指定认证密钥，只要公钥与私钥匹配就能连接。如果设置 <span class="underline">users.mutableUsers</span> 为 False ， <span class="underline">/etc/passwd</span> 与  <span class="underline">/etc/group</span> 目录的内容将与配置文件中描述的一致
+</p>
+
+<pre class="example" id="org37b7c9f">
+例如，如果你从配置文件中删除了某位用户，然后重新生成系统，这个用户就真实消失了。同时通过命令行管理用户的方式将失效
+
+不过你仍然可以通过设置用户的hashedPassword 选项来分配密码
+</pre>
+
+<p>
+用户 uid 是自动分配的，不过你也可以自行指定：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">uid</span> = 1000;
+</pre>
+</div>
+
+<p>
+gid 分配也是自动的，同样可以用户定义，也是类似的方法：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">users.groups.students.gid</span> = 1000;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orga372a8a" class="outline-3">
+<h3 id="orga372a8a">命令行式用户管理</h3>
+<div class="outline-text-3" id="text-orga372a8a">
+<p>
+创建一个名为 alice 的用户，-m 参数用于给该用户创建 home 目录：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">useradd -m alice
+</pre>
+</div>
+
+<p>
+为了让 nix 工具集可以为该用户所用，还需要给这个用户打开 login shell（加载用户配置的 shell）。这一步会把 <span class="underline">~/.nix-defexpr</span>  <b>链接</b> 到该用户的目录，这样该用户才能使用 nix 的一系列命令
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">su - alice -c <span style="color: #ffa07a;">"true"</span>
+</pre>
+</div>
+
+<p>
+还需要为其分配密码，才能登录：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">passwd alice
+Enter new UNIX password: ***
+Retype new UNIX password: ***
+</pre>
+</div>
+
+<p>
+可以使用 <span class="underline">userdel -r alice</span> 删除该用户， <span class="underline">-r</span> 参数用于移除该用户的 home 目录。此外还有 <span class="underline">usermod</span> ， <span class="underline">groupadd</span> ,  <span class="underline">groupmod</span> 和 <span class="underline">groupdel</span> 可以使用
+</p>
+</div>
+</div>
+</div>
+
 <div id="outline-container-org66e1bbd" class="outline-2">
 <h2 id="org66e1bbd">文件系统</h2>
+<div class="outline-text-2" id="text-org66e1bbd">
+<p>
+使用 <span class="underline">fileSystems</span> 来配置文件系统，然后按照挂载点配置文件系统，分区的参数等等：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">fileSystems.<span style="color: #ffa07a;">"/data"</span> =
+  { <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/disk/by-label/data"</span>;
+    <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"ext4"</span>;
+  };
+</pre>
 </div>
+
+<p>
+这条配置 <b>生成</b> <span class="underline">/etc/fstab</span> ，系统在开机时会根据这个表文件来挂载分区
+</p>
+<ul class="org-ul">
+<li><p>
+device 不一定要根据 label 来指定，也可以通过 uuid
+</p>
+<pre class="example" id="orgdd1b3e9">
+可以用下面的方法查看到这些块的 UUID：
+
+tritium@KOVA ~&gt; lsblk -o name,mountpoint,size,uuid
+NAME MOUNTPOINT         SIZE UUID
+sda                  363.3M
+sdb [SWAP]               2G 1159b63e-3072-4483-b374-78cd487e6460
+sdc                      1T 8108c250-d488-4724-9237-5d926569fbef
+sdd /mnt/wslg/distro     1T 8677e11d-56ab-4ecb-8dfd-8effb322493f
+</pre></li>
+</ul>
+
+<p>
+在默认情况下，所有被写在配置的分区都会被自动挂载，除非指定了 <span class="underline">noauto</span> 的选项：
+</p>
+<ul class="org-ul">
+<li><p>
+也可以缺省 fsType 的值，因为它会自动检测文件系统类型
+</p>
+
+<pre class="example" id="org10ffdc6">
+如果 fstab 内容有误，系统会在启动时显示令人窒息的急救 Shell
+
+为了避免这种情况，可以在 option 里加入 nofail 来确保挂载是异步的且不会严重影响启动
+</pre></li>
+</ul>
+</div>
+</div>
+
 <div id="outline-container-org2a02ee3" class="outline-2">
 <h2 id="org2a02ee3">显示系统</h2>
+<div class="outline-text-2" id="text-org2a02ee3">
+<p>
+略
+</p>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">

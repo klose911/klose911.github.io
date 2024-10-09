@@ -143,6 +143,98 @@ nixos 前缀表明当前包是从 nixos 频道获取的
 #+end_src
 
 * 用户管理
+类似的，NixOS 支持声明式用户管理和命令行用户管理
+
+** 声明式用户管理
+下面的例子说明声明式用户管理的大致细节：
+
+#+begin_src nix 
+  users.users.alice = {
+    isNormalUser = true;
+    home = "/home/alice";
+    description = "Alice Foobar";
+    extraGroups = [ "wheel" "networkmanager" ];
+    openssh.authorizedKeys.keys = [ "ssh-dss AAAAB3Nza... alice@foobar" ];
+  };
+#+end_src
++ 根据描述，该用户加入了 wheel 组，意味着它可以使用 sudo 命令提权
++ 此外它还加入了 networkmanager 组，意味着该用户可以配置网络
+
+不过这样创建出来的用户是没有初始密码的，仍需要使用 passwd 命令为其分配密码， 每次重新生成系统的时候不会影响到密码的状态 。对于 ssh 连接，你可以指定认证密钥，只要公钥与私钥匹配就能连接。如果设置 _users.mutableUsers_ 为 False ， _/etc/passwd_ 与  _/etc/group_ 目录的内容将与配置文件中描述的一致
+
+#+begin_example
+  例如，如果你从配置文件中删除了某位用户，然后重新生成系统，这个用户就真实消失了。同时通过命令行管理用户的方式将失效
+
+  不过你仍然可以通过设置用户的hashedPassword 选项来分配密码
+#+end_example
+
+用户 uid 是自动分配的，不过你也可以自行指定：
+
+#+begin_src nix 
+  uid = 1000;
+#+end_src
+
+gid 分配也是自动的，同样可以用户定义，也是类似的方法：
+
+#+begin_src nix 
+  users.groups.students.gid = 1000;
+#+end_src
+
+** 命令行式用户管理
+创建一个名为 alice 的用户，-m 参数用于给该用户创建 home 目录：
+
+#+begin_src sh 
+  useradd -m alice
+#+end_src
+
+为了让 nix 工具集可以为该用户所用，还需要给这个用户打开 login shell（加载用户配置的 shell）。这一步会把 _~/.nix-defexpr_  *链接* 到该用户的目录，这样该用户才能使用 nix 的一系列命令
+
+#+begin_src sh 
+  su - alice -c "true"
+#+end_src
+
+还需要为其分配密码，才能登录：
+
+#+begin_src sh 
+  passwd alice
+  Enter new UNIX password: ***
+  Retype new UNIX password: ***
+#+end_src
+
+可以使用 _userdel -r alice_ 删除该用户， _-r_ 参数用于移除该用户的 home 目录。此外还有 _usermod_ ， _groupadd_ ,  _groupmod_ 和 _groupdel_ 可以使用
+
 * 文件系统
+使用 _fileSystems_ 来配置文件系统，然后按照挂载点配置文件系统，分区的参数等等：
+
+#+begin_src nix 
+  fileSystems."/data" =
+    { device = "/dev/disk/by-label/data";
+      fsType = "ext4";
+    };
+#+end_src
+
+这条配置 *生成* _/etc/fstab_ ，系统在开机时会根据这个表文件来挂载分区
++ device 不一定要根据 label 来指定，也可以通过 uuid
+  #+begin_example
+    可以用下面的方法查看到这些块的 UUID：
+
+    tritium@KOVA ~> lsblk -o name,mountpoint,size,uuid
+    NAME MOUNTPOINT         SIZE UUID
+    sda                  363.3M
+    sdb [SWAP]               2G 1159b63e-3072-4483-b374-78cd487e6460
+    sdc                      1T 8108c250-d488-4724-9237-5d926569fbef
+    sdd /mnt/wslg/distro     1T 8677e11d-56ab-4ecb-8dfd-8effb322493f
+  #+end_example
+
+在默认情况下，所有被写在配置的分区都会被自动挂载，除非指定了 _noauto_ 的选项：
++ 也可以缺省 fsType 的值，因为它会自动检测文件系统类型
+
+  #+begin_example
+    如果 fstab 内容有误，系统会在启动时显示令人窒息的急救 Shell
+
+    为了避免这种情况，可以在 option 里加入 nofail 来确保挂载是异步的且不会严重影响启动
+  #+end_example
+  
 * 显示系统
+略
 
