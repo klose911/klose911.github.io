@@ -222,11 +222,24 @@
 <li><a href="#orgc084eca">Haskell 包集与顶层</a></li>
 </ul>
 </li>
-<li><a href="#org3937059">搭建开发环境</a></li>
+<li><a href="#org3937059">搭建开发环境</a>
+<ul>
+<li><a href="#org03dfea5">只用 Nix 获取编译器和包管理器</a></li>
+<li><a href="#org7bcc856">Nixpkgs</a>
+<ul>
+<li><a href="#org5ca4402">developPackage</a></li>
+<li><a href="#orgc6186c6">shellFor</a></li>
+<li><a href="#org4b22f56">envFunc</a></li>
+</ul>
+</li>
+<li><a href="#orgd32a6b4">haskell.nix</a></li>
+</ul>
+</li>
+<li><a href="#org7ecf6fa">注意</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org3c33a97">
+<pre class="example" id="org9d1ab81">
 除了软件开发过程本身外，软件分发也是很重要的一个话题
 
 在发行版上建立编程语言生态系统可能不是一件简单的事情
@@ -242,7 +255,7 @@
 <div id="outline-container-org24ab96d" class="outline-3">
 <h3 id="org24ab96d">编译器</h3>
 <div class="outline-text-3" id="text-org24ab96d">
-<pre class="example" id="org3048629">
+<pre class="example" id="orgc46dbad">
 在进入 Nix 相关的话题之前，有必要介绍一下现在 Haskell 的工具链以及常用的包管理器
 </pre>
 <p>
@@ -274,14 +287,14 @@ binary-0.8.9.0
 <ul class="org-ul">
 <li>该目录包含了包集中每个包的一些元数据，例如包名、版本、编译结果等等</li>
 </ul>
-<pre class="example" id="orgc591d6c">
+<pre class="example" id="org2b1642c">
 这个路径可以使用环境变量覆盖，在 Nix 中就使用了该方法
 </pre>
 <p>
 GHC 可以对包集增删新的包，但不会去编译相应的，如果文件丢失或者依赖损坏只会报错。显然，这样的包管理能力并不是为直接面向开发者准备的
 </p>
 
-<pre class="example" id="orgfdf4845">
+<pre class="example" id="org20fb6be">
 对于开发，有两个流行的包管理器：Cabal 和 Stack
 </pre>
 </div>
@@ -293,7 +306,7 @@ GHC 可以对包集增删新的包，但不会去编译相应的，如果文件�
 首先介绍 Cabal。在实践中很多用户混淆 <span class="underline">cabal-install</span> （命令行包管理工具）与 <span class="underline">Cabal</span> （GHC 的一个 Boot Library）。后者相当于 Haskell 的构建系统，它定义了什么是一个 Haskell 包（样例来源于 Cabal 文档）：
 </p>
 
-<pre class="example" id="orgc043481">
+<pre class="example" id="org550b8f3">
 name:            TestPackage
 version:         0.0
 synopsis:        Package with library and two programs
@@ -331,7 +344,7 @@ executable program2
 当运行 runhaskell Setup.hs configure、runhaskell Setup.hs build 时，调用的是 Cabal 中的代码
 </p>
 
-<pre class="example" id="orgcf76fd5">
+<pre class="example" id="orgb739c4a">
 发行版通常会选择这种方式来构建 Haskell 包，而不是开发者常用的cabal build
 
 因为在这种情况下由发行版的包管理提供 Haskell 包需要的依赖，而不是 Haskell 的包管理提供
@@ -355,13 +368,13 @@ executable program2
 <p>
 这个过程类似沙盒构建：global store 用于共享已编译依赖、项目之间的依赖互不干扰
 </p>
-<pre class="example" id="org0653531">
+<pre class="example" id="orgd5d3488">
 这和 Nix 的思想如出一辙，cabal 将这个功能命名为 Nix-style local builds
 </pre>
 <p>
 然而在 1 版本时代，cabal 只维护一个全局包集而不是可以共享的 global store，如同 FHS 发行版那样，每个依赖只能有一个版本安装在包集里。然而编程语言包的维护很难做到发行版软件包那样细致，并且也没有人来解决冲突问题
 </p>
-<pre class="example" id="org6deac91">
+<pre class="example" id="org425fa37">
 每个用户的包集是不一样的，面对冲突用户只能自己想办法
 
 举个例子，开发 A 项目需要 http-client &gt;=0.3.2 &amp;&amp; &lt;0.4，但是 pandoc 需要 http-client &gt;= 0.4.1 &amp;&amp; &lt;0.4.2 由于依赖版本冲突
@@ -376,7 +389,7 @@ executable program2
 <div id="outline-container-org7db1923" class="outline-4">
 <h4 id="org7db1923">Stack</h4>
 <div class="outline-text-4" id="text-org7db1923">
-<pre class="example" id="orgf3a09ce">
+<pre class="example" id="org9c99172">
 正如前文已经所述，在旧 cabal 时代 Haskell 程序员天天面对的是依赖火葬场
 
 既然用户因为各种版本不一致难以维护自己的包集，那么是不是可以像维护 Linux 发行版那样，帮用户维护一个呢？
@@ -387,7 +400,7 @@ executable program2
 为了避免不同 GHC 版本带来包版本的变化 Stackage 还指定了 GHC 版本
 </p>
 
-<pre class="example" id="org83da64f">
+<pre class="example" id="org5bdb6f3">
 例如在本文编写时最新的 LTS 版本是 LTS 20.13 for ghc-9.2.7
 
 与某些发行版相似，Stackage 有一个 nightly 的滚动版本以及定期发布 LTS 版本，必要时会将新的变动向后移植到 LTS 版本中
@@ -421,7 +434,7 @@ Stack 可以代替 cabal 作为 Haskell 开发者的包管理工具，同时 hpa
 很多人的第一个 Haskell 项目可能就是用 stack 创建并构建的。Stack 作为构建系统同样依赖 Cabal ，只是使用了不同的依赖管理策略：让用户使用现成的包集
 </p>
 
-<pre class="example" id="orgd970d89">
+<pre class="example" id="org4b84823">
 然而这里存在一个问题：如果用户需要使用一个 Stackage包集没有的包，或者没有相应版本的包
 
 用户需要手动将想要的版本或者包的源码添加到 extra-deps 中
@@ -459,7 +472,7 @@ Stack 可以代替 cabal 作为 Haskell 开发者的包管理工具，同时 hpa
 这个过程是传递性的，换句话说即将一个不存在于包集的包添加进去时，需要确保它所有的依赖在包集中，并且版本是正确的
 </p>
 
-<pre class="example" id="orgd512eb5">
+<pre class="example" id="orgc905563">
 至于如何选择每个版本，需要用户自己根据版本约束判断（运行 stack 可以在错误信息中看到约束）
 
 这是非常痛苦的过程，并且通常项目需要为每个目标 GHC 版本选择一个 Stackage 包集然后重复这件事很多次
@@ -476,7 +489,7 @@ Stack 可以代替 cabal 作为 Haskell 开发者的包管理工具，同时 hpa
 <div id="outline-container-org136a6c4" class="outline-2">
 <h2 id="org136a6c4">Nixpkgs 和 Haskell</h2>
 <div class="outline-text-2" id="text-org136a6c4">
-<pre class="example" id="orgb9b01cc">
+<pre class="example" id="orgb9006e1">
 前文已经介绍 Haskell 的包管理工具，但它们是面向 Haskell 开发者的，而不是使用 Haskell 程序的用户
 
 对于发行版而言，优先满足最终用户的需求可能是首要目标，因为开发者总是可以使用编程语言的包管理器搭建开发环境
@@ -487,7 +500,7 @@ Stack 可以代替 cabal 作为 Haskell 开发者的包管理工具，同时 hpa
 Nixpkgs 提供了一个较为先进的 Haskell 基础设施，不光方便分发 Haskell 程序，同时提升了 Haskell 开发者的体验
 </p>
 
-<pre class="example" id="orgab07fc4">
+<pre class="example" id="org0105f13">
 离题一下，除了 Nixpkgs，input-output-hk/haskell.nix 提供了另一个 Haskell 基础设施
 
 与 Nixpkgs 相比它更为复杂，适用于更复杂的项目
@@ -501,7 +514,7 @@ Nixpkgs 提供了一个较为先进的 Haskell 基础设施，不光方便分发
 这些都是 Nixpkgs 中没有的功能。因为可自定义化程度高，这个基础设施在没有 cachix 缓存的情况下是难以使用的。用户可能就需要编译多次 GHC 以及各种配置不同的 Haskell 依赖
 </p>
 
-<pre class="example" id="orgc850a6a">
+<pre class="example" id="orgf5a138c">
 本文将重点目光放在 Nixpkgs 中的基础设施中
 </pre>
 </div>
@@ -582,7 +595,7 @@ Haskell 基础设施拥有类似的 <span class="underline">scope</span> 与 <sp
 <li><p>
 同样，mkDerivation 是 Haskell 的 generic builder
 </p>
-<pre class="example" id="orgbe8933b">
+<pre class="example" id="org70ae52a">
 好奇的读者可以在 generic-builder.nix 找到它的定义
 
 基本上它包装了标准环境中的 mkDerivation，添加了 Haskell 相关的构建步骤
@@ -591,7 +604,7 @@ Haskell 基础设施拥有类似的 <span class="underline">scope</span> 与 <sp
 <li><p>
 其中核心步骤是上文提到的调用 ./Setup.hs configure 与 ./Setup.hs build 等
 </p>
-<pre class="example" id="org64ed1c8">
+<pre class="example" id="orgc9cae9b">
 值得一提的是，Haskell derivation 还在 passthru 导出了全部构建依赖以及一个叫 envFunc 的函数
 
 它们是用于创造开发该包所需要的 Nix shell，后文会详细介绍
@@ -604,7 +617,7 @@ Haskell 基础设施拥有类似的 <span class="underline">scope</span> 与 <sp
 <div id="outline-container-orgc084eca" class="outline-3">
 <h3 id="orgc084eca">Haskell 包集与顶层</h3>
 <div class="outline-text-3" id="text-orgc084eca">
-<pre class="example" id="orgd5d3803">
+<pre class="example" id="org78125d9">
 Nixpkgs 中包含了 Hackage 所有软件包的最新版本的 Nix 表达式，尽管它们可能是无法构建的
 </pre>
 <p>
@@ -614,7 +627,7 @@ Nixpkgs 中包含了 Hackage 所有软件包的最新版本的 Nix 表达式，�
 <li><p>
 configuration-{arm,darwin}.nix：特定系统架构上需要的修改
 </p>
-<pre class="example" id="org2f240af">
+<pre class="example" id="orge2ad184">
 例如在某些架构上一些包的测试或编译无法通过，需要打补丁修复/禁用测试/添加依赖
 
 例如在drawin 配置中有hmatrix = addBuildDepend darwin.apple_sdk.frameworks.Accelerate super.hmatrix
@@ -622,7 +635,7 @@ configuration-{arm,darwin}.nix：特定系统架构上需要的修改
 <li><p>
 configuration-ghc-x.nix：特定 GHC 版本上需要的修改
 </p>
-<pre class="example" id="org2191c0e">
+<pre class="example" id="org2be4106">
 通常每个版本都需要将 GHC Boot Libraries 设置为 null
 
 还有一些包的受 GHC 版本影响，它们需要在这里手动指定版本
@@ -632,13 +645,13 @@ configuration-ghc-x.nix：特定 GHC 版本上需要的修改
 <li><p>
 configuration-common.nix：与前面特定架构的修改相似，但是它们与架构无关
 </p>
-<pre class="example" id="org554ad6b">
+<pre class="example" id="orgb940df1">
 通常是打一些补丁、jailbreak 等等
 </pre></li>
 <li><p>
 configuration-nix.nix：因为 Nix 带来问题而需要作出的修改
 </p>
-<pre class="example" id="orgcfebc5a">
+<pre class="example" id="orgaf6b8bc">
 大部分是禁用测试，因为在构建时没有网络
 
 还有一些是添加 cabal2nix 未能发现的依赖，例如一些需要运行期依赖其他软件的 Haskell 程序也在这里被 wrap
@@ -649,7 +662,7 @@ configuration-nix.nix：因为 Nix 带来问题而需要作出的修改
 这些配置都是 extension，即形如 <span class="underline">self: super: {&#x2026;}</span> 的函数。它们合并到一起并应用到 haskellPackages 上
 </p>
 
-<pre class="example" id="orgc51dc07">
+<pre class="example" id="orgb1a02ba">
 事实上 haskellPackages 是 extensible 的，即该 AttrSet 有 extend 字段
 
 方便用户在其上应用自己的修改。这在后文中搭建开发环境会用到
@@ -680,7 +693,7 @@ haskell.packages.ghc924
 而位于顶层的 haskellPackages 是人为定下的主流 GHC 版本
 </p>
 
-<pre class="example" id="orgeb143d2">
+<pre class="example" id="org36a6a37">
 在本文编写时它导出了haskell.packages.ghc92
 </pre>
 
@@ -730,7 +743,7 @@ haskell.packages.ghc924
 </pre>
 </div>
 
-<pre class="example" id="orgedf341c">
+<pre class="example" id="orgd6d0f5c">
 后文中会介绍具体应用它们的例子
 </pre>
 </div>
@@ -739,6 +752,290 @@ haskell.packages.ghc924
 
 <div id="outline-container-org3937059" class="outline-2">
 <h2 id="org3937059">搭建开发环境</h2>
+<div class="outline-text-2" id="text-org3937059">
+<pre class="example" id="org5fdca73">
+前文大致讲述了 Nixpkgs 中的 Haskell 基础设施，但是搭建 Haskell 开发环境不一定完全依赖于 Nixpkgs 中的包集
+
+Nix 语境中的搭建开发环境通常指构建出 dev shell 其中包含所需的开发工具以及依赖
+</pre>
+</div>
+
+<div id="outline-container-org03dfea5" class="outline-3">
+<h3 id="org03dfea5">只用 Nix 获取编译器和包管理器</h3>
+<div class="outline-text-3" id="text-org03dfea5">
+<p>
+如果用户不想借助 Nix 来实现缓存或可重现（用 derivation 来打包），那么用户可以仅使用 Nixpkgs 中的 GHC 和 cabal-install：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$<span style="color: #eedd82;">nix</span>-shell -p <span style="color: #ffa07a;">"haskellPackages.ghcWithPackages (pkgs: with pkgs; [ cabal-install ])"</span>
+</pre>
+</div>
+
+<p>
+后续步骤就与在其他发行版中无二了：
+</p>
+<ul class="org-ul">
+<li>使用 cabal init 可以创建项目</li>
+<li>cabal build可以构建项目</li>
+</ul>
+
+<p>
+相似地，Stack 用户也只需要在 dev shell 中准备好 GHC 和 stack，再加上打开 Stack 的 Nix 支持即可像在其他发行版那样使用
+</p>
+<pre class="example" id="orged293cb">
+这样的缺点显而易见，用户需要从头开始编译所有依赖，无法享受 Nix 带来的优势
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org7bcc856" class="outline-3">
+<h3 id="org7bcc856">Nixpkgs</h3>
+<div class="outline-text-3" id="text-org7bcc856">
+<p>
+可能使用 Nixpkgs 的 Haskell 基础设施创建 dev shell 是很多用户的选择。理想情况下，用户不需要在自己的机器上编译任意一个依赖，dev shell 将提供好一切。这样做的好处还有可以减少未来该 Haskell 程序在 Nixpkgs 中分发所需的努力，因为在一些情况下 dev shell 可以直接来源于 derivation 的 envFunc，而有了 derivation 就相当于在 Nix 中打出了这个包
+</p>
+
+<pre class="example" id="org600d69d">
+当然，如果因为各种疑难问题不容易构造出 derivation 或者满足依赖要求，最终可以诉诸于 cabal-install
+
+但这对分发是没有好处的，因为本质上依赖了开发者的环境
+</pre>
+</div>
+
+<div id="outline-container-org5ca4402" class="outline-4">
+<h4 id="org5ca4402">developPackage</h4>
+<div class="outline-text-4" id="text-org5ca4402">
+<p>
+对于简单项目而言， <span class="underline">developPackage</span> 是一个很好来创建 dev shell 的办法。假设项目仅包含单包，即没有使用 cabal.project 将多个包一起构建，以下代码片段可构造带有 cabal-install 和 haskell-language-server 的 dev shell：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">pkgs.haskellPackages.developPackage {
+  <span style="color: #eedd82;">root</span> = <span style="color: #7fffd4;">./.</span>;
+  <span style="color: #eedd82;">modifier</span> = drv:
+    pkgs.haskell.lib.addBuildTools drv ([
+      pkgs.cabal-install
+      pkgs.haskell-language-server
+    ]);
+}
+</pre>
+</div>
+<p>
+<span class="underline">modifier</span> 函数会应用到构建出的 derivation 上，这里的例子手动添加了两个依赖，它们会进入到 dev shell 中。如果需要 override 包集，可以在参数添加 overrides 函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">pkgs.haskellPackages.developPackage {
+  <span style="color: #eedd82;">root</span> = <span style="color: #7fffd4;">./.</span>;
+  <span style="color: #eedd82;">overrides</span> = hfinal: hprev: {
+    <span style="color: #eedd82;">github</span> = pkgs.haskell.lib.overrideCabal hprev.github (drv: { <span style="color: #eedd82;">patches</span> = [ ]; });
+  };
+}
+</pre>
+</div>
+
+<p>
+这段代码修改了 github 的 derivation，移除了其中的补丁。此外，还有 source-overrides AttrSet 可以指定包集中一些包的源码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">pkgs.haskellPackages.developPackage {
+  <span style="color: #eedd82;">root</span> = <span style="color: #7fffd4;">./.</span>;
+  <span style="color: #eedd82;">source-overrides</span> = {
+    <span style="color: #eedd82;">foo</span> = <span style="color: #7fffd4;">./foo</span>;
+    <span style="color: #eedd82;">graphviz</span> = <span style="color: #ffa07a;">"2999.20.0.4"</span>;
+  };
+}
+</pre>
+</div>
+<p>
+这段代码为包集添加了本地的 foo，覆盖 graphviz 的版本为 2999.20.0.4。事实上 source-overrides 传给了 haskell.lib.packageSourceOverrides：
+</p>
+<ul class="org-ul">
+<li>后者判断如果值是一个路径，就对它调用 callCabal2nix</li>
+<li>如果是字符串，就对它调用callHackage</li>
+</ul>
+
+<p>
+developPackage 的源码如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">developPackage</span> =
+  { root
+  , name ? lib.optionalString (builtins.typeOf root == <span style="color: #ffa07a;">"path"</span>) (builtins.baseNameOf root)
+  , source-overrides ? {}
+  , overrides ? self: super: {}
+  , modifier ? drv: drv
+  , returnShellEnv ? pkgs.lib.inNixShell
+  , withHoogle ? returnShellEnv
+  , cabal2nixOptions ? <span style="color: #ffa07a;">""</span> }:
+  <span style="color: #00ffff;">let</span> <span style="color: #eedd82;">drv</span> =
+    (extensible-self.extend
+       (pkgs.lib.composeExtensions
+          (self.packageSourceOverrides source-overrides)
+          overrides))
+    .callCabal2nixWithOptions name root cabal2nixOptions {};
+  <span style="color: #00ffff;">in</span> if returnShellEnv
+       <span style="color: #00ffff;">then</span> (modifier drv).envFunc {<span style="color: #00ffff;">inherit</span> withHoogle;}
+       <span style="color: #00ffff;">else</span> modifier drv;
+</pre>
+</div>
+
+<p>
+不难看出：
+</p>
+<ol class="org-ol">
+<li>先把 source-overrides 交给 haskell.lib.packageSourceOverrides 得到一个extension（形如 self: super: {&lt;包名&gt; = &lt;drv&gt;} 的函数）</li>
+<li>再把overrides（也是同样的 extension）和它 compose 到一起</li>
+<li>修改包集后调用callCabal2nix，再应用 modifier 到结果上</li>
+</ol>
+
+<p>
+这样以来，developPackage 是在构建位于 root Haskell 包的 derivation，并且根据需求返回 derivation 本身，或者它的envFunc
+</p>
+<ul class="org-ul">
+<li>envFunc 在前文提到过，旨在为该 Haskell derivation 创建 dev shell</li>
+</ul>
+
+<p>
+将上面调用 developPackage 的代码放到 default.nix 即可（不要忘记指定pkgs），在该目录下运行 nix-build 可构建出该包的 derivation；运行 nix-shell 可进入 dev shell
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgc6186c6" class="outline-4">
+<h4 id="orgc6186c6">shellFor</h4>
+<div class="outline-text-4" id="text-orgc6186c6">
+<pre class="example" id="orgff4bcb3">
+developPackage 在应对单包项目时比较方便，但在多包项目时就会遇到问题
+</pre>
+<p>
+shellFor 可以为多包项目创建 dev shell。以下面项目结构 cabal.package 为例：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">packages:
+  frontend/
+  backend/
+</pre>
+</div>
+
+<p>
+以下代码可以创建相应的 dev shell：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix">(pkgs.haskellPackages.extend (pkgs.haskell.lib.packageSourceOverrides {
+  <span style="color: #eedd82;">frontend</span> = <span style="color: #7fffd4;">./frontend</span>;
+  <span style="color: #eedd82;">backend</span> = <span style="color: #7fffd4;">./backend</span>;
+})).shellFor {
+  <span style="color: #eedd82;">packages</span> = p: [ p.frontend p.backend ];
+  <span style="color: #eedd82;">buildInputs</span> = [ pkgs.haskell-language-server pkgs.cabal-install ];
+}
+</pre>
+</div>
+<p>
+可以看出首先本地的 frontend 和 backend 被添加到包集，然后 shellFor 接受了 packages 函数和 buildInputs 列表
+</p>
+
+<pre class="example" id="org4bddf01">
+后者很好理解，相当于非 Haskell 的额外依赖。但前者是什么呢？
+</pre>
+
+<p>
+事实上 shellFor 和 developPackage 完成的操作完全不同：
+</p>
+<ul class="org-ul">
+<li>developPackage 是修改包集后构造项目的 Haskell derivation；</li>
+<li>shellFor 是按类别筛选出 packages 函数所返回列表中所有 Haskell derivations 的依赖后，构造一个临时的 Haskell derivation，使得它的依赖是上一部步的筛选结果，并对它调用envFunc</li>
+</ul>
+<pre class="example" id="org27d04dd">
+换句话说，shellFor 基本上是创建一个包含项目中所有依赖的dev shell，但是不构建项目本身
+
+它的源码比较长，就不在这里贴出了
+</pre>
+
+<p>
+shellFor 的返回结果只能被用来创建 dev shell，而不能构建包。因此可以将该段代码放进 <span class="underline">shell.nix</span> 中，运行 <span class="underline">nix-shell</span> 即可进入 dev shell
+</p>
+</div>
+</div>
+
+<div id="outline-container-org4b22f56" class="outline-4">
+<h4 id="org4b22f56">envFunc</h4>
+<div class="outline-text-4" id="text-org4b22f56">
+<pre class="example" id="org6c74f97">
+不管 developPackage 还是 shellFor，它们最终调用的都是 envFunc
+</pre>
+<p>
+<span class="underline">envFunc</span> 每一个 Haskell derivation 都有的，它会 <b>创建</b> 一个含有该 derivation 所有 Haskell 依赖的 <span class="underline">dev shell</span> 。如果不想使用这两个函数，也可以自己调用 envFunc 创建 dev shell。以下面使用了 flakes 的代码为例（来自 pixiv/flake.nix）：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{
+  <span style="color: #eedd82;">inputs.nixpkgs.url</span> = <span style="color: #ffa07a;">"github:NixOS/nixpkgs/nixos-unstable"</span>;
+  <span style="color: #eedd82;">inputs.flake-utils.url</span> = <span style="color: #ffa07a;">"github:numtide/flake-utils"</span>;
+
+  <span style="color: #eedd82;">outputs</span> = { self, nixpkgs, flake-utils, ... }:
+    flake-utils.lib.eachDefaultSystem (system:
+      <span style="color: #00ffff;">let</span>
+        <span style="color: #eedd82;">pkgs</span> = <span style="color: #b0c4de;">import</span> nixpkgs {
+          <span style="color: #00ffff;">inherit</span> system;
+          <span style="color: #eedd82;">overlays</span> = [ self.overlays.default ];
+        };
+      <span style="color: #00ffff;">in</span> with pkgs; {
+        <span style="color: #eedd82;">devShells.default</span> = pixiv-dev.envFunc { <span style="color: #eedd82;">withHoogle</span> = <span style="color: #b0c4de;">true</span>; };
+        <span style="color: #eedd82;">packages.default</span> = pixiv;
+      }) // {
+        <span style="color: #eedd82;">overlays.default</span> = final: prev:
+          <span style="color: #00ffff;">let</span>
+            <span style="color: #eedd82;">hpkgs</span> = prev.haskellPackages;
+            <span style="color: #eedd82;">linkHaddockToHackage</span> = drv:
+              prev.haskell.lib.overrideCabal drv (drv: {
+                <span style="color: #eedd82;">haddockFlags</span> = [
+                  <span style="color: #ffa07a;">"--html-location='https://hackage.haskell.org/package/$pkg-$version/docs'"</span>
+                ];
+              });
+            <span style="color: #eedd82;">pixiv</span> = <span style="color: #00ffff;">with</span> prev.haskell.lib;
+              linkHaddockToHackage (disableLibraryProfiling
+                (dontCheck (hpkgs.callCabal2nix <span style="color: #ffa07a;">"pixiv"</span> <span style="color: #7fffd4;">./.</span> { })));
+          <span style="color: #00ffff;">in</span> with prev;
+            <span style="color: #00ffff;">with</span> haskell.lib; {
+              <span style="color: #00ffff;">inherit</span> pixiv;
+              <span style="color: #eedd82;">pixiv-dev</span> =
+                addBuildTools pixiv [ haskell-language-server cabal-install ];
+            };
+      };
+}
+</pre>
+</div>
+
+<p>
+这里并没有修改 Haskell 包集，而是使用 callCabal2nix 创建了 pixiv 的 Haskell derivation，同时对该 derivation 作出了一系列修改
+</p>
+<pre class="example" id="org1ab30dc">
+例如 dontCheck 和disableLibraryProfiling
+</pre>
+<p>
+pixiv-dev 则是 pixiv 添加上两个必要的开发工具，它唯一的用处是将它的 envFunc 导出到 flake 的 devShells.default 用于创建 dev shell（使用 nix develop）。而被当成 packages.default 导出的则是 pixiv 这个 Haskell derivation。在其他 flake 中，可以直接将该 flake 添加为 input，并使用导出的 pixiv
+</p>
+<pre class="example" id="org99f7107">
+由此可见，自己调用 envFunc 搭配上 flake 可以更灵活地创建开发环境以及分发程序
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgd32a6b4" class="outline-3">
+<h3 id="orgd32a6b4">haskell.nix</h3>
+<div class="outline-text-3" id="text-orgd32a6b4">
+<p>
+与 Nixpkgs 大体相似，但细节不同。本文不作重点讨论，具体可参照文档：<a href="https://input-output-hk.github.io/haskell.nix/">Alternative Haskell Infrastructure for Nixpkgs</a>
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org7ecf6fa" class="outline-2">
+<h2 id="org7ecf6fa">注意</h2>
 </div>
 </div>
 <div id="postamble" class="status">

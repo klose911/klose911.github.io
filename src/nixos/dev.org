@@ -386,3 +386,199 @@ Haskell 基础设施拥有类似的 _scope_ 与 _callPackage_ 机制：通常一
 #+end_example
 
 * 搭建开发环境
+#+begin_example
+  前文大致讲述了 Nixpkgs 中的 Haskell 基础设施，但是搭建 Haskell 开发环境不一定完全依赖于 Nixpkgs 中的包集
+
+  Nix 语境中的搭建开发环境通常指构建出 dev shell 其中包含所需的开发工具以及依赖
+#+end_example
+
+** 只用 Nix 获取编译器和包管理器
+如果用户不想借助 Nix 来实现缓存或可重现（用 derivation 来打包），那么用户可以仅使用 Nixpkgs 中的 GHC 和 cabal-install：
+
+#+begin_src sh 
+  $nix-shell -p "haskellPackages.ghcWithPackages (pkgs: with pkgs; [ cabal-install ])"
+#+end_src
+
+后续步骤就与在其他发行版中无二了：
++ 使用 cabal init 可以创建项目
++ cabal build可以构建项目
+
+相似地，Stack 用户也只需要在 dev shell 中准备好 GHC 和 stack，再加上打开 Stack 的 Nix 支持即可像在其他发行版那样使用
+#+begin_example
+  这样的缺点显而易见，用户需要从头开始编译所有依赖，无法享受 Nix 带来的优势
+#+end_example
+
+** Nixpkgs
+可能使用 Nixpkgs 的 Haskell 基础设施创建 dev shell 是很多用户的选择。理想情况下，用户不需要在自己的机器上编译任意一个依赖，dev shell 将提供好一切。这样做的好处还有可以减少未来该 Haskell 程序在 Nixpkgs 中分发所需的努力，因为在一些情况下 dev shell 可以直接来源于 derivation 的 envFunc，而有了 derivation 就相当于在 Nix 中打出了这个包
+
+#+begin_example
+  当然，如果因为各种疑难问题不容易构造出 derivation 或者满足依赖要求，最终可以诉诸于 cabal-install
+
+  但这对分发是没有好处的，因为本质上依赖了开发者的环境
+#+end_example
+
+*** developPackage
+对于简单项目而言， _developPackage_ 是一个很好来创建 dev shell 的办法。假设项目仅包含单包，即没有使用 cabal.project 将多个包一起构建，以下代码片段可构造带有 cabal-install 和 haskell-language-server 的 dev shell：
+
+#+begin_src nix 
+  pkgs.haskellPackages.developPackage {
+    root = ./.;
+    modifier = drv:
+      pkgs.haskell.lib.addBuildTools drv ([
+	pkgs.cabal-install
+	pkgs.haskell-language-server
+      ]);
+  }
+#+end_src
+_modifier_ 函数会应用到构建出的 derivation 上，这里的例子手动添加了两个依赖，它们会进入到 dev shell 中。如果需要 override 包集，可以在参数添加 overrides 函数：
+
+#+begin_src nix 
+  pkgs.haskellPackages.developPackage {
+    root = ./.;
+    overrides = hfinal: hprev: {
+      github = pkgs.haskell.lib.overrideCabal hprev.github (drv: { patches = [ ]; });
+    };
+  }
+#+end_src
+
+这段代码修改了 github 的 derivation，移除了其中的补丁。此外，还有 source-overrides AttrSet 可以指定包集中一些包的源码：
+
+#+begin_src nix 
+  pkgs.haskellPackages.developPackage {
+    root = ./.;
+    source-overrides = {
+      foo = ./foo;
+      graphviz = "2999.20.0.4";
+    };
+  }
+#+end_src
+这段代码为包集添加了本地的 foo，覆盖 graphviz 的版本为 2999.20.0.4。事实上 source-overrides 传给了 haskell.lib.packageSourceOverrides：
++ 后者判断如果值是一个路径，就对它调用 callCabal2nix
++ 如果是字符串，就对它调用callHackage
+
+developPackage 的源码如下：
+#+begin_src nix 
+   developPackage =
+     { root
+     , name ? lib.optionalString (builtins.typeOf root == "path") (builtins.baseNameOf root)
+     , source-overrides ? {}
+     , overrides ? self: super: {}
+     , modifier ? drv: drv
+     , returnShellEnv ? pkgs.lib.inNixShell
+     , withHoogle ? returnShellEnv
+     , cabal2nixOptions ? "" }:
+     let drv =
+       (extensible-self.extend
+	  (pkgs.lib.composeExtensions
+	     (self.packageSourceOverrides source-overrides)
+	     overrides))
+       .callCabal2nixWithOptions name root cabal2nixOptions {};
+     in if returnShellEnv
+	  then (modifier drv).envFunc {inherit withHoogle;}
+	  else modifier drv;
+#+end_src
+
+不难看出：
+1. 先把 source-overrides 交给 haskell.lib.packageSourceOverrides 得到一个extension（形如 self: super: {<包名> = <drv>} 的函数）
+2. 再把overrides（也是同样的 extension）和它 compose 到一起
+3. 修改包集后调用callCabal2nix，再应用 modifier 到结果上
+
+这样以来，developPackage 是在构建位于 root Haskell 包的 derivation，并且根据需求返回 derivation 本身，或者它的envFunc
++ envFunc 在前文提到过，旨在为该 Haskell derivation 创建 dev shell
+
+将上面调用 developPackage 的代码放到 default.nix 即可（不要忘记指定pkgs），在该目录下运行 nix-build 可构建出该包的 derivation；运行 nix-shell 可进入 dev shell
+
+*** shellFor
+#+begin_example
+developPackage 在应对单包项目时比较方便，但在多包项目时就会遇到问题
+#+end_example
+shellFor 可以为多包项目创建 dev shell。以下面项目结构 cabal.package 为例：
+
+#+begin_src sh 
+  packages:
+    frontend/
+    backend/
+#+end_src
+
+以下代码可以创建相应的 dev shell：
+#+begin_src nix 
+  (pkgs.haskellPackages.extend (pkgs.haskell.lib.packageSourceOverrides {
+    frontend = ./frontend;
+    backend = ./backend;
+  })).shellFor {
+    packages = p: [ p.frontend p.backend ];
+    buildInputs = [ pkgs.haskell-language-server pkgs.cabal-install ];
+  }
+#+end_src
+可以看出首先本地的 frontend 和 backend 被添加到包集，然后 shellFor 接受了 packages 函数和 buildInputs 列表
+
+#+begin_example
+后者很好理解，相当于非 Haskell 的额外依赖。但前者是什么呢？
+#+end_example
+
+事实上 shellFor 和 developPackage 完成的操作完全不同：
++ developPackage 是修改包集后构造项目的 Haskell derivation；
++ shellFor 是按类别筛选出 packages 函数所返回列表中所有 Haskell derivations 的依赖后，构造一个临时的 Haskell derivation，使得它的依赖是上一部步的筛选结果，并对它调用envFunc
+#+begin_example
+  换句话说，shellFor 基本上是创建一个包含项目中所有依赖的dev shell，但是不构建项目本身
+
+  它的源码比较长，就不在这里贴出了
+#+end_example
+
+shellFor 的返回结果只能被用来创建 dev shell，而不能构建包。因此可以将该段代码放进 _shell.nix_ 中，运行 _nix-shell_ 即可进入 dev shell
+
+*** envFunc
+#+begin_example
+  不管 developPackage 还是 shellFor，它们最终调用的都是 envFunc
+#+end_example
+_envFunc_ 每一个 Haskell derivation 都有的，它会 *创建* 一个含有该 derivation 所有 Haskell 依赖的 _dev shell_ 。如果不想使用这两个函数，也可以自己调用 envFunc 创建 dev shell。以下面使用了 flakes 的代码为例（来自 pixiv/flake.nix）：
+
+#+begin_src nix 
+  {
+    inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    inputs.flake-utils.url = "github:numtide/flake-utils";
+
+    outputs = { self, nixpkgs, flake-utils, ... }:
+      flake-utils.lib.eachDefaultSystem (system:
+	let
+	  pkgs = import nixpkgs {
+	    inherit system;
+	    overlays = [ self.overlays.default ];
+	  };
+	in with pkgs; {
+	  devShells.default = pixiv-dev.envFunc { withHoogle = true; };
+	  packages.default = pixiv;
+	}) // {
+	  overlays.default = final: prev:
+	    let
+	      hpkgs = prev.haskellPackages;
+	      linkHaddockToHackage = drv:
+		prev.haskell.lib.overrideCabal drv (drv: {
+		  haddockFlags = [
+		    "--html-location='https://hackage.haskell.org/package/$pkg-$version/docs'"
+		  ];
+		});
+	      pixiv = with prev.haskell.lib;
+		linkHaddockToHackage (disableLibraryProfiling
+		  (dontCheck (hpkgs.callCabal2nix "pixiv" ./. { })));
+	    in with prev;
+	      with haskell.lib; {
+		inherit pixiv;
+		pixiv-dev =
+		  addBuildTools pixiv [ haskell-language-server cabal-install ];
+	      };
+	};
+  }
+#+end_src
+
+这里并没有修改 Haskell 包集，而是使用 callCabal2nix 创建了 pixiv 的 Haskell derivation，同时对该 derivation 作出了一系列修改
+#+begin_example
+例如 dontCheck 和disableLibraryProfiling
+#+end_example
+pixiv-dev 则是 pixiv 添加上两个必要的开发工具，它唯一的用处是将它的 envFunc 导出到 flake 的 devShells.default 用于创建 dev shell（使用 nix develop）。而被当成 packages.default 导出的则是 pixiv 这个 Haskell derivation。在其他 flake 中，可以直接将该 flake 添加为 input，并使用导出的 pixiv
+#+begin_example
+由此可见，自己调用 envFunc 搭配上 flake 可以更灵活地创建开发环境以及分发程序
+#+end_example
+** haskell.nix
+与 Nixpkgs 大体相似，但细节不同。本文不作重点讨论，具体可参照文档：[[https://input-output-hk.github.io/haskell.nix/][Alternative Haskell Infrastructure for Nixpkgs]]
+* 注意
