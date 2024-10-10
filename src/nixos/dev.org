@@ -188,3 +188,201 @@ Stack 可以代替 cabal 作为 Haskell 开发者的包管理工具，同时 hpa
 但是由于其稳定性（有效减少了版本不一致的问题），仍然有很大一部分用户选择使用 Stack
 
 * Nixpkgs 和 Haskell
+#+begin_example
+  前文已经介绍 Haskell 的包管理工具，但它们是面向 Haskell 开发者的，而不是使用 Haskell 程序的用户
+
+  对于发行版而言，优先满足最终用户的需求可能是首要目标，因为开发者总是可以使用编程语言的包管理器搭建开发环境
+
+  如果发行版能提供一定便利自然更好，但这不是必要的
+#+end_example
+Nixpkgs 提供了一个较为先进的 Haskell 基础设施，不光方便分发 Haskell 程序，同时提升了 Haskell 开发者的体验
+
+#+begin_example
+  离题一下，除了 Nixpkgs，input-output-hk/haskell.nix 提供了另一个 Haskell 基础设施
+
+  与 Nixpkgs 相比它更为复杂，适用于更复杂的项目
+
+  例如它使用 Nix 语言抽象了类似 .cabal 的 Haskell 包配置文件；它还抽象了一个包的构建计划，其中包含该包的依赖集以及编译器版本、参数等等
+
+  用户可以从 Stackage 或者 Cabal plan 创建 Haskell 包的构建计划，完成对依赖的细粒度控制
+#+end_example
+
+这些都是 Nixpkgs 中没有的功能。因为可自定义化程度高，这个基础设施在没有 cachix 缓存的情况下是难以使用的。用户可能就需要编译多次 GHC 以及各种配置不同的 Haskell 依赖
+
+#+begin_example
+本文将重点目光放在 Nixpkgs 中的基础设施中
+#+end_example
+
+** Haskell derivation
+Nix 用户可能熟悉 _stdenv_ 中的 _mkDerivation_ ：
+
+#+begin_src nix 
+  stdenv.mkDerivation {
+    name = "libfoo-2.3.3";
+    src = fetchurl {
+      url = http://example.org/libfoo-2.3.3.tar.gz;
+      sha256 = "...";
+    };
+    buildInputs = [ perl ncurses ];
+  }
+#+end_src
+
+标准环境提供了用于构建 Unix 软件包的环境，自动化了诸如 ./configure、make 等步骤。在这基础上扩展，对于不同语言不同工具链可以衍生出相应的 _derivation 生成函数_ ，或者叫 *构建步骤* ，从而搭建出该语言的框架。例如构建一个 Python 包看起来是这样的（来源于 [[https://nixos.wiki/wiki/Python][NixOS Wiki]]）：
+
+#+begin_src nix 
+  buildPythonPackage rec {
+    pname = "deserialize";
+    version = "1.8.3";
+    src = fetchPypi {
+      inherit pname version;
+      sha256 = "sha256-0aozmQ4Eb5zL4rtNHSFjEynfObUkYlid1PgMDVmRkwY=";
+    };
+    doCheck = false;
+    propagatedBuildInputs = [
+      # Specify dependencies
+      pkgs.python3Packages.numpy
+    ];
+  }
+#+end_src
+
+可以看出 Nixpkgs 中维护了 Python 包集，每个包都对应一个 *Nix derivation* 。得益于 derivation 的概念，derivations 可以作为构建输入，达到由发行版包管理满足编程语言依赖需求的效果。Haskell 的框架与之十分类似，尽管更加复杂。以 _wxc_ 为例，它的 Nix 表达式（来源于 _cabal2nix_ ）是：
+
+#+begin_src nix 
+  { mkDerivation, base, bytestring, Cabal, directory, filepath, process, split, wxdirect }:
+  mkDerivation {
+    pname = "wxc";
+    version = "0.92.3.0";
+    sha256 = "0i7z4avy57qzrykz3kddfn313zddp3lnyl9a0krx5f2k3b2pz8i8";
+    revision = "1";
+    editedCabalFile = "1cgq577ddskmp1xdlnlz0581r8hsqblgxc7wy0avb7sgf181cbd4";
+    setupHaskellDepends =
+      [ base bytestring Cabal directory filepath process split ];
+    libraryHaskellDepends = [ base split wxdirect ];
+    librarySystemDepends = [ pkgs.libGL pkgs.libX11 ];
+    libraryPkgconfigDepends = [ pkgs.wxGTK ];
+    doHaddock = false;
+    postInstall = "cp -v dist/build/libwxc.so.0.92.3.0 $out/lib/libwxc.so";
+    postPatch = "sed -i -e '/ldconfig inst_lib_dir/d' Setup.hs";
+    description = "wxHaskell C++ wrapper";
+    license = "unknown";
+    hydraPlatforms = lib.platforms.none;
+  }
+#+end_src
+
+Haskell 基础设施拥有类似的 _scope_ 与 _callPackage_ 机制：通常一个包对应的 Nix 表达式是一个函数
++ 它接受其他 derivations 作为构建输入：这里函数参数都是 haskellPackages scope 中的 derivations，而不是 pkgs 中的
++ 系统依赖如 librarySystemDepends 是来自 pkgs 的，而 haskellPackages.callPackage 只传递 Haskell derivation
++ 同样，mkDerivation 是 Haskell 的 generic builder
+  #+begin_example
+    好奇的读者可以在 generic-builder.nix 找到它的定义
+
+    基本上它包装了标准环境中的 mkDerivation，添加了 Haskell 相关的构建步骤
+  #+end_example
+   + 其中核心步骤是上文提到的调用 ./Setup.hs configure 与 ./Setup.hs build 等
+     #+begin_example
+       值得一提的是，Haskell derivation 还在 passthru 导出了全部构建依赖以及一个叫 envFunc 的函数
+
+       它们是用于创造开发该包所需要的 Nix shell，后文会详细介绍
+     #+end_example
+
+** Haskell 包集与顶层
+#+begin_example
+  Nixpkgs 中包含了 Hackage 所有软件包的最新版本的 Nix 表达式，尽管它们可能是无法构建的
+#+end_example
+维护者会定期对整个 Hackage 运行 cabal2nix，产生如同上文 wxc 的 Nix 表达式。生成结果位于  _hackage-packages.nix_  ，一个超过 10M 的文本文件。如果包因为依赖无法满足或者构建失败（包括测试失败），它会被添加进 _configuration-hackage2nix/broken.yaml_ 中，使得生成出的 Nix 表达式包含 _isBroken = true_ 。此外，该文件上级目录下有一些 *configuration-x.nix* 文件，它们的作用是 *调整* scope 中包名对应的 _Haskell derivations_ ：
++ configuration-{arm,darwin}.nix：特定系统架构上需要的修改
+  #+begin_example
+    例如在某些架构上一些包的测试或编译无法通过，需要打补丁修复/禁用测试/添加依赖
+
+    例如在drawin 配置中有hmatrix = addBuildDepend darwin.apple_sdk.frameworks.Accelerate super.hmatrix
+  #+end_example
++ configuration-ghc-x.nix：特定 GHC 版本上需要的修改
+  #+begin_example
+    通常每个版本都需要将 GHC Boot Libraries 设置为 null
+
+    还有一些包的受 GHC 版本影响，它们需要在这里手动指定版本
+
+    例如在 GHC 8 的配置中有ghc-lib = doDistribute self.ghc-lib_8_10_7_20220219
+  #+end_example
++ configuration-common.nix：与前面特定架构的修改相似，但是它们与架构无关
+  #+begin_example
+    通常是打一些补丁、jailbreak 等等
+  #+end_example
++ configuration-nix.nix：因为 Nix 带来问题而需要作出的修改
+  #+begin_example
+    大部分是禁用测试，因为在构建时没有网络
+
+    还有一些是添加 cabal2nix 未能发现的依赖，例如一些需要运行期依赖其他软件的 Haskell 程序也在这里被 wrap
+  #+end_example
+
+这些配置都是 extension，即形如 _self: super: {...}_ 的函数。它们合并到一起并应用到 haskellPackages 上
+
+#+begin_example
+  事实上 haskellPackages 是 extensible 的，即该 AttrSet 有 extend 字段
+
+  方便用户在其上应用自己的修改。这在后文中搭建开发环境会用到
+#+end_example
+
+每个 GHC 版本都有一个对应的 haskellPackages，即 Haskell 包集和工具链。在 repl 中可以看到：
+
+#+begin_src sh 
+  haskell.packages.ghc810                haskell.packages.ghc924Binary
+  haskell.packages.ghc8102Binary         haskell.packages.ghc924BinaryMinimal
+  haskell.packages.ghc8102BinaryMinimal  haskell.packages.ghc925
+  haskell.packages.ghc8107               haskell.packages.ghc926
+  haskell.packages.ghc8107Binary         haskell.packages.ghc94
+  haskell.packages.ghc8107BinaryMinimal  haskell.packages.ghc942
+  haskell.packages.ghc865Binary          haskell.packages.ghc943
+  haskell.packages.ghc88                 haskell.packages.ghc944
+  haskell.packages.ghc884                haskell.packages.ghcHEAD
+  haskell.packages.ghc90                 haskell.packages.ghcjs
+  haskell.packages.ghc902                haskell.packages.ghcjs810
+  haskell.packages.ghc92
+  haskell.packages.ghc924
+#+end_src
+
+而位于顶层的 haskellPackages 是人为定下的主流 GHC 版本
+
+#+begin_example
+  在本文编写时它导出了haskell.packages.ghc92
+#+end_example
+
+诸如 pandoc 的 Haskell 程序通常在顶层被导出时会对相应 derivation 应用 _justStaticExecutables_ ，即 *静态链接可执行文件* 、避免应用程序依赖 Haskell 库和 GHC
++ 许多该类修改位于前文所述的 configuration-nix.nix 中，也有一部分在顶层或者该包自己的 .nix 中
++ 还有一个常用的函数集 haskell.lib 和haskell.packageOverrides
+  + haskell.lib 是一个AttrSet，包含了前文中提到的addBuildDepend、doDistribute、justStaticExecutables 等调整 Haskell derivation 的函数
+  + haskell.packageOverrides 是一个 extension，它总是会被应用到所有 GHC 版本的 haskellPackages
+
+因此，用户可以自定义 overlay 来 override 整个 haskell：
+
+#+begin_src nix 
+  final: prev: {
+    haskell = prev.haskell // {
+      packageOverrides = hfinal: hprev:
+	hprev.haskell.packageOverrides hfinal hprev // {
+	  # ...
+	};
+    };
+  }
+#+end_src
+
+
+若要单独 override 某个haskellPackages，可以用以下 overlay（其中 haskellPackages 可被 haskell.packages.ghc94 等替代）：
+
+#+begin_src nix 
+  final: prev: {
+    haskellPackages = prev.haskellPackages.override (old: {
+      overrides = final.lib.composeExtensions (old.overrides or (_: _: { }))
+	(hfinal: hprev:
+	  {
+	    # ...
+	  });
+    });
+  }
+#+end_src
+
+#+begin_example
+  后文中会介绍具体应用它们的例子
+#+end_example
+
+* 搭建开发环境
