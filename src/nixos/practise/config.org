@@ -1,0 +1,292 @@
+#+TITLE: 基础配置
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil 
+#+HTML_LINK_HOME: practise.html
+
+
+#+begin_example
+本文假设已经按照 NixOS 官方安装教程装好了一个系统
+#+end_example
+接下来主要介绍以下内容：
+1. NixOS 配置文件的基本格式和修改配置的方法
+2. Nix 包管理器的 Flake 功能
+3. Deploy-RS 部署工具
+* 基础配置
+在 NixOS 的安装过程中， _nixos-generate-config_  工具在 _/etc/nixos_ 目录下生成了一份初始配置文件， _configuration.nix_ 和 _hardware-configuration.nix_ 两份文件。先不管 hardware-configuration.nix 这份文件，它是根据系统的硬件设备、硬盘分区等自动生成的配置文件。先打开 _configuration.nix_ ：
+
+#+begin_src nix 
+  # 为缩短长度，我去掉了配置文件中所有的注释
+  { config, pkgs, ... }:
+
+  {
+    imports =
+      [
+	./hardware-configuration.nix
+      ];
+
+    boot.loader.grub.enable = true;
+    boot.loader.grub.version = 2;
+    boot.loader.grub.device = "/dev/sda";
+
+    networking.useDHCP = false;
+    networking.interfaces.enp0s3.useDHCP = true;
+    networking.interfaces.enp0s8.useDHCP = true;
+
+    system.stateVersion = "21.05";
+  }
+#+end_src
+
+这个文件定义了整个 NixOS 系统，包括安装的软件包和它们的配置
+
+#+begin_example
+  这个文件是 Nix 格式的，也就是 NixOS 的 Nix 包管理器自创的一种 函数式编程 语言
+
+  但因为只是简单配置，还用不到它的编程特性。可以先忽略开头的 { config, pkgs, ... }: 一行，暂时把剩余部分当 JSON 看待 
+#+end_example
+
+Nix 语言同样有着 JSON 的六大数据类型：数字，布尔值，字符串，对象，数组和 null，写法也大体相同。此外，Nix 语言还多了一种 _路径_ 数据类型：
+
+#+begin_src nix 
+  {
+    # 数字
+    number = 123456;
+
+    # 布尔值
+    boolean_value = true;
+
+    # 字符串
+    string = "lantian.pub";
+
+    # 对象
+    object = {
+      a = 1;
+      b = 2;
+    };
+    # 上面的对象也可以写成下面这样，是等价的：
+    object.a = 1;
+    object.b = 2;
+
+    # 数组
+    array = [
+      "first element"
+      "second element"
+
+      # 数组里也可以放对象：
+      ({
+	a = 1;
+	b = 2;
+      })
+    ];
+
+    # 路径，和字符串的区别是不加引号
+    #
+    # 注意：
+    #
+    # - 以路径格式指定的文件会在解析配置阶段被复制到 /nix/store 中，然后从那里调用
+    #   路径一般用来指定和配置文件一起管理的文件，例如你手写的某个程序的配置文件
+    #
+    # - 而以字符串方式指定的文件不会被复制，但其内容也就不是配置文件的一部分
+    #   它们不受 Nix 管理，内容也无法被 Nix 读取，但路径可以被原样写进配置文件，并被最终执行的程序读取
+    #   一般用来指定独立管理的文件，例如你的网站程序代码
+    file = ./somefile.txt;    # 会被复制成 /nix/store/[哈希值]-somefile.txt
+    file2 = "./somefile.txt"; # 不会被 Nix 读取或处理
+  }
+#+end_src
+
+现在如果想安装一个 SSH 服务端以便远程登录，就可以添加这两行配置：
+
+#+begin_src nix 
+  { config, pkgs, ... }:
+
+  {
+    # ...
+
+    # 添加这两行
+    services.openssh.enable = true;
+    services.openssh.permitRootLogin = "yes";
+
+    # 或者也可以利用 Nix 对象的特性，写成这样
+    services.openssh = {
+      enable = true;
+      permitRootLogin = "yes";
+    };
+
+    # 或者这样
+    services = {
+      openssh = {
+	enable = true;
+	permitRootLogin = "yes";
+      };
+    };
+
+    # ...
+  }
+#+end_src
+
+#+begin_example
+  services.openssh.permitRootLogin = "yes"; 这行允许了用密码登录 root 账户
+
+  因为我用的是一台不暴露在公网的虚拟机，比起安全我更注重方便。如果你的机器暴露在公网，不要加这行！
+#+end_example
+
+修改完配置后，运行 _nixos-rebuild switch_ 重新配置系统，NixOS 会读取配置文件，自动下载 OpenSSH、生成配置文件并启动，然后就可以用 SSH 连接 22 端口来登录了
+
+再举一个例子，如果想安装 nyancat 命令：
+
+#+begin_src nix 
+  { config, pkgs, ... }:
+
+  {
+    # ...
+
+    # 添加下面这几行
+    environment.systemPackages = [
+      # 这是个软件包的定义，不是一个字符串，而是一个对象
+      pkgs.nyancat
+    ];
+
+    # 或者写成这样，with 命令指定直接引用 pkgs 里的内容，如果安装的包很多可以减小配置文件的长度
+    environment.systemPackages = with pkgs; [
+      nyancat
+    ];
+
+    # ...
+  }
+#+end_src
+运行 nixos-rebuild switch，nyancat 命令就安装好了：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/nixos-nyancat.png]]
+** options
+NixOS 官方的[[https://nixos.org/manual/nixos/unstable/options.html][这份文档]]列出了 configuration.nix 里可以定义的所有配置项。因为是所有配置项，所以这个网页很长，打开网页的时候卡个几十秒也是很正常的事。也可以用 [[https://search.nixos.org/options][NixOS 官方搜索工具的 Options 页面]]搜索配置项：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/nixos-search-options.png]]
+
+或者在[[https://search.nixos.org/packages][搜索工具的 Packages 页面]]搜索软件包：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/nixos-search-packages.png]]
+** 配置文件是函数
+#+begin_example
+刚才一直忽略了配置文件的第一行 { config, pkgs, ... }:
+#+end_example
+实际上，整个 _configuration.nix_ 是一个 *Nix 函数* ，这里的 _config_ 和 _pkgs_ 是 *输入的参数* 。NixOS 的函数定义如下所示：
+
+#+begin_src nix 
+  # 这是一个函数，输入是一个参数 a，返回值是（a+1）
+  a: a+1
+
+    # 这是一个函数，输入是一个参数 a，返回值是一个对象，对象有两个键值 a 和 b
+    # 注意 Nix 语言没有变量概念！
+    # 假设输入 a = 1，那么返回对象为 { a = 2; b = 3; }，而非 { a = 2; b = 4; }
+    a: {
+      a = a + 1;
+      b = a + 2;
+    }
+
+      # 这是一个函数，输入是一个对象，拥有键值 a 和 b，返回值是一个对象，拥有键值 a 和 b
+      # 假设输入 { a = 1; b = 2; }，那么返回对象为 { a = 2; b = 1; }
+      { a, b }: {
+	a = b;
+	b = a;
+      }
+
+	# 这个函数和前一个函数的作用相同，只是参数里多了 ... 代表可以接受（并忽略）它不认识的参数
+	# 假设输入为 { a = 1; b = 2; c = 3; }
+	# 前一个函数不认识 c 所以会报错，但这个函数可以忽略 c 并正常工作
+	{ a, b, ... }: {
+	  a = b;
+	  b = a;
+	}
+#+end_src
+回头看安装 nyancat 命令的配置：
+#+begin_src nix 
+  { config, pkgs, ... }:
+
+  {
+    environment.systemPackages = [
+      pkgs.nyancat
+    ];
+  }
+#+end_src
+
++ 它将 pkgs 参数（一个对象）的子对象 nyancat 加入了 environment.systemPackages 的列表中
+  + pkgs 就是 NixOS 软件源中所有软件包的集合
+    #+begin_example
+      对应 https://github.com/NixOS/nixpkgs 这个项目
+    #+end_example
++ 类似的，config 参数是所有系统配置的集合
+  #+begin_example
+    例如想要读取安装过的软件包的列表，就可以用 config.environment.systemPackages
+  #+end_example
+
+Nix 语言是 *惰性求值* _Lazy Evaluate_ 的
+#+begin_example
+  最开始加载配置文件后，NixOS 什么都不会做
+
+  直到需要用到某个配置项（例如 environment.systemPackages），才会去解析它的值（这个数组，以及其中的对象 pkgs.nyancat）
+#+end_example
+
+顺便说一句，Nix 语言不支持循环引用
+#+begin_example
+  也就是类似 { a = config.b; b = config.a; } 这样的用法是不行的
+
+  会报错 infinite recursion encountered（遇到无限循环）
+#+end_example
+
+** 把配置分割到多个文件
+#+begin_example
+当你使用了一段时间 NixOS 后，可能会安装一大堆的软件，导致配置文件变得很长，难以阅读
+#+end_example
+NixOS 支持在一个配置文件内 *引用* _import_ 其它的配置文件，这样你可以把一部分配置（例如桌面环境，nginx + PHP + MySQL，等等）单独放到一个文件中，方便后续查找。假设想把上面的 SSH 配置单独放到一个文件中。先创建 _/etc/nixos/ssh.nix_ ：
+
+#+begin_src nix 
+  { config, pkgs, ... }:
+
+  {
+    services.openssh.enable = true;
+    services.openssh.permitRootLogin = "yes";
+  }
+#+end_src
+
+然后在 _/etc/nixos/configuration.nix_ 中将 ssh.nix 加到 imports 中，并把原有的 SSH 配置删掉：
+
+#+begin_src nix 
+  { config, pkgs, ... }:
+
+  {
+    # ...
+    imports =
+      [
+	./hardware-configuration.nix
+	./ssh.nix
+      ];
+    # ...
+  }
+#+end_src
+
+然后运行 nixos-rebuild switch，可以看到这次 rebuild 没有生成新的东西，也没有启动/停止任何服务。这是因为只是把 SSH 的配置挪到了新的文件中，实际的配置并没有发生变化。
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/nixos-rebuild-noop.png]]
+
+接下来简单解释一下 imports 的原理。可以看到 configuration.nix 这个函数有参数 config，pkgs，和一些被我们忽略掉的参数（...）。NixOS 会用 *相同的* _参数_ （包括忽略掉的和没忽略的）去 *调用* _imports 里的每个文件_ ，然后把 _返回的配置_ 和 _当前配置_ *合并* 。回头看 ssh.nix，可以发现它并没有用到 config 和 pkgs 两个函数，因此把它们去掉也是可以的：
+
+#+begin_src nix 
+  # 可以把 config 和 pkgs 去掉
+  { ... }:
+
+  {
+    services.openssh.enable = true;
+    services.openssh.permitRootLogin = "yes";
+  }
+
+  # 甚至直接去掉所有参数也是可以的，imports 比较智能
+  {
+    services.openssh.enable = true;
+    services.openssh.permitRootLogin = "yes";
+  }
+#+end_src
+
+* Flake 
