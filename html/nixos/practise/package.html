@@ -205,7 +205,13 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org04d61d7">准备工作</a></li>
+<li><a href="#org04d61d7">准备工作</a>
+<ul>
+<li><a href="#orgf5fcb03">使用 NUR 的打包模版</a></li>
+<li><a href="#org27c2df7">直接在 NixOS 配置文件中添加软件包</a></li>
+</ul>
+</li>
+<li><a href="#org02d28c3">打包流程</a></li>
 </ul>
 </div>
 </div>
@@ -213,7 +219,7 @@
 NixOS 的一大特点是，系统所有的二进制程序和库文件都在 /nix/store 目录中，由 Nix 包管理器管理
 </p>
 
-<pre class="example" id="orgabf0d90">
+<pre class="example" id="orgce4274c">
 这也意味着，NixOS 不符合 Linux 的 FHS 标准
 
 它的 /lib 或 /lib64 目录下不存在类似 ld-linux-x86-64.so.2 之类的库文件动态加载器，更不存在 libc.so 之类的库文件
@@ -232,7 +238,7 @@ NixOS 的一大特点是，系统所有的二进制程序和库文件都在 /nix
 <li><p>
 Nixpkgs，也就是 NixOS 的软件仓库，提供了大量的打包自动化函数
 </p>
-<pre class="example" id="orge035cb1">
+<pre class="example" id="orgb7b9f26">
 对于很多使用常见编程语言的开源软件（包括 C/C++，Python，Go，Node.js，Rust 等，但不包括 Java）
 
 只需要调用现成的函数，指定一下源码的下载方式，Nixpkgs 就能自动检测软件的打包系统，自动传入合适的参数并完成软件打包
@@ -243,14 +249,14 @@ Nixpkgs，也就是 NixOS 的软件仓库，提供了大量的打包自动化函
 <li><p>
 另一种是 Bubblewrap，或者基于 Bubblewrap 的 steam-run，模拟一个符合 FHS 标准的运行环境
 </p>
-<pre class="example" id="org927d586">
+<pre class="example" id="org54d7197">
 顾名思义，steam-run 主要针对的是 Steam 游戏平台以及它上面的游戏，但它也可以用于其它闭源软件
 </pre></li>
 </ul></li>
 <li><p>
 Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略地理解成一个断网，限制权限，只允许访问固定路径的 Docker 容器。在编译过程中，访问外部路径或者联网的尝试全部会失败，只能使用 Nix 编译脚本中事先指定的依赖
 </p>
-<pre class="example" id="org6c7afd6">
+<pre class="example" id="org959e029">
 因此，打包出来的程序将完全不依赖其它文件
 </pre></li>
 </ol>
@@ -262,7 +268,7 @@ Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略�
 <li><p>
 开发者不一定比打包者更懂 Linux
 </p>
-<pre class="example" id="org844d90d">
+<pre class="example" id="org0eb5f58">
 开发者可能会在代码和编译脚本里写死各种路径，做出各种只符合 FHS 标准的假设
 
 此时就需要你手动写补丁，纠正这些路径，让程序可以在 NixOS 上正常编译运行
@@ -274,24 +280,24 @@ Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略�
 <li><p>
 开发者使用了一些奇怪的源码目录结构，或者非标准的编译方式
 </p>
-<pre class="example" id="org2514b30">
+<pre class="example" id="org1e5a106">
 例如 osdlyrics
 </pre></li>
 <li><p>
 程序主动检测运行环境
 </p>
-<pre class="example" id="org510e681">
+<pre class="example" id="org4464525">
 例如 UOS 版微信客户端
 </pre></li>
 <li><p>
 程序主动检测对它本身的修改
 </p>
-<pre class="example" id="orgbc0edde">
+<pre class="example" id="orgc6b2458">
 例如 SVP 视频补帧软件
 </pre></li>
 </ul>
 
-<pre class="example" id="orga77f85b">
+<pre class="example" id="org894a998">
 我在几个月前将日常使用的发行版从 Arch Linux 换成了 NixOS，在使用过程中打了很多 NixOS 软件包
 
 本文将从简单的打包开始一步步推进，介绍 NixOS 打包的方法，遇到的常见问题以及应对策略
@@ -299,6 +305,198 @@ Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略�
 </ol>
 <div id="outline-container-org04d61d7" class="outline-2">
 <h2 id="org04d61d7">准备工作</h2>
+<div class="outline-text-2" id="text-org04d61d7">
+<p>
+首先，强烈建议安装好 NixOS 操作系统，并在 NixOS 上进行打包
+</p>
+<ul class="org-ul">
+<li><p>
+虽然在非 NixOS 的操作系统上也可以用 Nix 包管理器打包软件，但打包出的软件在运行过程中可能还会残留有对 FHS 标准目录的依赖，从而导致它们无法正常在 NixOS 上使用
+</p>
+<pre class="example" id="org8ffd631">
+当然，如果你打包只是自用，只考虑自己的运行环境，那可以忽略这条
+</pre></li>
+<li><p>
+此外，要在非 NixOS 的操作系统上安装 Nix 打包的软件，需要使用 Home Manager，一个通过 Nix 语言的配置文件来管理你的 Home 目录下的软件配置文件的工具
+</p>
+<pre class="example" id="org62a31e4">
+这需要自行研究，或者查阅其它人的相关文章
+</pre></li>
+</ul>
+</div>
+<div id="outline-container-orgf5fcb03" class="outline-3">
+<h3 id="orgf5fcb03">使用 NUR 的打包模版</h3>
+<div class="outline-text-3" id="text-orgf5fcb03">
+<p>
+<span class="underline">NUR</span> 是 Nix 的由 <b>用户自行管理</b> 的 <span class="underline">软件仓库</span>
+</p>
+
+<pre class="example" id="org0242578">
+这类似于 Arch Linux 的 AUR
+
+NUR 提供了一份现成的 Nix 仓库模版，你可以方便地统一添加、管理自己的软件包
+</pre>
+
+<p>
+在 GitHub 上，访问 <a href="https://github.com/nix-community/nur-packages-template">nur-packages-template</a>，点击 <span class="underline">Use this template</span> 用这个模版建立一个仓库。之后，可以将所有软件包统一保存在你新建的仓库。如果要将自己的软件包发布到 NUR，需要向 NUR 的主仓库发起 Pull Request，将自己的仓库地址加进去
+</p>
+
+<pre class="example" id="org6689aa5">
+但即使不发 Pull Request，也完全可以直接使用自己的仓库
+</pre>
+
+<p>
+然后，把你的仓库 Clone 下来
+</p>
+<ul class="org-ul">
+<li><p>
+对于不使用 Nix Flake 的用户，运行以下命令可以对 example-package 这个模版自带的示例软件包进行打包：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">nix-build -A example-package
+</pre>
+</div></li>
+<li><p>
+对于使用 Flake 的用户，运行以下命令：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">nix flake update <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21487;&#36873;&#65292;&#23558; flake.lock &#20013;&#30340; Nixpkgs &#31561;&#20179;&#24211;&#26356;&#26032;&#21040;&#26368;&#26032;&#29256;</span>
+nix build <span style="color: #ffa07a;">".#example-package"</span>
+</pre>
+</div></li>
+</ul>
+
+<p>
+接着，在你的 NixOS 配置中添加自己的仓库：
+</p>
+<ul class="org-ul">
+<li><p>
+对于不使用 Nix Flake 的用户，在 <span class="underline">configuration.nix</span> 中添加如下定义：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">nixpkgs.config.packageOverrides</span> = pkgs: {
+  <span style="color: #eedd82;">myRepo</span> = <span style="color: #b0c4de;">import</span> (builtins.fetchTarball <span style="color: #ffa07a;">"https://github.com/nix-community/nur-packages-template/archive/master.tar.gz"</span>) {
+    <span style="color: #00ffff;">inherit</span> pkgs;
+  };
+};
+</pre>
+</div>
+<pre class="example" id="orgae59948">
+将 https://github.com/nix-community/nur-packages-template 替换成你的仓库地址
+
+这样操作后，你就能用类似于 pkgs.myRepo.example-package 的方式使用你打的包了
+</pre></li>
+<li>对于使用 Nix Flake 的用户：
+<ol class="org-ol">
+<li><p>
+在 <span class="underline">flake.nix</span> 中的 <span class="underline">inputs</span> 一节中添加如下定义：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">inputs</span> = {
+  <span style="color: #ff4500;"># ...</span>
+  <span style="color: #eedd82;">myRepo</span> = {
+    <span style="color: #eedd82;">url</span> = <span style="color: #ffa07a;">"github:nix-community/nur-packages-template"</span>;
+    <span style="color: #eedd82;">inputs.nixpkgs.follows</span> = <span style="color: #ffa07a;">"nixpkgs"</span>;
+  };
+  <span style="color: #ff4500;"># ...</span>
+};
+</pre>
+</div>
+<pre class="example" id="org1fe0d9d">
+将 nix-community/nur-packages-template 替换成你的仓库地址
+</pre></li>
+<li><p>
+在 <span class="underline">inputs</span> 的 <span class="underline">nixosConfigurations</span> 定义中，为每个系统添加一个 module：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">outputs</span> = { self, nixpkgs, ... }@inputs: {
+  nixosConfigurations.<span style="color: #ffa07a;">"nixos"</span> = nixpkgs.lib.nixosSystem {
+    <span style="color: #eedd82;">system</span> = <span style="color: #ffa07a;">"x86_64-linux"</span>;
+    <span style="color: #eedd82;">modules</span> = [
+      <span style="color: #ff4500;"># &#22312; modules &#30340;&#24320;&#22836;&#28155;&#21152;&#19979;&#38754;&#36825;&#20960;&#34892;</span>
+      ({
+        <span style="color: #eedd82;">nixpkgs.overlays</span> = [
+          (final: prev: {
+            <span style="color: #eedd82;">myRepo</span> = inputs.myRepo.packages.<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">${</span>prev.system<span style="color: #7fffd4;">}</span>";
+          })
+        ];
+      })
+      <span style="color: #ff4500;"># &#22312; modules &#30340;&#24320;&#22836;&#28155;&#21152;&#19978;&#38754;&#36825;&#20960;&#34892;</span>
+
+      <span style="color: #7fffd4;">./configuration.nix</span>
+    ];
+  };
+};
+</pre>
+</div></li>
+</ol></li>
+</ul>
+
+<p>
+这样操作后，就能用类似于 pkgs.myRepo.example-package 的方式使用你打的包了
+</p>
+</div>
+</div>
+<div id="outline-container-org27c2df7" class="outline-3">
+<h3 id="org27c2df7">直接在 NixOS 配置文件中添加软件包</h3>
+<div class="outline-text-3" id="text-org27c2df7">
+<pre class="example" id="orgf325102">
+当然，也可以不使用 NUR 的模版，而是直接把打包定义和 NixOS 的配置文件放在一起
+</pre>
+
+<p>
+假设有这样一个打包定义，保存成 <span class="underline">example-package.nix</span> ：（来自 <a href="https://github.com/nix-community/nur-packages-template/blob/master/pkgs/example-package/default.nix">default.nix</a>）
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ stdenv }:
+
+stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
+  <span style="color: #eedd82;">name</span> = <span style="color: #ffa07a;">"example-package-</span><span style="color: #7fffd4;">${</span>version<span style="color: #7fffd4;">}</span>";
+  <span style="color: #eedd82;">version</span> = <span style="color: #ffa07a;">"1.0"</span>;
+  <span style="color: #eedd82;">src</span> = <span style="color: #7fffd4;">./.</span>;
+  <span style="color: #eedd82;">buildPhase</span> = <span style="color: #ffa07a;">"echo echo Hello World &gt; example"</span>;
+  <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">"install -Dm755 example $out"</span>;
+}
+</pre>
+</div>
+
+<p>
+现在可以在 <span class="underline">configuration.nix</span> 中使用 <span class="underline">pkgs.callPackage</span> 函数来调用它：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ config, pkgs, ... }:
+
+{
+  <span style="color: #ff4500;"># &#30452;&#25509;&#20351;&#29992;&#36825;&#20010;&#21253;</span>
+  <span style="color: #eedd82;">environment.systemPackages</span> = [
+    (pkgs.callPackage <span style="color: #7fffd4;">./example-package.nix</span> { })
+  ];
+
+  <span style="color: #ff4500;"># &#25110;&#32773;&#23558;&#36825;&#20010;&#21253;&#20808;&#23450;&#20041;&#25104;&#19968;&#20010;&#24120;&#37327;</span>
+  <span style="color: #eedd82;">environment.systemPackages</span> = <span style="color: #00ffff;">let</span>
+    <span style="color: #eedd82;">examplePackage</span> = pkgs.callPackage <span style="color: #7fffd4;">./example-package.nix</span> { };
+  <span style="color: #00ffff;">in</span> [
+    examplePackage
+  ];
+}
+</pre>
+</div>
+
+<p>
+如果要单独尝试构建这个软件包，可以使用以下命令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">nix-build -E <span style="color: #ffa07a;">'with import &lt;nixpkgs&gt; {}; callPackage ./example-package.nix {}'</span>
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org02d28c3" class="outline-2">
+<h2 id="org02d28c3">打包流程</h2>
 </div>
 </div>
 <div id="postamble" class="status">

@@ -61,3 +61,135 @@ NixOS 的一大特点是，系统所有的二进制程序和库文件都在 /nix
      本文将从简单的打包开始一步步推进，介绍 NixOS 打包的方法，遇到的常见问题以及应对策略
    #+end_example
 * 准备工作
+首先，强烈建议安装好 NixOS 操作系统，并在 NixOS 上进行打包
++ 虽然在非 NixOS 的操作系统上也可以用 Nix 包管理器打包软件，但打包出的软件在运行过程中可能还会残留有对 FHS 标准目录的依赖，从而导致它们无法正常在 NixOS 上使用
+  #+begin_example
+    当然，如果你打包只是自用，只考虑自己的运行环境，那可以忽略这条
+  #+end_example
++ 此外，要在非 NixOS 的操作系统上安装 Nix 打包的软件，需要使用 Home Manager，一个通过 Nix 语言的配置文件来管理你的 Home 目录下的软件配置文件的工具
+  #+begin_example
+    这需要自行研究，或者查阅其它人的相关文章
+  #+end_example
+** 使用 NUR 的打包模版
+_NUR_ 是 Nix 的由 *用户自行管理* 的 _软件仓库_
+
+#+begin_example
+  这类似于 Arch Linux 的 AUR
+
+  NUR 提供了一份现成的 Nix 仓库模版，你可以方便地统一添加、管理自己的软件包
+#+end_example
+
+在 GitHub 上，访问 [[https://github.com/nix-community/nur-packages-template][nur-packages-template]]，点击 _Use this template_ 用这个模版建立一个仓库。之后，可以将所有软件包统一保存在你新建的仓库。如果要将自己的软件包发布到 NUR，需要向 NUR 的主仓库发起 Pull Request，将自己的仓库地址加进去
+
+#+begin_example
+但即使不发 Pull Request，也完全可以直接使用自己的仓库
+#+end_example
+
+然后，把你的仓库 Clone 下来
++ 对于不使用 Nix Flake 的用户，运行以下命令可以对 example-package 这个模版自带的示例软件包进行打包：
+  #+begin_src sh 
+    nix-build -A example-package
+  #+end_src
++ 对于使用 Flake 的用户，运行以下命令：
+  #+begin_src sh 
+    nix flake update # 可选，将 flake.lock 中的 Nixpkgs 等仓库更新到最新版
+    nix build ".#example-package"
+  #+end_src
+
+接着，在你的 NixOS 配置中添加自己的仓库：
++ 对于不使用 Nix Flake 的用户，在 _configuration.nix_ 中添加如下定义：
+  #+begin_src nix 
+    nixpkgs.config.packageOverrides = pkgs: {
+      myRepo = import (builtins.fetchTarball "https://github.com/nix-community/nur-packages-template/archive/master.tar.gz") {
+	inherit pkgs;
+      };
+    };
+  #+end_src
+  #+begin_example
+    将 https://github.com/nix-community/nur-packages-template 替换成你的仓库地址
+
+    这样操作后，你就能用类似于 pkgs.myRepo.example-package 的方式使用你打的包了
+  #+end_example
++ 对于使用 Nix Flake 的用户：
+  1. 在 _flake.nix_ 中的 _inputs_ 一节中添加如下定义：
+     #+begin_src nix 
+       inputs = {
+	 # ...
+	 myRepo = {
+	   url = "github:nix-community/nur-packages-template";
+	   inputs.nixpkgs.follows = "nixpkgs";
+	 };
+	 # ...
+       };
+     #+end_src
+     #+begin_example
+       将 nix-community/nur-packages-template 替换成你的仓库地址
+     #+end_example
+  2. 在 _inputs_ 的 _nixosConfigurations_ 定义中，为每个系统添加一个 module：
+     #+begin_src nix 
+       outputs = { self, nixpkgs, ... }@inputs: {
+	 nixosConfigurations."nixos" = nixpkgs.lib.nixosSystem {
+	   system = "x86_64-linux";
+	   modules = [
+	     # 在 modules 的开头添加下面这几行
+	     ({
+	       nixpkgs.overlays = [
+		 (final: prev: {
+		   myRepo = inputs.myRepo.packages."${prev.system}";
+		 })
+	       ];
+	     })
+	     # 在 modules 的开头添加上面这几行
+
+	     ./configuration.nix
+	   ];
+	 };
+       };
+     #+end_src
+
+这样操作后，就能用类似于 pkgs.myRepo.example-package 的方式使用你打的包了
+** 直接在 NixOS 配置文件中添加软件包
+#+begin_example
+  当然，也可以不使用 NUR 的模版，而是直接把打包定义和 NixOS 的配置文件放在一起
+#+end_example
+
+假设有这样一个打包定义，保存成 _example-package.nix_ ：（来自 [[https://github.com/nix-community/nur-packages-template/blob/master/pkgs/example-package/default.nix][default.nix]]）
+
+#+begin_src nix 
+  { stdenv }:
+
+  stdenv.mkDerivation rec {
+    name = "example-package-${version}";
+    version = "1.0";
+    src = ./.;
+    buildPhase = "echo echo Hello World > example";
+    installPhase = "install -Dm755 example $out";
+  }
+#+end_src
+
+现在可以在 _configuration.nix_ 中使用 _pkgs.callPackage_ 函数来调用它：
+
+#+begin_src nix 
+  { config, pkgs, ... }:
+
+  {
+    # 直接使用这个包
+    environment.systemPackages = [
+      (pkgs.callPackage ./example-package.nix { })
+    ];
+
+    # 或者将这个包先定义成一个常量
+    environment.systemPackages = let
+      examplePackage = pkgs.callPackage ./example-package.nix { };
+    in [
+      examplePackage
+    ];
+  }
+#+end_src
+
+如果要单独尝试构建这个软件包，可以使用以下命令：
+
+#+begin_src sh 
+  nix-build -E 'with import <nixpkgs> {}; callPackage ./example-package.nix {}'
+#+end_src
+* 打包流程
