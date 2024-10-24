@@ -290,3 +290,279 @@ NixOS 支持在一个配置文件内 *引用* _import_ 其它的配置文件，�
 #+end_src
 
 * Flake 
+由于 NixOS 的所有配置都由 _configuration.nix_ 决定，可以把这些文件直接复制到另一台机器上，然后运行 _nixos-rebuild switch_ ，就可以得到一个一模一样的系统：
+
+#+begin_example
+  NixOS 的一大特点是，用一份 Nix 配置文件管理系统上的所有配置文件和软件包
+
+  因此，可以用 Ansible，Rsync，甚至是 Git 等任何喜欢的工具，来专门管理 /etc/nixos 这里一处的配置文件
+
+  由于只有这一处配置文件，不需要写一大堆复杂的 Ansible Playbook，或者输入几十行 Rsync 命令，只需要直接覆盖 /etc/nixos，再运行 nixos-rebuild switch 完事
+#+end_example
+
+但现在要告诉你，*刚才说的都是错的* 。前面介绍了修改系统配置和安装软件包的方法，但唯独没有提到如何 *升级* 软件包。这是因为 NixOS 的软件源是由另外一个命令 _nix-channel_ 管理的：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/nixos-channels.png]]
+
+其中 nix-channel --list 命令列出了当前配置的软件源列表，nix-channel --update 用来将软件源更新到最新。但是，nix-channel 的配置不归 configuration.nix 管，configuration.nix 也无法定义软件源的 URL 和版本
+
+#+begin_example
+  也就是说，由于软件源在不断更新，在一个月前和一个月后用同一份配置文件装出来的系统，可能会有软件版本的差异
+
+  这就与 NixOS 一直宣传的 “一份配置管天下” 冲突了
+#+end_example
+
+为了解决这个问题，Nix 引入了 Flake 功能，它支持了在配置文件中定义软件源 URL 版本的功能。先修改 configuration.nix 并 nixos-rebuild switch，将 Nix 包管理器升级到支持 Flake 的测试版：
+
+#+begin_src nix 
+  { config, pkgs, ... }:
+
+  {
+    # ...
+    nix = {
+      package = pkgs.nixUnstable;
+      extraOptions = ''
+	experimental-features = nix-command flakes
+      '';
+    };
+    # ...
+  }
+#+end_src
+
+#+begin_example
+  本文写成时 NixOS 的最新稳定版本是 21.05，其 Nix 包管理器（2.3 版本）还默认禁用 Flake 功能
+
+  NixOS 21.11 及以后的版本将默认开启 Flake 功能，届时将不需要这里对 configuration.nix 的修改
+
+  由于担心 Nix 2.4 功能变化过大，尤其是会与旧版 Nix 的行为不兼容，NixOS 21.11 仍将使用 Nix 2.3，将默认禁用 Flake 功能
+
+  相关讨论在 https://discourse.nixos.org/t/nix-2-4-and-what-s-next/16257 和 https://github.com/NixOS/nixpkgs/pull/147511
+#+end_example
+
+然后在 _/etc/nixos_ 里创建一个 _flake.nix_ 文件。这份 flake.nix 定义了一个 *软件源* _input_ ，是 [[https://github.com/NixOS/nixpkgs][nixpkgs]] 的 unstable 分支（也就是 master 分支）
+
+#+begin_src nix 
+  {
+    # 文件描述，随便写，或者不写也可以
+    description = "Lan Tian's NixOS Flake";
+
+    # 输入配置，即软件源
+    inputs = {
+      # Nixpkgs，即 NixOS 官方软件源
+      nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    };
+
+    # 输出配置，即 NixOS 系统配置
+    outputs = { self, nixpkgs, ... }@inputs: {
+      # 定义一个名为 nixos 的系统
+      nixosConfigurations."nixos" = nixpkgs.lib.nixosSystem {
+	system = "x86_64-linux";
+	modules = [
+	  ./configuration.nix
+	];
+      };
+
+      # 你也可以在同一份 Flake 中定义好几个系统，NixOS 会根据主机名 Hostname 决定用哪个
+      # nixosConfigurations."nixos2" = nixpkgs.lib.nixosSystem {
+      #   system = "x86_64-linux";
+      #   modules = [
+      #     ./configuration2.nix
+      #   ];
+      # };
+    };
+  }
+#+end_src
+
+然后运行 _nix flake update_ ：
+
+#+begin_src sh 
+  [root@nixos:/etc/nixos]# nix flake update
+  warning: creating lock file '/etc/nixos/flake.lock'
+#+end_src
+
+生成了一个 _flake.lock_ 文件，是一个 JSON：
+
+#+begin_src js 
+  {
+      "nodes": {
+	  "nixpkgs": {
+	      "locked": {
+		  "lastModified": 1636623366,
+		  "narHash": "sha256-jOQMlv9qFSj0U66HB+ujZoapty0UbewmSNbX8+3ujUQ=",
+		  "owner": "NixOS",
+		  "repo": "nixpkgs",
+		  "rev": "c5ed8beb478a8ca035f033f659b60c89500a3034",
+		  "type": "github"
+	      },
+	      "original": {
+		  "owner": "NixOS",
+		  "ref": "nixos-unstable",
+		  "repo": "nixpkgs",
+		  "type": "github"
+	      }
+	  },
+	  "root": {
+	      "inputs": {
+		  "nixpkgs": "nixpkgs"
+	      }
+	  }
+      },
+      "root": "root",
+      "version": 7
+  }
+#+end_src
+
+#+begin_example
+  flake.lock 指定了 nixpkgs 的 commit 编号和 SHA256 哈希值，这样即使这份配置文件被复制到其它机器上
+
+  其它机器的 Nix 包管理器也会下载这个特定版本的 nixpkgs 软件源，并安装对应版本的软件，真正做到了软件版本一模一样
+#+end_example
+
+最后运行 _nixos-rebuild switch_ 命令，NixOS 会自动优先读取 flake.nix 而非 configuration.nix，把系统里的所有软件包升级（或降级）到这个特定的版本。但因为把 configuration.nix 加入了 flake.nix 的 modules 数组，所以系统配置还是保持不变：
+
+#+begin_example
+  如果开启了 Flake 功能，并使用 Git 管理你的文件，注意：
+
+  NixOS 会忽略未被 Git 管理的文件，只会读取已经 Stage 或 Commit 过的文件
+
+  如果你新建了一个文件，记得把它 Stage 一下，否则 NixOS 会报找不到文件的错误
+#+end_example
+
+* 使用 Deploy-RS 批量部署
+现在配置好了一台机器。但如果有 10 台机器。当然可以自己写一个 Ansible 脚本把配置复制到所有机器的 /etc/nixos 文件夹再 nixos-rebuild switch，但是这有几个问题：
+1. 如果软件源里的某个软件包没有预编译的二进制文件，就得在所有机器上编译一遍。但因为买的都是资源不是很多的便宜 VPS，很容易遇到内存不足或者 CPU 占用过高被主机商关机的问题
+   #+begin_example
+     NixOS 的软件源有点类似于 Gentoo。与其它 Linux 发行版不同，一个软件包在 NixOS 软件源里不代表它有二进制文件
+
+     NixOS 的「软件包」是一组 Nix 语言的定义，描述了下载、编译、打包一个软件的完整流程
+
+     一般情况下，NixOS 官方会帮我们编译好软件，然后上传到二进制缓存（Binary Cache）供我们下载
+
+     但如果我们自己改了软件包的编译流程（一般是一些编译参数）或者干脆是自己打的包（后面文章中会介绍），就得自己编译了
+   #+end_example
+2. Nix 包管理器解析配置文件的过程本身就会占用不少的内存和 CPU 资源，尤其是配置较复杂的时候
+
+#+begin_example
+  理想情况下，可以用一台高性能机器（例如我的个人电脑，或者独立服务器）解析配置文件，下载或编译好所有软件包和配置，再把它们上传到所有机器上启用
+
+  这样就不用消耗低性能 VPS 的资源了。而这就是 Deploy-RS 部署工具的功能
+#+end_example
+
+要使用 Deploy-RS，首先要找一台装了 Nix 的机器：
+
+#+begin_src sh 
+  # 复制自 https://nixos.org/download.html
+  curl -L https://nixos.org/nix/install | sudo sh
+#+end_src
+
+#+begin_example
+  注意没有要求你把这台机器重装成 NixOS，因为 Nix 包管理器是可以安装在其它 Linux 发行版上的
+
+  例如我用的是运行 Arch Linux 的个人电脑，就可以根据 Arch Linux Wiki 上的教程安装
+
+  其它发行版可以用 Nix 官方的一键安装脚本
+#+end_example
+
+然后要在这台机器上启用 Nix Flake 功能：
+
+#+begin_src sh 
+  nix-env -iA nixpkgs.nixFlakes
+  echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+  systemctl restart nix-daemon
+#+end_src
+
+回到上一节创建的 flake.nix 文件，要添加 Deploy-RS 的软件源，并在 outputs 中添加 SSH 连接的配置：
+
+#+begin_src nix 
+  {
+    description = "Lan Tian's NixOS Flake";
+
+    inputs = {
+      nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+      # 新增下面几行
+      deploy-rs = {
+	url = "github:serokell/deploy-rs";
+	inputs.nixpkgs.follows = "nixpkgs";
+      };
+    };
+
+    outputs = { self, nixpkgs, ... }@inputs: {
+      nixosConfigurations."nixos" = nixpkgs.lib.nixosSystem {
+	system = "x86_64-linux";
+	modules = [
+	  ./configuration.nix
+	];
+      };
+
+      # 新增下面几行
+      deploy = {
+	sshUser = "root";           # SSH 登录用户名
+	user = "root";              # 远程操作的用户
+	sshOpts = [ "-p" "2222" ];  # SSH 参数，这里是指定端口 2222
+
+	# 部署失败自动回滚，建议关闭
+	# 因为 NixOS（尤其是 Unstable 分支）部署不太稳定，有时需要部署两次才成功
+	# 如果自动回滚了，反而适得其反，导致连续部署失败
+	autoRollback = false;
+
+	# 断网自动回滚，建议关闭
+	# 在你配置防火墙或 IP 出错把网络干掉时，自动回滚，这样你就不用去主机商控制面板连 VNC 或 IPMI 了
+	# 但如果你就是在调整防火墙或者 IP 配置，会有当时断网、但重启机器就可以应用新配置恢复正常的情况
+	# 自动回滚反而适得其反，因此建议关闭
+	magicRollback = false;
+
+	nodes = {
+	  "nixos" = {
+	    # 目标机器的地址，IP 或域名或 .ssh/config 中配置的别名均可
+	    hostname = "192.168.56.105";
+	    profiles.system = {
+	      # 调用上面的 nixosConfigurations."nixos"
+	      path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations."nixos";
+	    };
+	  };
+	};
+      };
+    };
+  }
+#+end_src
+
+最后执行 _nix run github:serokell/deploy-rs -- -s_ . 运行 Deploy-RS 即可
+
+** 在甲骨文 ARM 云服务器上使用 NixOS
+#+begin_example
+  NixOS 也支持 ARM64v8 架构，也就是甲骨文 ARM 云服务器的架构
+
+  因为甲骨文 ARM 云服务器实际上是一个 KVM 虚拟机，没有其它的特殊硬件，所以可以直接用 NixOS-Infect 将现有系统替换成 NixOS
+#+end_example
+相比 x86 机器，只需要在 _flake.nix_ 中将对应的 _system_ 改为 _aarch64-linux_ ：
+
+#+begin_src nix 
+  {
+    # ...
+    outputs = { self, nixpkgs, ... }@inputs: {
+      nixosConfigurations."oracle-vm-arm" = nixpkgs.lib.nixosSystem {
+	system = "aarch64-linux";
+	modules = [
+	  ./configuration-oracle-vm-arm.nix
+	];
+      };
+    };
+    # ...
+  }
+#+end_src
+
+#+begin_example
+其它配置都与 x86 机器无异。但是如果使用 Deploy-RS 想在本地生成配置，会发现 Nix 包管理器报错，显示当前机器不支持 ARM 架构
+#+end_example
+此时可以在本地机器上安装 _qemu-user-static_ 和相应的 binfmt 配置，让本地系统可以用 *模拟* 的方式运行 ARM 架构的程序
++ 对于 Arch Linux，需要从 AUR 安装 qemu-user-static 和 binfmt-qemu-static-all-arch 两个包
++ 对于 Debian，需要安装 qemu-user-static 软件包。
+
+安装完成后还需要修改 _/etc/nix/nix.conf_ ，添加这一行配置，告诉 Nix 包管理器当前机器可以运行 ARM 程序：
+
+#+begin_src nix 
+  extra-platforms = aarch64-linux arm-linux
+#+end_src
+然后重启 Nix Daemon _systemctl restart nix-daemon_ ，Deploy-RS 就可以使用了
