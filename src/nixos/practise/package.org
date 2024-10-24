@@ -1,0 +1,63 @@
+#+TITLE: 软件打包
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil 
+#+HTML_LINK_UP: config.html
+#+HTML_LINK_HOME: practise.html
+
+NixOS 的一大特点是，系统所有的二进制程序和库文件都在 /nix/store 目录中，由 Nix 包管理器管理
+
+#+begin_example
+  这也意味着，NixOS 不符合 Linux 的 FHS 标准
+
+  它的 /lib 或 /lib64 目录下不存在类似 ld-linux-x86-64.so.2 之类的库文件动态加载器，更不存在 libc.so 之类的库文件
+
+  因此，除非静态链接，否则为其它 Linux 下编译的二进制文件将完全无法在 NixOS 下运行
+#+end_example
+
+所以，要在 NixOS 上使用尚不存在于 Nixpkgs 仓库中的软件，最佳方案是自己用 Nix 语言写一份打包脚本，给这个软件打一个包，然后把打包定义加入 configuration.nix 中，从而安装到系统上
+
+关于 NixOS 的软件打包，有三个好消息和两个坏消息。好消息是：
+1. Nixpkgs，也就是 NixOS 的软件仓库，提供了大量的打包自动化函数
+   #+begin_example
+     对于很多使用常见编程语言的开源软件（包括 C/C++，Python，Go，Node.js，Rust 等，但不包括 Java）
+
+     只需要调用现成的函数，指定一下源码的下载方式，Nixpkgs 就能自动检测软件的打包系统，自动传入合适的参数并完成软件打包
+   #+end_example
+2. 对于以二进制方式分发的软件（常见于闭源软件），Nixpkgs 也提供了现成的自动化解决方案：
+   + 一种是 Autopatchelf，自动修改二进制文件中的库文件路径，将其指向 /nix/store 中
+   + 另一种是 Bubblewrap，或者基于 Bubblewrap 的 steam-run，模拟一个符合 FHS 标准的运行环境
+     #+begin_example
+       顾名思义，steam-run 主要针对的是 Steam 游戏平台以及它上面的游戏，但它也可以用于其它闭源软件
+     #+end_example
+3. Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略地理解成一个断网，限制权限，只允许访问固定路径的 Docker 容器。在编译过程中，访问外部路径或者联网的尝试全部会失败，只能使用 Nix 编译脚本中事先指定的依赖
+   #+begin_example
+     因此，打包出来的程序将完全不依赖其它文件
+   #+end_example
+
+坏消息是：
+1. 开发者不一定比打包者更懂 Linux
+   #+begin_example
+     开发者可能会在代码和编译脚本里写死各种路径，做出各种只符合 FHS 标准的假设
+
+     此时就需要你手动写补丁，纠正这些路径，让程序可以在 NixOS 上正常编译运行
+   #+end_example
+2. 一旦遇到了不能使用现成函数的情况，包括下列情况，就得做好 “一杯茶，一包烟，一个 Bug 调一天“ 的准备：
+   + 开发者使用了一些奇怪的源码目录结构，或者非标准的编译方式
+     #+begin_example
+       例如 osdlyrics
+     #+end_example
+   + 程序主动检测运行环境
+     #+begin_example
+       例如 UOS 版微信客户端
+     #+end_example
+   + 程序主动检测对它本身的修改
+     #+begin_example
+       例如 SVP 视频补帧软件
+     #+end_example
+
+   #+begin_example
+     我在几个月前将日常使用的发行版从 Arch Linux 换成了 NixOS，在使用过程中打了很多 NixOS 软件包
+
+     本文将从简单的打包开始一步步推进，介绍 NixOS 打包的方法，遇到的常见问题以及应对策略
+   #+end_example
+* 准备工作
