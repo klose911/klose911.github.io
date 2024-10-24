@@ -133,11 +133,11 @@ _NUR_ 是 Nix 的由 *用户自行管理* 的 _软件仓库_
 	   modules = [
 	     # 在 modules 的开头添加下面这几行
 	     ({
-	       nixpkgs.overlays = [
-		 (final: prev: {
-		   myRepo = inputs.myRepo.packages."${prev.system}";
-		 })
-	       ];
+		     nixpkgs.overlays = [
+			     (final: prev: {
+			       myRepo = inputs.myRepo.packages."${prev.system}";
+			     })
+		     ];
 	     })
 	     # 在 modules 的开头添加上面这几行
 
@@ -193,3 +193,80 @@ _NUR_ 是 Nix 的由 *用户自行管理* 的 _软件仓库_
   nix-build -E 'with import <nixpkgs> {}; callPackage ./example-package.nix {}'
 #+end_src
 * 打包流程
+虽然可以直接调用 Nix 包管理器内置的 _builtins.derivation_ 函数进行打包，但一般用更为方便的 _stdenv.mkDerivation_ 函数来生成一个 Nix 包管理器的打包定义。相比于 builtins.derivation，stdenv.mkDerivation 将打包过程分成了 7 个 *步骤* _Phase_ ：
+1. 解压 _Unpack_ phase：
+   + 在这一步中，stdenv.mkDerivation 会自动解压 _src_ 参数指定的 *源码包*
+     #+begin_example
+       例如 如果源码包是 .tar.gz 格式的，就会自动调用 tar xf
+     #+end_example
+   + 但 stdenv.mkDerivation 不能识别所有压缩格式，例如 .zip 就不行，需要手动指定解压命令：
+     #+begin_src nix 
+       nativeBuildInputs = [ unzip ];
+       unpackPhase = ''
+	 unzip $src
+       '';
+     #+end_src
+   + stdenv.mkDerivation 要求 _源码包的顶层_ 是一个 _文件夹_ ，解压完成后会自动 _cd_ 进去 
+2. 打补丁 _patch_ phase:
+   + 在这一步中，stdenv.mkDerivation 会按顺序应用 _patches_ 列表中的 *所有补丁*
+     #+begin_example
+       这一步可以用来解决一部分软件和 NixOS 的不兼容问题
+     #+end_example
+3. 配置 _configure_ phase:
+   + 这一步相当于运行 _./configure_ 或者 _cmake_
+     #+begin_example
+       stdenv.mkDerivation 会自动检测打包方案并调用相应命令，或者当相应配置文件不存在时，自动跳过这一步
+     #+end_example
+     + 注意：要调用 cmake，需要额外加一行 _nativeBuildInputs = [ cmake ];_  把 CMake 加入打包环境中
+     + 可以用 _configureFlags_ 或者 _cmakeFlags_ 添加配置参数，例如启用/禁用软件的功能。
+4. 编译 _build_ phase:
+   + 这一步相当于运行 _make_ 。可以用 _makeFlags_ 添加传给 make 的参数
+5. 测试 _test_ phase:
+   + 这一步会运行源码中自带的测试用例，以保证软件功能正确
+   + 可以用 _doCheck = false;_ 禁用这一步
+6. 安装 _install_ phase:
+   + 这一步相当于运行 _make install_ ，将编译结果复制到 Nix store 的相应文件夹中
+     + 整个构建过程是在临时文件夹中，而不是 Nix store 中进行的，因此需要这一步将文件复制过去
+     + 当手动指定安装命令时，*目标路径* 存在变量 _$out_ 中。$out 可以是存放有文件的文件夹，也可以直接是一个文件 
+7. 额外修补 _fixup_ phase:
+   + 这一步会对 Nix store 中的结果做一些清理
+     #+begin_example
+       例如去除调试符号等
+       Autopatchelf Hook，一个自动替换闭源软件 .so 的路径的 Hook，就是在这一步运行的
+     #+end_example
+   + 可以用 _dontFixup = true;_ 禁用这一步
+
+每一个步骤都可以手动指定对应的命令，或者在原有命令之前或之后额外增加命令。以安装这一步为例：
+#+begin_src nix 
+  preInstall = ''
+    echo 这里指定在安装步骤之前运行的命令
+  '';
+  installPhase = ''
+    # 运行 preInstall 的命令。默认的 installPhase 自带了下面这一行，但当你指定整个步骤的命令时，就需要自己加上，否则 preInstall 不会运行
+    runHook preInstall
+
+    echo 这里指定安装步骤的所有命令
+
+    # 运行 postInstall 的命令，同理
+    runHook postInstall
+  '';
+  postInstall = ''
+    echo 这里指定在安装步骤之后运行的命令
+  '';
+#+end_src
+
+#+begin_example
+  只看这些步骤的解释可能有些抽象，因此接下来我会给出一些实例，并给出详细解释
+
+  此外，实例中还会涉及 Nixpkgs 提供的对于几种常用编程语言的专用打包函数
+
+  例如 Python 的 buildPythonPackage，Go 的 buildGoModule 等等
+
+  这些实例都来自 NUR 软件源 https://github.com/xddxdd/nur-packages
+#+end_example
+* 实例
+** 开源
+*** 简单：LibOQS（C++，CMake，自动化构建）
+** 闭源
+** 特殊
+* 总结
