@@ -267,6 +267,390 @@ _NUR_ 是 Nix 的由 *用户自行管理* 的 _软件仓库_
 * 实例
 ** 开源
 *** 简单：LibOQS（C++，CMake，自动化构建）
+#+begin_example
+  首先我们来看一个最简单的例子：LibOQS
+
+  LibOQS 提供了多种后量子加密算法的实现，可以用来给 OpenSSL 或 BoringSSL 提供后量子加密支持
+#+end_example
+
+LibOQS 使用 CMake 构建，并且本身没有任何依赖，因此基本上所有工作都可以由 stdenv.mkDerivations 自动完成，只需要为 CMake 指定几个额外的参数：
+
+#+begin_src nix 
+  # 当你使用 pkgs.callPackage 函数时，这里的参数会用 Nixpkgs 的软件包和函数自动填充（如果有对应的话）
+  { lib
+  , stdenv
+  , fetchFromGitHub
+  , cmake
+  , ...
+  } @ args:
+
+  stdenv.mkDerivation rec {
+    # 指定包名和版本
+    pname = "liboqs";
+    version = "0.7.1";
+
+    # 从 GitHub 下载源代码
+    src = fetchFromGitHub ({
+      owner = "open-quantum-safe";
+      repo = "liboqs";
+      # 对应的 commit 或者 tag，注意 fetchFromGitHub 不能跟随 branch！
+      rev = "0.7.1";
+      # 下载 git submodules，绝大部分软件包没有这个
+      fetchSubmodules = false;
+      # 这里的 SHA256 校验码不会算怎么办？先注释掉，然后构建这个软件包，Nix 会报错，并提示你正确的校验码
+      sha256 = "sha256-m20M4+3zsH40hTpMJG9cyIjXp0xcCUBS+cCiRVLXFqM=";
+    });
+
+    # 并行编译，大幅加快打包速度，默认是启用的。对于极少数并行编译会失败的软件包，才需要禁用。
+    enableParallelBuilding = true;
+    # 如果基于 CMake 的软件包在打包时出现了奇怪的错误，可以尝试启用此选项
+    # 此选项禁用了对 CMake 软件包的一些自动修正
+    dontFixCmake = true;
+
+    # 将 CMake 加入编译环境，用来生成 Makefile
+    nativeBuildInputs = [ cmake ];
+
+    # 传给 CMake 的配置参数，控制 liboqs 的功能
+    cmakeFlags = [
+      "-DBUILD_SHARED_LIBS=ON"
+      "-DOQS_BUILD_ONLY_LIB=1"
+      "-DOQS_USE_OPENSSL=OFF"
+      "-DOQS_DIST_BUILD=ON"
+    ];
+
+    # stdenv.mkDerivation 自动帮你完成其余的步骤
+  }
+#+end_src
+
+然后运行下面这行命令，Nix 包管理器就会自动构建这个软件包，并把输出链接到当前目录的 results
+
+#+begin_src sh 
+  nix-build -E 'with import <nixpkgs> {}; callPackage ./liboqs.nix {}'
+#+end_src
+*** 中等：openssl-oqs-provider（C，增加依赖）
+#+begin_example
+  有了 LibOQS，可以再打包一个 OpenSSL OQS Provider
+
+  一个 OpenSSL 3.0 的加解密引擎，可以把后量子加密算法加入 OpenSSL 3.0 中
+#+end_example
+
+#+begin_src nix 
+  { lib
+  , stdenv
+  , fetchFromGitHub
+  , cmake
+  , liboqs
+  , openssl_3_0
+  , python3
+  , ...
+  } @ args:
+
+  stdenv.mkDerivation rec {
+    pname = "openssl-oqs-provider";
+    version = "ec60cde5cc894814016f821a1162fe1a4b888a75";
+    src = fetchFromGitHub ({
+      owner = "open-quantum-safe";
+      repo = "oqs-provider";
+      rev = "ec60cde5cc894814016f821a1162fe1a4b888a75";
+      fetchSubmodules = false;
+      sha256 = "sha256-NyT5CpQeclSJ0b4Qr4McAJXwKgy6SWiUijkAgu6TTNM=";
+    });
+
+    enableParallelBuilding = true;
+    dontFixCmake = true;
+
+    # nativeBuildInputs 指定的是只有在构建时用到，运行时不会用到的软件包
+    # 例如这里的用来生成 Makefile 的 CMake，和用来生成配置文件的 Python
+    nativeBuildInputs = [
+      cmake
+      # 向打包环境加入 Python 和这几个包，preConfigure 中的命令需要用到
+      (python3.withPackages (p: with p; [ jinja2 pyyaml tabulate ]))
+    ];
+
+    # buildInputs 指定的是运行时也会用到的软件包
+    buildInputs = [
+      liboqs
+      openssl_3_0
+    ];
+
+    # 在配置步骤（Configure phase）之前运行的命令，用来启用所有的后量子加密算法
+    preConfigure = ''
+      cp ${sources.openssl-oqs.src}/oqs-template/generate.yml oqs-template/generate.yml
+      sed -i "s/enable: false/enable: true/g" oqs-template/generate.yml
+      LIBOQS_SRC_DIR=${sources.liboqs.src} python oqs-template/generate.py
+    '';
+
+    cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
+
+    # 手动指定安装命令，把 oqsprovider.so 复制到 $out/lib 文件夹下
+    # 一般来说可执行文件放在 $out/bin，库文件放在 $out/lib，菜单图标等放在 $out/share
+    # 但并非强制，你在 $out 下随便放都可以，只不过在其它地方调用会麻烦一些
+    installPhase = ''
+      mkdir -p $out/lib
+      install -m755 oqsprov/oqsprovider.so "$out/lib"
+    '';
+  }
+#+end_src
+
+这个包主要用来展示 _nativeBuildInputs_ 和 _buildInputs_ 的区别：
++ nativeBuildInputs 只有在 *构建* 时用到，一般用来生成一些配置文件或者编译脚本
+  #+begin_example
+    在交叉编译（给其它架构的设备编译软件）时，nativeBuildInputs 的架构会和运行编译的设备相同，而不是和目标设备相同
+
+    例如用 x86 电脑给 ARM 树莓派编译时，nativeBuildInputs 的架构会是 x86
+  #+end_example
++ buildInputs 在 *构建* 和 *最终运行* 软件时都会用到。所有的依赖库都会放到这里。这些依赖的架构和目标设备相同
+  #+begin_example
+    例如 openssl-oqs-provider 依赖的 liboqs 必然和它是同一架构的（都是 x86 或者都是 ARM）
+  #+end_example
+*** 困难：OSDLyrics（Python 和 C++，两轮构建）
+接下来来看 [[https://github.com/osdlyrics/osdlyrics][OSDLyrics，一个桌面歌词软件]] 这个包表面上看起来很好打，官方给出的编译命令就是下面几行：
+
+#+begin_src sh 
+  ./autogen.sh
+  ./configure --prefix=/usr PYTHON=/usr/bin/python3
+  make
+  sudo make install
+#+end_src
+
+#+begin_example
+  但是编译命令里出现了 Python，这就比较麻烦了
+
+  OSDLyrics 由 Python 和 C++ 两部分组成，其中 C++ 部分会调用 Python 的库
+
+  因此，官方的编译脚本会把 OSDLyrics 的 Python 模块安装到 Python 的 site-packages 文件夹中
+
+  但是在 Nix 中，对于 OSDLyrics 这个软件包来说，Python 的安装目录是只读的，自然无法安装这个模块
+#+end_example
+
+因此需要先给 Python 模块部分单独打个包：
+
+#+begin_src nix 
+  { python3Packages
+  , fetchFromGitHub
+  , writeText
+  , ...
+  }:
+
+  python3Packages.buildPythonPackage rec {
+    pname = "osdlyrics";
+    version = "0.5.10";
+    src = fetchFromGitHub ({
+      owner = "osdlyrics";
+      repo = "osdlyrics";
+      rev = "0.5.10";
+      fetchSubmodules = false;
+      sha256 = "sha256-x9gIT1JkfPIc4RmmQJLv9rOG2WqAftoTK5uiRlS65zU=";
+    });
+
+    configurePhase =
+      let
+	# 原软件包的 Python 模块部分不符合 PIP 的打包格式，需要手动加入这两个配置文件
+	setupPy = writeText "setup.py" ''
+	  from setuptools import setup, find_packages
+	  setup(
+	    name='${pname}',
+	    version='${version}',
+	    packages=['osdlyrics', 'osdlyrics/dbusext'],
+	  )
+	'';
+	initPy = writeText "__init__.py" ''
+	  PROGRAM_NAME = 'OSD Lyrics'
+	  PACKAGE_NAME = '${pname}'
+	  PACKAGE_VERSION = '${version}'
+	'';
+      in
+      # 把 Python 模块的文件夹改名并加入配置文件，以符合 PIP 规范
+      ''
+	ln -s ${setupPy} setup.py
+	mv python osdlyrics
+	ln -s ${initPy} osdlyrics/__init__.py
+      '';
+
+    # 禁用测试，原软件包中没有单元测试
+    doCheck = false;
+  }
+#+end_src
+然后把这个模块加入 OSDLyrics 最终使用的 Python 环境：
+
+#+begin_src nix 
+  { python3Packages
+  , fetchFromGitHub
+  , writeText
+  , python3
+  , ...
+  }:
+
+  let
+    osdlyricsPython = python3Packages.buildPythonPackage rec {
+      # ...
+    };
+
+    # 下面列出的包都是 OSDLyrics 要用到的
+    python = python3.withPackages (p: with p; [
+      chardet
+      dbus-python
+      future
+      mpd2
+      osdlyricsPython
+      pycurl
+      pygobject3
+    ]);
+  in
+  # ...
+#+end_src
+
+最终才能打包它的 C++ 部分：
+
+#+begin_src nix 
+  { ... }:
+
+  let
+  # ...
+  in
+  stdenv.mkDerivation rec {
+    pname = "osdlyrics";
+    version = "0.5.10";
+    src = fetchFromGitHub ({
+      owner = "osdlyrics";
+      repo = "osdlyrics";
+      rev = "0.5.10";
+      fetchSubmodules = false;
+      sha256 = "sha256-x9gIT1JkfPIc4RmmQJLv9rOG2WqAftoTK5uiRlS65zU=";
+    });
+
+    nativeBuildInputs = [
+      # 自动运行 autoconf，也就是 autogen.sh 做的事
+      autoreconfHook
+      # 生成语言文件的工具
+      intltool
+      # pkgconfig 被 autoconf 系列配置脚本用来查找依赖
+      pkg-config
+    ];
+    # C++ 部分用到的依赖
+    buildInputs = [
+      dbus-glib
+      gtk2
+      libnotify
+      # 注意这个 Python 是我们上面定义的，加了几个模块的版本
+      python
+    ];
+
+    # 解决一些编译错误
+    postPatch = ''
+      sed -i 's/-Werror//g' configure.ac
+    '';
+
+    # autoreconfHook 会在构建步骤中加入一个 autoreconf phase，也有对应的前置/后置命令 Hook
+    preAutoreconf = ''
+      export AUTOPOINT=intltoolize
+    '';
+
+    # 指定用我们的加了模块的 Python
+    makeFlags = [ "PYTHON=${python}/bin/python" ];
+
+    # 删除结果中的 Python 模块部分（因为已经打包过了）
+    postInstall = ''
+      rm -rf $out/lib/python*
+    '';
+  }
+#+end_src
+
+整个完整的定义如下：
+
+#+begin_src nix 
+  { stdenv
+  , lib
+  , fetchFromGitHub
+  , writeText
+  , python3Packages
+    # nativeBuildInputs
+  , autoreconfHook
+  , intltool
+  , pkg-config
+    # buildInputs
+  , dbus-glib
+  , gtk2
+  , libnotify
+  , python3
+  , ...
+  } @ args:
+
+  let
+    pname = "osdlyrics";
+    version = "0.5.10";
+    src = fetchFromGitHub ({
+      owner = "osdlyrics";
+      repo = "osdlyrics";
+      rev = "0.5.10";
+      fetchSubmodules = false;
+      sha256 = "sha256-x9gIT1JkfPIc4RmmQJLv9rOG2WqAftoTK5uiRlS65zU=";
+    });
+
+    osdlyricsPython = python3Packages.buildPythonPackage rec {
+      inherit pname version src;
+
+      configurePhase =
+	let
+	  setupPy = writeText "setup.py" ''
+	    from setuptools import setup, find_packages
+	    setup(
+	      name='${pname}',
+	      version='${version}',
+	      packages=['osdlyrics', 'osdlyrics/dbusext'],
+	    )
+	  '';
+	  initPy = writeText "__init__.py" ''
+	    PROGRAM_NAME = 'OSD Lyrics'
+	    PACKAGE_NAME = '${pname}'
+	    PACKAGE_VERSION = '${version}'
+	  '';
+	in
+	''
+	  ln -s ${setupPy} setup.py
+	  mv python osdlyrics
+	  ln -s ${initPy} osdlyrics/__init__.py
+	'';
+
+      doCheck = false;
+    };
+
+    python = python3.withPackages (p: with p; [
+      chardet
+      dbus-python
+      future
+      mpd2
+      osdlyricsPython
+      pycurl
+      pygobject3
+    ]);
+  in
+  stdenv.mkDerivation rec {
+    inherit pname version src;
+    nativeBuildInputs = [
+      autoreconfHook
+      intltool
+      pkg-config
+    ];
+    buildInputs = [
+      dbus-glib
+      gtk2
+      libnotify
+      python
+    ];
+    postPatch = ''
+      sed -i 's/-Werror//g' configure.ac
+    '';
+    preAutoreconf = ''
+      export AUTOPOINT=intltoolize
+    '';
+    makeFlags = [ "PYTHON=${python}/bin/python" ];
+    postInstall = ''
+      rm -rf $out/lib/python*
+    '';
+  }
+#+end_src
+
 ** 闭源
 ** 特殊
 * 总结
