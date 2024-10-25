@@ -135,7 +135,7 @@ _NUR_ 是 Nix 的由 *用户自行管理* 的 _软件仓库_
 	     ({
 		     nixpkgs.overlays = [
 			     (final: prev: {
-			       myRepo = inputs.myRepo.packages."${prev.system}";
+				     myRepo = inputs.myRepo.packages."${prev.system}";
 			     })
 		     ];
 	     })
@@ -460,8 +460,8 @@ LibOQS 使用 CMake 构建，并且本身没有任何依赖，因此基本上所
 	  PACKAGE_VERSION = '${version}'
 	'';
       in
-      # 把 Python 模块的文件夹改名并加入配置文件，以符合 PIP 规范
-      ''
+	# 把 Python 模块的文件夹改名并加入配置文件，以符合 PIP 规范
+	''
 	ln -s ${setupPy} setup.py
 	mv python osdlyrics
 	ln -s ${initPy} osdlyrics/__init__.py
@@ -506,7 +506,7 @@ LibOQS 使用 CMake 构建，并且本身没有任何依赖，因此基本上所
   { ... }:
 
   let
-  # ...
+    # ...
   in
   stdenv.mkDerivation rec {
     pname = "osdlyrics";
@@ -564,11 +564,11 @@ LibOQS 使用 CMake 构建，并且本身没有任何依赖，因此基本上所
   , fetchFromGitHub
   , writeText
   , python3Packages
-    # nativeBuildInputs
+  # nativeBuildInputs
   , autoreconfHook
   , intltool
   , pkg-config
-    # buildInputs
+  # buildInputs
   , dbus-glib
   , gtk2
   , libnotify
@@ -592,7 +592,7 @@ LibOQS 使用 CMake 构建，并且本身没有任何依赖，因此基本上所
 
       configurePhase =
 	let
-	  setupPy = writeText "setup.py" ''
+		setupPy = writeText "setup.py" ''
 	    from setuptools import setup, find_packages
 	    setup(
 	      name='${pname}',
@@ -600,13 +600,13 @@ LibOQS 使用 CMake 构建，并且本身没有任何依赖，因此基本上所
 	      packages=['osdlyrics', 'osdlyrics/dbusext'],
 	    )
 	  '';
-	  initPy = writeText "__init__.py" ''
+		initPy = writeText "__init__.py" ''
 	    PROGRAM_NAME = 'OSD Lyrics'
 	    PACKAGE_NAME = '${pname}'
 	    PACKAGE_VERSION = '${version}'
 	  '';
 	in
-	''
+	  ''
 	  ln -s ${setupPy} setup.py
 	  mv python osdlyrics
 	  ln -s ${initPy} osdlyrics/__init__.py
@@ -827,7 +827,7 @@ _autoPatchelfHook_ 已经列出了所有缺失的库文件，接下来，需要�
   , makeWrapper
   , lib
   , callPackage
-    # DingTalk dependencies
+  # DingTalk dependencies
   , alsa-lib
   , at-spi2-atk
   , at-spi2-core
@@ -1021,10 +1021,10 @@ _autoPatchelfHook_ 已经列出了所有缺失的库文件，接下来，需要�
       })
       {
 	extraMakeWrapperArgs = lib.optionals (nvidia_x11 != null) [
-	  "--prefix"
-	  "LD_LIBRARY_PATH"
-	  ":"
-	  "${lib.makeLibraryPath [ nvidia_x11 ]}"
+		"--prefix"
+		"LD_LIBRARY_PATH"
+		":"
+		"${lib.makeLibraryPath [ nvidia_x11 ]}"
 	];
       };
 
@@ -1134,7 +1134,7 @@ _autoPatchelfHook_ 已经列出了所有缺失的库文件，接下来，需要�
 	"''${auto_mounts[@]}"
 	# 虚拟环境启动后运行 SVP 主程序
 	${svp-dist}/opt/SVPManager "$@"
-		       )
+			     )
       exec "''${cmd[@]}"
     '';
 
@@ -1284,4 +1284,179 @@ steam-run 虽然好用，但因为它为了支持大量的 Steam 游戏默认引
 #+end_example
 
 ** 特殊
+最后演示几种特殊软件的打包
+
+*** 字体
+#+begin_example
+  这里用 Hoyo-Glyphs 演示，它是一个由米哈游游戏爱好者创建的字体项目
+
+  模仿了米哈游的原神、星穹铁道、绝区零等游戏内的架空文字
+#+end_example
+
+NixOS 中的字体也是一个个软件包，只要把 TTF 文件放进软件包的 $out/share/fonts/opentype 文件夹就可以了
+
+#+begin_src nix 
+  { stdenvNoCC
+  , lib
+  , fetchFromGitHub
+  , ...
+  } @ args:
+
+  # stdenvNoCC 是一个没有编译器的打包环境，毕竟我们打包字体也用不到编译器
+  stdenvNoCC.mkDerivation rec {
+    pname = "hoyo-glyphs";
+    version = "b2bf17cd3d9637fbf55c23bf46fe380e4f7e0739";
+    src = fetchFromGitHub ({
+      owner = "SpeedyOrc-C";
+      repo = "Hoyo-Glyphs";
+      rev = "b2bf17cd3d9637fbf55c23bf46fe380e4f7e0739";
+      fetchSubmodules = false;
+      sha256 = "sha256-7Jx/7z3QxAi7lsV3JFwUDWJUpaKOmfZyGKL3MUrUopw=";
+    });
+
+    # 查找所有的 otf 字体文件，复制到 $out/share/fonts/opentype 目录下
+    # 这样做是因为 hoyo-glyphs 项目中字体散布在多个文件夹下
+    installPhase = ''
+      mkdir -p $out/share/fonts/opentype/
+      cp font/**/*.otf $out/share/fonts/opentype/
+    '';
+  }
+#+end_src
+
+最后把这个软件包加入 NixOS 的字体配置（或者 Home-Manager 的字体配置），就可以使用了：
+
+#+begin_src nix 
+  let
+    hoyo-glyphs = pkgs.callPackage ./hoyo-glyphs.nix { };
+  in
+  {
+    fonts.fonts = [
+      hoyo-glyphs
+    ];
+  }
+#+end_src
+
+*** Go 软件包：Konnect
+#+begin_example
+  接下来我演示一下 Go 软件包的打包
+
+  这里使用的软件是 Konnect，一个 OpenID 单点登录服务，支持 LDAP 后端
+#+end_example
+Nixpkgs 提供了 _buildGoModule 函数_ 可以几乎全自动地给 Go 语言软件打包
+
+#+begin_example
+  但是 buildGoModule 存在一个问题：由于 Go 语言程序需要联网下载 vendor 目录下的依赖
+
+  因此 buildGoModule 会计算整个 vendor 目录的校验码，这个校验码需要在打包时手动给出
+#+end_example
+
+校验码不会算怎么办？老方法，先注释掉（或者随便改几个字），然后构建这个软件包，Nix 会报错，并提示正确的校验码：
+
+#+begin_src nix 
+  { fetchFromGitHub
+  , buildGoModule
+  }:
+
+  buildGoModule rec {
+    pname = "konnect";
+    version = "v0.34.0";
+    src = fetchFromGitHub ({
+      owner = "Kopano-dev";
+      repo = "konnect";
+      rev = "v0.34.0";
+      fetchSubmodules = false;
+      sha256 = "sha256-y7SD+czD/jK/m0LbFq7qGjwJgBIXfTNrdsA3pzgD2xE=";
+    });
+    vendorSha256 = "sha256-ZrwFUZDTbJx5qvloVOa5qK1ykKNkUn1hjfz0xf+8sWk=";
+  }
+#+end_src
+
+不需要指定任何的编译命令，buildGoModule 会自动完成一切。类似的，Python，NodeJS，Rust 等多种语言的项目都有它们对应的打包函数，具体用法可以在 [[https://nixos.wiki/][NixOS Wiki]] 查找
+
+#+begin_example
+  但是不包括 Java，因为 Java 常用的 Maven 构建系统不支持把依赖固定在某一个版本
+
+  因此两次编译的依赖可能会发生变化，违反了 Nix 的初衷
+#+end_example
+
+*** 内核：linux-xanmod-lantian
+最后，演示一下如何自定义 Linux 内核。Nixpkgs 照例提供了方便的 _buildLinux_ 函数：
+
+#+begin_src nix 
+  { pkgs
+  , stdenv
+  , lib
+  , fetchFromGitHub
+  , buildLinux
+  , ...
+  } @ args:
+
+  let
+    version = "5.17.14";
+    release = "1";
+  in
+  buildLinux {
+    inherit stdenv lib version;
+    src = fetchFromGitHub {
+      owner = "xanmod";
+      repo = "linux";
+      rev = "${version}-xanmod${release}";
+      sha256 = "sha256-OutD9Z/4LMT1cNmpq5fHaJZzU6iMDoj2N8GXFvXkECY=";
+    };
+
+    # 指定内核模块文件夹的名称，我修改了 CONFIG_LOCALVERSION，因此这里要一同修改
+    modDirVersion = "${version}-xanmod${release}-lantian";
+
+    # 从 config.nix 中加载配置
+    structuredExtraConfig = import ./config.nix args;
+
+    # 在内核上打的补丁，我这里打了 Nixpkgs 自带的两个补丁，和 patches 目录下的所有补丁（自动检测）
+    kernelPatches = [
+      pkgs.kernelPatches.bridge_stp_helper
+      pkgs.kernelPatches.request_key_helper
+    ] ++ (builtins.map
+      (name: {
+	inherit name;
+	patch = ./patches + "/${name}";
+      })
+      (builtins.attrNames (builtins.readDir ./patches)));
+
+    # 只允许给 x86_64 平台打包
+    extraMeta.broken = !stdenv.hostPlatform.isx86_64;
+  }
+#+end_src
+
+_config.nix_ 存放你自定义的配置，Nixpkgs 会在 [[https://github.com/NixOS/nixpkgs/blob/master/pkgs/os-specific/linux/kernel/common-config.nix][NixOS 默认内核配置]] 的基础上应用你的修改
+
+#+begin_src nix 
+  { lib, ... }:
+
+  with lib.kernel;
+  {
+    # 指定一个字符串：使用 freeform
+    LOCALVERSION = freeform "-lantian";
+
+    # 指定一个数字：也是使用 freeform，把数字写成字符串
+    LOG_BUF_SHIFT = freeform "12";
+
+    # 编译成模块：使用 module
+    # 如果和默认配置冲突，可以用 lib.mkForce 强制应用
+    TCP_CONG_CUBIC = lib.mkForce module;
+
+    # 编译进内核：使用 yes
+    TCP_CONG_BBR = yes;
+
+    # 禁用：使用 no
+    CRYPTO_842 = no;
+  }
+#+end_src
+
 * 总结
+软件打包一向是困难的，在打包过程中，往往需要考虑软件的所有依赖，并且调整参数反复尝试。相比于其它发行版，NixOS（以及 Nixpkgs）的打包看起来复杂，但实际上是比较容易的：
++ 大量的重复工作被以函数的形式自动化
++ 打包环境与主系统隔离，不用担心系统上的残留库文件产生冲突，也不用担心少指定依赖导致其他人无法使用。
+
+这里展示了常见的几种打包情况，包括开源软件和闭源软件。但因为展示的样本很少，无法覆盖到可能遇到的所有情况，因此更多时候还是需要去自行查阅资料：
++ [[https://nixos.wiki/][NixOS Wiki]] 上有多种常见编程语言的打包教程，以及一些特殊情况的介绍（例如 Qt）
++ [[https://github.com/NixOS/nixpkgs][Nixpkgs]] 本身就是一个大型的软件包仓库，存放了 8 万多个软件包的定义，也可以作为参考
++ [[https://nur.nix-community.org/][NUR]] 是 Nix 用户个人管理的软件包仓库，类似于 AUR
