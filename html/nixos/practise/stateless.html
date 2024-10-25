@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>实用教程</title>
+<title>无状态的操作系统</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -196,16 +196,127 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="../dev.html"> UP </a>
+ <a accesskey="h" href="package.html"> UP </a>
  |
- <a accesskey="H" href="../nixos.html"> HOME </a>
+ <a accesskey="H" href="practise.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">实用教程</h1>
-<ul class="org-ul">
-<li><a href="config.html">基础配置</a></li>
-<li><a href="package.html">软件打包</a></li>
-<li><a href="stateless.html">无状态</a></li>
+<h1 class="title">无状态的操作系统</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org56c9bbe">”无状态“的优点</a></li>
 </ul>
+</div>
+</div>
+<pre class="example" id="org7e5d086">
+NixOS 广为人知的一大特点是，系统大部分软件的设置都由 Nix 语言的配置文件统一生成并管理
+
+即使这些软件在运行时修改了自己的配置文件，在下次切换 Nix 配置或者系统重启时，NixOS 也会将配置文件重新覆盖
+</pre>
+
+<p>
+例如，在运行 NixOS 的电脑上运行 <span class="underline">ls -alh /etc</span> ，可以看到大部分配置文件都只是到 <span class="underline">/etc/static</span> 的 <b>软链接</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#30465;&#30053;&#37096;&#20998;&#19981;&#30456;&#20851;&#30340;&#34892;</span>
+lrwxrwxrwx  1 root root     18 Jan 13 03:02 bashrc -&gt; /etc/static/bashrc
+lrwxrwxrwx  1 root root     18 Jan 13 03:02 dbus-1 -&gt; /etc/static/dbus-1
+lrwxrwxrwx  1 root root     17 Jan 13 03:02 fonts -&gt; /etc/static/fonts
+lrwxrwxrwx  1 root root     17 Jan 13 03:02 fstab -&gt; /etc/static/fstab
+lrwxrwxrwx  1 root root     21 Jan 13 03:02 fuse.conf -&gt; /etc/static/fuse.conf
+-rw-r--r--  1 root root    913 Jan 13 03:02 group
+lrwxrwxrwx  1 root root     21 Jan 13 03:02 host.conf -&gt; /etc/static/host.conf
+lrwxrwxrwx  1 root root     18 Jan 13 03:02 hostid -&gt; /etc/static/hostid
+lrwxrwxrwx  1 root root     20 Jan 13 03:02 hostname -&gt; /etc/static/hostname
+lrwxrwxrwx  1 root root     17 Jan 13 03:02 hosts -&gt; /etc/static/hosts
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">...</span>
+</pre>
+</div>
+
+<p>
+而 <span class="underline">/etc/static</span> 本身则被链接到 <span class="underline">/nix/store</span> ，被 NixOS 统一管理：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">lrwxrwxrwx 1 root root 51 Jan 13 03:02 /etc/static -&gt; /nix/store/41plm7py84sp29w3bg4ahb41dpfxwf9l-etc/etc
+</pre>
+</div>
+
+<pre class="example" id="orgf724f43">
+那么问题就来了：有必要把 /etc 的内容存在硬盘上吗？
+
+反正每次重启或切换配置时，这里的内容都会被重新生成一遍
+</pre>
+
+<p>
+类似的，看起来 NixOS 根目录下大部分文件都是可以根据配置生成的：
+</p>
+<ul class="org-ul">
+<li>/bin 文件夹下只有一个 /bin/sh，被软链接到 /nix/store 里的 Bash</li>
+<li>/etc 文件夹中的大部分文件都由 NixOS 的配置文件管理</li>
+<li>/usr 文件夹下只有一个 /usr/bin/env，被软链接到 /nix/store 里的 Coreutils</li>
+<li><p>
+/mnt 和 /srv 文件夹默认是空的
+</p>
+<pre class="example" id="orgec00bd6">
+并且 /mnt 本身一般不存数据，只用来放其它分区的挂载点
+</pre></li>
+<li>/dev，/proc 和 /sys 本身就是存放硬件设备和系统状态的虚拟文件夹</li>
+<li><p>
+/run 和 /tmp 本身都是存放临时文件的内存盘
+</p>
+<pre class="example" id="orgcca1941">
+在给软件打包时，Nix Daemon 会将临时文件存在 /tmp 目录下
+
+如果 /tmp 是内存盘，打大型软件包（例如 Linux 内核）时容易爆内存
+
+因此 NixOS 的 /tmp 默认不是内存盘，需要手动用 boot.tmpOnTmpfs = true; 开启
+</pre></li>
+</ul>
+
+<p>
+排除上面的文件夹，只有少数几个文件夹存放了需要真正写入硬盘的数据：
+</p>
+<ul class="org-ul">
+<li>/boot 存放启动引导器</li>
+<li>/home 和 /root 存放各个用户的家目录</li>
+<li>/nix 存放 NixOS 的所有软件包</li>
+<li>/var 存放系统软件的数据文件</li>
+</ul>
+
+<p>
+实际上，NixOS 本身只需要 /boot 和 /nix 就可以正常启动。从 <a href="https://nixos.org/download.html">NixOS 官网下载页面</a> 下载的 ISO 里面除了 ISOLinux 启动引导器，就只有一个 <span class="underline">nix-store.squashfs</span> 文件，对应 <span class="underline">/nix/store</span> 里的数据：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">unsquashfs -l nix-store.squashfs | head</span>
+squashfs-root
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz/lib
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz/lib/firmware
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz/lib/firmware/rtw88
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz/lib/firmware/rtw88/rtl8822cu_fw.bin.xz
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz/lib/firmware/rtw88/rtw8723d_fw.bin.xz
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz/lib/firmware/rtw88/rtw8821c_fw.bin.xz
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz/lib/firmware/rtw88/rtw8822b_fw.bin.xz
+squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-05-xz/lib/firmware/rtw88/rtw8822c_fw.bin.xz
+</pre>
+</div>
+
+<pre class="example" id="org09bd931">
+那么，能不能改造 NixOS，模仿安装光盘的行为，在硬盘上只保留 /boot，/home，/nix，/root，/var 这几个必要文件夹的数据？
+
+更直接地说，能不能直接把 / 根目录配置成一个内存盘，再把这几个文件夹的数据挂载到对应位置？
+</pre>
+
+<p>
+答案是：可以，而且不用改造。安装光盘上的 NixOS 除了 <b>挂载</b> <span class="underline">nix-store.squashfs</span> 以外，其它的行为都与安装在硬盘上的 NixOS 相同
+</p>
+<div id="outline-container-org56c9bbe" class="outline-2">
+<h2 id="org56c9bbe">”无状态“的优点</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
