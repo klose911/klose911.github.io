@@ -221,7 +221,14 @@
 <li><a href="#orgd44c35f">困难：OSDLyrics（Python 和 C++，两轮构建）</a></li>
 </ul>
 </li>
-<li><a href="#org1ba171c">闭源</a></li>
+<li><a href="#org1ba171c">闭源</a>
+<ul>
+<li><a href="#org63e3429">简单：Bilibili-linux（解压 DEB 包，Electron）</a></li>
+<li><a href="#orgec5efff">中等：DingTalk（自动 Patch 二进制，查找依赖）</a></li>
+<li><a href="#org0bd0ea7">困难：SVP（程序检测自身完整性，Bubblewrap）</a></li>
+<li><a href="#org6af7061">困难：WeChat-UOS（程序检测运行环境，Steam-run）</a></li>
+</ul>
+</li>
 <li><a href="#org7826fcf">特殊</a></li>
 </ul>
 </li>
@@ -233,7 +240,7 @@
 NixOS 的一大特点是，系统所有的二进制程序和库文件都在 /nix/store 目录中，由 Nix 包管理器管理
 </p>
 
-<pre class="example" id="org99d929e">
+<pre class="example" id="org432b6cf">
 这也意味着，NixOS 不符合 Linux 的 FHS 标准
 
 它的 /lib 或 /lib64 目录下不存在类似 ld-linux-x86-64.so.2 之类的库文件动态加载器，更不存在 libc.so 之类的库文件
@@ -252,7 +259,7 @@ NixOS 的一大特点是，系统所有的二进制程序和库文件都在 /nix
 <li><p>
 Nixpkgs，也就是 NixOS 的软件仓库，提供了大量的打包自动化函数
 </p>
-<pre class="example" id="orgbad4712">
+<pre class="example" id="org706f8c1">
 对于很多使用常见编程语言的开源软件（包括 C/C++，Python，Go，Node.js，Rust 等，但不包括 Java）
 
 只需要调用现成的函数，指定一下源码的下载方式，Nixpkgs 就能自动检测软件的打包系统，自动传入合适的参数并完成软件打包
@@ -263,14 +270,14 @@ Nixpkgs，也就是 NixOS 的软件仓库，提供了大量的打包自动化函
 <li><p>
 另一种是 Bubblewrap，或者基于 Bubblewrap 的 steam-run，模拟一个符合 FHS 标准的运行环境
 </p>
-<pre class="example" id="org31b994a">
+<pre class="example" id="orgb28e05f">
 顾名思义，steam-run 主要针对的是 Steam 游戏平台以及它上面的游戏，但它也可以用于其它闭源软件
 </pre></li>
 </ul></li>
 <li><p>
 Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略地理解成一个断网，限制权限，只允许访问固定路径的 Docker 容器。在编译过程中，访问外部路径或者联网的尝试全部会失败，只能使用 Nix 编译脚本中事先指定的依赖
 </p>
-<pre class="example" id="orgc73f6b0">
+<pre class="example" id="orgdc09d39">
 因此，打包出来的程序将完全不依赖其它文件
 </pre></li>
 </ol>
@@ -282,7 +289,7 @@ Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略�
 <li><p>
 开发者不一定比打包者更懂 Linux
 </p>
-<pre class="example" id="org054d414">
+<pre class="example" id="org29fa503">
 开发者可能会在代码和编译脚本里写死各种路径，做出各种只符合 FHS 标准的假设
 
 此时就需要你手动写补丁，纠正这些路径，让程序可以在 NixOS 上正常编译运行
@@ -294,24 +301,24 @@ Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略�
 <li><p>
 开发者使用了一些奇怪的源码目录结构，或者非标准的编译方式
 </p>
-<pre class="example" id="orgce1ae07">
+<pre class="example" id="orgdeaab7a">
 例如 osdlyrics
 </pre></li>
 <li><p>
 程序主动检测运行环境
 </p>
-<pre class="example" id="org25fc493">
+<pre class="example" id="org9fbbb33">
 例如 UOS 版微信客户端
 </pre></li>
 <li><p>
 程序主动检测对它本身的修改
 </p>
-<pre class="example" id="org2139b2c">
+<pre class="example" id="org2689ca6">
 例如 SVP 视频补帧软件
 </pre></li>
 </ul>
 
-<pre class="example" id="org43bf86c">
+<pre class="example" id="orgc503d74">
 我在几个月前将日常使用的发行版从 Arch Linux 换成了 NixOS，在使用过程中打了很多 NixOS 软件包
 
 本文将从简单的打包开始一步步推进，介绍 NixOS 打包的方法，遇到的常见问题以及应对策略
@@ -327,13 +334,13 @@ Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略�
 <li><p>
 虽然在非 NixOS 的操作系统上也可以用 Nix 包管理器打包软件，但打包出的软件在运行过程中可能还会残留有对 FHS 标准目录的依赖，从而导致它们无法正常在 NixOS 上使用
 </p>
-<pre class="example" id="orga8cb487">
+<pre class="example" id="org51ca40f">
 当然，如果你打包只是自用，只考虑自己的运行环境，那可以忽略这条
 </pre></li>
 <li><p>
 此外，要在非 NixOS 的操作系统上安装 Nix 打包的软件，需要使用 Home Manager，一个通过 Nix 语言的配置文件来管理你的 Home 目录下的软件配置文件的工具
 </p>
-<pre class="example" id="orgabbb6b0">
+<pre class="example" id="org4cb3815">
 这需要自行研究，或者查阅其它人的相关文章
 </pre></li>
 </ul>
@@ -345,7 +352,7 @@ Nix 包管理器会在一个隔离的环境中进行软件打包，可以粗略�
 <span class="underline">NUR</span> 是 Nix 的由 <b>用户自行管理</b> 的 <span class="underline">软件仓库</span>
 </p>
 
-<pre class="example" id="org8bb22cd">
+<pre class="example" id="orgbc54c6b">
 这类似于 Arch Linux 的 AUR
 
 NUR 提供了一份现成的 Nix 仓库模版，你可以方便地统一添加、管理自己的软件包
@@ -355,7 +362,7 @@ NUR 提供了一份现成的 Nix 仓库模版，你可以方便地统一添加�
 在 GitHub 上，访问 <a href="https://github.com/nix-community/nur-packages-template">nur-packages-template</a>，点击 <span class="underline">Use this template</span> 用这个模版建立一个仓库。之后，可以将所有软件包统一保存在你新建的仓库。如果要将自己的软件包发布到 NUR，需要向 NUR 的主仓库发起 Pull Request，将自己的仓库地址加进去
 </p>
 
-<pre class="example" id="org7d745d0">
+<pre class="example" id="org1664e41">
 但即使不发 Pull Request，也完全可以直接使用自己的仓库
 </pre>
 
@@ -395,7 +402,7 @@ nix build <span style="color: #ffa07a;">".#example-package"</span>
 };
 </pre>
 </div>
-<pre class="example" id="org1af07d7">
+<pre class="example" id="orgf5f9073">
 将 https://github.com/nix-community/nur-packages-template 替换成你的仓库地址
 
 这样操作后，你就能用类似于 pkgs.myRepo.example-package 的方式使用你打的包了
@@ -416,7 +423,7 @@ nix build <span style="color: #ffa07a;">".#example-package"</span>
 };
 </pre>
 </div>
-<pre class="example" id="orgbda6df8">
+<pre class="example" id="org0f2226b">
 将 nix-community/nur-packages-template 替换成你的仓库地址
 </pre></li>
 <li><p>
@@ -454,7 +461,7 @@ nix build <span style="color: #ffa07a;">".#example-package"</span>
 <div id="outline-container-org27c2df7" class="outline-3">
 <h3 id="org27c2df7">直接在 NixOS 配置文件中添加软件包</h3>
 <div class="outline-text-3" id="text-org27c2df7">
-<pre class="example" id="orgbe2e4b3">
+<pre class="example" id="org157f940">
 当然，也可以不使用 NUR 的模版，而是直接把打包定义和 NixOS 的配置文件放在一起
 </pre>
 
@@ -521,7 +528,7 @@ stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
 <li><p>
 在这一步中，stdenv.mkDerivation 会自动解压 <span class="underline">src</span> 参数指定的 <b>源码包</b>
 </p>
-<pre class="example" id="org73777f9">
+<pre class="example" id="org2c76c39">
 例如 如果源码包是 .tar.gz 格式的，就会自动调用 tar xf
 </pre></li>
 <li><p>
@@ -541,7 +548,7 @@ stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
 <li><p>
 在这一步中，stdenv.mkDerivation 会按顺序应用 <span class="underline">patches</span> 列表中的 <b>所有补丁</b>
 </p>
-<pre class="example" id="org9aaa780">
+<pre class="example" id="org02aabff">
 这一步可以用来解决一部分软件和 NixOS 的不兼容问题
 </pre></li>
 </ul></li>
@@ -550,7 +557,7 @@ stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
 <li><p>
 这一步相当于运行 <span class="underline">./configure</span> 或者 <span class="underline">cmake</span>
 </p>
-<pre class="example" id="orgace3712">
+<pre class="example" id="org580427d">
 stdenv.mkDerivation 会自动检测打包方案并调用相应命令，或者当相应配置文件不存在时，自动跳过这一步
 </pre>
 <ul class="org-ul">
@@ -580,7 +587,7 @@ stdenv.mkDerivation 会自动检测打包方案并调用相应命令，或者当
 <li><p>
 这一步会对 Nix store 中的结果做一些清理
 </p>
-<pre class="example" id="org975bbb1">
+<pre class="example" id="org5d99f00">
 例如去除调试符号等
 Autopatchelf Hook，一个自动替换闭源软件 .so 的路径的 Hook，就是在这一步运行的
 </pre></li>
@@ -610,7 +617,7 @@ Autopatchelf Hook，一个自动替换闭源软件 .so 的路径的 Hook，就�
 </pre>
 </div>
 
-<pre class="example" id="org3f72652">
+<pre class="example" id="orgf3479d1">
 只看这些步骤的解释可能有些抽象，因此接下来我会给出一些实例，并给出详细解释
 
 此外，实例中还会涉及 Nixpkgs 提供的对于几种常用编程语言的专用打包函数
@@ -632,7 +639,7 @@ Autopatchelf Hook，一个自动替换闭源软件 .so 的路径的 Hook，就�
 <div id="outline-container-org1d0e967" class="outline-4">
 <h4 id="org1d0e967">简单：LibOQS（C++，CMake，自动化构建）</h4>
 <div class="outline-text-4" id="text-org1d0e967">
-<pre class="example" id="org3845c31">
+<pre class="example" id="org43bd2e8">
 首先我们来看一个最简单的例子：LibOQS
 
 LibOQS 提供了多种后量子加密算法的实现，可以用来给 OpenSSL 或 BoringSSL 提供后量子加密支持
@@ -703,7 +710,7 @@ stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
 <div id="outline-container-orge34ab51" class="outline-4">
 <h4 id="orge34ab51">中等：openssl-oqs-provider（C，增加依赖）</h4>
 <div class="outline-text-4" id="text-orge34ab51">
-<pre class="example" id="org4e5b147">
+<pre class="example" id="org84e5e54">
 有了 LibOQS，可以再打包一个 OpenSSL OQS Provider
 
 一个 OpenSSL 3.0 的加解密引擎，可以把后量子加密算法加入 OpenSSL 3.0 中
@@ -775,7 +782,7 @@ stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
 <li><p>
 nativeBuildInputs 只有在 <b>构建</b> 时用到，一般用来生成一些配置文件或者编译脚本
 </p>
-<pre class="example" id="org41a284a">
+<pre class="example" id="org3dc9408">
 在交叉编译（给其它架构的设备编译软件）时，nativeBuildInputs 的架构会和运行编译的设备相同，而不是和目标设备相同
 
 例如用 x86 电脑给 ARM 树莓派编译时，nativeBuildInputs 的架构会是 x86
@@ -783,7 +790,7 @@ nativeBuildInputs 只有在 <b>构建</b> 时用到，一般用来生成一些�
 <li><p>
 buildInputs 在 <b>构建</b> 和 <b>最终运行</b> 软件时都会用到。所有的依赖库都会放到这里。这些依赖的架构和目标设备相同
 </p>
-<pre class="example" id="org516f42c">
+<pre class="example" id="orgb3a2478">
 例如 openssl-oqs-provider 依赖的 liboqs 必然和它是同一架构的（都是 x86 或者都是 ARM）
 </pre></li>
 </ul>
@@ -804,7 +811,7 @@ sudo make install
 </pre>
 </div>
 
-<pre class="example" id="orga6823ad">
+<pre class="example" id="orgc398bda">
 但是编译命令里出现了 Python，这就比较麻烦了
 
 OSDLyrics 由 Python 和 C++ 两部分组成，其中 C++ 部分会调用 Python 的库
@@ -1059,7 +1066,683 @@ stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
 
 <div id="outline-container-org1ba171c" class="outline-3">
 <h3 id="org1ba171c">闭源</h3>
+<div class="outline-text-3" id="text-org1ba171c">
+<pre class="example" id="orga31bee9">
+比起开源软件，给闭源软件打包就比较困难了,这些闭源软件往往只提供二进制文件
+
+而这些二进制文件往往是提供给传统的、使用 FHS 标准目录结构的 Linux 发行版的，例如 CentOS、Debian、Ubuntu 等
+
+由于没有源代码，只能想办法在二进制文件上动手术
+
+在二进制文件中查找 FHS 标准路径，并把它们全部替换成 Nix store 的路径
+</pre>
+<p>
+幸运的是，针对不同的情况，Nixpkgs 提供了好几种方案，让多数的闭源软件都能打包成功
+</p>
 </div>
+
+<div id="outline-container-org63e3429" class="outline-4">
+<h4 id="org63e3429">简单：Bilibili-linux（解压 DEB 包，Electron）</h4>
+<div class="outline-text-4" id="text-org63e3429">
+<pre class="example" id="org95ba2b2">
+首先我们看一个简单的情况：基于 Electron 的软件
+
+这里以 Bilibili-linux 为例，它是基于哔哩哔哩官方的桌面客户端移植到 Linux 系统的版本
+
+虽然 Electron 软件相比传统的基于 GTK 或 Qt 的桌面软件耗电大，占用空间多
+
+而且会让每台电脑中都装上十来个 Chromium，让它的CPU占有率飙升到 1000% 以上，但它的移植便捷性不容忽视
+</pre>
+
+<p>
+Bilibili-linux 这个客户端是使用纯 Javascript 实现的，软件包里除了 Electron 之外，没有任何其它的二进制文件。因此可以取出它的 Javascript 代码，然后直接用系统的 Electron 运行
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ stdenv
+, fetchurl
+, electron
+, lib
+, makeWrapper
+, ...
+} @ args:
+
+<span style="color: #ff4500;">################################################################################</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Mostly based on bilibili-bin package from AUR:</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">https://aur.archlinux.org/packages/bilibili-bin</span>
+<span style="color: #ff4500;">################################################################################</span>
+
+stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
+  <span style="color: #eedd82;">pname</span> = <span style="color: #ffa07a;">"bilibili"</span>;
+  <span style="color: #eedd82;">version</span> = <span style="color: #ffa07a;">"1.2.1-1"</span>;
+  <span style="color: #eedd82;">src</span> = fetchurl {
+    <span style="color: #eedd82;">url</span> = <span style="color: #ffa07a;">"https://github.com/msojocs/bilibili-linux/releases/download/v1.2.1-1/io.github.msojocs.bilibili_1.2.1-1_amd64.deb"</span>;
+    <span style="color: #eedd82;">sha256</span> = <span style="color: #ffa07a;">"sha256-t/igezm0ipkOkKION8qTYGK9f6qI3c4iPuS/wWrMywQ="</span>;
+  };
+
+  <span style="color: #ff4500;"># &#35299;&#21387; DEB &#21253;</span>
+  <span style="color: #eedd82;">unpackPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    ar x </span><span style="color: #7fffd4;">${</span>src<span style="color: #7fffd4;">}</span>
+<span style="color: #ffa07a;">    tar xf data.tar.xz</span>
+<span style="color: #ffa07a;">  ''</span>;
+
+  <span style="color: #ff4500;"># makeWrapper &#21487;&#20197;&#33258;&#21160;&#29983;&#25104;&#19968;&#20010;&#35843;&#29992;&#20854;&#23427;&#21629;&#20196;&#30340;&#21629;&#20196;&#65288;&#20063;&#23601;&#26159; wrapper&#65289;&#65292;&#24182;&#19988;&#21487;&#20197;&#22312;&#21407;&#21629;&#20196;&#19978;&#20462;&#25913;&#21442;&#25968;&#12289;&#29615;&#22659;&#21464;&#37327;&#31561;</span>
+  <span style="color: #eedd82;">buildInputs</span> = [ makeWrapper ];
+
+  <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    mkdir -p $out/bin</span>
+
+<span style="color: #ffa07a;">    # &#26367;&#25442;&#33756;&#21333;&#39033;&#30446;&#65288;desktop &#25991;&#20214;&#65289;&#20013;&#30340;&#36335;&#24452;</span>
+<span style="color: #ffa07a;">    cp -r usr/share $out/share</span>
+<span style="color: #ffa07a;">    sed -i "s|Exec=.*|Exec=$out/bin/bilibili|" $out/share/applications/*.desktop</span>
+
+<span style="color: #ffa07a;">    # &#22797;&#21046;&#20986;&#23458;&#25143;&#31471;&#30340; Javascript &#37096;&#20998;&#65292;&#20854;&#23427;&#30340;&#19981;&#35201;&#20102;</span>
+<span style="color: #ffa07a;">    cp -r opt/apps/io.github.msojocs.bilibili/files/bin/app $out/opt</span>
+
+<span style="color: #ffa07a;">    # &#29983;&#25104; bilibili &#21629;&#20196;&#65292;&#36816;&#34892;&#36825;&#20010;&#21629;&#20196;&#26102;&#20250;&#35843;&#29992; electron &#21152;&#36733;&#23458;&#25143;&#31471;&#30340; Javascript &#21253;&#65288;$out/opt/app.asar&#65289;</span>
+<span style="color: #ffa07a;">    makeWrapper </span><span style="color: #7fffd4;">${</span>electron<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/bin/electron $out/bin/bilibili \</span>
+<span style="color: #ffa07a;">      --argv0 "bilibili" \</span>
+<span style="color: #ffa07a;">      --add-flags "$out/opt/app.asar"</span>
+<span style="color: #ffa07a;">  ''</span>;
+}
+</pre>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-orgec5efff" class="outline-4">
+<h4 id="orgec5efff">中等：DingTalk（自动 Patch 二进制，查找依赖）</h4>
+<div class="outline-text-4" id="text-orgec5efff">
+<pre class="example" id="org3737e97">
+当然，不是所有闭源软件都用的是 Electron 方案
+
+对于有二进制文件的闭源软件，我们就需要在二进制文件上动刀了，把它的依赖库文件全部改成 Nix store 里的库
+
+Nixpkgs 提供了一个方便的工具 autoPatchelfHook，它会搜索软件包里的所有二进制，并修改所有的依赖路径，当有依赖路径没被满足时会自动报错，方便调试
+
+这次用的例子是 DingTalk，钉钉的 Linux 客户端，它使用 GTK 作为界面框架
+</pre>
+<p>
+由于我们一开始不知道钉钉有什么依赖，先编写一个大致的打包模版：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ stdenv
+, fetchurl
+, autoPatchelfHook
+, makeWrapper
+, lib
+, callPackage
+, ...
+} @ args:
+
+<span style="color: #ff4500;">################################################################################</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Mostly based on dingtalk-bin package from AUR:</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">https://aur.archlinux.org/packages/dingtalk-bin</span>
+<span style="color: #ff4500;">################################################################################</span>
+
+stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
+  <span style="color: #eedd82;">pname</span> = <span style="color: #ffa07a;">"dingtalk"</span>;
+  <span style="color: #eedd82;">version</span> = <span style="color: #ffa07a;">"1.4.0.20425"</span>;
+  <span style="color: #eedd82;">src</span> = fetchurl {
+    <span style="color: #eedd82;">url</span> = <span style="color: #ffa07a;">"https://dtapp-pub.dingtalk.com/dingtalk-desktop/xc_dingtalk_update/linux_deb/Release/com.alibabainc.dingtalk_</span><span style="color: #7fffd4;">${</span>version<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">_amd64.deb"</span>;
+    <span style="color: #eedd82;">sha256</span> = <span style="color: #ffa07a;">"sha256-UKkFuuFK/Ae+XIWbPYYsqwS/FOJfOqm9e1i18JB8UfA="</span>;
+  };
+
+  <span style="color: #ff4500;"># autoPatchelfHook &#21487;&#20197;&#33258;&#21160;&#20462;&#25913;&#20108;&#36827;&#21046;&#25991;&#20214;</span>
+  <span style="color: #eedd82;">nativeBuildInputs</span> = [ autoPatchelfHook makeWrapper ];
+
+  <span style="color: #eedd82;">unpackPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    ar x </span><span style="color: #7fffd4;">${</span>src<span style="color: #7fffd4;">}</span>
+<span style="color: #ffa07a;">    tar xf data.tar.xz</span>
+
+<span style="color: #ffa07a;">    mv opt/apps/com.alibabainc.dingtalk/files/version version</span>
+<span style="color: #ffa07a;">    mv opt/apps/com.alibabainc.dingtalk/files/*-Release.* release</span>
+
+<span style="color: #ffa07a;">    # &#21024;&#38500;&#19968;&#20123;&#21487;&#20197;&#29992;&#31995;&#32479;&#24211;&#26367;&#20195;&#30340;&#24211;&#25991;&#20214;&#65292;&#21644;&#27809;&#29992;&#30340; exe &#31561;&#25991;&#20214;</span>
+<span style="color: #ffa07a;">    rm -rf release/Resources/{i18n/tool/*.exe,qss/mac}</span>
+<span style="color: #ffa07a;">    rm -f release/{*.a,*.la,*.prl}</span>
+<span style="color: #ffa07a;">    rm -f release/dingtalk_updater</span>
+<span style="color: #ffa07a;">    rm -f release/libgtk-x11-2.0.so.*</span>
+<span style="color: #ffa07a;">    rm -f release/libm.so.*</span>
+<span style="color: #ffa07a;">  ''</span>;
+
+  <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    mkdir -p $out</span>
+<span style="color: #ffa07a;">    mv version $out/</span>
+
+<span style="color: #ffa07a;">    # &#26377;&#20123;&#24211;&#25991;&#20214;&#24517;&#39035;&#20351;&#29992;&#38025;&#38025;&#33258;&#24102;&#30340;&#29256;&#26412;</span>
+<span style="color: #ffa07a;">    mv release $out/lib</span>
+
+<span style="color: #ffa07a;">    # &#36825;&#37324;&#30340; desktop &#25991;&#20214;&#21644;&#22270;&#26631;&#26159;&#20174; AUR &#25343;&#30340;</span>
+<span style="color: #ffa07a;">    mkdir -p $out/share/applications $out/share/pixmaps</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span><span style="color: #7fffd4;">./dingtalk.desktop</span><span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> $out/share/applications/dingtalk.desktop</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span><span style="color: #7fffd4;">./dingtalk.png</span><span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> $out/share/pixmaps/dingtalk.png</span>
+<span style="color: #ffa07a;">  ''</span>;
+}
+</pre>
+</div>
+
+<p>
+然后尝试打包。不出所料，报错了：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">...</span>
+&gt; auto-patchelf failed to find all the required dependencies.
+&gt; Add the missing dependencies to --libs or use <span style="color: #fa8072;">`--ignore-missing="foo.so.1 bar.so etc.so"`</span>.
+For full logs, run <span style="color: #ffa07a;">'nix log /nix/store/gm3d0jm6l19ypcz6vfmv5hmx8d9iygr1-dingtalk-1.4.0.20425.drv'</span>.
+</pre>
+</div>
+
+<p>
+运行上面这行命令查看完整的日志：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">...</span>
+error: auto-patchelf could not satisfy dependency libX11.so.6 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefclient
+error: auto-patchelf could not satisfy dependency libgtk-x11-2.0.so.0 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefclie
+nt
+error: auto-patchelf could not satisfy dependency libgdk_pixbuf-2.0.so.0 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefc
+lient
+error: auto-patchelf could not satisfy dependency libgobject-2.0.so.0 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefclie
+nt
+error: auto-patchelf could not satisfy dependency libglib-2.0.so.0 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefclient
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">...</span>
+</pre>
+</div>
+
+<p>
+<span class="underline">autoPatchelfHook</span> 已经列出了所有缺失的库文件，接下来，需要一个一个查找这些库文件对应的软件包，并把它们加入软件包的 <b>依赖</b> <span class="underline">buildInputs</span> 中。可以根据自己的经验在 <a href="https://search.nixos.org/packages">NixOS Search</a> 上查找软件包，也可以使用 <a href="https://github.com/bennofs/nix-index">nix-index，一个根据文件名搜包的工具</a> 来加快查找速度。最后添加完后，DingTalk 包的定义是这样的：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ stdenv
+, fetchurl
+, autoPatchelfHook
+, makeWrapper
+, lib
+, callPackage
+  <span style="color: #ff4500;"># DingTalk dependencies</span>
+, alsa-lib
+, at-spi2-atk
+, at-spi2-core
+, cairo
+, cups
+, dbus
+, e2fsprogs
+, gdk-pixbuf
+, glib
+, gnutls
+, graphite2
+, gtk2
+, krb5
+, libdrm
+, libgcrypt
+, libGLU
+, libpulseaudio
+, libthai
+, libxkbcommon
+, mesa_drivers
+, nspr
+, nss
+, rtmpdump
+, udev
+, util-linux
+, xorg
+, ...
+} @ args:
+
+<span style="color: #ff4500;">################################################################################</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Mostly based on dingtalk-bin package from AUR:</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">https://aur.archlinux.org/packages/dingtalk-bin</span>
+<span style="color: #ff4500;">################################################################################</span>
+
+<span style="color: #00ffff;">let</span>
+  <span style="color: #eedd82;">version</span> = <span style="color: #ffa07a;">"1.4.0.20425"</span>;
+
+  <span style="color: #ff4500;"># &#38025;&#38025;&#20381;&#36182;&#26087;&#29256;&#26412;&#30340; OpenLDAP&#65292;openldap-2_4.nix &#36825;&#20010;&#23450;&#20041;&#21487;&#20197;&#22312;&#25105;&#30340; NUR &#25214;&#21040;</span>
+  <span style="color: #eedd82;">openldap</span> = callPackage <span style="color: #7fffd4;">./openldap-2_4.nix</span> { };
+
+  <span style="color: #eedd82;">libraries</span> = [
+    alsa-lib
+    at-spi2-atk
+    at-spi2-core
+    cairo
+    cups
+    dbus
+    e2fsprogs
+    gdk-pixbuf
+    glib
+    gnutls
+    graphite2
+    gtk2
+    krb5
+    libdrm
+    libgcrypt
+    libGLU
+    libpulseaudio
+    libthai
+    libxkbcommon
+    mesa_drivers
+    nspr
+    nss
+    openldap
+    rtmpdump
+    udev
+    util-linux
+    xorg.libICE
+    xorg.libSM
+    xorg.libX11
+    xorg.libxcb
+    xorg.libXcomposite
+    xorg.libXcursor
+    xorg.libXdamage
+    xorg.libXext
+    xorg.libXfixes
+    xorg.libXi
+    xorg.libXinerama
+    xorg.libXmu
+    xorg.libXrandr
+    xorg.libXrender
+    xorg.libXScrnSaver
+    xorg.libXt
+    xorg.libXtst
+  ];
+<span style="color: #00ffff;">in</span>
+stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
+  <span style="color: #eedd82;">pname</span> = <span style="color: #ffa07a;">"dingtalk"</span>;
+  <span style="color: #00ffff;">inherit</span> version;
+  <span style="color: #eedd82;">src</span> = fetchurl {
+    <span style="color: #eedd82;">url</span> = <span style="color: #ffa07a;">"https://dtapp-pub.dingtalk.com/dingtalk-desktop/xc_dingtalk_update/linux_deb/Release/com.alibabainc.dingtalk_</span><span style="color: #7fffd4;">${</span>version<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">_amd64.deb"</span>;
+    <span style="color: #eedd82;">sha256</span> = <span style="color: #ffa07a;">"sha256-UKkFuuFK/Ae+XIWbPYYsqwS/FOJfOqm9e1i18JB8UfA="</span>;
+  };
+
+  <span style="color: #eedd82;">nativeBuildInputs</span> = [ autoPatchelfHook makeWrapper ];
+  <span style="color: #eedd82;">buildInputs</span> = libraries;
+
+  <span style="color: #eedd82;">unpackPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    ar x </span><span style="color: #7fffd4;">${</span>src<span style="color: #7fffd4;">}</span>
+<span style="color: #ffa07a;">    tar xf data.tar.xz</span>
+
+<span style="color: #ffa07a;">    mv opt/apps/com.alibabainc.dingtalk/files/version version</span>
+<span style="color: #ffa07a;">    mv opt/apps/com.alibabainc.dingtalk/files/*-Release.* release</span>
+
+<span style="color: #ffa07a;">    # Cleanup</span>
+<span style="color: #ffa07a;">    rm -rf release/Resources/{i18n/tool/*.exe,qss/mac}</span>
+<span style="color: #ffa07a;">    rm -f release/{*.a,*.la,*.prl}</span>
+<span style="color: #ffa07a;">    rm -f release/dingtalk_updater</span>
+<span style="color: #ffa07a;">    rm -f release/libgtk-x11-2.0.so.*</span>
+<span style="color: #ffa07a;">    rm -f release/libm.so.*</span>
+<span style="color: #ffa07a;">  ''</span>;
+
+  <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    mkdir -p $out</span>
+<span style="color: #ffa07a;">    mv version $out/</span>
+
+<span style="color: #ffa07a;">    # Move libraries</span>
+<span style="color: #ffa07a;">    # DingTalk relies on (some of) the exact libraries it ships with</span>
+<span style="color: #ffa07a;">    mv release $out/lib</span>
+
+<span style="color: #ffa07a;">    # Entrypoint</span>
+<span style="color: #ffa07a;">    mkdir -p $out/bin</span>
+<span style="color: #ffa07a;">    # &#22240;&#20026;&#38025;&#38025;&#23458;&#25143;&#31471;&#20250;&#22312;&#36816;&#34892;&#36807;&#31243;&#20013;&#21160;&#24577;&#21152;&#36733;&#24211;&#25991;&#20214;&#65292;&#25152;&#20197;&#35201;&#25226;&#25152;&#26377;&#30340;&#20381;&#36182;&#39033;&#21152;&#20837; LD_LIBRARY_PATH&#65292;&#35753;&#38025;&#38025;&#23458;&#25143;&#31471;&#33021;&#25214;&#21040;</span>
+<span style="color: #ffa07a;">    makeWrapper $out/lib/com.alibabainc.dingtalk $out/bin/dingtalk \</span>
+<span style="color: #ffa07a;">      --argv0 "com.alibabainc.dingtalk" \</span>
+<span style="color: #ffa07a;">      --prefix LD_LIBRARY_PATH : "</span><span style="color: #7fffd4;">${</span>lib.makeLibraryPath libraries<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">"</span>
+
+<span style="color: #ffa07a;">    # App Menu</span>
+<span style="color: #ffa07a;">    mkdir -p $out/share/applications $out/share/pixmaps</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span><span style="color: #7fffd4;">./dingtalk.desktop</span><span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> $out/share/applications/dingtalk.desktop</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span><span style="color: #7fffd4;">./dingtalk.png</span><span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> $out/share/pixmaps/dingtalk.png</span>
+<span style="color: #ffa07a;">  ''</span>;
+}
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org0bd0ea7" class="outline-4">
+<h4 id="org0bd0ea7">困难：SVP（程序检测自身完整性，Bubblewrap）</h4>
+<div class="outline-text-4" id="text-org0bd0ea7">
+<pre class="example" id="org21bc818">
+以钉钉客户端为例的闭源软件虽然打包麻烦，需要手动查找所有的依赖库，反复测试，但至少软件本身不会给你下绊子
+
+有些闭源软件为了防止破解，会检测自身的完整性，只要自己的二进制文件被修改就拒绝启动，例如 SVP 视频补帧软件
+</pre>
+<p>
+对于这些软件，autoPatchelfHook 自然用不了。因此只能换成另一种办法：生成一个符合 FHS 标准的虚拟环境，把所有的库文件放在虚拟环境中对应的路径，然后在虚拟环境中启动软件。最常用的创建虚拟环境的软件是 <span class="underline">Bubblewrap</span>
+</p>
+
+<pre class="example" id="org06da2a0">
+它原本的用途是把软件放在沙盒中，阻止它读取敏感数据，但这个沙盒正好也可以是要用的虚拟环境
+</pre>
+
+<p>
+直接来看 SVP 的打包定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ stdenv
+, bubblewrap
+, fetchurl
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">SVP &#30340;&#25152;&#26377;&#20381;&#36182;</span>
+, ffmpeg
+, glibc
+, gnome
+, lib
+, libmediainfo
+, libsForQt5
+, libusb1
+, lsof
+, makeWrapper
+, mpv-unwrapped
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">NVIDIA &#39537;&#21160;&#65292;SVP &#38656;&#35201;&#35843;&#29992;&#20854;&#20013;&#30340;&#19968;&#20010;&#24211;&#26469;&#25903;&#25345; N &#21345;&#20809;&#27969;&#21152;&#36895;</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312; N &#21345;&#31995;&#32479;&#19978;&#38656;&#35201;&#29992;&#25143;&#25163;&#21160; override &#25104;&#33258;&#24049;&#30340;&#39537;&#21160;&#29256;&#26412;</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312;&#38750; N &#21345;&#31995;&#32479;&#19978;&#21487;&#20197;&#35774;&#32622;&#25104; null</span>
+, nvidia_x11 ? <span style="color: #b0c4de;">null</span>
+, ocl-icd
+, p7zip
+, patchelf
+, vapoursynth
+, wrapMpv
+, writeShellScript
+, writeText
+, xdg-utils
+, xorg
+, ...
+}:
+
+<span style="color: #ff4500;">################################################################################</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Based on svp package from AUR:</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">https://aur.archlinux.org/packages/svp</span>
+<span style="color: #ff4500;">################################################################################</span>
+
+<span style="color: #00ffff;">let</span>
+  <span style="color: #ff4500;"># &#25171;&#21253;&#19968;&#20010;&#21152;&#20102; N &#21345;&#20809;&#27969;&#24211;&#65292;&#24182;&#24320;&#21551; Vapoursynth &#35270;&#39057;&#22788;&#29702;&#24341;&#25806;&#30340; MPV</span>
+  <span style="color: #eedd82;">mpvForSVP</span> = wrapMpv
+    (mpv-unwrapped.override {
+      <span style="color: #eedd82;">vapoursynthSupport</span> = <span style="color: #b0c4de;">true</span>;
+    })
+    {
+      <span style="color: #eedd82;">extraMakeWrapperArgs</span> = lib.optionals (nvidia_x11 != <span style="color: #b0c4de;">null</span>) [
+        <span style="color: #ffa07a;">"--prefix"</span>
+        <span style="color: #ffa07a;">"LD_LIBRARY_PATH"</span>
+        <span style="color: #ffa07a;">":"</span>
+        <span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">${</span>lib.makeLibraryPath [ nvidia_x11 ]<span style="color: #7fffd4;">}</span>"
+      ];
+    };
+
+  <span style="color: #ff4500;"># SVP &#20027;&#31243;&#24207;&#30340;&#20381;&#36182;</span>
+  <span style="color: #eedd82;">libPath</span> = lib.makeLibraryPath [
+    libsForQt5.qtbase
+    libsForQt5.qtdeclarative
+    libsForQt5.qtscript
+    libsForQt5.qtsvg
+    libmediainfo
+    libusb1
+    xorg.libX11
+    stdenv.cc.cc.lib
+    ocl-icd
+    vapoursynth
+  ];
+
+  <span style="color: #ff4500;"># SVP &#26597;&#25214;&#20108;&#36827;&#21046;&#31243;&#24207;&#30340;&#36335;&#24452;&#65288;&#21363; PATH &#29615;&#22659;&#21464;&#37327;&#65289;</span>
+  <span style="color: #eedd82;">execPath</span> = lib.makeBinPath [
+    ffmpeg.bin
+    gnome.zenity
+    lsof
+    xdg-utils
+  ];
+
+  <span style="color: #eedd82;">svp-dist</span> = stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
+    <span style="color: #eedd82;">pname</span> = <span style="color: #ffa07a;">"svp-dist"</span>;
+    <span style="color: #eedd82;">version</span> = <span style="color: #ffa07a;">"4.5.210"</span>;
+    <span style="color: #eedd82;">src</span> = fetchurl {
+      <span style="color: #eedd82;">url</span> = <span style="color: #ffa07a;">"https://www.svp-team.com/files/svp4-linux.</span><span style="color: #7fffd4;">${</span>version<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">-1.tar.bz2"</span>;
+      <span style="color: #eedd82;">sha256</span> = <span style="color: #ffa07a;">"10q8r401wg81vanwxd7v07qrh3w70gdhgv5vmvymai0flndm63cl"</span>;
+    };
+
+    <span style="color: #eedd82;">nativeBuildInputs</span> = [ p7zip patchelf ];
+
+    <span style="color: #ff4500;"># &#31105;&#29992;&#20462;&#34917;&#27493;&#39588;&#65288;Fixup phase&#65289;&#65292;&#23427;&#20250;&#20462;&#25913; SVP &#20108;&#36827;&#21046;&#25991;&#20214;&#65292;&#23548;&#33268;&#23436;&#25972;&#24615;&#26657;&#39564;&#25253;&#38169;</span>
+    <span style="color: #eedd82;">dontFixup</span> = <span style="color: #b0c4de;">true</span>;
+
+    <span style="color: #ff4500;"># &#35299;&#21387;&#12289;&#23433;&#35013;&#27493;&#39588;&#26469;&#33258; AUR&#65306;https://aur.archlinux.org/packages/svp-bin</span>
+    <span style="color: #eedd82;">unpackPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">      tar xf </span><span style="color: #7fffd4;">${</span>src<span style="color: #7fffd4;">}</span>
+<span style="color: #ffa07a;">    ''</span>;
+
+    <span style="color: #eedd82;">buildPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">      mkdir installer</span>
+<span style="color: #ffa07a;">      LANG=C grep --only-matching --byte-offset --binary --text  $'7z\xBC\xAF\x27\x1C' "svp4-linux-64.run" |</span>
+<span style="color: #ffa07a;">        cut -f1 -d: |</span>
+<span style="color: #ffa07a;">        while read ofs; do dd if="svp4-linux-64.run" bs=1M iflag=skip_bytes status=none skip=$ofs of="installer/bin-$ofs.7z"; done</span>
+<span style="color: #ffa07a;">    ''</span>;
+
+    <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">      mkdir -p $out/opt</span>
+<span style="color: #ffa07a;">      for f in "installer/"*.7z; do</span>
+<span style="color: #ffa07a;">        7z -bd -bb0 -y x -o"$out/opt/" "$f" || true</span>
+<span style="color: #ffa07a;">      done</span>
+
+<span style="color: #ffa07a;">      for SIZE in 32 48 64 128; do</span>
+<span style="color: #ffa07a;">        mkdir -p "$out/share/icons/hicolor/''${SIZE}x''${SIZE}/apps"</span>
+<span style="color: #ffa07a;">        mv "$out/opt/svp-manager4-''${SIZE}.png" "$out/share/icons/hicolor/''${SIZE}x''${SIZE}/apps/svp-manager4.png"</span>
+<span style="color: #ffa07a;">      done</span>
+<span style="color: #ffa07a;">      rm -f $out/opt/{add,remove}-menuitem.sh</span>
+<span style="color: #ffa07a;">    ''</span>;
+  };
+
+  <span style="color: #ff4500;"># &#21019;&#24314;&#19968;&#20010;&#20351;&#29992; Bubblewrap &#30340;&#21551;&#21160;&#33050;&#26412;</span>
+  <span style="color: #eedd82;">startScript</span> = writeShellScript <span style="color: #ffa07a;">"SVPManager"</span> <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    # &#38500;&#20102;&#36825;&#20123;&#36335;&#24452;&#20197;&#22806;&#65292;&#20854;&#23427;&#30340;&#26681;&#30446;&#24405;&#19979;&#30340;&#36335;&#24452;&#37117;&#26144;&#23556;&#36827;&#34394;&#25311;&#29615;&#22659;</span>
+<span style="color: #ffa07a;">    # &#36825;&#37324;&#30340;&#26377;&#20123;&#36335;&#24452;&#19981;&#26159;&#23436;&#20840;&#19981;&#26144;&#23556;&#65292;&#32780;&#26159;&#22312;&#19979;&#38754;&#26377;&#26356;&#32454;&#31890;&#24230;&#30340;&#26144;&#23556;&#37197;&#32622;</span>
+<span style="color: #ffa07a;">    blacklist=(/nix /dev /usr /lib /lib64 /proc)</span>
+
+<span style="color: #ffa07a;">    declare -a auto_mounts</span>
+<span style="color: #ffa07a;">    # loop through all directories in the root</span>
+<span style="color: #ffa07a;">    for dir in /*; do</span>
+<span style="color: #ffa07a;">      # if it is a directory and it is not in the blacklist</span>
+<span style="color: #ffa07a;">      if [[ -d "$dir" ]] &amp;&amp; [[ ! "''${blacklist[@]}" =~ "$dir" ]]; then</span>
+<span style="color: #ffa07a;">        # add it to the mount list</span>
+<span style="color: #ffa07a;">        auto_mounts+=(--bind "$dir" "$dir")</span>
+<span style="color: #ffa07a;">      fi</span>
+<span style="color: #ffa07a;">    done</span>
+
+<span style="color: #ffa07a;">    # Bubblewrap &#21551;&#21160;&#33050;&#26412;</span>
+<span style="color: #ffa07a;">    cmd=(</span>
+<span style="color: #ffa07a;">      </span><span style="color: #7fffd4;">${</span>bubblewrap<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/bin/bwrap</span>
+<span style="color: #ffa07a;">      # /dev &#38656;&#35201;&#29305;&#27530;&#30340;&#26144;&#23556;&#26041;&#24335;</span>
+<span style="color: #ffa07a;">      --dev-bind /dev /dev</span>
+<span style="color: #ffa07a;">      # &#22312;&#34394;&#25311;&#29615;&#22659;&#20013;&#20063;&#20999;&#25442;&#21040;&#24403;&#21069;&#25991;&#20214;&#22841;</span>
+<span style="color: #ffa07a;">      --chdir "$(pwd)"</span>
+<span style="color: #ffa07a;">      # Bubblewrap &#36864;&#20986;&#26102;&#26432;&#25481;&#34394;&#25311;&#29615;&#22659;&#37324;&#30340;&#25152;&#26377;&#36827;&#31243;</span>
+<span style="color: #ffa07a;">      --die-with-parent</span>
+<span style="color: #ffa07a;">      # /nix &#30446;&#24405;&#21482;&#35835;</span>
+<span style="color: #ffa07a;">      --ro-bind /nix /nix</span>
+<span style="color: #ffa07a;">      # /proc &#38656;&#35201;&#29305;&#27530;&#30340;&#26144;&#23556;&#26041;&#24335;</span>
+<span style="color: #ffa07a;">      --proc /proc</span>
+<span style="color: #ffa07a;">      # &#25226; Glibc &#25918;&#21040; /lib &#21644; /lib64&#65292;&#35753; SVP &#21152;&#36733;</span>
+<span style="color: #ffa07a;">      --bind </span><span style="color: #7fffd4;">${</span>glibc<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/lib /lib</span>
+<span style="color: #ffa07a;">      --bind </span><span style="color: #7fffd4;">${</span>glibc<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/lib /lib64</span>
+<span style="color: #ffa07a;">      # &#19968;&#20123; SVP &#38656;&#35201;&#29992;&#21040;&#30340;&#21629;&#20196;&#65292;SVP &#22266;&#23450;&#21435; /usr/bin &#26597;&#25214;&#36825;&#20123;&#21629;&#20196;</span>
+<span style="color: #ffa07a;">      --bind /usr/bin/env /usr/bin/env</span>
+<span style="color: #ffa07a;">      --bind </span><span style="color: #7fffd4;">${</span>ffmpeg.bin<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/bin/ffmpeg /usr/bin/ffmpeg</span>
+<span style="color: #ffa07a;">      --bind </span><span style="color: #7fffd4;">${</span>lsof<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/bin/lsof /usr/bin/lsof</span>
+<span style="color: #ffa07a;">      # &#37197;&#32622;&#29615;&#22659;&#21464;&#37327;&#65292;&#21253;&#25324;&#26597;&#25214;&#21629;&#20196;&#21644;&#24211;&#30340;&#36335;&#24452;</span>
+<span style="color: #ffa07a;">      --setenv PATH "</span><span style="color: #7fffd4;">${</span>execPath<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">:''${PATH}"</span>
+<span style="color: #ffa07a;">      --setenv LD_LIBRARY_PATH "</span><span style="color: #7fffd4;">${</span>libPath<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">:''${LD_LIBRARY_PATH}"</span>
+<span style="color: #ffa07a;">      # &#25226; SVP &#19987;&#29992;&#30340; MPV &#25773;&#25918;&#22120;&#26144;&#23556;&#36807;&#26469;</span>
+<span style="color: #ffa07a;">      --symlink </span><span style="color: #7fffd4;">${</span>mpvForSVP<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/bin/mpv /usr/bin/mpv</span>
+<span style="color: #ffa07a;">      # &#26144;&#23556;&#20854;&#23427;&#26681;&#30446;&#24405;&#19979;&#30340;&#36335;&#24452;</span>
+<span style="color: #ffa07a;">      "''${auto_mounts[@]}"</span>
+<span style="color: #ffa07a;">      # &#34394;&#25311;&#29615;&#22659;&#21551;&#21160;&#21518;&#36816;&#34892; SVP &#20027;&#31243;&#24207;</span>
+<span style="color: #ffa07a;">      </span><span style="color: #7fffd4;">${</span>svp-dist<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/opt/SVPManager "$@"</span>
+<span style="color: #ffa07a;">                     )</span>
+<span style="color: #ffa07a;">    exec "''${cmd[@]}"</span>
+<span style="color: #ffa07a;">  ''</span>;
+
+  <span style="color: #ff4500;"># SVP &#33756;&#21333;&#39033;</span>
+  <span style="color: #eedd82;">desktopFile</span> = writeText <span style="color: #ffa07a;">"svp-manager4.desktop"</span> <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    [Desktop Entry]</span>
+<span style="color: #ffa07a;">    Version=1.0</span>
+<span style="color: #ffa07a;">    Encoding=UTF-8</span>
+<span style="color: #ffa07a;">    Name=SVP 4 Linux</span>
+<span style="color: #ffa07a;">    GenericName=Real time frame interpolation</span>
+<span style="color: #ffa07a;">    Type=Application</span>
+<span style="color: #ffa07a;">    Categories=Multimedia;AudioVideo;Player;Video;</span>
+<span style="color: #ffa07a;">    MimeType=video/x-msvideo;video/x-matroska;video/webm;video/mpeg;video/mp4;</span>
+<span style="color: #ffa07a;">    Terminal=false</span>
+<span style="color: #ffa07a;">    StartupNotify=true</span>
+<span style="color: #ffa07a;">    Exec=</span><span style="color: #7fffd4;">${</span>startScript<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> %f</span>
+<span style="color: #ffa07a;">    Icon=svp-manager4.png</span>
+<span style="color: #ffa07a;">  ''</span>;
+<span style="color: #00ffff;">in</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#19968;&#20010;&#31616;&#21333;&#30340;&#21253;&#65292;&#21482;&#21253;&#21547;&#21551;&#21160;&#33050;&#26412;&#21644;&#33756;&#21333;&#39033;</span>
+stdenv.mkDerivation {
+  <span style="color: #eedd82;">pname</span> = <span style="color: #ffa07a;">"svp"</span>;
+  <span style="color: #00ffff;">inherit</span> (svp-dist) version;
+  <span style="color: #eedd82;">phases</span> = [ <span style="color: #ffa07a;">"installPhase"</span> ];
+  <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    mkdir -p $out/bin $out/share/applications</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span>startScript<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> $out/bin/SVPManager</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span>desktopFile<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> $out/share/applications/svp-manager4.desktop</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span>svp-dist<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/share/icons $out/share/icons</span>
+<span style="color: #ffa07a;">  ''</span>;
+}
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org6af7061" class="outline-4">
+<h4 id="org6af7061">困难：WeChat-UOS（程序检测运行环境，Steam-run）</h4>
+<div class="outline-text-4" id="text-org6af7061">
+<pre class="example" id="orgf381561">
+另一个会检测运行环境的是 UOS 版微信客户端。虽然它本身是一个 Electron 应用，打包应该很简单
+
+但是它自带了一个库文件，包含有检测 UOS 系统授权文件的逻辑，检测失败就拒绝你登录
+
+因此，依然需要构造一个虚拟环境，把 UOS 的授权文件放到对应的位置，才能正常使用微信
+</pre>
+<p>
+这里展示 Nixpkgs 中的一个便捷打包工具： <span class="underline">steam-run</span> 。steam-run 本身就是调用的 Bubblewrap
+</p>
+
+<pre class="example" id="org9694307">
+但是顾名思义，steam-run 原本是用来运行 Steam 客户端和 Steam 上的游戏的
+
+因此它的默认环境包含了大量常用的库文件，很多闭源软件都能用它跑起来
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-nix">{ stdenv
+, fetchurl
+, writeShellScript
+, electron
+, steam
+, lib
+, scrot
+, ...
+} @ args:
+
+<span style="color: #ff4500;">################################################################################</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Mostly based on wechat-uos package from AUR:</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">https://aur.archlinux.org/packages/wechat-uos</span>
+<span style="color: #ff4500;">################################################################################</span>
+
+<span style="color: #00ffff;">let</span>
+  <span style="color: #eedd82;">version</span> = <span style="color: #ffa07a;">"2.1.4"</span>;
+
+  <span style="color: #ff4500;"># UOS &#25480;&#26435;&#25991;&#20214;&#65292;&#20174; AUR &#19979;&#36733;&#65306;https://aur.archlinux.org/packages/wechat-uos</span>
+  <span style="color: #eedd82;">license</span> = stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
+    <span style="color: #eedd82;">pname</span> = <span style="color: #ffa07a;">"wechat-uos-license"</span>;
+    <span style="color: #eedd82;">version</span> = <span style="color: #ffa07a;">"0.0.1"</span>;
+    <span style="color: #eedd82;">src</span> = <span style="color: #7fffd4;">./license.tar.gz</span>;
+
+    <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">      mkdir -p $out</span>
+<span style="color: #ffa07a;">      cp -r etc var $out/</span>
+<span style="color: #ffa07a;">    ''</span>;
+  };
+
+  <span style="color: #ff4500;"># &#24494;&#20449;&#36719;&#20214;&#21253;&#65292;&#21644; B &#31449;&#23458;&#25143;&#31471;&#19968;&#26679;&#21482;&#20445;&#30041; Javascript &#37096;&#20998;&#21644;&#20960;&#20010;&#38656;&#35201;&#30340;&#24211;</span>
+  <span style="color: #eedd82;">resource</span> = stdenv.mkDerivation <span style="color: #00ffff;">rec</span> {
+    <span style="color: #eedd82;">pname</span> = <span style="color: #ffa07a;">"wechat-uos-resource"</span>;
+    <span style="color: #00ffff;">inherit</span> version;
+    <span style="color: #eedd82;">src</span> = fetchurl {
+      <span style="color: #eedd82;">url</span> = <span style="color: #ffa07a;">"https://home-store-packages.uniontech.com/appstore/pool/appstore/c/com.tencent.weixin/com.tencent.weixin_</span><span style="color: #7fffd4;">${</span>version<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">_amd64.deb"</span>;
+      <span style="color: #eedd82;">sha256</span> = <span style="color: #ffa07a;">"sha256-V74m+dFK9/f0QoHfvIjk7hyIil6FpV9HGkPqwJLvQhM="</span>;
+    };
+
+    <span style="color: #eedd82;">unpackPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">      ar x </span><span style="color: #7fffd4;">${</span>src<span style="color: #7fffd4;">}</span>
+<span style="color: #ffa07a;">    ''</span>;
+
+    <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">      mkdir -p $out</span>
+<span style="color: #ffa07a;">      tar xf data.tar.xz -C $out</span>
+<span style="color: #ffa07a;">      mv $out/usr/* $out/</span>
+<span style="color: #ffa07a;">      mv $out/opt/apps/com.tencent.weixin/files/weixin/resources/app $out/lib/wechat-uos</span>
+<span style="color: #ffa07a;">      chmod 0644 $out/lib/license/libuosdevicea.so</span>
+<span style="color: #ffa07a;">      rm -rf $out/opt $out/usr</span>
+
+<span style="color: #ffa07a;">      # use system scrot</span>
+<span style="color: #ffa07a;">      pushd $out/lib/wechat-uos/packages/main/dist/</span>
+<span style="color: #ffa07a;">      sed -i 's|__dirname,"bin","scrot"|"</span><span style="color: #7fffd4;">${</span>scrot<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/bin/"|g' index.js</span>
+<span style="color: #ffa07a;">      popd</span>
+<span style="color: #ffa07a;">    ''</span>;
+  };
+
+  <span style="color: #ff4500;"># &#29983;&#25104;&#19968;&#20010; Steam-run &#34394;&#25311;&#29615;&#22659;&#65292;&#36825;&#37324;&#21253;&#21547;&#20102; UOS &#25480;&#26435;&#25991;&#20214;&#21644;&#24494;&#20449;&#36719;&#20214;&#21253;</span>
+  <span style="color: #eedd82;">steam-run</span> = (steam.override {
+    <span style="color: #eedd82;">extraPkgs</span> = p: [ license resource ];
+    <span style="color: #eedd82;">runtimeOnly</span> = <span style="color: #b0c4de;">true</span>;
+  }).run;
+
+  <span style="color: #ff4500;"># &#24494;&#20449;&#21551;&#21160;&#33050;&#26412;</span>
+  <span style="color: #eedd82;">startScript</span> = writeShellScript <span style="color: #ffa07a;">"wechat-uos"</span> <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    # &#30446;&#21069;&#29256;&#26412;&#30340;&#24494;&#20449;&#22312; NixOS &#19978;&#26080;&#27861;&#26174;&#31034;&#25176;&#30424;&#22270;&#26631;&#65292;&#22914;&#26524;&#20851;&#25481;&#31383;&#21475;&#26377;&#21487;&#33021;&#23601;&#20877;&#20063;&#25214;&#19981;&#21040;&#20102;</span>
+<span style="color: #ffa07a;">    # &#22240;&#27492;&#22914;&#26524;&#24494;&#20449;&#36816;&#34892;&#30528;&#65292;&#23601;&#30452;&#25509;&#25226;&#23427;&#26432;&#25481;&#65292;&#36825;&#26679;&#23601;&#21487;&#20197;&#37325;&#26032;&#21551;&#21160;&#24494;&#20449;&#20102;</span>
+<span style="color: #ffa07a;">    wechat_pid=`pidof wechat-uos`</span>
+<span style="color: #ffa07a;">    if test $wechat_pid; then</span>
+<span style="color: #ffa07a;">        kill -9 $wechat_pid</span>
+<span style="color: #ffa07a;">    fi</span>
+
+<span style="color: #ffa07a;">    # &#29992; Steam-run &#22312;&#34394;&#25311;&#29615;&#22659;&#20013;&#21551;&#21160;&#24494;&#20449;</span>
+<span style="color: #ffa07a;">    </span><span style="color: #7fffd4;">${</span>steam-run<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/bin/steam-run \</span>
+<span style="color: #ffa07a;">      </span><span style="color: #7fffd4;">${</span>electron<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/bin/electron \</span>
+<span style="color: #ffa07a;">      </span><span style="color: #7fffd4;">${</span>resource<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/lib/wechat-uos</span>
+<span style="color: #ffa07a;">  ''</span>;
+<span style="color: #00ffff;">in</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#19968;&#20010;&#31616;&#21333;&#30340;&#21253;&#65292;&#21482;&#21253;&#21547;&#21551;&#21160;&#33050;&#26412;&#21644;&#33756;&#21333;&#39033;</span>
+stdenv.mkDerivation {
+  <span style="color: #eedd82;">pname</span> = <span style="color: #ffa07a;">"wechat-uos"</span>;
+  <span style="color: #00ffff;">inherit</span> version;
+  <span style="color: #eedd82;">phases</span> = [ <span style="color: #ffa07a;">"installPhase"</span> ];
+  <span style="color: #eedd82;">installPhase</span> = <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    mkdir -p $out/bin $out/share/applications</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span>startScript<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> $out/bin/wechat-uos</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span><span style="color: #7fffd4;">./wechat-uos.desktop</span><span style="color: #7fffd4;">}</span><span style="color: #ffa07a;"> $out/share/applications/wechat-uos.desktop</span>
+<span style="color: #ffa07a;">    ln -s </span><span style="color: #7fffd4;">${</span>resource<span style="color: #7fffd4;">}</span><span style="color: #ffa07a;">/share/icons $out/share/icons</span>
+<span style="color: #ffa07a;">  ''</span>;
+}
+</pre>
+</div>
+<p>
+steam-run 虽然好用，但因为它为了支持大量的 Steam 游戏默认引入了大量的库文件，如果只为了运行一些简单的程序，不免有些大材小用
+</p>
+
+<pre class="example" id="org2324dd5">
+因此建议，对于简单的软件尽量用 Bubblewrap 手动打包，对于复杂的软件再用 steam-run
+</pre>
+</div>
+</div>
+</div>
+
 <div id="outline-container-org7826fcf" class="outline-3">
 <h3 id="org7826fcf">特殊</h3>
 </div>

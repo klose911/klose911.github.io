@@ -652,5 +652,636 @@ LibOQS 使用 CMake 构建，并且本身没有任何依赖，因此基本上所
 #+end_src
 
 ** 闭源
+#+begin_example
+  比起开源软件，给闭源软件打包就比较困难了,这些闭源软件往往只提供二进制文件
+
+  而这些二进制文件往往是提供给传统的、使用 FHS 标准目录结构的 Linux 发行版的，例如 CentOS、Debian、Ubuntu 等
+
+  由于没有源代码，只能想办法在二进制文件上动手术
+
+  在二进制文件中查找 FHS 标准路径，并把它们全部替换成 Nix store 的路径
+#+end_example
+幸运的是，针对不同的情况，Nixpkgs 提供了好几种方案，让多数的闭源软件都能打包成功
+
+*** 简单：Bilibili-linux（解压 DEB 包，Electron）
+#+begin_example
+  首先我们看一个简单的情况：基于 Electron 的软件
+
+  这里以 Bilibili-linux 为例，它是基于哔哩哔哩官方的桌面客户端移植到 Linux 系统的版本
+
+  虽然 Electron 软件相比传统的基于 GTK 或 Qt 的桌面软件耗电大，占用空间多
+
+  而且会让每台电脑中都装上十来个 Chromium，让它的CPU占有率飙升到 1000% 以上，但它的移植便捷性不容忽视
+#+end_example
+
+Bilibili-linux 这个客户端是使用纯 Javascript 实现的，软件包里除了 Electron 之外，没有任何其它的二进制文件。因此可以取出它的 Javascript 代码，然后直接用系统的 Electron 运行
+
+#+begin_src nix 
+  { stdenv
+  , fetchurl
+  , electron
+  , lib
+  , makeWrapper
+  , ...
+  } @ args:
+
+  ################################################################################
+  # Mostly based on bilibili-bin package from AUR:
+  # https://aur.archlinux.org/packages/bilibili-bin
+  ################################################################################
+
+  stdenv.mkDerivation rec {
+    pname = "bilibili";
+    version = "1.2.1-1";
+    src = fetchurl {
+      url = "https://github.com/msojocs/bilibili-linux/releases/download/v1.2.1-1/io.github.msojocs.bilibili_1.2.1-1_amd64.deb";
+      sha256 = "sha256-t/igezm0ipkOkKION8qTYGK9f6qI3c4iPuS/wWrMywQ=";
+    };
+
+    # 解压 DEB 包
+    unpackPhase = ''
+      ar x ${src}
+      tar xf data.tar.xz
+    '';
+
+    # makeWrapper 可以自动生成一个调用其它命令的命令（也就是 wrapper），并且可以在原命令上修改参数、环境变量等
+    buildInputs = [ makeWrapper ];
+
+    installPhase = ''
+      mkdir -p $out/bin
+
+      # 替换菜单项目（desktop 文件）中的路径
+      cp -r usr/share $out/share
+      sed -i "s|Exec=.*|Exec=$out/bin/bilibili|" $out/share/applications/*.desktop
+
+      # 复制出客户端的 Javascript 部分，其它的不要了
+      cp -r opt/apps/io.github.msojocs.bilibili/files/bin/app $out/opt
+
+      # 生成 bilibili 命令，运行这个命令时会调用 electron 加载客户端的 Javascript 包（$out/opt/app.asar）
+      makeWrapper ${electron}/bin/electron $out/bin/bilibili \
+	--argv0 "bilibili" \
+	--add-flags "$out/opt/app.asar"
+    '';
+  }
+#+end_src
+
+
+*** 中等：DingTalk（自动 Patch 二进制，查找依赖）
+#+begin_example
+  当然，不是所有闭源软件都用的是 Electron 方案
+
+  对于有二进制文件的闭源软件，我们就需要在二进制文件上动刀了，把它的依赖库文件全部改成 Nix store 里的库
+
+  Nixpkgs 提供了一个方便的工具 autoPatchelfHook，它会搜索软件包里的所有二进制，并修改所有的依赖路径，当有依赖路径没被满足时会自动报错，方便调试
+
+  这次用的例子是 DingTalk，钉钉的 Linux 客户端，它使用 GTK 作为界面框架
+#+end_example
+由于我们一开始不知道钉钉有什么依赖，先编写一个大致的打包模版：
+
+#+begin_src nix 
+  { stdenv
+  , fetchurl
+  , autoPatchelfHook
+  , makeWrapper
+  , lib
+  , callPackage
+  , ...
+  } @ args:
+
+  ################################################################################
+  # Mostly based on dingtalk-bin package from AUR:
+  # https://aur.archlinux.org/packages/dingtalk-bin
+  ################################################################################
+
+  stdenv.mkDerivation rec {
+    pname = "dingtalk";
+    version = "1.4.0.20425";
+    src = fetchurl {
+      url = "https://dtapp-pub.dingtalk.com/dingtalk-desktop/xc_dingtalk_update/linux_deb/Release/com.alibabainc.dingtalk_${version}_amd64.deb";
+      sha256 = "sha256-UKkFuuFK/Ae+XIWbPYYsqwS/FOJfOqm9e1i18JB8UfA=";
+    };
+
+    # autoPatchelfHook 可以自动修改二进制文件
+    nativeBuildInputs = [ autoPatchelfHook makeWrapper ];
+
+    unpackPhase = ''
+      ar x ${src}
+      tar xf data.tar.xz
+
+      mv opt/apps/com.alibabainc.dingtalk/files/version version
+      mv opt/apps/com.alibabainc.dingtalk/files/*-Release.* release
+
+      # 删除一些可以用系统库替代的库文件，和没用的 exe 等文件
+      rm -rf release/Resources/{i18n/tool/*.exe,qss/mac}
+      rm -f release/{*.a,*.la,*.prl}
+      rm -f release/dingtalk_updater
+      rm -f release/libgtk-x11-2.0.so.*
+      rm -f release/libm.so.*
+    '';
+
+    installPhase = ''
+      mkdir -p $out
+      mv version $out/
+
+      # 有些库文件必须使用钉钉自带的版本
+      mv release $out/lib
+
+      # 这里的 desktop 文件和图标是从 AUR 拿的
+      mkdir -p $out/share/applications $out/share/pixmaps
+      ln -s ${./dingtalk.desktop} $out/share/applications/dingtalk.desktop
+      ln -s ${./dingtalk.png} $out/share/pixmaps/dingtalk.png
+    '';
+  }
+#+end_src
+
+然后尝试打包。不出所料，报错了：
+
+#+begin_src sh 
+  # ...
+  > auto-patchelf failed to find all the required dependencies.
+  > Add the missing dependencies to --libs or use `--ignore-missing="foo.so.1 bar.so etc.so"`.
+  For full logs, run 'nix log /nix/store/gm3d0jm6l19ypcz6vfmv5hmx8d9iygr1-dingtalk-1.4.0.20425.drv'.
+#+end_src
+
+运行上面这行命令查看完整的日志：
+
+#+begin_src sh 
+  # ...
+  error: auto-patchelf could not satisfy dependency libX11.so.6 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefclient
+  error: auto-patchelf could not satisfy dependency libgtk-x11-2.0.so.0 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefclie
+  nt
+  error: auto-patchelf could not satisfy dependency libgdk_pixbuf-2.0.so.0 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefc
+  lient
+  error: auto-patchelf could not satisfy dependency libgobject-2.0.so.0 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefclie
+  nt
+  error: auto-patchelf could not satisfy dependency libglib-2.0.so.0 wanted by /nix/store/w179pb9w545rwnhvv0kkcjvra0gv82sp-dingtalk-1.4.0.20425/lib/cefclient
+  # ...
+#+end_src
+
+_autoPatchelfHook_ 已经列出了所有缺失的库文件，接下来，需要一个一个查找这些库文件对应的软件包，并把它们加入软件包的 *依赖* _buildInputs_ 中。可以根据自己的经验在 [[https://search.nixos.org/packages][NixOS Search]] 上查找软件包，也可以使用 [[https://github.com/bennofs/nix-index][nix-index，一个根据文件名搜包的工具]] 来加快查找速度。最后添加完后，DingTalk 包的定义是这样的：
+
+#+begin_src nix 
+  { stdenv
+  , fetchurl
+  , autoPatchelfHook
+  , makeWrapper
+  , lib
+  , callPackage
+    # DingTalk dependencies
+  , alsa-lib
+  , at-spi2-atk
+  , at-spi2-core
+  , cairo
+  , cups
+  , dbus
+  , e2fsprogs
+  , gdk-pixbuf
+  , glib
+  , gnutls
+  , graphite2
+  , gtk2
+  , krb5
+  , libdrm
+  , libgcrypt
+  , libGLU
+  , libpulseaudio
+  , libthai
+  , libxkbcommon
+  , mesa_drivers
+  , nspr
+  , nss
+  , rtmpdump
+  , udev
+  , util-linux
+  , xorg
+  , ...
+  } @ args:
+
+  ################################################################################
+  # Mostly based on dingtalk-bin package from AUR:
+  # https://aur.archlinux.org/packages/dingtalk-bin
+  ################################################################################
+
+  let
+    version = "1.4.0.20425";
+
+    # 钉钉依赖旧版本的 OpenLDAP，openldap-2_4.nix 这个定义可以在我的 NUR 找到
+    openldap = callPackage ./openldap-2_4.nix { };
+
+    libraries = [
+      alsa-lib
+      at-spi2-atk
+      at-spi2-core
+      cairo
+      cups
+      dbus
+      e2fsprogs
+      gdk-pixbuf
+      glib
+      gnutls
+      graphite2
+      gtk2
+      krb5
+      libdrm
+      libgcrypt
+      libGLU
+      libpulseaudio
+      libthai
+      libxkbcommon
+      mesa_drivers
+      nspr
+      nss
+      openldap
+      rtmpdump
+      udev
+      util-linux
+      xorg.libICE
+      xorg.libSM
+      xorg.libX11
+      xorg.libxcb
+      xorg.libXcomposite
+      xorg.libXcursor
+      xorg.libXdamage
+      xorg.libXext
+      xorg.libXfixes
+      xorg.libXi
+      xorg.libXinerama
+      xorg.libXmu
+      xorg.libXrandr
+      xorg.libXrender
+      xorg.libXScrnSaver
+      xorg.libXt
+      xorg.libXtst
+    ];
+  in
+  stdenv.mkDerivation rec {
+    pname = "dingtalk";
+    inherit version;
+    src = fetchurl {
+      url = "https://dtapp-pub.dingtalk.com/dingtalk-desktop/xc_dingtalk_update/linux_deb/Release/com.alibabainc.dingtalk_${version}_amd64.deb";
+      sha256 = "sha256-UKkFuuFK/Ae+XIWbPYYsqwS/FOJfOqm9e1i18JB8UfA=";
+    };
+
+    nativeBuildInputs = [ autoPatchelfHook makeWrapper ];
+    buildInputs = libraries;
+
+    unpackPhase = ''
+      ar x ${src}
+      tar xf data.tar.xz
+
+      mv opt/apps/com.alibabainc.dingtalk/files/version version
+      mv opt/apps/com.alibabainc.dingtalk/files/*-Release.* release
+
+      # Cleanup
+      rm -rf release/Resources/{i18n/tool/*.exe,qss/mac}
+      rm -f release/{*.a,*.la,*.prl}
+      rm -f release/dingtalk_updater
+      rm -f release/libgtk-x11-2.0.so.*
+      rm -f release/libm.so.*
+    '';
+
+    installPhase = ''
+      mkdir -p $out
+      mv version $out/
+
+      # Move libraries
+      # DingTalk relies on (some of) the exact libraries it ships with
+      mv release $out/lib
+
+      # Entrypoint
+      mkdir -p $out/bin
+      # 因为钉钉客户端会在运行过程中动态加载库文件，所以要把所有的依赖项加入 LD_LIBRARY_PATH，让钉钉客户端能找到
+      makeWrapper $out/lib/com.alibabainc.dingtalk $out/bin/dingtalk \
+	--argv0 "com.alibabainc.dingtalk" \
+	--prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath libraries}"
+
+      # App Menu
+      mkdir -p $out/share/applications $out/share/pixmaps
+      ln -s ${./dingtalk.desktop} $out/share/applications/dingtalk.desktop
+      ln -s ${./dingtalk.png} $out/share/pixmaps/dingtalk.png
+    '';
+  }
+#+end_src
+
+*** 困难：SVP（程序检测自身完整性，Bubblewrap）
+#+begin_example
+  以钉钉客户端为例的闭源软件虽然打包麻烦，需要手动查找所有的依赖库，反复测试，但至少软件本身不会给你下绊子
+
+  有些闭源软件为了防止破解，会检测自身的完整性，只要自己的二进制文件被修改就拒绝启动，例如 SVP 视频补帧软件
+#+end_example
+对于这些软件，autoPatchelfHook 自然用不了。因此只能换成另一种办法：生成一个符合 FHS 标准的虚拟环境，把所有的库文件放在虚拟环境中对应的路径，然后在虚拟环境中启动软件。最常用的创建虚拟环境的软件是 _Bubblewrap_
+
+#+begin_example
+  它原本的用途是把软件放在沙盒中，阻止它读取敏感数据，但这个沙盒正好也可以是要用的虚拟环境
+#+end_example
+
+直接来看 SVP 的打包定义：
+
+#+begin_src nix 
+  { stdenv
+  , bubblewrap
+  , fetchurl
+  # SVP 的所有依赖
+  , ffmpeg
+  , glibc
+  , gnome
+  , lib
+  , libmediainfo
+  , libsForQt5
+  , libusb1
+  , lsof
+  , makeWrapper
+  , mpv-unwrapped
+  # NVIDIA 驱动，SVP 需要调用其中的一个库来支持 N 卡光流加速
+  # 在 N 卡系统上需要用户手动 override 成自己的驱动版本
+  # 在非 N 卡系统上可以设置成 null
+  , nvidia_x11 ? null
+  , ocl-icd
+  , p7zip
+  , patchelf
+  , vapoursynth
+  , wrapMpv
+  , writeShellScript
+  , writeText
+  , xdg-utils
+  , xorg
+  , ...
+  }:
+
+  ################################################################################
+  # Based on svp package from AUR:
+  # https://aur.archlinux.org/packages/svp
+  ################################################################################
+
+  let
+    # 打包一个加了 N 卡光流库，并开启 Vapoursynth 视频处理引擎的 MPV
+    mpvForSVP = wrapMpv
+      (mpv-unwrapped.override {
+	vapoursynthSupport = true;
+      })
+      {
+	extraMakeWrapperArgs = lib.optionals (nvidia_x11 != null) [
+	  "--prefix"
+	  "LD_LIBRARY_PATH"
+	  ":"
+	  "${lib.makeLibraryPath [ nvidia_x11 ]}"
+	];
+      };
+
+    # SVP 主程序的依赖
+    libPath = lib.makeLibraryPath [
+      libsForQt5.qtbase
+      libsForQt5.qtdeclarative
+      libsForQt5.qtscript
+      libsForQt5.qtsvg
+      libmediainfo
+      libusb1
+      xorg.libX11
+      stdenv.cc.cc.lib
+      ocl-icd
+      vapoursynth
+    ];
+
+    # SVP 查找二进制程序的路径（即 PATH 环境变量）
+    execPath = lib.makeBinPath [
+      ffmpeg.bin
+      gnome.zenity
+      lsof
+      xdg-utils
+    ];
+
+    svp-dist = stdenv.mkDerivation rec {
+      pname = "svp-dist";
+      version = "4.5.210";
+      src = fetchurl {
+	url = "https://www.svp-team.com/files/svp4-linux.${version}-1.tar.bz2";
+	sha256 = "10q8r401wg81vanwxd7v07qrh3w70gdhgv5vmvymai0flndm63cl";
+      };
+
+      nativeBuildInputs = [ p7zip patchelf ];
+
+      # 禁用修补步骤（Fixup phase），它会修改 SVP 二进制文件，导致完整性校验报错
+      dontFixup = true;
+
+      # 解压、安装步骤来自 AUR：https://aur.archlinux.org/packages/svp-bin
+      unpackPhase = ''
+	tar xf ${src}
+      '';
+
+      buildPhase = ''
+	mkdir installer
+	LANG=C grep --only-matching --byte-offset --binary --text  $'7z\xBC\xAF\x27\x1C' "svp4-linux-64.run" |
+	  cut -f1 -d: |
+	  while read ofs; do dd if="svp4-linux-64.run" bs=1M iflag=skip_bytes status=none skip=$ofs of="installer/bin-$ofs.7z"; done
+      '';
+
+      installPhase = ''
+	mkdir -p $out/opt
+	for f in "installer/"*.7z; do
+	  7z -bd -bb0 -y x -o"$out/opt/" "$f" || true
+	done
+
+	for SIZE in 32 48 64 128; do
+	  mkdir -p "$out/share/icons/hicolor/''${SIZE}x''${SIZE}/apps"
+	  mv "$out/opt/svp-manager4-''${SIZE}.png" "$out/share/icons/hicolor/''${SIZE}x''${SIZE}/apps/svp-manager4.png"
+	done
+	rm -f $out/opt/{add,remove}-menuitem.sh
+      '';
+    };
+
+    # 创建一个使用 Bubblewrap 的启动脚本
+    startScript = writeShellScript "SVPManager" ''
+      # 除了这些路径以外，其它的根目录下的路径都映射进虚拟环境
+      # 这里的有些路径不是完全不映射，而是在下面有更细粒度的映射配置
+      blacklist=(/nix /dev /usr /lib /lib64 /proc)
+
+      declare -a auto_mounts
+      # loop through all directories in the root
+      for dir in /*; do
+	# if it is a directory and it is not in the blacklist
+	if [[ -d "$dir" ]] && [[ ! "''${blacklist[@]}" =~ "$dir" ]]; then
+	  # add it to the mount list
+	  auto_mounts+=(--bind "$dir" "$dir")
+	fi
+      done
+
+      # Bubblewrap 启动脚本
+      cmd=(
+	${bubblewrap}/bin/bwrap
+	# /dev 需要特殊的映射方式
+	--dev-bind /dev /dev
+	# 在虚拟环境中也切换到当前文件夹
+	--chdir "$(pwd)"
+	# Bubblewrap 退出时杀掉虚拟环境里的所有进程
+	--die-with-parent
+	# /nix 目录只读
+	--ro-bind /nix /nix
+	# /proc 需要特殊的映射方式
+	--proc /proc
+	# 把 Glibc 放到 /lib 和 /lib64，让 SVP 加载
+	--bind ${glibc}/lib /lib
+	--bind ${glibc}/lib /lib64
+	# 一些 SVP 需要用到的命令，SVP 固定去 /usr/bin 查找这些命令
+	--bind /usr/bin/env /usr/bin/env
+	--bind ${ffmpeg.bin}/bin/ffmpeg /usr/bin/ffmpeg
+	--bind ${lsof}/bin/lsof /usr/bin/lsof
+	# 配置环境变量，包括查找命令和库的路径
+	--setenv PATH "${execPath}:''${PATH}"
+	--setenv LD_LIBRARY_PATH "${libPath}:''${LD_LIBRARY_PATH}"
+	# 把 SVP 专用的 MPV 播放器映射过来
+	--symlink ${mpvForSVP}/bin/mpv /usr/bin/mpv
+	# 映射其它根目录下的路径
+	"''${auto_mounts[@]}"
+	# 虚拟环境启动后运行 SVP 主程序
+	${svp-dist}/opt/SVPManager "$@"
+		       )
+      exec "''${cmd[@]}"
+    '';
+
+    # SVP 菜单项
+    desktopFile = writeText "svp-manager4.desktop" ''
+      [Desktop Entry]
+      Version=1.0
+      Encoding=UTF-8
+      Name=SVP 4 Linux
+      GenericName=Real time frame interpolation
+      Type=Application
+      Categories=Multimedia;AudioVideo;Player;Video;
+      MimeType=video/x-msvideo;video/x-matroska;video/webm;video/mpeg;video/mp4;
+      Terminal=false
+      StartupNotify=true
+      Exec=${startScript} %f
+      Icon=svp-manager4.png
+    '';
+  in
+  # 创建一个简单的包，只包含启动脚本和菜单项
+  stdenv.mkDerivation {
+    pname = "svp";
+    inherit (svp-dist) version;
+    phases = [ "installPhase" ];
+    installPhase = ''
+      mkdir -p $out/bin $out/share/applications
+      ln -s ${startScript} $out/bin/SVPManager
+      ln -s ${desktopFile} $out/share/applications/svp-manager4.desktop
+      ln -s ${svp-dist}/share/icons $out/share/icons
+    '';
+  }
+#+end_src
+
+*** 困难：WeChat-UOS（程序检测运行环境，Steam-run）
+#+begin_example
+  另一个会检测运行环境的是 UOS 版微信客户端。虽然它本身是一个 Electron 应用，打包应该很简单
+
+  但是它自带了一个库文件，包含有检测 UOS 系统授权文件的逻辑，检测失败就拒绝你登录
+
+  因此，依然需要构造一个虚拟环境，把 UOS 的授权文件放到对应的位置，才能正常使用微信
+#+end_example
+这里展示 Nixpkgs 中的一个便捷打包工具： _steam-run_ 。steam-run 本身就是调用的 Bubblewrap
+
+#+begin_example
+  但是顾名思义，steam-run 原本是用来运行 Steam 客户端和 Steam 上的游戏的
+
+  因此它的默认环境包含了大量常用的库文件，很多闭源软件都能用它跑起来
+#+end_example
+
+#+begin_src nix 
+  { stdenv
+  , fetchurl
+  , writeShellScript
+  , electron
+  , steam
+  , lib
+  , scrot
+  , ...
+  } @ args:
+
+  ################################################################################
+  # Mostly based on wechat-uos package from AUR:
+  # https://aur.archlinux.org/packages/wechat-uos
+  ################################################################################
+
+  let
+    version = "2.1.4";
+
+    # UOS 授权文件，从 AUR 下载：https://aur.archlinux.org/packages/wechat-uos
+    license = stdenv.mkDerivation rec {
+      pname = "wechat-uos-license";
+      version = "0.0.1";
+      src = ./license.tar.gz;
+
+      installPhase = ''
+	mkdir -p $out
+	cp -r etc var $out/
+      '';
+    };
+
+    # 微信软件包，和 B 站客户端一样只保留 Javascript 部分和几个需要的库
+    resource = stdenv.mkDerivation rec {
+      pname = "wechat-uos-resource";
+      inherit version;
+      src = fetchurl {
+	url = "https://home-store-packages.uniontech.com/appstore/pool/appstore/c/com.tencent.weixin/com.tencent.weixin_${version}_amd64.deb";
+	sha256 = "sha256-V74m+dFK9/f0QoHfvIjk7hyIil6FpV9HGkPqwJLvQhM=";
+      };
+
+      unpackPhase = ''
+	ar x ${src}
+      '';
+
+      installPhase = ''
+	mkdir -p $out
+	tar xf data.tar.xz -C $out
+	mv $out/usr/* $out/
+	mv $out/opt/apps/com.tencent.weixin/files/weixin/resources/app $out/lib/wechat-uos
+	chmod 0644 $out/lib/license/libuosdevicea.so
+	rm -rf $out/opt $out/usr
+
+	# use system scrot
+	pushd $out/lib/wechat-uos/packages/main/dist/
+	sed -i 's|__dirname,"bin","scrot"|"${scrot}/bin/"|g' index.js
+	popd
+      '';
+    };
+
+    # 生成一个 Steam-run 虚拟环境，这里包含了 UOS 授权文件和微信软件包
+    steam-run = (steam.override {
+      extraPkgs = p: [ license resource ];
+      runtimeOnly = true;
+    }).run;
+
+    # 微信启动脚本
+    startScript = writeShellScript "wechat-uos" ''
+      # 目前版本的微信在 NixOS 上无法显示托盘图标，如果关掉窗口有可能就再也找不到了
+      # 因此如果微信运行着，就直接把它杀掉，这样就可以重新启动微信了
+      wechat_pid=`pidof wechat-uos`
+      if test $wechat_pid; then
+	  kill -9 $wechat_pid
+      fi
+
+      # 用 Steam-run 在虚拟环境中启动微信
+      ${steam-run}/bin/steam-run \
+	${electron}/bin/electron \
+	${resource}/lib/wechat-uos
+    '';
+  in
+  # 创建一个简单的包，只包含启动脚本和菜单项
+  stdenv.mkDerivation {
+    pname = "wechat-uos";
+    inherit version;
+    phases = [ "installPhase" ];
+    installPhase = ''
+      mkdir -p $out/bin $out/share/applications
+      ln -s ${startScript} $out/bin/wechat-uos
+      ln -s ${./wechat-uos.desktop} $out/share/applications/wechat-uos.desktop
+      ln -s ${resource}/share/icons $out/share/icons
+    '';
+  }
+#+end_src
+steam-run 虽然好用，但因为它为了支持大量的 Steam 游戏默认引入了大量的库文件，如果只为了运行一些简单的程序，不免有些大材小用
+
+#+begin_example
+因此建议，对于简单的软件尽量用 Bubblewrap 手动打包，对于复杂的软件再用 steam-run
+#+end_example
+
 ** 特殊
 * 总结
