@@ -206,10 +206,15 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org56c9bbe">”无状态“的优点</a></li>
+<li><a href="#org169b0f1">准备工作</a></li>
+<li><a href="#orgd80b966">将根目录修改成内存盘</a></li>
+<li><a href="#org3491bee">保存重要的状态文件</a></li>
+<li><a href="#org337315f">移动 Nix Daemon 的临时文件夹</a></li>
+<li><a href="#orgbd85ba4">激活配置</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org7e5d086">
+<pre class="example" id="org62b665b">
 NixOS 广为人知的一大特点是，系统大部分软件的设置都由 Nix 语言的配置文件统一生成并管理
 
 即使这些软件在运行时修改了自己的配置文件，在下次切换 Nix 配置或者系统重启时，NixOS 也会将配置文件重新覆盖
@@ -244,7 +249,7 @@ lrwxrwxrwx  1 root root     17 Jan 13 03:02 hosts -&gt; /etc/static/hosts
 </pre>
 </div>
 
-<pre class="example" id="orgf724f43">
+<pre class="example" id="org93853e7">
 那么问题就来了：有必要把 /etc 的内容存在硬盘上吗？
 
 反正每次重启或切换配置时，这里的内容都会被重新生成一遍
@@ -260,14 +265,14 @@ lrwxrwxrwx  1 root root     17 Jan 13 03:02 hosts -&gt; /etc/static/hosts
 <li><p>
 /mnt 和 /srv 文件夹默认是空的
 </p>
-<pre class="example" id="orgec00bd6">
+<pre class="example" id="org803aca7">
 并且 /mnt 本身一般不存数据，只用来放其它分区的挂载点
 </pre></li>
 <li>/dev，/proc 和 /sys 本身就是存放硬件设备和系统状态的虚拟文件夹</li>
 <li><p>
 /run 和 /tmp 本身都是存放临时文件的内存盘
 </p>
-<pre class="example" id="orgcca1941">
+<pre class="example" id="org775b37f">
 在给软件打包时，Nix Daemon 会将临时文件存在 /tmp 目录下
 
 如果 /tmp 是内存盘，打大型软件包（例如 Linux 内核）时容易爆内存
@@ -305,7 +310,7 @@ squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-0
 </pre>
 </div>
 
-<pre class="example" id="org09bd931">
+<pre class="example" id="org5765f1c">
 那么，能不能改造 NixOS，模仿安装光盘的行为，在硬盘上只保留 /boot，/home，/nix，/root，/var 这几个必要文件夹的数据？
 
 更直接地说，能不能直接把 / 根目录配置成一个内存盘，再把这几个文件夹的数据挂载到对应位置？
@@ -316,6 +321,342 @@ squashfs-root/01qm2r3cihmf4np82mim8vy9phzgc9cn-rtw88-firmware-unstable-2022-11-0
 </p>
 <div id="outline-container-org56c9bbe" class="outline-2">
 <h2 id="org56c9bbe">”无状态“的优点</h2>
+<div class="outline-text-2" id="text-org56c9bbe">
+<p>
+相比普通的 NixOS，这样配置的 “无状态” NixOS 只会把一部分指定的 “状态” 保存在硬盘上
+</p>
+
+<pre class="example" id="org428f258">
+这些状态可能包括你的网站网页文件、数据库内容、浏览器的记录等
+
+除此之外，剩余的、你没有指定保存的 “状态” 都会在重启之后被丢弃
+</pre>
+
+<p>
+这就是这种配置的最大优点：只保留想要的状态
+</p>
+<ul class="org-ul">
+<li>如果有的软件偷偷修改了它的配置文件，或者把数据存在了不该存的位置，重启后这些修改都会丢失，从而保证软件的配置与你在 Nix 配置文件中指定的完全相同</li>
+<li>/etc 中不会有卸载软件后的残留。如果有的话，它们在下次重启后就消失了</li>
+<li>只需要备份不被 Nix 管理的状态（例如 /home，/root，/var），再加上 Nix 配置文件，就能保证可以还原出一模一样的系统</li>
+<li><p>
+由于根目录中的大部分文件是根据配置生成的软链接，根目录的内存盘几乎不占空间
+</p>
+<pre class="example" id="org498da50">
+例如我的一台服务器上，根目录只占用了 660KB 空间：
+
+# sudo du -h -d1 -x /
+0       /srv
+0       /mnt
+0       /usr
+0       /bin
+0       /home
+572K    /root
+0       /tmp
+84K     /etc
+4.0K    /var
+660K    /
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org169b0f1" class="outline-2">
+<h2 id="org169b0f1">准备工作</h2>
+<div class="outline-text-2" id="text-org169b0f1">
+<p>
+要根据本文对 NixOS 进行配置，需要准备：
+</p>
+<ul class="org-ul">
+<li>一个安装完成的 NixOS，并且使用 Flake 管理配置</li>
+<li>一个 NixOS 或其它 Linux 发行版的 LiveCD，需要移动 NixOS 的关键文件</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgd80b966" class="outline-2">
+<h2 id="orgd80b966">将根目录修改成内存盘</h2>
+<div class="outline-text-2" id="text-orgd80b966">
+<p>
+当安装好一个普通的 NixOS，你的 Nix 配置中一般会有类似这样的根分区配置：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix">fileSystems.<span style="color: #ffa07a;">"/"</span> = {
+  <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/vda1"</span>;
+  <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"btrfs"</span>;
+  <span style="color: #eedd82;">options</span> = [ <span style="color: #ffa07a;">"compress-force=zstd"</span> ];
+};
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20320;&#21487;&#33021;&#36824;&#25346;&#36733;&#20102;&#20854;&#23427;&#20998;&#21306;&#65292;&#20363;&#22914; /boot</span>
+fileSystems.<span style="color: #ffa07a;">"/boot"</span> = {};
+</pre>
+</div>
+
+<p>
+对 NixOS 来说最重要的文件夹是 /nix，因此把 <span class="underline">根目录 /</span> 修改成 <b>内存盘</b> <span class="underline">tmpfs</span> ，并把 <span class="underline">原来的分区</span> <b>挂载</b> 到 <span class="underline">/nix</span> 上：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">fileSystems.<span style="color: #ffa07a;">"/"</span> = {
+  <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"tmpfs"</span>;
+  <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"tmpfs"</span>;
+  <span style="color: #ff4500;"># &#24517;&#39035;&#35774;&#32622; mode=755&#65292;&#21542;&#21017;&#40664;&#35748;&#30340;&#26435;&#38480;&#23558;&#26159; 777&#65292;&#23548;&#33268; OpenSSH &#25253;&#38169;&#24182;&#25298;&#32477;&#29992;&#25143;&#30331;&#24405;</span>
+  <span style="color: #eedd82;">options</span> = [ <span style="color: #ffa07a;">"relatime"</span> <span style="color: #ffa07a;">"mode=755"</span> ];
+};
+
+fileSystems.<span style="color: #ffa07a;">"/nix"</span> = {
+  <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/vda1"</span>;
+  <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"btrfs"</span>;
+  <span style="color: #eedd82;">options</span> = [ <span style="color: #ffa07a;">"compress-force=zstd"</span> ];
+};
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20854;&#23427;&#20998;&#21306;&#19981;&#29992;&#21160;</span>
+fileSystems.<span style="color: #ffa07a;">"/boot"</span> = {};
+</pre>
+</div>
+<p>
+理论上来说，此时应用配置并关机，再到 LiveCD 里把文件移动到正确的位置，就可以获得一个 <b>只保留了 Nix 配置中的状态</b> 的 NixOS
+</p>
+
+<pre class="example" id="org0eebb52">
+这个状态可以满足临时使用的需要 例如 NixOS 安装光盘
+
+但因为没有保存一些重要的、不由 Nix 配置文件管理的状态，不适合日常使用
+</pre>
+
+<p>
+没有保存的重要状态包括：
+</p>
+<ul class="org-ul">
+<li>/etc/machine-id，SystemD 给每个系统随机生成的 ID，用于管理日志</li>
+<li>/etc/NetworkManager/system-connections，Network Manager 保存的连接</li>
+<li>/etc/ssh/ssh_host_ed25519_key.pub，OpenSSH 的公钥</li>
+<li>/etc/ssh/ssh_host_rsa_key.pub，OpenSSH 的公钥</li>
+<li>/etc/ssh/ssh_host_ed25519_key，OpenSSH 的私钥</li>
+<li>/etc/ssh/ssh_host_rsa_key，OpenSSH 的私钥</li>
+<li>以及 /home，/root，/var 里的数据文件</li>
+</ul>
+
+<p>
+所以，下一步操作就是单独指定这些文件/文件夹，把它们也保存到硬盘上
+</p>
+</div>
+</div>
+
+<div id="outline-container-org3491bee" class="outline-2">
+<h2 id="org3491bee">保存重要的状态文件</h2>
+<div class="outline-text-2" id="text-org3491bee">
+<p>
+由于已经挂载了 /nix 分区，所以我选择把状态文件放在 <span class="underline">/nix/persistent</span> 目录中
+</p>
+
+<pre class="example" id="org820ea14">
+你也可以把这些状态文件放在其它的分区上
+</pre>
+
+<p>
+然后，用 <span class="underline">Bind mount</span> 把状态文件 <b>映射</b> 回它们本该在的地方
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">fileSystems.<span style="color: #ffa07a;">"/etc/machine-id"</span> = {
+  <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/nix/persistent/etc/machine-id"</span>;
+  <span style="color: #eedd82;">options</span> = [ <span style="color: #ffa07a;">"bind"</span> ];
+};
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">...</span>
+</pre>
+</div>
+
+<pre class="example" id="orgf824189">
+如果你要保存的文件很多，你就需要给每一个文件或文件夹单独添加一个 mount，麻烦且容易出错。
+
+消息是，Nix 社区针对这种使用场景提供了一个 NixOS 模块 Impermanence，可以方便地批量映射文件到另一个位置
+</pre>
+
+<p>
+首先，在 <span class="underline">flake.nix</span> 中将 <span class="underline">Impermanence</span> <b>添加</b> 到 <span class="underline">inputs</span> 中：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{
+  <span style="color: #eedd82;">inputs</span> = {
+    <span style="color: #eedd82;">impermanence.url</span> = <span style="color: #ffa07a;">"github:nix-community/impermanence"</span>;
+  };
+}
+</pre>
+</div>
+
+<p>
+然后把 <span class="underline">Impermanence</span> <b>添加</b> 到 <span class="underline">NixOS 的模块列表</span> 中：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{
+  <span style="color: #eedd82;">outputs</span> = { self, nixpkgs, ... }@inputs: {
+    nixosConfigurations.<span style="color: #ffa07a;">"nixos"</span> = nixpkgs.lib.nixosSystem {
+      <span style="color: #eedd82;">system</span> = <span style="color: #ffa07a;">"x86_64-linux"</span>;
+      <span style="color: #eedd82;">modules</span> = [
+              <span style="color: #ff4500;"># &#28155;&#21152;&#19979;&#38754;&#36825;&#34892;</span>
+              inputs.impermanence.nixosModules.impermanence
+
+              <span style="color: #7fffd4;">./configuration.nix</span>
+      ];
+    };
+  };
+}
+</pre>
+</div>
+
+<p>
+接下来就可以用这样的格式批量映射文件，不用自己写一大堆 fileSystems 的 mount 了：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">/nix/persistent &#26159;&#20320;&#23454;&#38469;&#20445;&#23384;&#25991;&#20214;&#30340;&#22320;&#26041;</span>
+environment.persistence.<span style="color: #ffa07a;">"/nix/persistent"</span> = {
+  <span style="color: #ff4500;"># &#19981;&#35753;&#36825;&#20123;&#26144;&#23556;&#30340; mount &#20986;&#29616;&#22312;&#25991;&#20214;&#31649;&#29702;&#22120;&#30340;&#20391;&#36793;&#26639;&#20013;</span>
+  <span style="color: #eedd82;">hideMounts</span> = <span style="color: #b0c4de;">true</span>;
+
+  <span style="color: #ff4500;"># &#20320;&#35201;&#26144;&#23556;&#30340;&#25991;&#20214;&#22841;</span>
+  <span style="color: #eedd82;">directories</span> = [
+    <span style="color: #ffa07a;">"/etc/NetworkManager/system-connections"</span>
+    <span style="color: #ffa07a;">"/home"</span>
+    <span style="color: #ffa07a;">"/root"</span>
+    <span style="color: #ffa07a;">"/var"</span>
+  ];
+
+  <span style="color: #ff4500;"># &#20320;&#35201;&#26144;&#23556;&#30340;&#25991;&#20214;</span>
+  <span style="color: #eedd82;">files</span> = [
+    <span style="color: #ffa07a;">"/etc/machine-id"</span>
+    <span style="color: #ffa07a;">"/etc/ssh/ssh_host_ed25519_key.pub"</span>
+    <span style="color: #ffa07a;">"/etc/ssh/ssh_host_ed25519_key"</span>
+    <span style="color: #ffa07a;">"/etc/ssh/ssh_host_rsa_key.pub"</span>
+    <span style="color: #ffa07a;">"/etc/ssh/ssh_host_rsa_key"</span>
+  ];
+
+  <span style="color: #ff4500;"># &#31867;&#20284;&#30340;&#65292;&#20320;&#36824;&#21487;&#20197;&#22312;&#29992;&#25143;&#30340; home &#30446;&#24405;&#20013;&#21333;&#29420;&#26144;&#23556;&#25991;&#20214;&#21644;&#25991;&#20214;&#22841;</span>
+  <span style="color: #eedd82;">users.lantian</span> = {
+    <span style="color: #eedd82;">directories</span> = [
+      <span style="color: #ff4500;"># &#20010;&#20154;&#25991;&#20214;</span>
+      <span style="color: #ffa07a;">"Desktop"</span>
+      <span style="color: #ffa07a;">"Documents"</span>
+      <span style="color: #ffa07a;">"Downloads"</span>
+      <span style="color: #ffa07a;">"Music"</span>
+      <span style="color: #ffa07a;">"Pictures"</span>
+      <span style="color: #ffa07a;">"Videos"</span>
+
+      <span style="color: #ff4500;"># &#37197;&#32622;&#25991;&#20214;&#22841;</span>
+      <span style="color: #ffa07a;">".cache"</span>
+      <span style="color: #ffa07a;">".config"</span>
+      <span style="color: #ffa07a;">".gnupg"</span>
+      <span style="color: #ffa07a;">".local"</span>
+      <span style="color: #ffa07a;">".ssh"</span>
+    ];
+    <span style="color: #eedd82;">files</span> = [ ];
+  };
+};
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org337315f" class="outline-2">
+<h2 id="org337315f">移动 Nix Daemon 的临时文件夹</h2>
+<div class="outline-text-2" id="text-org337315f">
+<pre class="example" id="org92374e5">
+在给软件打包时，Nix Daemon 会将临时文件存在 /tmp 目录下
+
+如果 /tmp 是内存盘，打大型软件包（例如 Linux 内核）时容易爆内存
+
+NixOS 的 /tmp 默认不是内存盘，但随着我们的配置，/tmp 也将被存放在根目录的内存盘上
+</pre>
+<p>
+因此，可以将 Nix Daemon 的临时文件移动到硬盘上，例如我设置的是 <span class="underline">/var/cache/nix</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">systemd.services.nix-daemon</span> = {
+  <span style="color: #eedd82;">environment</span> = {
+    <span style="color: #ff4500;"># &#25351;&#23450;&#20020;&#26102;&#25991;&#20214;&#30340;&#20301;&#32622;</span>
+    <span style="color: #eedd82;">TMPDIR</span> = <span style="color: #ffa07a;">"/var/cache/nix"</span>;
+  };
+  <span style="color: #eedd82;">serviceConfig</span> = {
+    <span style="color: #ff4500;"># &#22312; Nix Daemon &#21551;&#21160;&#26102;&#33258;&#21160;&#21019;&#24314; /var/cache/nix</span>
+    <span style="color: #eedd82;">CacheDirectory</span> = <span style="color: #ffa07a;">"nix"</span>;
+  };
+};
+</pre>
+</div>
+
+<pre class="example" id="org7e4a2db">
+但是，这项配置不对 root 用户生效，这是因为在 root 用户下，nix 命令会自己处理构建请求，而不是把请求发给 Nix Daemon
+</pre>
+
+<p>
+因此，还需要 <b>添加</b> 一个 <b>环境变量</b> <span class="underline">NIX_REMOTE=daemon</span> ，强制让 nix 命令调用 Daemon：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix"><span style="color: #eedd82;">environment.variables.NIX_REMOTE</span> = <span style="color: #ffa07a;">"daemon"</span>;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgbd85ba4" class="outline-2">
+<h2 id="orgbd85ba4">激活配置</h2>
+<div class="outline-text-2" id="text-orgbd85ba4">
+<pre class="example" id="orgaf0c8d6">
+上面的配置完成后，终于可以激活配置了
+</pre>
+
+<p>
+首先用 <span class="underline">sudo nixos-rebuild boot &#x2013;flake .</span> ，在下次开机时激活新的配置
+</p>
+
+<pre class="example" id="org4c3187f">
+注意不要用 sudo nixos-rebuild switch --flake .
+
+因为在真正激活配置前，需要先到 LiveCD 中把文件移动到正确的位置
+</pre>
+
+<p>
+重新启动电脑到 LiveCD 中，挂载并 cd 进原来的根分区：
+</p>
+<ol class="org-ol">
+<li><b>如果不熟悉流程，做好数据备份！</b></li>
+<li><b>新建</b> 一个 <span class="underline">persistent</span> 文件夹，对应系统启动后的 <span class="underline">/nix/persistent</span> ；</li>
+<li>把上面列出的，要保存的路径都移动到 persistent 文件夹中</li>
+<li>删除除了 nix 和 persistent 以外的其它文件夹
+<ul class="org-ul">
+<li>删除前请做好数据备份！</li>
+</ul></li>
+<li>把 nix 中的所有文件夹移到当前目录下</li>
+<li>最后删除 nix 文件夹，重启</li>
+</ol>
+
+<pre class="example" id="org741a966">
+如果你一切操作正确，就可以启动到「无状态」的 NixOS 中了，你选择保留的数据文件将全部映射到原来的位置，所以系统使用起来也应该没什么区别
+
+但是此时，你的根分区已经变成了一个 tmpfs 内存盘，你不想要的状态数据将全部在重启后消失，你每次开机都将得到一个 “全新” 的操作系统
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="ramdisk.html">Next: 内存镜像</a></td>
+<td class="org-left"><a href="package.html">Previous：软件打包</a></td>
+<td class="org-left"><a href="practise.html">Home: 实用教程</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">

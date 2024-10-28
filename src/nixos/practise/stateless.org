@@ -87,3 +87,247 @@
 
 答案是：可以，而且不用改造。安装光盘上的 NixOS 除了 *挂载* _nix-store.squashfs_ 以外，其它的行为都与安装在硬盘上的 NixOS 相同
 * ”无状态“的优点
+相比普通的 NixOS，这样配置的 “无状态” NixOS 只会把一部分指定的 “状态” 保存在硬盘上
+
+#+begin_example
+  这些状态可能包括你的网站网页文件、数据库内容、浏览器的记录等
+
+  除此之外，剩余的、你没有指定保存的 “状态” 都会在重启之后被丢弃
+#+end_example
+
+这就是这种配置的最大优点：只保留想要的状态
++ 如果有的软件偷偷修改了它的配置文件，或者把数据存在了不该存的位置，重启后这些修改都会丢失，从而保证软件的配置与你在 Nix 配置文件中指定的完全相同
++ /etc 中不会有卸载软件后的残留。如果有的话，它们在下次重启后就消失了
++ 只需要备份不被 Nix 管理的状态（例如 /home，/root，/var），再加上 Nix 配置文件，就能保证可以还原出一模一样的系统
++ 由于根目录中的大部分文件是根据配置生成的软链接，根目录的内存盘几乎不占空间
+  #+begin_example
+    例如我的一台服务器上，根目录只占用了 660KB 空间：
+
+    # sudo du -h -d1 -x /
+    0       /srv
+    0       /mnt
+    0       /usr
+    0       /bin
+    0       /home
+    572K    /root
+    0       /tmp
+    84K     /etc
+    4.0K    /var
+    660K    /
+  #+end_example
+* 准备工作
+要根据本文对 NixOS 进行配置，需要准备：
++ 一个安装完成的 NixOS，并且使用 Flake 管理配置
++ 一个 NixOS 或其它 Linux 发行版的 LiveCD，需要移动 NixOS 的关键文件
+* 将根目录修改成内存盘
+当安装好一个普通的 NixOS，你的 Nix 配置中一般会有类似这样的根分区配置：
+#+begin_src nix 
+  fileSystems."/" = {
+    device = "/dev/vda1";
+    fsType = "btrfs";
+    options = [ "compress-force=zstd" ];
+  };
+
+  # 你可能还挂载了其它分区，例如 /boot
+  fileSystems."/boot" = {};
+#+end_src
+
+对 NixOS 来说最重要的文件夹是 /nix，因此把 _根目录 /_ 修改成 *内存盘* _tmpfs_ ，并把 _原来的分区_ *挂载* 到 _/nix_ 上：
+
+#+begin_src nix
+  fileSystems."/" = {
+    device = "tmpfs";
+    fsType = "tmpfs";
+    # 必须设置 mode=755，否则默认的权限将是 777，导致 OpenSSH 报错并拒绝用户登录
+    options = [ "relatime" "mode=755" ];
+  };
+
+  fileSystems."/nix" = {
+    device = "/dev/vda1";
+    fsType = "btrfs";
+    options = [ "compress-force=zstd" ];
+  };
+
+  # 其它分区不用动
+  fileSystems."/boot" = {};
+#+end_src
+理论上来说，此时应用配置并关机，再到 LiveCD 里把文件移动到正确的位置，就可以获得一个 *只保留了 Nix 配置中的状态* 的 NixOS
+
+#+begin_example
+  这个状态可以满足临时使用的需要 例如 NixOS 安装光盘
+
+  但因为没有保存一些重要的、不由 Nix 配置文件管理的状态，不适合日常使用
+#+end_example
+
+没有保存的重要状态包括：
++ /etc/machine-id，SystemD 给每个系统随机生成的 ID，用于管理日志
++ /etc/NetworkManager/system-connections，Network Manager 保存的连接
++ /etc/ssh/ssh_host_ed25519_key.pub，OpenSSH 的公钥
++ /etc/ssh/ssh_host_rsa_key.pub，OpenSSH 的公钥
++ /etc/ssh/ssh_host_ed25519_key，OpenSSH 的私钥
++ /etc/ssh/ssh_host_rsa_key，OpenSSH 的私钥
++ 以及 /home，/root，/var 里的数据文件
+
+所以，下一步操作就是单独指定这些文件/文件夹，把它们也保存到硬盘上
+
+* 保存重要的状态文件
+由于已经挂载了 /nix 分区，所以我选择把状态文件放在 _/nix/persistent_ 目录中
+
+#+begin_example
+你也可以把这些状态文件放在其它的分区上
+#+end_example
+
+然后，用 _Bind mount_ 把状态文件 *映射* 回它们本该在的地方
+
+#+begin_src nix 
+  fileSystems."/etc/machine-id" = {
+    device = "/nix/persistent/etc/machine-id";
+    options = [ "bind" ];
+  };
+  # ...
+#+end_src
+
+#+begin_example
+  如果你要保存的文件很多，你就需要给每一个文件或文件夹单独添加一个 mount，麻烦且容易出错。
+
+  消息是，Nix 社区针对这种使用场景提供了一个 NixOS 模块 Impermanence，可以方便地批量映射文件到另一个位置
+#+end_example
+
+首先，在 _flake.nix_ 中将 _Impermanence_ *添加* 到 _inputs_ 中：
+
+#+begin_src nix 
+  {
+    inputs = {
+      impermanence.url = "github:nix-community/impermanence";
+    };
+  }
+#+end_src
+
+然后把 _Impermanence_ *添加* 到 _NixOS 的模块列表_ 中：
+
+#+begin_src nix 
+  {
+    outputs = { self, nixpkgs, ... }@inputs: {
+      nixosConfigurations."nixos" = nixpkgs.lib.nixosSystem {
+	system = "x86_64-linux";
+	modules = [
+		# 添加下面这行
+		inputs.impermanence.nixosModules.impermanence
+
+		./configuration.nix
+	];
+      };
+    };
+  }
+#+end_src
+
+接下来就可以用这样的格式批量映射文件，不用自己写一大堆 fileSystems 的 mount 了：
+
+#+begin_src nix 
+  # /nix/persistent 是你实际保存文件的地方
+  environment.persistence."/nix/persistent" = {
+    # 不让这些映射的 mount 出现在文件管理器的侧边栏中
+    hideMounts = true;
+
+    # 你要映射的文件夹
+    directories = [
+      "/etc/NetworkManager/system-connections"
+      "/home"
+      "/root"
+      "/var"
+    ];
+
+    # 你要映射的文件
+    files = [
+      "/etc/machine-id"
+      "/etc/ssh/ssh_host_ed25519_key.pub"
+      "/etc/ssh/ssh_host_ed25519_key"
+      "/etc/ssh/ssh_host_rsa_key.pub"
+      "/etc/ssh/ssh_host_rsa_key"
+    ];
+
+    # 类似的，你还可以在用户的 home 目录中单独映射文件和文件夹
+    users.lantian = {
+      directories = [
+	# 个人文件
+	"Desktop"
+	"Documents"
+	"Downloads"
+	"Music"
+	"Pictures"
+	"Videos"
+
+	# 配置文件夹
+	".cache"
+	".config"
+	".gnupg"
+	".local"
+	".ssh"
+      ];
+      files = [ ];
+    };
+  };
+#+end_src
+* 移动 Nix Daemon 的临时文件夹
+#+begin_example
+  在给软件打包时，Nix Daemon 会将临时文件存在 /tmp 目录下
+
+  如果 /tmp 是内存盘，打大型软件包（例如 Linux 内核）时容易爆内存
+
+  NixOS 的 /tmp 默认不是内存盘，但随着我们的配置，/tmp 也将被存放在根目录的内存盘上
+#+end_example
+因此，可以将 Nix Daemon 的临时文件移动到硬盘上，例如我设置的是 _/var/cache/nix_ ：
+
+#+begin_src nix 
+  systemd.services.nix-daemon = {
+    environment = {
+      # 指定临时文件的位置
+      TMPDIR = "/var/cache/nix";
+    };
+    serviceConfig = {
+      # 在 Nix Daemon 启动时自动创建 /var/cache/nix
+      CacheDirectory = "nix";
+    };
+  };
+#+end_src
+
+#+begin_example
+  但是，这项配置不对 root 用户生效，这是因为在 root 用户下，nix 命令会自己处理构建请求，而不是把请求发给 Nix Daemon
+#+end_example
+
+因此，还需要 *添加* 一个 *环境变量* _NIX_REMOTE=daemon_ ，强制让 nix 命令调用 Daemon：
+
+#+begin_src nix 
+  environment.variables.NIX_REMOTE = "daemon";
+#+end_src
+
+* 激活配置
+#+begin_example
+上面的配置完成后，终于可以激活配置了
+#+end_example
+
+首先用 _sudo nixos-rebuild boot --flake ._ ，在下次开机时激活新的配置
+
+#+begin_example
+  注意不要用 sudo nixos-rebuild switch --flake .
+
+  因为在真正激活配置前，需要先到 LiveCD 中把文件移动到正确的位置
+#+end_example
+
+重新启动电脑到 LiveCD 中，挂载并 cd 进原来的根分区：
+1. *如果不熟悉流程，做好数据备份！*
+2. *新建* 一个 _persistent_ 文件夹，对应系统启动后的 _/nix/persistent_ ；
+3. 把上面列出的，要保存的路径都移动到 persistent 文件夹中
+4. 删除除了 nix 和 persistent 以外的其它文件夹
+   + 删除前请做好数据备份！
+5. 把 nix 中的所有文件夹移到当前目录下
+6. 最后删除 nix 文件夹，重启
+
+#+begin_example
+  如果你一切操作正确，就可以启动到「无状态」的 NixOS 中了，你选择保留的数据文件将全部映射到原来的位置，所以系统使用起来也应该没什么区别
+
+  但是此时，你的根分区已经变成了一个 tmpfs 内存盘，你不想要的状态数据将全部在重启后消失，你每次开机都将得到一个 “全新” 的操作系统
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:ramdisk.org][Next: 内存镜像]] | [[file:package.org][Previous：软件打包]] | [[file:practise.org][Home: 实用教程]] |
