@@ -206,15 +206,22 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#orgc4f8efa">准备 NixOS 配置</a></li>
+<li><a href="#orgeae3903">使用 Disko 配置磁盘镜像中的分区</a>
+<ul>
 <li><a href="#orgd379139">配置镜像中的分区（开启 Impermanence）</a></li>
 <li><a href="#org201e2cd">配置镜像中的分区（普通安装）</a></li>
+</ul>
+</li>
 <li><a href="#orgab63985">生成磁盘镜像</a></li>
-<li><a href="#org0d878b0">将磁盘镜像上传到 VPS</a></li>
-<li><a href="#org064787e">扩展分区大小</a></li>
+<li><a href="#org0d878b0">将磁盘镜像上传到 VPS</a>
+<ul>
+<li><a href="#org0e6502f">调整扩展分区大小</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org3105197">
+<pre class="example" id="org059548e">
 黑色星期五已经过了，相信有一些朋友新买了一些特价的 VPS、云服务器等，并且想在 VPS 上安装 NixOS
 
 但是由于 NixOS 的知名度不如 CentOS、Debian、Ubuntu 等老牌 Linux 发行版，几乎没有 VPS 服务商提供预装 NixOS 的磁盘镜像
@@ -230,7 +237,7 @@
 <li>主机商提供启动 netboot.xyz（一个可以通过网络安装多种 Linux 发行版的工具）的方式，并且 VPS 内存超过 1GB，有足够空间让 netboot.xyz 将 NixOS 的安装镜像解压到内存中</li>
 </ol>
 
-<pre class="example" id="org1608598">
+<pre class="example" id="org6830014">
 我这次就购买了一台内存刚好为 1GB 的 VPS，没有足够内存解压 NixOS 23.05 的镜像，因此无法使用 netboot.xyz 启动 NixOS 安装环境
 
 同时由于我的主机商也不提供自定义镜像功能，我也无法通过光盘启动 NixOS 安装程序
@@ -243,7 +250,7 @@
 <li><p>
 NixOS-Infect 工具的原理是在本地系统上安装 Nix Daemon，再使用它构建一个完整的 NixOS 系统，最后将原系统的启动项替换成 NixOS 的
 </p>
-<pre class="example" id="org862d72f">
+<pre class="example" id="org3a70f56">
 由于这种方法不需要在内存中解压 NixOS 的完整安装镜像，这种方法更适合小内存的 VPS
 
 但这种方法的缺点是无法自定义分区结构和文件系统类型，只能使用 VPS 服务商的默认分区配置
@@ -253,7 +260,7 @@ NixOS-Infect 工具的原理是在本地系统上安装 Nix Daemon，再使用�
 <li><p>
 而NixOS-Anywhere 的原理是通过 Linux 内核的 kexec 功能替换当前运行的内核，直接启动到内存中的 NixOS 的安装镜像
 </p>
-<pre class="example" id="orgfa74aa0">
+<pre class="example" id="org6643adb">
 本质原理与 netboot.xyz 大致相同，因此也与 netboot.xyz 一样需要较大的内存空间
 </pre></li>
 </ul>
@@ -261,7 +268,7 @@ NixOS-Infect 工具的原理是在本地系统上安装 Nix Daemon，再使用�
 <p>
 先 NixOS-Infect，再在恢复环境中手动调整分区
 </p>
-<pre class="example" id="org627d2d9">
+<pre class="example" id="org901de92">
 对于类似的小内存 VPS，我曾经使用的方法是，先使用 NixOS-Infect 安装一个普通的 NixOS
 
 接着部署一份开启了 Btrfs 和 Impermanence 的配置，然后重启到恢复环境
@@ -277,28 +284,566 @@ NixOS-Infect 工具的原理是在本地系统上安装 Nix Daemon，再使用�
 最近 NixOS 社区发布了一款工具 <span class="underline">Disko</span> ，它的原本用途是在 NixOS 安装环境中自动对硬盘进行分区，从而实现用 Nix 配置文件声明式管理硬盘分区。但是，这款工具也 <b>提供</b> 了根据给定的 <span class="underline">分区表和 NixOS 配置</span> ， <b>自动生成</b> <span class="underline">磁盘镜像</span> 的功能。那么，就可以配置好 Btrfs/ZFS/Impermanence，生成对应的磁盘镜像，再在 VPS 上直接用 dd 命令写入硬盘，就可以简单地安装 NixOS 了 
 </p>
 
-<pre class="example" id="org742c1dd">
+<pre class="example" id="org2b2f1d2">
 由于这种方法对 VPS 上运行的恢复环境几乎没有要求（有网络和 dd 命令就可以）
 
 我们可以启动到占用内存很小的 Alpine Linux 发行版，然后通过网络传输磁盘镜像写入 VPS 硬盘
 </pre>
 <div id="outline-container-orgc4f8efa" class="outline-2">
 <h2 id="orgc4f8efa">准备 NixOS 配置</h2>
+<div class="outline-text-2" id="text-orgc4f8efa">
+<pre class="example" id="orgb2c6e44">
+在开始这个方法前，需要准备一份简单的 NixOS 配置，包含最基础的引导、网络、root 密码、SSH 密钥等配置，以保证你后续可以部署完整的配置
+
+当然也可以直接使用一份完整的 NixOS 配置，只不过稍后创建的磁盘镜像体积会更大
+</pre>
+
+<p>
+准备的配置文件如下，存为 configuration.nix：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix">{
+  config,
+  pkgs,
+  lib,
+  ...
+}: {
+  <span style="color: #ff4500;"># &#25105;&#29992;&#30340;&#19968;&#20123;&#20869;&#26680;&#21442;&#25968;</span>
+  <span style="color: #eedd82;">boot.kernelParams</span> = [
+    <span style="color: #ff4500;"># &#20851;&#38381;&#20869;&#26680;&#30340;&#25805;&#20316;&#23457;&#35745;&#21151;&#33021;</span>
+    <span style="color: #ffa07a;">"audit=0"</span>
+    <span style="color: #ff4500;"># &#19981;&#35201;&#26681;&#25454; PCIe &#22320;&#22336;&#29983;&#25104;&#32593;&#21345;&#21517;&#65288;&#20363;&#22914; enp1s0&#65292;&#23545; VPS &#27809;&#29992;&#65289;&#65292;&#32780;&#26159;&#30452;&#25509;&#26681;&#25454;&#39034;&#24207;&#29983;&#25104;&#65288;&#20363;&#22914; eth0&#65289;</span>
+    <span style="color: #ffa07a;">"net.ifnames=0"</span>
+  ];
+
+  <span style="color: #ff4500;"># &#25105;&#29992;&#30340; Initrd &#37197;&#32622;&#65292;&#24320;&#21551; ZSTD &#21387;&#32553;&#21644;&#22522;&#20110; systemd &#30340;&#31532;&#19968;&#38454;&#27573;&#21551;&#21160;</span>
+  <span style="color: #eedd82;">boot.initrd</span> = {
+    <span style="color: #eedd82;">compressor</span> = <span style="color: #ffa07a;">"zstd"</span>;
+    <span style="color: #eedd82;">compressorArgs</span> = [<span style="color: #ffa07a;">"-19"</span> <span style="color: #ffa07a;">"-T0"</span>];
+    <span style="color: #eedd82;">systemd.enable</span> = <span style="color: #b0c4de;">true</span>;
+  };
+
+  <span style="color: #ff4500;"># &#23433;&#35013; Grub</span>
+  <span style="color: #eedd82;">boot.loader.grub</span> = {
+    <span style="color: #eedd82;">enable</span> = !config.boot.isContainer;
+    <span style="color: #eedd82;">default</span> = <span style="color: #ffa07a;">"saved"</span>;
+    <span style="color: #eedd82;">devices</span> = [<span style="color: #ffa07a;">"/dev/vda"</span>];
+  };
+
+  <span style="color: #ff4500;"># &#26102;&#21306;&#65292;&#26681;&#25454;&#20320;&#30340;&#25152;&#22312;&#22320;&#20462;&#25913;</span>
+  <span style="color: #eedd82;">time.timeZone</span> = <span style="color: #ffa07a;">"America/Los_Angeles"</span>;
+
+  <span style="color: #ff4500;"># Root &#29992;&#25143;&#30340;&#23494;&#30721;&#21644; SSH &#23494;&#38053;&#12290;&#22914;&#26524;&#32593;&#32476;&#37197;&#32622;&#26377;&#35823;&#65292;&#21487;&#20197;&#29992;&#27492;&#22788;&#30340;&#23494;&#30721;&#22312;&#25511;&#21046;&#21488;&#19978;&#30331;&#24405;&#36827;&#21435;&#25163;&#21160;&#35843;&#25972;&#32593;&#32476;&#37197;&#32622;&#12290;</span>
+  <span style="color: #eedd82;">users.mutableUsers</span> = <span style="color: #b0c4de;">false</span>;
+  <span style="color: #eedd82;">users.users.root</span> = {
+    <span style="color: #eedd82;">hashedPassword</span> = <span style="color: #ffa07a;">"$6$9iybgF./X/RNsRrQ$h7Zlk//loJDPg7yCCPT/9jVU0Tvep6vEA1FvPBT.kqJUA5qlzhDJEYnBFlpBZmTXuUXjF0qgmDWmGkXIMC9JD/"</span>;
+    <span style="color: #eedd82;">openssh.authorizedKeys.keys</span> = [
+      <span style="color: #ffa07a;">"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMcWoEQ4Mh27AV3ixcn9CMaUK/R+y4y5TqHmn2wJoN6i lantian@lantian-lenovo-archlinux"</span>
+      <span style="color: #ffa07a;">"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCulLscvKjEeroKdPE207W10MbZ3+ZYzWn34EnVeIG0GzfZ3zkjQJVfXFahu97P68Tw++N6zIk7htGic9SouQuAH8+8kzTB8/55Yjwp7W3bmqL7heTmznRmKehtKg6RVgcpvFfciyxQXV/bzOkyO+xKdmEw+fs92JLUFjd/rbUfVnhJKmrfnohdvKBfgA27szHOzLlESeOJf3PuXV7BLge1B+cO8TJMJXv8iG8P5Uu8UCr857HnfDyrJS82K541Scph3j+NXFBcELb2JSZcWeNJRVacIH3RzgLvp5NuWPBCt6KET1CCJZLsrcajyonkA5TqNhzumIYtUimEnAPoH51hoUD1BaL4wh2DRxqCWOoXn0HMrRmwx65nvWae6+C/7l1rFkWLBir4ABQiKoUb/MrNvoXb+Qw/ZRo6hVCL5rvlvFd35UF0/9wNu1nzZRSs9os2WLBMt00A4qgaU2/ux7G6KApb7shz1TXxkN1k+/EKkxPj/sQuXNvO6Bfxww1xEWFywMNZ8nswpSq/4Ml6nniS2OpkZVM2SQV1q/VdLEKYPrObtp2NgneQ4lzHmAa5MGnUCckES+qOrXFZAcpI126nv1uDXqA2aytN6WHGfN50K05MZ+jA8OM9CWFWIcglnT+rr3l+TI/FLAjE13t6fMTYlBH0C8q+RnQDiIncNwyidQ== lantian@LandeMacBook-Pro.local"</span>
+    ];
+  };
+
+  <span style="color: #ff4500;"># &#20351;&#29992; systemd-networkd &#31649;&#29702;&#32593;&#32476;</span>
+  <span style="color: #eedd82;">systemd.network.enable</span> = <span style="color: #b0c4de;">true</span>;
+  <span style="color: #eedd82;">services.resolved.enable</span> = <span style="color: #b0c4de;">false</span>;
+
+  <span style="color: #ff4500;"># &#37197;&#32622;&#32593;&#32476; IP &#21644; DNS</span>
+  <span style="color: #eedd82;">systemd.network.networks.eth0</span> = {
+    <span style="color: #eedd82;">address</span> = [<span style="color: #ffa07a;">"123.45.678.90/24"</span>];
+    <span style="color: #eedd82;">gateway</span> = [<span style="color: #ffa07a;">"123.45.678.1"</span>];
+    <span style="color: #eedd82;">matchConfig.Name</span> = <span style="color: #ffa07a;">"eth0"</span>;
+  };
+  <span style="color: #eedd82;">networking.nameservers</span> = [
+    <span style="color: #ffa07a;">"8.8.8.8"</span>
+  ];
+
+  <span style="color: #ff4500;"># &#24320;&#21551; SSH &#26381;&#21153;&#31471;&#65292;&#30417;&#21548; 2222 &#31471;&#21475;</span>
+  <span style="color: #eedd82;">services.openssh</span> = {
+    <span style="color: #eedd82;">enable</span> = <span style="color: #b0c4de;">true</span>;
+    <span style="color: #eedd82;">ports</span> = [2222];
+    <span style="color: #eedd82;">settings</span> = {
+      <span style="color: #eedd82;">PasswordAuthentication</span> = <span style="color: #b0c4de;">false</span>;
+      <span style="color: #eedd82;">PermitRootLogin</span> = lib.mkForce <span style="color: #ffa07a;">"prohibit-password"</span>;
+    };
+  };
+
+  <span style="color: #ff4500;"># &#20851;&#38381; NixOS &#33258;&#24102;&#30340;&#38450;&#28779;&#22681;</span>
+  <span style="color: #eedd82;">networking.firewall.enable</span> = <span style="color: #b0c4de;">false</span>;
+
+  <span style="color: #ff4500;"># &#20851;&#38381; DHCP&#65292;&#25163;&#21160;&#37197;&#32622; IP</span>
+  <span style="color: #eedd82;">networking.useDHCP</span> = <span style="color: #b0c4de;">false</span>;
+
+  <span style="color: #ff4500;"># &#20027;&#26426;&#21517;&#65292;&#38543;&#24847;&#35774;&#32622;&#21363;&#21487;</span>
+  <span style="color: #eedd82;">networking.hostName</span> = <span style="color: #ffa07a;">"bootstrap"</span>;
+
+  <span style="color: #ff4500;"># &#39318;&#27425;&#23433;&#35013;&#31995;&#32479;&#26102; NixOS &#30340;&#26368;&#26032;&#29256;&#26412;&#65292;&#29992;&#20110;&#22312;&#22823;&#29256;&#26412;&#21319;&#32423;&#26102;&#36991;&#20813;&#21457;&#29983;&#21521;&#21069;&#19981;&#20860;&#23481;&#30340;&#24773;&#20917;</span>
+  <span style="color: #eedd82;">system.stateVersion</span> = <span style="color: #ffa07a;">"23.05"</span>;
+
+  <span style="color: #ff4500;"># QEMU&#65288;KVM&#65289;&#34394;&#25311;&#26426;&#38656;&#35201;&#20351;&#29992;&#30340;&#20869;&#26680;&#27169;&#22359;</span>
+  <span style="color: #eedd82;">boot.initrd.postDeviceCommands</span> = lib.mkIf (!config.boot.initrd.systemd.enable) <span style="color: #ffa07a;">''</span>
+<span style="color: #ffa07a;">    # Set the system time from the hardware clock to work around a</span>
+<span style="color: #ffa07a;">    # bug in qemu-kvm &gt; 1.5.2 (where the VM clock is initialised</span>
+<span style="color: #ffa07a;">    # to the *boot time* of the host).</span>
+<span style="color: #ffa07a;">    hwclock -s</span>
+<span style="color: #ffa07a;">  ''</span>;
+
+  <span style="color: #eedd82;">boot.initrd.availableKernelModules</span> = [
+    <span style="color: #ffa07a;">"virtio_net"</span>
+    <span style="color: #ffa07a;">"virtio_pci"</span>
+    <span style="color: #ffa07a;">"virtio_mmio"</span>
+    <span style="color: #ffa07a;">"virtio_blk"</span>
+    <span style="color: #ffa07a;">"virtio_scsi"</span>
+  ];
+  <span style="color: #eedd82;">boot.initrd.kernelModules</span> = [
+    <span style="color: #ffa07a;">"virtio_balloon"</span>
+    <span style="color: #ffa07a;">"virtio_console"</span>
+    <span style="color: #ffa07a;">"virtio_rng"</span>
+  ];
+}
+</pre>
 </div>
-<div id="outline-container-orgd379139" class="outline-2">
-<h2 id="orgd379139">配置镜像中的分区（开启 Impermanence）</h2>
+
+<p>
+然后，准备一份 flake.nix，用 Flake 的方式管理 nixpkgs 的版本，并同时引入 Impermanence 等使用的模块：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{
+  <span style="color: #eedd82;">description</span> = <span style="color: #ffa07a;">"Lan Tian's NixOS Flake"</span>;
+
+  <span style="color: #eedd82;">inputs</span> = {
+    <span style="color: #eedd82;">nixpkgs.url</span> = <span style="color: #ffa07a;">"github:NixOS/nixpkgs/nixos-unstable"</span>;
+    <span style="color: #eedd82;">impermanence.url</span> = <span style="color: #ffa07a;">"github:nix-community/impermanence"</span>;
+  };
+
+  <span style="color: #eedd82;">outputs</span> = {
+    self,
+      nixpkgs,
+      ...
+  } @ inputs: <span style="color: #00ffff;">let</span>
+    <span style="color: #eedd82;">lib</span> = nixpkgs.lib;
+  <span style="color: #00ffff;">in</span> rec {
+    <span style="color: #eedd82;">nixosConfigurations.bootstrap</span> = lib.nixosSystem {
+      <span style="color: #eedd82;">system</span> = <span style="color: #ffa07a;">"x86_64-linux"</span>;
+      <span style="color: #eedd82;">modules</span> = [
+              inputs.impermanence.nixosModules.impermanence
+              <span style="color: #7fffd4;">./configuration.nix</span>
+      ];
+    };
+  };
+}
+</pre>
 </div>
-<div id="outline-container-org201e2cd" class="outline-2">
-<h2 id="org201e2cd">配置镜像中的分区（普通安装）</h2>
+
+<p>
+这个系统配置现在是无法构建的，因为还没有配置文件系统。如果现在试图构建
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">nixos-rebuild build --flake .#bootstrap
+</pre>
 </div>
+
+<p>
+会遇到以下错误：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">error:
+Failed assertions:
+- The &#12302;fileSystems&#12303; option does not specify your root file system.
+</pre>
+</div>
+
+<p>
+所以接下来，就要加入 Disko 模块，以及分区表和文件系统的配置
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgeae3903" class="outline-2">
+<h2 id="orgeae3903">使用 Disko 配置磁盘镜像中的分区</h2>
+<div class="outline-text-2" id="text-orgeae3903">
+<p>
+修改 flake.nix 引入 Disko 模块：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix">{
+  <span style="color: #eedd82;">description</span> = <span style="color: #ffa07a;">"Lan Tian's NixOS Flake"</span>;
+
+  <span style="color: #eedd82;">inputs</span> = {
+    <span style="color: #eedd82;">nixpkgs.url</span> = <span style="color: #ffa07a;">"github:NixOS/nixpkgs/nixos-unstable"</span>;
+    <span style="color: #eedd82;">impermanence.url</span> = <span style="color: #ffa07a;">"github:nix-community/impermanence"</span>;
+    <span style="color: #ff4500;"># &#26032;&#22686;&#19979;&#38754;&#20960;&#34892;</span>
+    <span style="color: #eedd82;">disko</span> = {
+      <span style="color: #eedd82;">url</span> = <span style="color: #ffa07a;">"github:nix-community/disko"</span>;
+      <span style="color: #eedd82;">inputs.nixpkgs.follows</span> = <span style="color: #ffa07a;">"nixpkgs"</span>;
+    };
+  };
+
+  <span style="color: #eedd82;">outputs</span> = {
+    self,
+      nixpkgs,
+      ...
+  } @ inputs: <span style="color: #00ffff;">let</span>
+    <span style="color: #eedd82;">lib</span> = nixpkgs.lib;
+  <span style="color: #00ffff;">in</span> rec {
+    <span style="color: #eedd82;">nixosConfigurations.bootstrap</span> = lib.nixosSystem {
+      <span style="color: #eedd82;">system</span> = <span style="color: #ffa07a;">"x86_64-linux"</span>;
+      <span style="color: #eedd82;">modules</span> = [
+              inputs.impermanence.nixosModules.impermanence
+
+              <span style="color: #ff4500;"># &#26032;&#22686;&#19979;&#38754;&#19968;&#34892;</span>
+              inputs.disko.nixosModules.disko
+
+              <span style="color: #7fffd4;">./configuration.nix</span>
+      ];
+    };
+  };
+}
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgd379139" class="outline-3">
+<h3 id="orgd379139">配置镜像中的分区（开启 Impermanence）</h3>
+<div class="outline-text-3" id="text-orgd379139">
+<pre class="example" id="org2f5c31b">
+如果不使用 Impermanence 等将 root 分区放在 tmpfs 上的方案，请跳到下一小节
+</pre>
+
+<p>
+通过 Disko 模块提供的配置选项，配置磁盘镜像中的分区了。修改 configuration.nix，加入以下配置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nix">{
+  config,
+  pkgs,
+  lib,
+  ...
+}: {
+  <span style="color: #ff4500;"># &#20854;&#20313;&#37197;&#32622;&#30465;&#30053;</span>
+
+  <span style="color: #eedd82;">disko</span> = {
+    <span style="color: #ff4500;"># &#19981;&#35201;&#35753; Disko &#30452;&#25509;&#31649;&#29702; NixOS &#30340; fileSystems.* &#37197;&#32622;&#12290;</span>
+    <span style="color: #ff4500;"># &#21407;&#22240;&#26159; Disko &#40664;&#35748;&#36890;&#36807; GPT &#20998;&#21306;&#34920;&#30340;&#20998;&#21306;&#21517;&#25346;&#36733;&#20998;&#21306;&#65292;&#20294;&#20998;&#21306;&#21517;&#24456;&#23481;&#26131;&#34987; fdisk &#31561;&#24037;&#20855;&#35206;&#30422;&#25481;&#12290;</span>
+    <span style="color: #ff4500;"># &#23548;&#33268;&#19968;&#26086;&#26032;&#37197;&#32622;&#37096;&#32626;&#22833;&#36133;&#65292;&#30913;&#30424;&#38236;&#20687;&#33258;&#24102;&#30340;&#26087;&#37197;&#32622;&#20063;&#26080;&#27861;&#27491;&#24120;&#21551;&#21160;&#12290;</span>
+    <span style="color: #eedd82;">enableConfig</span> = <span style="color: #b0c4de;">false</span>;
+
+    <span style="color: #eedd82;">devices</span> = {
+      <span style="color: #ff4500;"># &#23450;&#20041;&#19968;&#20010;&#30913;&#30424;</span>
+      <span style="color: #eedd82;">disk.main</span> = {
+              <span style="color: #ff4500;"># &#35201;&#29983;&#25104;&#30340;&#30913;&#30424;&#38236;&#20687;&#30340;&#22823;&#23567;&#65292;2GB &#36275;&#22815;&#25105;&#20351;&#29992;&#65292;&#21487;&#20197;&#25353;&#38656;&#35843;&#25972;</span>
+              <span style="color: #eedd82;">imageSize</span> = <span style="color: #ffa07a;">"2G"</span>;
+              <span style="color: #ff4500;"># &#30913;&#30424;&#36335;&#24452;&#12290;Disko &#29983;&#25104;&#30913;&#30424;&#38236;&#20687;&#26102;&#65292;&#23454;&#38469;&#19978;&#26159;&#21551;&#21160;&#19968;&#20010; QEMU &#34394;&#25311;&#26426;&#36208;&#19968;&#36941;&#23433;&#35013;&#27969;&#31243;&#12290;</span>
+              <span style="color: #ff4500;"># &#22240;&#27492;&#26080;&#35770;&#20320;&#30340; VPS &#19978;&#30340;&#30828;&#30424;&#35782;&#21035;&#25104; sda &#36824;&#26159; vda&#65292;&#36825;&#37324;&#37117;&#20197; Disko &#30340;&#34394;&#25311;&#26426;&#20026;&#20934;&#65292;&#25351;&#23450; vda&#12290;</span>
+              <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/vda"</span>;
+              <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"disk"</span>;
+              <span style="color: #ff4500;"># &#23450;&#20041;&#36825;&#22359;&#30913;&#30424;&#19978;&#30340;&#20998;&#21306;&#34920;</span>
+              <span style="color: #eedd82;">content</span> = {
+                <span style="color: #ff4500;"># &#20351;&#29992; GPT &#31867;&#22411;&#20998;&#21306;&#34920;&#12290;Disko &#23545; MBR &#26684;&#24335;&#20998;&#21306;&#30340;&#25903;&#25345;&#20284;&#20046;&#26377;&#28857;&#38382;&#39064;&#12290;</span>
+                <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"gpt"</span>;
+                <span style="color: #ff4500;"># &#20998;&#21306;&#21015;&#34920;</span>
+                <span style="color: #eedd82;">partitions</span> = {
+                  <span style="color: #ff4500;"># GPT &#20998;&#21306;&#34920;&#19981;&#23384;&#22312; MBR &#26684;&#24335;&#20998;&#21306;&#34920;&#39044;&#30041;&#32473; MBR &#20027;&#21551;&#21160;&#35760;&#24405;&#30340;&#31354;&#38388;&#65292;&#22240;&#27492;&#36825;&#37324;&#38656;&#35201;&#39044;&#30041;</span>
+                  <span style="color: #ff4500;"># &#30828;&#30424;&#24320;&#22836;&#30340; 1MB &#31354;&#38388;&#32473; MBR &#20027;&#21551;&#21160;&#35760;&#24405;&#65292;&#20197;&#20415;&#21518;&#32493; Grub &#21551;&#21160;&#22120;&#23433;&#35013;&#21040;&#36825;&#22359;&#31354;&#38388;&#12290;</span>
+                  <span style="color: #eedd82;">boot</span> = {
+                    <span style="color: #eedd82;">size</span> = <span style="color: #ffa07a;">"1M"</span>;
+                    <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"EF02"</span>; <span style="color: #ff4500;"># for grub MBR</span>
+                    <span style="color: #ff4500;"># &#20248;&#20808;&#32423;&#35774;&#32622;&#20026;&#26368;&#39640;&#65292;&#20445;&#35777;&#36825;&#22359;&#31354;&#38388;&#22312;&#30828;&#30424;&#24320;&#22836;</span>
+                    <span style="color: #eedd82;">priority</span> = 0;
+                  };
+
+                  <span style="color: #ff4500;"># ESP &#20998;&#21306;&#65292;&#25110;&#32773;&#35828;&#26159; boot &#20998;&#21306;&#12290;&#36825;&#22871;&#37197;&#32622;&#29702;&#35770;&#19978;&#21516;&#26102;&#25903;&#25345; EFI &#27169;&#24335;&#21644; BIOS &#27169;&#24335;&#21551;&#21160;&#30340; VPS&#12290;</span>
+                  <span style="color: #eedd82;">ESP</span> = {
+                    <span style="color: #eedd82;">name</span> = <span style="color: #ffa07a;">"ESP"</span>;
+                    <span style="color: #ff4500;"># &#26681;&#25454;&#25105;&#20010;&#20154;&#30340;&#38656;&#27714;&#39044;&#30041; 512MB &#31354;&#38388;&#12290;&#22914;&#26524;&#20320;&#30340; boot &#20998;&#21306;&#21344;&#29992;&#26356;&#22823;/&#26356;&#23567;&#65292;&#21487;&#20197;&#25353;&#38656;&#35843;&#25972;&#12290;</span>
+                    <span style="color: #eedd82;">size</span> = <span style="color: #ffa07a;">"512M"</span>;
+                    <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"EF00"</span>;
+                    <span style="color: #ff4500;"># &#20248;&#20808;&#32423;&#35774;&#32622;&#25104;&#31532;&#20108;&#39640;&#65292;&#20445;&#35777;&#22312;&#21097;&#20313;&#31354;&#38388;&#30340;&#21069;&#38754;</span>
+                    <span style="color: #eedd82;">priority</span> = 1;
+                    <span style="color: #ff4500;"># &#26684;&#24335;&#21270;&#25104; FAT32 &#26684;&#24335;</span>
+                    <span style="color: #eedd82;">content</span> = {
+                            <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"filesystem"</span>;
+                            <span style="color: #eedd82;">format</span> = <span style="color: #ffa07a;">"vfat"</span>;
+                            <span style="color: #ff4500;"># &#29992;&#20316; Boot &#20998;&#21306;&#65292;Disko &#29983;&#25104;&#30913;&#30424;&#38236;&#20687;&#26102;&#26681;&#25454;&#27492;&#22788;&#37197;&#32622;&#25346;&#36733;&#20998;&#21306;&#65292;&#38656;&#35201;&#21644; fileSystems.* &#19968;&#33268;</span>
+                            <span style="color: #eedd82;">mountpoint</span> = <span style="color: #ffa07a;">"/boot"</span>;
+                            <span style="color: #eedd82;">mountOptions</span> = [<span style="color: #ffa07a;">"fmask=0077"</span> <span style="color: #ffa07a;">"dmask=0077"</span>];
+                    };
+                  };
+
+                  <span style="color: #ff4500;"># &#23384;&#25918; NixOS &#31995;&#32479;&#30340;&#20998;&#21306;&#65292;&#20351;&#29992;&#21097;&#19979;&#30340;&#25152;&#26377;&#31354;&#38388;&#12290;</span>
+                  <span style="color: #eedd82;">nix</span> = {
+                    <span style="color: #eedd82;">size</span> = <span style="color: #ffa07a;">"100%"</span>;
+                    <span style="color: #ff4500;"># &#26684;&#24335;&#21270;&#25104; Btrfs&#65292;&#21487;&#20197;&#25353;&#38656;&#20462;&#25913;</span>
+                    <span style="color: #eedd82;">content</span> = {
+                            <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"filesystem"</span>;
+                            <span style="color: #eedd82;">format</span> = <span style="color: #ffa07a;">"btrfs"</span>;
+                            <span style="color: #ff4500;"># &#29992;&#20316; Nix &#20998;&#21306;&#65292;Disko &#29983;&#25104;&#30913;&#30424;&#38236;&#20687;&#26102;&#26681;&#25454;&#27492;&#22788;&#37197;&#32622;&#25346;&#36733;&#20998;&#21306;&#65292;&#38656;&#35201;&#21644; fileSystems.* &#19968;&#33268;</span>
+                            <span style="color: #eedd82;">mountpoint</span> = <span style="color: #ffa07a;">"/nix"</span>;
+                            <span style="color: #eedd82;">mountOptions</span> = [<span style="color: #ffa07a;">"compress-force=zstd"</span> <span style="color: #ffa07a;">"nosuid"</span> <span style="color: #ffa07a;">"nodev"</span>];
+                    };
+                  };
+                };
+              };
+      };
+
+      <span style="color: #ff4500;"># &#30001;&#20110;&#25105;&#24320;&#20102; Impermanence&#65292;&#38656;&#35201;&#22768;&#26126;&#19968;&#19979;&#26681;&#20998;&#21306;&#26159; tmpfs&#65292;&#20197;&#20415; Disko &#29983;&#25104;&#30913;&#30424;&#38236;&#20687;&#26102;&#25346;&#36733;&#20998;&#21306;</span>
+      nodev.<span style="color: #ffa07a;">"/"</span> = {
+              <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"tmpfs"</span>;
+              <span style="color: #eedd82;">mountOptions</span> = [<span style="color: #ffa07a;">"relatime"</span> <span style="color: #ffa07a;">"mode=755"</span> <span style="color: #ffa07a;">"nosuid"</span> <span style="color: #ffa07a;">"nodev"</span>];
+      };
+    };
+  };
+
+  <span style="color: #ff4500;"># &#30001;&#20110;&#25105;&#20204;&#27809;&#26377;&#35753; Disko &#31649;&#29702; fileSystems.* &#37197;&#32622;&#65292;&#25105;&#20204;&#38656;&#35201;&#25163;&#21160;&#37197;&#32622;</span>
+  <span style="color: #ff4500;"># &#26681;&#20998;&#21306;&#65292;&#30001;&#20110;&#25105;&#24320;&#20102; Impermanence&#65292;&#25152;&#20197;&#36825;&#37324;&#26159; tmpfs</span>
+  fileSystems.<span style="color: #ffa07a;">"/"</span> = {
+    <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"tmpfs"</span>;
+    <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"tmpfs"</span>;
+    <span style="color: #eedd82;">options</span> = [<span style="color: #ffa07a;">"relatime"</span> <span style="color: #ffa07a;">"mode=755"</span> <span style="color: #ffa07a;">"nosuid"</span> <span style="color: #ffa07a;">"nodev"</span>];
+  };
+
+  <span style="color: #ff4500;"># /nix &#20998;&#21306;&#65292;&#26159;&#30913;&#30424;&#38236;&#20687;&#19978;&#30340;&#31532;&#19977;&#20010;&#20998;&#21306;&#12290;&#30001;&#20110;&#25105;&#30340; VPS &#23558;&#30828;&#30424;&#35782;&#21035;&#20026; sda&#65292;&#22240;&#27492;&#36825;&#37324;&#29992; sda3&#12290;&#22914;&#26524;&#20320;&#30340; VPS &#35782;&#21035;&#32467;&#26524;&#19981;&#21516;&#35831;&#25353;&#38656;&#20462;&#25913;</span>
+  fileSystems.<span style="color: #ffa07a;">"/nix"</span> = {
+    <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/sda3"</span>;
+    <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"btrfs"</span>;
+    <span style="color: #eedd82;">options</span> = [<span style="color: #ffa07a;">"compress-force=zstd"</span> <span style="color: #ffa07a;">"nosuid"</span> <span style="color: #ffa07a;">"nodev"</span>];
+  };
+
+  <span style="color: #ff4500;"># /boot &#20998;&#21306;&#65292;&#26159;&#30913;&#30424;&#38236;&#20687;&#19978;&#30340;&#31532;&#20108;&#20010;&#20998;&#21306;&#12290;&#30001;&#20110;&#25105;&#30340; VPS &#23558;&#30828;&#30424;&#35782;&#21035;&#20026; sda&#65292;&#22240;&#27492;&#36825;&#37324;&#29992; sda2&#12290;&#22914;&#26524;&#20320;&#30340; VPS &#35782;&#21035;&#32467;&#26524;&#19981;&#21516;&#35831;&#25353;&#38656;&#20462;&#25913;</span>
+  fileSystems.<span style="color: #ffa07a;">"/boot"</span> = {
+    <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/sda2"</span>;
+    <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"vfat"</span>;
+    <span style="color: #eedd82;">options</span> = [<span style="color: #ffa07a;">"fmask=0077"</span> <span style="color: #ffa07a;">"dmask=0077"</span>];
+  };
+}
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org201e2cd" class="outline-3">
+<h3 id="org201e2cd">配置镜像中的分区（普通安装）</h3>
+<div class="outline-text-3" id="text-org201e2cd">
+<pre class="example" id="org92056f6">
+如果使用 Impermanence 等将 root 分区放在 tmpfs 上的方案，请参照上一小节并跳过这一小节
+</pre>
+<p>
+通过 Disko 模块提供的配置选项，配置磁盘镜像中的分区了。修改 configuration.nix，加入以下配置：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix">{
+  config,
+  pkgs,
+  lib,
+  ...
+}: {
+  <span style="color: #ff4500;"># &#20854;&#20313;&#37197;&#32622;&#30465;&#30053;</span>
+
+  <span style="color: #eedd82;">disko</span> = {
+    <span style="color: #ff4500;"># &#19981;&#35201;&#35753; Disko &#30452;&#25509;&#31649;&#29702; NixOS &#30340; fileSystems.* &#37197;&#32622;&#12290;</span>
+    <span style="color: #ff4500;"># &#21407;&#22240;&#26159; Disko &#40664;&#35748;&#36890;&#36807; GPT &#20998;&#21306;&#34920;&#30340;&#20998;&#21306;&#21517;&#25346;&#36733;&#20998;&#21306;&#65292;&#20294;&#20998;&#21306;&#21517;&#24456;&#23481;&#26131;&#34987; fdisk &#31561;&#24037;&#20855;&#35206;&#30422;&#25481;&#12290;</span>
+    <span style="color: #ff4500;"># &#23548;&#33268;&#19968;&#26086;&#26032;&#37197;&#32622;&#37096;&#32626;&#22833;&#36133;&#65292;&#30913;&#30424;&#38236;&#20687;&#33258;&#24102;&#30340;&#26087;&#37197;&#32622;&#20063;&#26080;&#27861;&#27491;&#24120;&#21551;&#21160;&#12290;</span>
+    <span style="color: #eedd82;">enableConfig</span> = <span style="color: #b0c4de;">false</span>;
+
+    <span style="color: #eedd82;">devices</span> = {
+      <span style="color: #ff4500;"># &#23450;&#20041;&#19968;&#20010;&#30913;&#30424;</span>
+      <span style="color: #eedd82;">disk.main</span> = {
+              <span style="color: #ff4500;"># &#35201;&#29983;&#25104;&#30340;&#30913;&#30424;&#38236;&#20687;&#30340;&#22823;&#23567;&#65292;2GB &#36275;&#22815;&#25105;&#20351;&#29992;&#65292;&#21487;&#20197;&#25353;&#38656;&#35843;&#25972;</span>
+              <span style="color: #eedd82;">imageSize</span> = <span style="color: #ffa07a;">"2G"</span>;
+              <span style="color: #ff4500;"># &#30913;&#30424;&#36335;&#24452;&#12290;Disko &#29983;&#25104;&#30913;&#30424;&#38236;&#20687;&#26102;&#65292;&#23454;&#38469;&#19978;&#26159;&#21551;&#21160;&#19968;&#20010; QEMU &#34394;&#25311;&#26426;&#36208;&#19968;&#36941;&#23433;&#35013;&#27969;&#31243;&#12290;</span>
+              <span style="color: #ff4500;"># &#22240;&#27492;&#26080;&#35770;&#20320;&#30340; VPS &#19978;&#30340;&#30828;&#30424;&#35782;&#21035;&#25104; sda &#36824;&#26159; vda&#65292;&#36825;&#37324;&#37117;&#20197; Disko &#30340;&#34394;&#25311;&#26426;&#20026;&#20934;&#65292;&#25351;&#23450; vda&#12290;</span>
+              <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/vda"</span>;
+              <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"disk"</span>;
+              <span style="color: #ff4500;"># &#23450;&#20041;&#36825;&#22359;&#30913;&#30424;&#19978;&#30340;&#20998;&#21306;&#34920;</span>
+              <span style="color: #eedd82;">content</span> = {
+                <span style="color: #ff4500;"># &#20351;&#29992; GPT &#31867;&#22411;&#20998;&#21306;&#34920;&#12290;Disko &#23545; MBR &#26684;&#24335;&#20998;&#21306;&#30340;&#25903;&#25345;&#20284;&#20046;&#26377;&#28857;&#38382;&#39064;&#12290;</span>
+                <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"gpt"</span>;
+                <span style="color: #ff4500;"># &#20998;&#21306;&#21015;&#34920;</span>
+                <span style="color: #eedd82;">partitions</span> = {
+                  <span style="color: #ff4500;"># GPT &#20998;&#21306;&#34920;&#19981;&#23384;&#22312; MBR &#26684;&#24335;&#20998;&#21306;&#34920;&#39044;&#30041;&#32473; MBR &#20027;&#21551;&#21160;&#35760;&#24405;&#30340;&#31354;&#38388;&#65292;&#22240;&#27492;&#36825;&#37324;&#38656;&#35201;&#39044;&#30041;</span>
+                  <span style="color: #ff4500;"># &#30828;&#30424;&#24320;&#22836;&#30340; 1MB &#31354;&#38388;&#32473; MBR &#20027;&#21551;&#21160;&#35760;&#24405;&#65292;&#20197;&#20415;&#21518;&#32493; Grub &#21551;&#21160;&#22120;&#23433;&#35013;&#21040;&#36825;&#22359;&#31354;&#38388;&#12290;</span>
+                  <span style="color: #eedd82;">boot</span> = {
+                    <span style="color: #eedd82;">size</span> = <span style="color: #ffa07a;">"1M"</span>;
+                    <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"EF02"</span>; <span style="color: #ff4500;"># for grub MBR</span>
+                    <span style="color: #ff4500;"># &#20248;&#20808;&#32423;&#35774;&#32622;&#20026;&#26368;&#39640;&#65292;&#20445;&#35777;&#36825;&#22359;&#31354;&#38388;&#22312;&#30828;&#30424;&#24320;&#22836;</span>
+                    <span style="color: #eedd82;">priority</span> = 0;
+                  };
+
+                  <span style="color: #ff4500;"># ESP &#20998;&#21306;&#65292;&#25110;&#32773;&#35828;&#26159; boot &#20998;&#21306;&#12290;&#36825;&#22871;&#37197;&#32622;&#29702;&#35770;&#19978;&#21516;&#26102;&#25903;&#25345; EFI &#27169;&#24335;&#21644; BIOS &#27169;&#24335;&#21551;&#21160;&#30340; VPS&#12290;</span>
+                  <span style="color: #eedd82;">ESP</span> = {
+                    <span style="color: #eedd82;">name</span> = <span style="color: #ffa07a;">"ESP"</span>;
+                    <span style="color: #ff4500;"># &#26681;&#25454;&#25105;&#20010;&#20154;&#30340;&#38656;&#27714;&#39044;&#30041; 512MB &#31354;&#38388;&#12290;&#22914;&#26524;&#20320;&#30340; boot &#20998;&#21306;&#21344;&#29992;&#26356;&#22823;/&#26356;&#23567;&#65292;&#21487;&#20197;&#25353;&#38656;&#35843;&#25972;&#12290;</span>
+                    <span style="color: #eedd82;">size</span> = <span style="color: #ffa07a;">"512M"</span>;
+                    <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"EF00"</span>;
+                    <span style="color: #ff4500;"># &#20248;&#20808;&#32423;&#35774;&#32622;&#25104;&#31532;&#20108;&#39640;&#65292;&#20445;&#35777;&#22312;&#21097;&#20313;&#31354;&#38388;&#30340;&#21069;&#38754;</span>
+                    <span style="color: #eedd82;">priority</span> = 1;
+                    <span style="color: #ff4500;"># &#26684;&#24335;&#21270;&#25104; FAT32 &#26684;&#24335;</span>
+                    <span style="color: #eedd82;">content</span> = {
+                            <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"filesystem"</span>;
+                            <span style="color: #eedd82;">format</span> = <span style="color: #ffa07a;">"vfat"</span>;
+                            <span style="color: #ff4500;"># &#29992;&#20316; Boot &#20998;&#21306;&#65292;Disko &#29983;&#25104;&#30913;&#30424;&#38236;&#20687;&#26102;&#26681;&#25454;&#27492;&#22788;&#37197;&#32622;&#25346;&#36733;&#20998;&#21306;&#65292;&#38656;&#35201;&#21644; fileSystems.* &#19968;&#33268;</span>
+                            <span style="color: #eedd82;">mountpoint</span> = <span style="color: #ffa07a;">"/boot"</span>;
+                            <span style="color: #eedd82;">mountOptions</span> = [<span style="color: #ffa07a;">"fmask=0077"</span> <span style="color: #ffa07a;">"dmask=0077"</span>];
+                    };
+                  };
+
+                  <span style="color: #ff4500;"># &#23384;&#25918; NixOS &#31995;&#32479;&#30340;&#20998;&#21306;&#65292;&#20351;&#29992;&#21097;&#19979;&#30340;&#25152;&#26377;&#31354;&#38388;&#12290;</span>
+                  <span style="color: #eedd82;">nix</span> = {
+                    <span style="color: #eedd82;">size</span> = <span style="color: #ffa07a;">"100%"</span>;
+                    <span style="color: #ff4500;"># &#26684;&#24335;&#21270;&#25104; Btrfs&#65292;&#21487;&#20197;&#25353;&#38656;&#20462;&#25913;</span>
+                    <span style="color: #eedd82;">content</span> = {
+                            <span style="color: #eedd82;">type</span> = <span style="color: #ffa07a;">"filesystem"</span>;
+                            <span style="color: #eedd82;">format</span> = <span style="color: #ffa07a;">"btrfs"</span>;
+                            <span style="color: #ff4500;"># &#29992;&#20316;&#26681;&#20998;&#21306;&#65292;Disko &#29983;&#25104;&#30913;&#30424;&#38236;&#20687;&#26102;&#26681;&#25454;&#27492;&#22788;&#37197;&#32622;&#25346;&#36733;&#20998;&#21306;&#65292;&#38656;&#35201;&#21644; fileSystems.* &#19968;&#33268;</span>
+                            <span style="color: #eedd82;">mountpoint</span> = <span style="color: #ffa07a;">"/"</span>;
+                            <span style="color: #eedd82;">mountOptions</span> = [<span style="color: #ffa07a;">"compress-force=zstd"</span> <span style="color: #ffa07a;">"nosuid"</span> <span style="color: #ffa07a;">"nodev"</span>];
+                    };
+                  };
+                };
+              };
+      };
+    };
+  };
+
+  <span style="color: #ff4500;"># &#30001;&#20110;&#25105;&#20204;&#27809;&#26377;&#35753; Disko &#31649;&#29702; fileSystems.* &#37197;&#32622;&#65292;&#25105;&#20204;&#38656;&#35201;&#25163;&#21160;&#37197;&#32622;</span>
+  <span style="color: #ff4500;"># &#26681;&#20998;&#21306;&#65292;&#26159;&#30913;&#30424;&#38236;&#20687;&#19978;&#30340;&#31532;&#19977;&#20010;&#20998;&#21306;&#12290;&#30001;&#20110;&#25105;&#30340; VPS &#23558;&#30828;&#30424;&#35782;&#21035;&#20026; sda&#65292;&#22240;&#27492;&#36825;&#37324;&#29992; sda3&#12290;&#22914;&#26524;&#20320;&#30340; VPS &#35782;&#21035;&#32467;&#26524;&#19981;&#21516;&#35831;&#25353;&#38656;&#20462;&#25913;</span>
+  fileSystems.<span style="color: #ffa07a;">"/"</span> = {
+    <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/sda3"</span>;
+    <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"btrfs"</span>;
+    <span style="color: #eedd82;">options</span> = [<span style="color: #ffa07a;">"compress-force=zstd"</span> <span style="color: #ffa07a;">"nosuid"</span> <span style="color: #ffa07a;">"nodev"</span>];
+  };
+
+  <span style="color: #ff4500;"># /boot &#20998;&#21306;&#65292;&#26159;&#30913;&#30424;&#38236;&#20687;&#19978;&#30340;&#31532;&#20108;&#20010;&#20998;&#21306;&#12290;&#30001;&#20110;&#25105;&#30340; VPS &#23558;&#30828;&#30424;&#35782;&#21035;&#20026; sda&#65292;&#22240;&#27492;&#36825;&#37324;&#29992; sda3&#12290;&#22914;&#26524;&#20320;&#30340; VPS &#35782;&#21035;&#32467;&#26524;&#19981;&#21516;&#35831;&#25353;&#38656;&#20462;&#25913;</span>
+  fileSystems.<span style="color: #ffa07a;">"/boot"</span> = {
+    <span style="color: #eedd82;">device</span> = <span style="color: #ffa07a;">"/dev/sda2"</span>;
+    <span style="color: #eedd82;">fsType</span> = <span style="color: #ffa07a;">"vfat"</span>;
+    <span style="color: #eedd82;">options</span> = [<span style="color: #ffa07a;">"fmask=0077"</span> <span style="color: #ffa07a;">"dmask=0077"</span>];
+  };
+}
+</pre>
+</div>
+</div>
+</div>
+</div>
+
 <div id="outline-container-orgab63985" class="outline-2">
 <h2 id="orgab63985">生成磁盘镜像</h2>
+<div class="outline-text-2" id="text-orgab63985">
+<p>
+修改 flake.nix 添加一个 “软件包” ，调用 Disko 的生成磁盘镜像功能：
+</p>
+<div class="org-src-container">
+<pre class="src src-nix">{
+  <span style="color: #eedd82;">description</span> = <span style="color: #ffa07a;">"Lan Tian's NixOS Flake"</span>;
+
+  <span style="color: #eedd82;">inputs</span> = {
+    <span style="color: #eedd82;">nixpkgs.url</span> = <span style="color: #ffa07a;">"github:NixOS/nixpkgs/nixos-unstable"</span>;
+    <span style="color: #eedd82;">impermanence.url</span> = <span style="color: #ffa07a;">"github:nix-community/impermanence"</span>;
+    <span style="color: #eedd82;">disko</span> = {
+      <span style="color: #eedd82;">url</span> = <span style="color: #ffa07a;">"github:nix-community/disko"</span>;
+      <span style="color: #eedd82;">inputs.nixpkgs.follows</span> = <span style="color: #ffa07a;">"nixpkgs"</span>;
+    };
+  };
+
+  <span style="color: #eedd82;">outputs</span> = {
+    self,
+      nixpkgs,
+      ...
+  } @ inputs: <span style="color: #00ffff;">let</span>
+    <span style="color: #eedd82;">lib</span> = nixpkgs.lib;
+  <span style="color: #00ffff;">in</span> rec {
+    <span style="color: #eedd82;">nixosConfigurations.bootstrap</span> = lib.nixosSystem {
+      <span style="color: #eedd82;">system</span> = <span style="color: #ffa07a;">"x86_64-linux"</span>;
+      <span style="color: #eedd82;">modules</span> = [
+              inputs.impermanence.nixosModules.impermanence
+              inputs.disko.nixosModules.disko
+              <span style="color: #7fffd4;">./configuration.nix</span>
+      ];
+    };
+
+    <span style="color: #ff4500;"># &#26032;&#22686;&#19979;&#38754;&#20960;&#34892;</span>
+    <span style="color: #eedd82;">packages.x86_64-linux</span> = {
+      <span style="color: #eedd82;">image</span> = self.nixosConfigurations.bootstrap.config.system.build.diskoImages;
+    };
+  };
+}
+</pre>
 </div>
+
+<p>
+最后运行
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">nix build .#image
+</pre>
+</div>
+
+<p>
+稍等片刻，磁盘镜像就会生成在 result/main.raw 路径下
+</p>
+</div>
+</div>
+
 <div id="outline-container-org0d878b0" class="outline-2">
 <h2 id="org0d878b0">将磁盘镜像上传到 VPS</h2>
+<div class="outline-text-2" id="text-org0d878b0">
+<p>
+在 VPS 上启动救援系统，或者 Alpine Linux 等轻量化系统
+</p>
+<ul class="org-ul">
+<li><p>
+如果救援系统有 SSH 服务端，可以使用下列命令上传镜像：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26681;&#25454; VPS &#19978;&#30340;&#30828;&#30424;&#35782;&#21035;&#32467;&#26524;&#65292;&#20462;&#25913; sda/vda</span>
+cat result/main.raw | ssh root@123.45.678.90 <span style="color: #ffa07a;">"dd of=/dev/sda"</span>
+</pre>
+</div></li>
+<li><p>
+如果你的救援系统没有 SSH，可以使用下列命令：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26681;&#25454; VPS &#19978;&#30340;&#30828;&#30424;&#35782;&#21035;&#32467;&#26524;&#65292;&#20462;&#25913; sda/vda</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312; VPS &#19978;&#36816;&#34892;</span>
+nc -l 1234 | dd <span style="color: #eedd82;">of</span>=/dev/sda
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312;&#26412;&#22320;&#36816;&#34892;</span>
+cat result/main.raw | nc 123.45.678.89 1234
+</pre>
 </div>
-<div id="outline-container-org064787e" class="outline-2">
-<h2 id="org064787e">扩展分区大小</h2>
+<pre class="example" id="org368acea">
+注意：没有加密！
+</pre></li>
+</ul>
+
+<p>
+等待命令执行结束，然后重启 VPS。此时应该就进入了已经安装好的 NixOS 系统了
+</p>
+</div>
+
+<div id="outline-container-org0e6502f" class="outline-3">
+<h3 id="org0e6502f">调整扩展分区大小</h3>
+<div class="outline-text-3" id="text-org0e6502f">
+<pre class="example" id="org88db896">
+由于创建的磁盘镜像大小只有 2GB，dd 完成后的镜像不会占满 VPS 的硬盘空间，需要手动扩展分区
+</pre>
+<p>
+运行 <span class="underline">fdisk /dev/sda</span> ，删除第三个 /nix（或者 /）分区，然后重新创建，保证分区起始位置不变，分区结束位置扩展到硬盘结尾
+</p>
+<pre class="example" id="org9a0b5b9">
+如果看到擦除文件系统头部信息的提示，不要擦除！
+</pre>
+
+<p>
+最后运行文件系统对应的命令扩展文件系统的大小：
+</p>
+<ul class="org-ul">
+<li>ext4 分区：可以使用 <span class="underline">resize2fs /dev/sda3</span></li>
+<li>Btrfs 分区：可以使用 <span class="underline">btrfs filesystem resize max /nix</span> （或者 /）</li>
+</ul>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
