@@ -263,6 +263,34 @@
 <li><a href="#org814e821">libvirt</a></li>
 </ul>
 </li>
+<li><a href="#orgcfd6181">启动物理分区的Windows系统</a>
+<ul>
+<li><a href="#org2bce502">需求</a></li>
+<li><a href="#org61805e9">原理</a></li>
+<li><a href="#orga8fe043">步骤</a>
+<ul>
+<li><a href="#org7ff2cfc">创建线性阵列</a></li>
+<li><a href="#orgaca6a56">写入EFI分区</a></li>
+<li><a href="#org407695c">SMB文件共享</a></li>
+</ul>
+</li>
+<li><a href="#org0628757">VM性能调优</a>
+<ul>
+<li><a href="#orgcffd620">使用Virtio-SCSI驱动硬盘</a></li>
+<li><a href="#org25bb2ed">CPU Pin</a></li>
+<li><a href="#orgcc08ca0">内存调优</a></li>
+</ul>
+</li>
+<li><a href="#org48cd0af">Libvirt Hooks</a>
+<ul>
+<li><a href="#org1d75d1c">Cpu隔离Hook</a></li>
+<li><a href="#org7ed6312">内存优化Hook</a></li>
+<li><a href="#orgc60b3c4">线性阵列启停Hook</a></li>
+<li><a href="#orgc8ab39b">测试Hooks</a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -274,7 +302,7 @@ KVM <span class="underline">Kernel-based Virtual Machine</span> ， 是基于 <b
 </p>
 
 
-<div id="orgff03a9e" class="figure">
+<div id="org950e049" class="figure">
 <p><img src="pic/kvm.png" alt="kvm.png" width="90%" /> 
 </p>
 </div>
@@ -283,7 +311,7 @@ KVM <span class="underline">Kernel-based Virtual Machine</span> ， 是基于 <b
 KVM 本身不执行任何模拟，需要用户空间应用程序 <span class="underline">QEMU</span> 通过 <span class="underline">/dev/kvm 接口</span>  <b>设置</b>  一个 <span class="underline">客户机虚拟服务器的地址空间</span> ，向它 <b>提供</b> 模拟的 I/O，KVM 模块实现处理器的虚拟化和内存虚拟化
 </p>
 
-<pre class="example" id="org382c86d">
+<pre class="example" id="org870e246">
 在硬件虚拟化技术的支持下，内核的 KVM 模块与 QEMU 的设备模拟协同工作，构成一套和物理计算机系统完全一致的虚拟化计算机软硬件系统
 </pre>
 </div>
@@ -303,12 +331,12 @@ KVM 本身不执行任何模拟，需要用户空间应用程序 <span class="un
 在 KVM 环境中，每个客户机都是一个标准的 Linux 进程(QEMU 进程)，而每一个 vCPU 在宿主机中是 QEMU 进程派生的一个普通线程
 </p>
 
-<pre class="example" id="org1a58317">
+<pre class="example" id="org9758ec0">
 在 Linux 中，一般进程有两种执行模式：内核模式和用户模式
 </pre>
 
 
-<div id="orgb6a0ea8" class="figure">
+<div id="orgfe79aa3" class="figure">
 <p><img src="pic/kvm-vcpu.png" alt="kvm-vcpu.png" width="90%" /> 
 </p>
 </div>
@@ -321,7 +349,7 @@ KVM 本身不执行任何模拟，需要用户空间应用程序 <span class="un
 <li><p>
 内核模式：主要处理特别需要高性能和安全相关的指令
 </p>
-<pre class="example" id="org85f405d">
+<pre class="example" id="org2f17838">
 如处理客户模式到内核模式的转换
 
 处理客户模式下的 I/O 指令或其它特权指令引起的 VM-Exit
@@ -331,7 +359,7 @@ KVM 本身不执行任何模拟，需要用户空间应用程序 <span class="un
 <li><p>
 客户模式：主要执行 Guest 中的大部分指令
 </p>
-<pre class="example" id="orgee06807">
+<pre class="example" id="org816235c">
 I/O 和一些特权指令除外，它们会引起 VM-Exit，被 hypervisor 截获并模拟
 </pre></li>
 </ul>
@@ -341,14 +369,14 @@ I/O 和一些特权指令除外，它们会引起 VM-Exit，被 hypervisor 截�
 <div id="outline-container-orgc75dcd8" class="outline-3">
 <h3 id="orgc75dcd8">内存</h3>
 <div class="outline-text-3" id="text-orgc75dcd8">
-<pre class="example" id="orgcb44a4c">
+<pre class="example" id="org52fccae">
 内存是一个非常重要的部件，它是与 CPU 沟通的一个桥梁
 </pre>
 
 <p>
 在通过 QEMU 命令行启动客户机时设置内存的参数是 <span class="underline">-m</span> :
 </p>
-<pre class="example" id="org0f02771">
+<pre class="example" id="org468553e">
 -m megs # 设置客户机的内存为 megs MB 大小
 </pre>
 </div>
@@ -359,7 +387,7 @@ I/O 和一些特权指令除外，它们会引起 VM-Exit，被 hypervisor 截�
 <p>
 EPT <span class="underline">Extended Page Tables</span> <b>扩展页表</b> ，属于 Intel 的第二代硬件虚拟化技术，它是针对内存管理单元 <span class="underline">MMU</span> 的 <b>虚拟化扩展</b>
 </p>
-<pre class="example" id="org4e29049">
+<pre class="example" id="org9aabf08">
 如果只是一台物理服务器，这个物理地址就只为一个操作系统服务，但如果进行了虚拟化部署，有多个虚拟机时，就存在着稳定性的隐患
 
 因为在进行 VM Entry（虚拟机进入）与 VM Exit（虚拟机退出）时（尤其是后者），都要对内存页进行修改
@@ -374,7 +402,7 @@ EPT <span class="underline">Extended Page Tables</span> <b>扩展页表</b> ，�
 VPID <span class="underline">Virtual-Processor Identifiers</span> <b>虚拟处理器标识</b> 。是对现在的 CPUID 功能的一个强化
 </p>
 
-<pre class="example" id="org9e40b69">
+<pre class="example" id="org0ef6701">
 因为在每个 CPU 中都有一个 TLB，用来缓存逻辑地址到物理地址的转换表，而每个虚拟机都有自己的虚拟 CPU 来对应
 </pre>
 
@@ -402,7 +430,7 @@ Y
 QEMU 提供了对多种块存储设备的模拟，包括 <span class="underline">IDE</span> , <span class="underline">SCSI</span> , <span class="underline">软盘</span> , <span class="underline">U盘</span> , <span class="underline">virtio 磁盘</span> 等。qemu-kvm 提供 <span class="underline">-drive</span> 参数来详细定义一个存储驱动器：
 </p>
 
-<pre class="example" id="org5ba07c6">
+<pre class="example" id="org18dddc0">
 -drive option[,option[,option[,...]]]
    Define a new drive. Valid options are:
 
@@ -428,7 +456,7 @@ cache 不同模式工作原理图：
 </p>
 
 
-<div id="orgc53ab2a" class="figure">
+<div id="org270560c" class="figure">
 <p><img src="pic/kvm-cache.png" alt="kvm-cache.png" width="90%" /> 
 </p>
 </div>
@@ -437,7 +465,7 @@ cache 不同模式工作原理图：
 <li><p>
 <span class="underline">writethrough</span> 即 <b>直写</b> 模式，在调用 write 写入数据的同时将数据写入 <span class="underline">磁盘缓存</span> 和 <span class="underline">后端块设备</span> 才返回，缺点是 <b>写入性能较低</b> ，但是 <b>安全性高</b> 
 </p>
-<pre class="example" id="org24b1755">
+<pre class="example" id="org055566c">
 qcow2 格式在使用 writethrough 时性能很差
 
 KVM cache 默认使用 writethrough
@@ -445,7 +473,7 @@ KVM cache 默认使用 writethrough
 <li><p>
 <span class="underline">writeback</span> 即 <b>回写</b> 模式，在调用 write 写入数据时只将数据写入到 <span class="underline">主机页缓存</span> 中即返回，写入性能高，有安全风险
 </p>
-<pre class="example" id="org4edba62">
+<pre class="example" id="org6f35496">
 当使用 -snapshot 选项的时候， writeback cache 是默认项
 </pre></li>
 <li>none  <b>关闭缓存</b> ，直接从磁盘 IO 读写</li>
@@ -468,7 +496,7 @@ qcow2 qed parallels nbd blkdebug host_cdrom host_floppy host_device file
 </pre>
 </div>
 
-<pre class="example" id="org2e20e6f">
+<pre class="example" id="org7a4921b">
 qemu-img 默认创建的格式是 raw ，man 手册中对几种格式也都有介绍
 
 以下为对 raw 和 qcow2 镜像的详细介绍
@@ -482,7 +510,7 @@ qemu-img 默认创建的格式是 raw ，man 手册中对几种格式也都有�
 原始的磁盘镜像格式，qemu-img 默认支持的格式
 </p>
 
-<pre class="example" id="orgd413618">
+<pre class="example" id="orgaf74cc9">
 它的优势在于它非常简单而且非常容易移植到其他模拟器（emulator，QEMU 也是一个 emulator）上去使用
 
 如果客户机文件系统（如 Linux 上的 ext2/ext3/ext4、Windows 的 NTFS）支持"空洞" （hole），那么镜像文件只有在被写有数据的扇区才会真正占用磁盘空间，从而有节省磁盘空间的作用
@@ -504,7 +532,7 @@ dd 命令创建的也是 raw 格式，不过 dd 一开始就让镜像实际占�
 <li><p>
 可以通过格式转换工具方便地转换为其它格式
 </p>
-<pre class="example" id="org7a09fce">
+<pre class="example" id="org053cb27">
 格式实现简单，不支持压缩、快照和加密
 </pre></li>
 <li>能够直接被宿主机挂载，不用开虚拟机即可在宿主和虚拟机间进行数据传输</li>
@@ -527,7 +555,7 @@ qcow2 是 qcow 的一种改进，是 QEMU 实现的一种虚拟机镜像格式�
 <div id="outline-container-orge010142" class="outline-5">
 <h5 id="orge010142">check</h5>
 <div class="outline-text-5" id="text-orge010142">
-<pre class="example" id="orgee11e5d">
+<pre class="example" id="org4b9c21e">
 qemu-img check [-f fmt] filename
 
 参数 -f fmt 是指定文件的格式，如果不指定格式 qemu-img 会自动检测
@@ -553,7 +581,7 @@ No errors were found on the image.
 <div id="outline-container-org3a55609" class="outline-5">
 <h5 id="org3a55609">create</h5>
 <div class="outline-text-5" id="text-org3a55609">
-<pre class="example" id="orge422c7d">
+<pre class="example" id="orgbbbab27">
 qemu-img  create [-f fmt] filename [size]
 </pre>
 
@@ -570,7 +598,7 @@ Formatting <span style="color: #ffa07a;">'test.raw'</span>, <span style="color: 
 </pre>
 </div>
 
-<pre class="example" id="orge684c8e">
+<pre class="example" id="org8f4733a">
 注意 ：这里的 qcow2 后缀只是为了便于自己区分格式方便
 
 如果不加后缀也可以通过 qemu-img 来获取镜像的格式
@@ -581,7 +609,7 @@ Formatting <span style="color: #ffa07a;">'test.raw'</span>, <span style="color: 
 <div id="outline-container-org6b1c494" class="outline-5">
 <h5 id="org6b1c494">info</h5>
 <div class="outline-text-5" id="text-org6b1c494">
-<pre class="example" id="orgb4c92b1">
+<pre class="example" id="orgf1ca006">
 qemu-img info [-f fmt] filename
 </pre>
 
@@ -628,14 +656,14 @@ disk size: 954M
 <div id="outline-container-orgc8ac89d" class="outline-5">
 <h5 id="orgc8ac89d">convert</h5>
 <div class="outline-text-5" id="text-orgc8ac89d">
-<pre class="example" id="orgaa1f0fd">
+<pre class="example" id="org73e6dcd">
 qemu-img convert [-c] [-f fmt] [-O output_fmt] [-o options] filename [filename2 […]] output_filename
 </pre>
 
 <p>
 镜像格式转换，将 fmt 格式的 filename 镜像文件根据 options 选项转换为格式为 output_fmt 的名为 output_filename 的镜像文件
 </p>
-<pre class="example" id="org0f13ae6">
+<pre class="example" id="org5bfd1db">
 它支持不同格式的镜像文件之间的转换，比如可以用 VMware 用的 vmdk 格式文件转换为 qcow2 文件
 
 这对从其他虚拟化方案转移到 KVM 上的用户非常有用
@@ -667,7 +695,7 @@ cluster_size: 65536
 </pre>
 </div>
 
-<pre class="example" id="org3f7eba1">
+<pre class="example" id="org4dcbf5c">
 如果使用 qcow2 、 qcow 、 cow 等作为输出文件格式来转换 raw 格式的镜像文件（非稀疏文件格式）
 
 镜像转换还可以起到将镜像文件转化为更小的镜像，因为它可以将空的扇区删除使之在生成的输出文件中并不存在
@@ -693,7 +721,7 @@ QEMU 支持的网络模式
 <p>
 qemu-kvm 通过 <span class="underline">-net</span> 参数配置网络选项：
 </p>
-<pre class="example" id="org455eb6d">
+<pre class="example" id="orgb24e1ee">
 -net nic[,vlan=n][,macaddr=mac][,model=type][,name=name][,addr=addr][,vectors=v]
 
     Create a new Network Interface Card and connect it to VLAN n (n = 0 is
@@ -717,7 +745,7 @@ qemu-kvm 通过 <span class="underline">-net</span> 参数配置网络选项：
 <li>model=type 设置模拟的网卡类型，默认为 rtl8139</li>
 </ul>
 
-<pre class="example" id="org0619023">
+<pre class="example" id="org13ede0b">
 如果提供 VM 多个网卡，则需要多次使用 -net 参数
 </pre>
 </div>
@@ -779,7 +807,7 @@ vnet1
 <p>
 <span class="underline">brctl delif br0 tap0</span> 删除桥接网络
 </p>
-<pre class="example" id="orgc405ea8">
+<pre class="example" id="org2e7a58a">
 qemu-kvm 工具在客户机关闭时会自动解除 TAP 设备的 bridge 绑定，所以这一步无需操作
 </pre>
 </div>
@@ -832,7 +860,7 @@ tap,script=/tmp/qemu-ifup.sh 指定 script 网络配置启动前启动脚本：
 <div id="outline-container-orgc61b198" class="outline-4">
 <h4 id="orgc61b198">virtio</h4>
 <div class="outline-text-4" id="text-orgc61b198">
-<pre class="example" id="org4d0a50d">
+<pre class="example" id="org8130740">
 KVM 是必须使用硬件虚拟化辅助技术（如 Intel VT-x、AMD-V）的 hypervisor，在 CPU 运行效率方面有硬件支持，其效率是比较高的
 
 在有 Intel EPT 特性支持的平台上，内存虚拟化的效率也较高
@@ -858,14 +886,14 @@ QEMU/KVM 提供了全虚拟化环境，可以让客户机不经过任何修改�
 <li>最后，由 KVM 模块中的捕获代码读取 I/O 共享页中的操作结果，并把结果返回到客户机中</li>
 </ol>
 
-<pre class="example" id="orge4f5c45">
+<pre class="example" id="orgd55cfbe">
 当然，这个操作过程中客户机作为一个 QEMU 进程在等待I/O时也可能被阻塞
 
 另外，当客户机通过 DMA（Direct Memory Access）访问大块 I/O 之时，QEMU 模拟程序将不会把操作结果放到 I/O 共享页中，而是通过内存映射的方式将结果直接写到客户机的内存中去，然后通过 KVM 模块告诉客户机 DMA 操作已经完成
 </pre>
 
 
-<div id="org84622ea" class="figure">
+<div id="orgada3c4f" class="figure">
 <p><img src="pic/qemu-emulated-io.jpg" alt="qemu-emulated-io.jpg" width="90%" />
 </p>
 </div>
@@ -877,7 +905,7 @@ QEMU 模拟 I/O 设备的方式：
 <li><p>
 优点：可以通过软件模拟出各种各样的硬件设备，包括一些不常用的或者很老很经典的设备（如 RTL8139 网卡），而且它不用修改客户机操作系统，就可以实现模拟设备在客户机中正常工作
 </p>
-<pre class="example" id="orgb22fd6e">
+<pre class="example" id="org6304d93">
 在 KVM 客户机中使用这种方式，对于解决手上没有足够设备的软件开发及调试有非常大的好处
 </pre></li>
 <li>缺点是，每次 I/O 操作的路径比较长，有较多的 VMEntry、VMExit 发生，需要多次上下文切换（context switch），也需要多次数据复制，所以它的性能较差</li>
@@ -899,7 +927,7 @@ virtio 是一个在 <span class="underline">hypervisor</span> 之上的 <b>抽�
 <li><p>
 virtio 这一层是 <span class="underline">虚拟队列接口</span> ，它在概念上将 <span class="underline">前端驱动程序</span> <b>附加</b> 到 <span class="underline">后端处理程序</span>
 </p>
-<pre class="example" id="orgee22f93">
+<pre class="example" id="org4af33e7">
 一个前端驱动程序可以使用 0 个或多个队列，具体数量取决于需求
 
 例如，virtio-net 网络驱动程序使用两个虚拟队列（一个用于接收，另一个用于发送），而 virtio-blk 块驱动程序仅使用一个虚拟队列
@@ -909,14 +937,14 @@ virtio 这一层是 <span class="underline">虚拟队列接口</span> ，它在�
 <li><p>
 virtio-ring 实现了 <b>环形缓冲区</b> （ <span class="underline">ring buffer</span> ），用于 <b>保存</b> 前端驱动和后端处理程序 <span class="underline">执行的信息</span> ，并且它可以 <b>一次性</b> 保存前端驱动的 <span class="underline">多次 I/O 请求</span> ，并且交由后端驱动去 <b>批量处理</b> ，最后实际调用 <span class="underline">宿主机</span> 中 <span class="underline">设备驱动</span> 实现物理上的 I/O 操作
 </p>
-<pre class="example" id="orgf4afc60">
+<pre class="example" id="org563a465">
 这样做就可以根据约定实现批量处理而不是客户机中每次 I/O 请求都需要处理一次，从而提高客户机与 hypervisor 信息交换的效率
 </pre></li>
 </ul></li>
 </ul>
 
 
-<div id="orgbba8b79" class="figure">
+<div id="orgaae25d6" class="figure">
 <p><img src="pic/qemu-kvm-virtio.jpg" alt="qemu-kvm-virtio.jpg" width="90%" />
 </p>
 </div>
@@ -928,13 +956,13 @@ virtio 半虚拟化驱动的方式：
 <li><p>
 优点是可以获得很好的 I/O 性能，其性能几乎可以达到和 native（即：非虚拟化环境中的原生系统）差不多的 I/O 性能
 </p>
-<pre class="example" id="orgc8571f9">
+<pre class="example" id="org2ffbebb">
 所以，在使用 KVM 之时，如果宿主机内核和客户机都支持 virtio 的情况下，一般推荐使用 virtio 达到更好的性能
 </pre></li>
 <li><p>
 缺点，它必须要客户机安装特定的Virtio驱动使其知道是运行在虚拟化环境中，且按照 Virtio 的规定格式进行数据传输
 </p>
-<pre class="example" id="orgd21f850">
+<pre class="example" id="org5f31506">
 不过客户机中可能有一些老的 Linux 系统不支持 virtio 和主流的Windows系统需要安装特定的驱动才支持 Virtio
 
 较新的一些 Linux 发行版（如 RHEL 6.x、Fedora 17 等）默认都将 virtio 相关驱动编译为模块，可直接作为客户机使用 virtio
@@ -950,7 +978,7 @@ Windows 系统需要额外的安装相应的 virtio 区别，virtio-win
 <h4 id="org589edb8">virtio_net 和 vhost_net</h4>
 <div class="outline-text-4" id="text-org589edb8">
 
-<div id="orge32318b" class="figure">
+<div id="org2fdbcd1" class="figure">
 <p><img src="pic/virtio-vhostnet.png" alt="virtio-vhostnet.png" width="90%" />
 </p>
 </div>
@@ -975,7 +1003,7 @@ Windows 系统需要额外的安装相应的 virtio 区别，virtio-win
 <h4 id="orgb9839ae">Device Assignment and SR-IOV</h4>
 <div class="outline-text-4" id="text-orgb9839ae">
 
-<div id="org677c289" class="figure">
+<div id="orga5a0e0d" class="figure">
 <p><img src="pic/devassign-sriov.png" alt="devassign-sriov.png" width="90%" />
 </p>
 </div>
@@ -990,7 +1018,7 @@ Windows 系统需要额外的安装相应的 virtio 区别，virtio-win
 热插拔可以提高服务器扩展性、灵活性以及对相关硬件问题的及时恢复能力
 </p>
 
-<pre class="example" id="org59cfa96">
+<pre class="example" id="orge9d6eee">
 在服务器中，可以实现热插拔的部件主要是 SATA 硬盘、CPU、内存、USB、网卡、风扇等
 </pre>
 <p>
@@ -1006,7 +1034,7 @@ Windows 系统需要额外的安装相应的 virtio 区别，virtio-win
 动态迁移：也叫在线迁移。就是在保证虚拟机上服务正常运行的同时，将一个虚拟机系统从一个物理主机移动到另一个物理主机的过程
 </p>
 
-<pre class="example" id="org7c254cb">
+<pre class="example" id="org68ec998">
 该过程不会对最终用户造成明显的影响，从而使得管理员能够在不影响用户正常使用的情况下，对物理服务器进行离线维修或者升级
 
 与静态迁移不同的是，为了保证迁移过程中虚拟机服务的可用，迁移过程仅有非常短暂的停机时间
@@ -1015,7 +1043,7 @@ Windows 系统需要额外的安装相应的 virtio 区别，virtio-win
 迁移的前面阶段，服务在源主机的虚拟机上运行，当迁移进行到一定阶段，目的主机已经具备了运行虚拟机系统的必须资源，经过一个非常短暂的切换，源主机将控制权转移到目的主机，虚拟机系统在目的主机上继续运行。对于虚拟机服务本身而言，由于切换的时间非常短暂，用户感觉不到服务的中断，因而迁移过程对用户是透明的
 </p>
 
-<pre class="example" id="orge989c81">
+<pre class="example" id="org396d17d">
 动态迁移适用于对虚拟机服务可用性要求很高的场合，KVM 虚拟机在物理主机之间迁移的实现
 </pre>
 </div>
@@ -1026,7 +1054,7 @@ Windows 系统需要额外的安装相应的 virtio 区别，virtio-win
 <h2 id="org5eacec0">管理工具</h2>
 <div class="outline-text-2" id="text-org5eacec0">
 
-<div id="org2568d1e" class="figure">
+<div id="org978672b" class="figure">
 <p><img src="pic/libvirt-support.png" alt="libvirt-support.png" width="90%" />
 </p>
 </div>
@@ -1039,7 +1067,7 @@ Windows 系统需要额外的安装相应的 virtio 区别，virtio-win
 libvirt 是目前使用最为广泛的对 KVM 虚拟机进行管理的 <b>工具</b> 和 <b>应用程序接口</b> （ <span class="underline">API</span> ），而且一些常用的虚拟机管理工具（如 <span class="underline">virsh</span> ,  <span class="underline">virt-install</span> , <span class="underline">virt-manager</span> 等）和云计算框架平台（如  <span class="underline">OpenStack</span> , <span class="underline">OpenNebula</span> , <span class="underline">Eucalyptus</span> 等）都在底层使用 libvirt 的应用程序接口。libvirt 是为了更方便地管理平台虚拟化技术而设计的开放源代码的应用程序接口、守护进程和管理工具，它不仅提供了对虚拟化客户机的管理，也提供了对虚拟化网络和存储的管理
 </p>
 
-<pre class="example" id="org8319978">
+<pre class="example" id="org108c83b">
 尽管 libvirt 项目最初是为 Xen 设计的一套API，但是目前对KVM等其他 Hypervisor 的支持也非常的好
 
 libvirt 支持多种虚拟化方案，既支持包括 KVM、QEMU、Xen、VMware、VirtualBox 等在内的平台虚拟化方案
@@ -1050,7 +1078,7 @@ libvirt 支持多种虚拟化方案，既支持包括 KVM、QEMU、Xen、VMware�
 libvirt 作为中间适配层，让底层 Hypervisor 对上层用户空间的管理工具是可以做到完全透明的，因为 libvirt <b>屏蔽</b> 了底层 <span class="underline">各种 Hypervisor 的细节</span> ，为上层管理工具提供了一个统一的、较稳定的接口（API）。通过 libvirt，一些用户空间管理工具可以管理各种不同的 Hypervisor 和上面运行的客户机 
 </p>
 
-<div id="orgb1c5648" class="figure">
+<div id="orgcd91be0" class="figure">
 <p><img src="pic/libvirt-manage-hypervisors.jpg" alt="libvirt-manage-hypervisors.jpg" width="90%" />
 </p>
 </div>
@@ -1064,20 +1092,20 @@ libvirt 的管理功能主要包含如下五个部分：
 <li><p>
 对 <span class="underline">节点上的域</span> 的 <b>各个生命周期</b> 的管理
 </p>
-<pre class="example" id="orgb58dd26">
+<pre class="example" id="orga7bfbe3">
 如：启动、停止、暂停、保存、恢复和动态迁移
 </pre></li>
 <li><p>
 对 <span class="underline">多种设备类型</span> 的 <b>热插拔</b> 操作
 </p>
-<pre class="example" id="org90f5fd2">
+<pre class="example" id="orgf2bf224">
 包括：磁盘、网卡、内存和 CPU，当然不同的 Hypervisor 上对这些热插拔的支持程度有所不同
 </pre></li>
 </ul></li>
 <li><p>
 远程节点的管理：只要物理节点上运行了 <span class="underline">libvirtd</span> 这个守护进程， <span class="underline">远程的管理程序</span> 就可以 <b>连接</b> 到 <span class="underline">该节点进程管理操作</span> ，经过 <span class="underline">认证</span> 和 <span class="underline">授权</span> 之后，所有的 libvirt 功能都可以被访问和使用
 </p>
-<pre class="example" id="orgc5350d4">
+<pre class="example" id="orgef128b5">
 libvirt 支持多种网络远程传输类型，如 SSH、TCP 套接字、Unix domain socket、支持 TLS 的加密传输等
 
 假设使用最简单的 SSH，则不需要额外配置工作，比如：example.com 节点上运行了 libvirtd，而且允许 SSH 访问
@@ -1087,7 +1115,7 @@ libvirt 支持多种网络远程传输类型，如 SSH、TCP 套接字、Unix do
 <li><p>
 存储的管理：任何运行了 libvirtd 守护进程的主机，都可以通过 libvirt 来管理 <b>不同类型的存储</b>
 </p>
-<pre class="example" id="orgac214fe">
+<pre class="example" id="orgbbde099">
 如：创建不同格式的客户机镜像（qcow2、raw、qde、vmdk等）、挂载 NFS 共享存储系统、查看现有的 LVM 卷组、创建新的 LVM 卷组和逻辑卷、对磁盘设备分区、挂载 iSCSI 共享存储，等等
 
 当然 libvirt 中，对存储的管理也是支持远程管理的
@@ -1095,7 +1123,7 @@ libvirt 支持多种网络远程传输类型，如 SSH、TCP 套接字、Unix do
 <li><p>
 网络的管理：任何运行了 libvirtd 守护进程的主机，都可以通过libvirt来管理物理的和逻辑的 <b>网络接口</b>
 </p>
-<pre class="example" id="org0cb98d9">
+<pre class="example" id="org22f7b0d">
 包括：列出现有的网络接口卡，配置网络接口，创建虚拟网络接口，网络接口的桥接，VLAN 管理，NAT 网络设置，为客户机分配虚拟网络接口 ......
 </pre></li>
 <li>提供一个稳定、可靠、高效的应用程序接口 <span class="underline">API</span> 以便可以完成前面的 4 个管理功能</li>
@@ -1114,6 +1142,946 @@ libvirt 主要由三个部分组成，它们分别是：
 </ul></li>
 <li>一个默认 <b>命令行管理工具</b> <span class="underline">virsh</span></li>
 </ol>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgcfd6181" class="outline-2">
+<h2 id="orgcfd6181">启动物理分区的Windows系统</h2>
+<div class="outline-text-2" id="text-orgcfd6181">
+</div>
+<div id="outline-container-org2bce502" class="outline-3">
+<h3 id="org2bce502">需求</h3>
+<div class="outline-text-3" id="text-org2bce502">
+<pre class="example" id="org35f6b0d">
+先来说说我笔记本的硬盘配置，我通常装两块硬盘，一块安装Windows，另一块安装Linux
+
+平常几乎只使用Linux，Window常年不开机，容易造成一块盘使用过度而另一块盘闲置的现象
+
+且在这个微软几近垄断操作系统的时代，想要安安静静用Linux完成所有事情是不现实的
+
+不提微软Office全家桶，哪怕是一众国产软件对Linux接近于0的支持也让无数用户直摇头
+</pre>
+<p>
+想解决这个问题，虚拟机（Virtual Machine, VM）运行Windows是一个非常好的方案。在Linux中运行Windows VM，其虚拟硬盘是文件模拟的，相当于两个系统同时损耗一块硬盘，对硬盘性能和寿命而言无疑是雪上加霜
+</p>
+
+<pre class="example" id="orgd48cd07">
+针对这个问题，一个显而易见的解决方案是将Windows所在硬盘利用起来
+
+但Linux对NTFS分区的支持毕竟不是原生，抛开性能不谈，不少文件系统间的特性也无法兼容，使用中总会影响体验
+</pre>
+<p>
+那如果能够利用QEMU/KVM启动物理硬盘（分区）上的Windows系统，让Windows系统作为VM直接访问硬盘，不经过Linux Host，岂不是可以均衡两块硬盘之间的利用率，减轻Linux系统盘的负担并提升性能？
+</p>
+
+<pre class="example" id="orga746f0b">
+同时如果利用Virtio-SCSI驱动优化硬盘，更是可以达到提升VM硬盘性能的效果！
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org61805e9" class="outline-3">
+<h3 id="org61805e9">原理</h3>
+<div class="outline-text-3" id="text-org61805e9">
+<pre class="example" id="org27eb5d3">
+本人物理硬盘上安装的Windows系统版本是Win10
+</pre>
+<p>
+要想通过QEMU/KVM启动物理分区上的Win10，首先需要 <b>定位</b> 到 <span class="underline">目标分区</span> ，然后需要为目标分区 <b>创建</b> 对应的 <span class="underline">启动分区</span> 。现代启动分区是 <span class="underline">EFI分区</span> ，通过 <span class="underline">Windows ISO镜像</span> 即可创建。使用 <span class="underline">fdisk</span> 命令可以列出Win10所在硬盘分区布局：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sudo fdisk -l /dev/nvme1n1
+Disk /dev/nvme1n1: 953.87 GiB, 1024209543168 bytes, 2000409264 sectors
+Disk model: UMIS RPEYJ1T24MKN2QWY                   
+Units: sectors of 1 * <span style="color: #eedd82;">512</span> = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: 5FDAE92B-259B-4AB8-8D55-DE3A1EE8D99E
+
+Device             Start        End    Sectors   Size Type
+/dev/nvme1n1p1      2048      34815      32768    16M Microsoft reserved
+/dev/nvme1n1p2     34816  268470271  268435456   128G Microsoft basic data
+/dev/nvme1n1p3 268470272 2000408575 1731938304 825.9G Microsoft basic data
+</pre>
+</div>
+
+<p>
+其中：
+</p>
+<ul class="org-ul">
+<li>/dev/nvme1n1p2: Win10系统所在分区 C</li>
+<li>/dev/nvme1n1p3: Win10的扩展分区 D</li>
+</ul>
+
+<pre class="example" id="org24e297e">
+直接将 /dev/nvme1n1p2 穿透到VM 作为系统盘无法启动系统
+
+因为缺少系统启动依赖的必要元数据，而这些元数据存储在EFI分区
+</pre>
+<p>
+需要做的是用 <span class="underline">mdadm</span> 命令 <b>创建</b> 一个 <span class="underline">线性阵列</span> ，将/dev/nvme1n1p2作为线性阵列中的一个分区，并使用其中另一个分区作为EFI分区引导该分区启动。根据GPT分区表规范，最终要创建的线性阵列分区布局如下：
+</p>
+
+
+<div id="orgadcd6a7" class="figure">
+<p><img src="pic/1498406-20240426170124973-1819745070.png" alt="1498406-20240426170124973-1819745070.png" width="90%" />
+</p>
+</div>
+
+<p>
+​接着将配置好的线性阵列作为一个整体供应给VM，作为其启动盘即可启动物理分区中的Win10系统
+</p>
+</div>
+</div>
+
+<div id="outline-container-orga8fe043" class="outline-3">
+<h3 id="orga8fe043">步骤</h3>
+<div class="outline-text-3" id="text-orga8fe043">
+</div>
+<div id="outline-container-org7ff2cfc" class="outline-4">
+<h4 id="org7ff2cfc">创建线性阵列</h4>
+<div class="outline-text-4" id="text-org7ff2cfc">
+<p>
+​首先，创建两个文件，大小分别为 <span class="underline">100MB</span> 和 <span class="underline">1MB</span> ，用于后续 <b>挂载</b> 为 <span class="underline">文件Loop设备</span> ，作为线性阵列的一部分：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">sudo mkdir -p /etc/libvirt/hooks/qemu.d/win10/md0       <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#30446;&#26631;&#36335;&#24452;</span>
+<span style="color: #b0c4de;">cd</span> /etc/libvirt/hooks/qemu.d/win10/md0
+
+dd <span style="color: #eedd82;">if</span>=/dev/zero <span style="color: #eedd82;">of</span>=loop-efi0 <span style="color: #eedd82;">bs</span>=1M <span style="color: #eedd82;">count</span>=100
+dd <span style="color: #eedd82;">if</span>=/dev/zero <span style="color: #eedd82;">of</span>=loop-efi1 <span style="color: #eedd82;">bs</span>=1M <span style="color: #eedd82;">count</span>=1
+</pre>
+</div>
+
+<p>
+创建启动线性阵列脚本 <span class="underline">start-md0.sh</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/usr/bin/</span><span style="color: #00ffff;">env</span><span style="color: #ff4500;"> bash</span>
+
+<span style="color: #eedd82;">WIN_PART</span>=/dev/nvme1n1p2
+<span style="color: #eedd82;">EFI_DIR</span>=<span style="color: #ffa07a;">"/etc/libvirt/hooks/qemu.d/win10/md0"</span>
+
+<span style="color: #00ffff;">if</span> [[ -e /dev/md0 ]]; <span style="color: #00ffff;">then</span>
+    <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"/dev/md0 already exists"</span> &gt; /dev/kmsg 2&gt;&amp;1
+    <span style="color: #00ffff;">exit</span> 1
+<span style="color: #00ffff;">fi</span>
+
+<span style="color: #00ffff;">if</span> mountpoint -q -- <span style="color: #ffa07a;">"${WIN_PART}"</span>; <span style="color: #00ffff;">then</span>
+    <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"Unmounting ${WIN_PART}..."</span> &gt; /dev/kmsg 2&gt;&amp;1
+    umount ${<span style="color: #eedd82;">WIN_PART</span>}
+<span style="color: #00ffff;">fi</span>
+
+modprobe loop
+modprobe linear
+<span style="color: #eedd82;">LOOP0</span>=$(losetup -f <span style="color: #ffa07a;">"${EFI_DIR}/loop-efi0"</span> --show)
+<span style="color: #eedd82;">LOOP1</span>=$(losetup -f <span style="color: #ffa07a;">"${EFI_DIR}/loop-efi1"</span> --show)
+mdadm --build --verbose /dev/md0 --chunk=512 --level=linear --raid-devices=3 ${<span style="color: #eedd82;">LOOP0</span>} ${<span style="color: #eedd82;">WIN_PART</span>} ${<span style="color: #eedd82;">LOOP1</span>}
+chown $<span style="color: #eedd82;">USER</span>:disk /dev/md0
+<span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"$LOOP0 $LOOP1"</span> &gt; <span style="color: #ffa07a;">"${EFI_DIR}/.win10-loop-devices"</span>
+</pre>
+</div>
+
+<p>
+​与之对应的停止线性阵列脚本 <span class="underline">stop-md0.sh</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/usr/bin/</span><span style="color: #00ffff;">env</span><span style="color: #ff4500;"> bash</span>
+
+<span style="color: #eedd82;">EFI_DIR</span>=<span style="color: #ffa07a;">"/etc/libvirt/hooks/qemu.d/win10/md0"</span>
+mdadm --stop /dev/md0
+xargs losetup -d &lt; <span style="color: #ffa07a;">"${EFI_DIR}/.win10-loop-devices"</span>
+</pre>
+</div>
+
+<p>
+​以sudo运行start-md0.sh脚本，此时操作系统将多出一个新的 <b>块设备</b> <span class="underline">/dev/md0</span> ，这就是创建的 <b>线性阵列</b> 。接下来为 <span class="underline">/dev/md0</span> 创建 <span class="underline">GPT分区表</span> ，并进行分区：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">sudo parted /dev/md0
+(parted) unit s
+(parted) mktable gpt
+(parted) mkpart primary fat32 2048 204799               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21462;&#20915;&#20110;loop-efi0&#25991;&#20214;&#22823;&#23567;</span>
+(parted) mkpart primary ntfs 204800 268640255   <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21462;&#20915;&#20110;Win10&#29289;&#29702;&#20998;&#21306;&#25159;&#21306;&#25968;</span>
+(parted) <span style="color: #b0c4de;">set</span> 1 boot on
+(parted) <span style="color: #b0c4de;">set</span> 1 esp on
+(parted) <span style="color: #b0c4de;">set</span> 2 msftdata on
+(parted) name 1 EFI
+(parted) name 2 Windows
+(parted) quit
+</pre>
+</div>
+
+<pre class="example" id="org35c0e38">
+​注意：为Win10分区指定的结束扇区是 268435456 + 204800 - 1 = 268640255
+
+具体数值需要根据 Win10 物理分区扇区数计算
+</pre>
+
+<p>
+然后为EFI分区进行格式化：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">sudo mkfs.msdos -F 32 -n EFI /dev/md0p1
+</pre>
+</div>
+
+<p>
+​操作完成后， <span class="underline">/dev/md0</span> 的分区布局如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sudo fdisk -l /dev/md0
+Disk /dev/md0: 128.1 GiB, 137544859648 bytes, 268642304 sectors
+Units: sectors of 1 * <span style="color: #eedd82;">512</span> = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: 126C8DF4-4BE7-4DC3-80C3-B47DAE679207
+
+Device      Start       End   Sectors  Size Type
+/dev/md0p1   2048    204799    202752   99M EFI System
+/dev/md0p2 204800 268640255 268435456  128G Microsoft basic data
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgaca6a56" class="outline-4">
+<h4 id="orgaca6a56">写入EFI分区</h4>
+<div class="outline-text-4" id="text-orgaca6a56">
+<pre class="example" id="org544d4a3">
+推荐使用virt-manager进行接下来的操作，virt-manager使用的具体操作过程不进行详细描述
+</pre>
+
+<p>
+在virt-manager中配置一个Win10 VM，配置要点如下：
+</p>
+<ol class="org-ol">
+<li>芯片组Q35，固件UEFI</li>
+<li>使用Windows ISO作为第一启动项</li>
+<li>使用 <span class="underline">/dev/md0</span> 作为VM硬盘，类型设定为 <span class="underline">SATA</span></li>
+</ol>
+
+<p>
+​配置完成后启动VM，进入ISO的系统安装流程，一直点击下一步，直到最后确认安装方式时选择“自定义”，随后进入分区界面。通过快捷键Shift+F10调出CMD，输入如下指令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">diskpart
+DISKPART&gt; list disk
+DISKPART&gt; select disk 0    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36873;&#25321;/dev/md0&#22312;VM&#20013;&#23545;&#24212;&#30340;&#30828;&#30424;</span>
+DISKPART&gt; list volume      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312;&#20998;&#21306;&#21015;&#34920;&#20013;&#35760;&#19979;EFI&#20998;&#21306;&#24207;&#21495;</span>
+DISKPART&gt; select volume 2  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36873;&#25321;EFI&#20998;&#21306;</span>
+DISKPART&gt; assign <span style="color: #eedd82;">letter</span>=B  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20026;EFI&#20998;&#21306;&#20998;&#37197;&#39537;&#21160;&#22120;&#21495;&#65288;B:&#65289;</span>
+DISKPART&gt; exit
+</pre>
+</div>
+
+<p>
+​最后将驱动器 C: 中的系统启动信息写入到驱动器B: <span class="underline">EFI分区</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">bcdboot C:\Windows /s B: /f ALL
+</pre>
+</div>
+
+<pre class="example" id="orgf424610">
+注意：这里的驱动器驱动器C:指代线性阵列中Windows安装的分区
+
+不清楚是否可能会被分配为其他驱动器号。使用命令时建议核实好分区和驱动器号的对应关系
+
+正常情况下该命令总是能执行成功，执行失败则说明创建线性阵列/dev/md0时分区操作出现问题
+
+通常是第二个分区（Win10物理分区）的结束扇区参数不匹配所致，请核对1.3节操作以纠正问题
+</pre>
+<p>
+EFI分区启动信息写入成功后关闭VM，将第一启动项改为 <span class="underline">/dev/md0对应的硬盘</span> ，即可启动物理分区的Win10系统
+</p>
+</div>
+</div>
+
+<div id="outline-container-org407695c" class="outline-4">
+<h4 id="org407695c">SMB文件共享</h4>
+<div class="outline-text-4" id="text-org407695c">
+<pre class="example" id="org427efc1">
+现在已经成功启动了物理分区的Win10系统，还需要解决Host和VM交换文件数据的问题
+</pre>
+<p>
+因为使用的是物理分区作为VM的硬盘，其文件系统是Windows原生支持的NTFS。而为保持最大兼容性，将使用 <span class="underline">SMB</span> 把某个路径共享给Host，而不通过Host挂载NTFS分区再利用VioFS映射到VM的形式进行共享
+</p>
+
+<pre class="example" id="org0845236">
+关于SMB不过多赘述，直接参考 https://phoenixnap.com/kb/linux-mount-cifs 即可
+</pre>
+
+<p>
+值得一提的是，若想以非root用户身份挂载SMB路径，则需在/etc/fstab中写入对应的条目，如：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">win10 smb vmshare</span>
+//192.168.141.77/D /mnt/win10-extorage cifs <span style="color: #eedd82;">credentials</span>=/etc/smb-credentials/win10-vmshare,rw,suid,dev,exec,noauto,user,async 0 0
+</pre>
+</div>
+
+<p>
+其中：
+</p>
+<ul class="org-ul">
+<li>user参数 表示任意用户均可挂载</li>
+<li>noauto参数 表示系统启动时不进行自动挂载</li>
+</ul>
+
+<p>
+配置完成后，用以下命令进行挂载（无需使用sudo）：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">mount /mnt/win10-extorage
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org0628757" class="outline-3">
+<h3 id="org0628757">VM性能调优</h3>
+<div class="outline-text-3" id="text-org0628757">
+</div>
+<div id="outline-container-orgcffd620" class="outline-4">
+<h4 id="orgcffd620">使用Virtio-SCSI驱动硬盘</h4>
+<div class="outline-text-4" id="text-orgcffd620">
+<pre class="example" id="org653ec50">
+此前我们使用SATA驱动硬盘启动，为提升硬盘性能，建议将其切换为Virtio-SCSI
+</pre>
+<p>
+首先需要在VM的xml文件中 <b>添加</b> 一个 <span class="underline">virtio-scsi controller</span> 并 <b>删除</b> 其余 <span class="underline">scsi controller</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-xml">&lt;<span style="color: #87cefa;">controller</span> <span style="color: #eedd82;">type</span>=<span style="color: #ffa07a;">"scsi"</span> <span style="color: #eedd82;">model</span>=<span style="color: #ffa07a;">"virtio-scsi"</span>/&gt;
+</pre>
+</div>
+
+<p>
+然后启动VM（此时硬盘还是SATA驱动），以管理员身份运行powershell，执行以下命令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">bcdedit /set <span style="color: #ffa07a;">"{current}"</span> safeboot minimal
+</pre>
+</div>
+
+<p>
+之后为VM安装 <a href="https://github.com/virtio-win/virtio-win-pkg-scripts/blob/master/README.md">virtio-win</a> 驱动，并关闭VM。再次启动VM将会进入安全模式，该模式下将自动装载所有驱动，包括virtio。后续正常启动将会自动装载并使用virtio驱动，安全模式下使用powershell关闭安全启动即可：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">bcdedit /deletevalue <span style="color: #ffa07a;">"{current}"</span> safeboot
+</pre>
+</div>
+
+<p>
+​关闭VM，修改xml配置，将硬盘改为Virtio-SCSI驱动：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-xml">&lt;<span style="color: #87cefa;">disk</span>&gt;
+  ...
+  &lt;<span style="color: #87cefa;">target</span> <span style="color: #eedd82;">bus</span>=<span style="color: #ffa07a;">"scsi"</span>/&gt;
+  ...
+&lt;/<span style="color: #87cefa;">disk</span>&gt;
+</pre>
+</div>
+
+<p>
+​再次启动VM即可。注意启动后应将Windows的 <span class="underline">磁盘碎片整理服务</span> <b>关闭</b>
+</p>
+
+<pre class="example" id="org126f709">
+Virtio-SCSI似乎会使这个服务一直启动，导致极高的内存和CPU占用
+
+实际上在固态硬盘上进行碎片整理没有必要，会极大地影响使用寿命
+
+而如果是机械硬盘，则根本不需要Virtio-SCSI调优...
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org25bb2ed" class="outline-4">
+<h4 id="org25bb2ed">CPU Pin</h4>
+<div class="outline-text-4" id="text-org25bb2ed">
+<p>
+CPU pin目的是将 <span class="underline">QEMU/KVM相关进程</span> <b>绑定</b> 到 <span class="underline">某些特定的核心</span> 运行，减少其在不同CPU核心上的切换开销，提升VM性能。在进行CPU pin之前，先使用 <span class="underline">lstopo</span> 命令查看CPU拓扑：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">sudo apt install hwloc  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23433;&#35013;&#30456;&#24212;&#36719;&#20214;&#21253;</span>
+
+lstopo --no-io
+</pre>
+</div>
+
+
+<div id="org185bffd" class="figure">
+<p><img src="pic/1498406-20240426170507364-1071438004.png" alt="1498406-20240426170507364-1071438004.png" width="90%" />
+</p>
+</div>
+
+<p>
+CPU pin的原则是 <b>保持VM和Host拥有相同的CPU配置</b>
+</p>
+
+<pre class="example" id="orgb2ae630">
+若VM配置为支持超线程特性，则从第0个vCPU开始，每两个vCPU视作为一个core，如：（0, 1）、（2, 3）
+
+超线程的VM CPU配置也应和Host一样，也就是将Host CPU中同属一个core的threads分配给VM CPU的同一个core
+</pre>
+
+<p>
+注意：不要把所有的threads都分配给VM，以免造成Host卡顿从而达到相反的效果。这里Host CPU是大小核架构，按照个人需求，将所有的小核（E-core）和一颗大核（P-core）分配给VM：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-xml">&lt;<span style="color: #87cefa;">vcpu</span> <span style="color: #eedd82;">placement</span>=<span style="color: #ffa07a;">"static"</span>&gt;8&lt;/<span style="color: #87cefa;">vcpu</span>&gt;
+&lt;<span style="color: #87cefa;">iothreads</span>&gt;1&lt;/<span style="color: #87cefa;">iothreads</span>&gt;
+&lt;<span style="color: #87cefa;">cputune</span>&gt;
+  &lt;<span style="color: #87cefa;">vcpupin</span> <span style="color: #eedd82;">vcpu</span>=<span style="color: #ffa07a;">'0'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'12'</span>/&gt;
+  &lt;<span style="color: #87cefa;">vcpupin</span> <span style="color: #eedd82;">vcpu</span>=<span style="color: #ffa07a;">'1'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'13'</span>/&gt;
+  &lt;<span style="color: #87cefa;">vcpupin</span> <span style="color: #eedd82;">vcpu</span>=<span style="color: #ffa07a;">'2'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'14'</span>/&gt;
+  &lt;<span style="color: #87cefa;">vcpupin</span> <span style="color: #eedd82;">vcpu</span>=<span style="color: #ffa07a;">'3'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'15'</span>/&gt;
+  &lt;<span style="color: #87cefa;">vcpupin</span> <span style="color: #eedd82;">vcpu</span>=<span style="color: #ffa07a;">'4'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'16'</span>/&gt;
+  &lt;<span style="color: #87cefa;">vcpupin</span> <span style="color: #eedd82;">vcpu</span>=<span style="color: #ffa07a;">'5'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'17'</span>/&gt;
+  &lt;<span style="color: #87cefa;">vcpupin</span> <span style="color: #eedd82;">vcpu</span>=<span style="color: #ffa07a;">'6'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'18'</span>/&gt;
+  &lt;<span style="color: #87cefa;">vcpupin</span> <span style="color: #eedd82;">vcpu</span>=<span style="color: #ffa07a;">'7'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'19'</span>/&gt;
+  &lt;<span style="color: #87cefa;">emulatorpin</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'10-11'</span>/&gt;
+  &lt;<span style="color: #87cefa;">iothreadpin</span> <span style="color: #eedd82;">iothread</span>=<span style="color: #ffa07a;">'1'</span> <span style="color: #eedd82;">cpuset</span>=<span style="color: #ffa07a;">'10-11'</span>/&gt;
+&lt;/<span style="color: #87cefa;">cputune</span>&gt;
+...
+&lt;<span style="color: #87cefa;">cpu</span> <span style="color: #eedd82;">mode</span>=<span style="color: #ffa07a;">"host-passthrough"</span> <span style="color: #eedd82;">check</span>=<span style="color: #ffa07a;">"none"</span> <span style="color: #eedd82;">migratable</span>=<span style="color: #ffa07a;">"on"</span>&gt;
+  &lt;<span style="color: #87cefa;">topology</span> <span style="color: #eedd82;">sockets</span>=<span style="color: #ffa07a;">"1"</span> <span style="color: #eedd82;">dies</span>=<span style="color: #ffa07a;">"1"</span> <span style="color: #eedd82;">cores</span>=<span style="color: #ffa07a;">"8"</span> <span style="color: #eedd82;">threads</span>=<span style="color: #ffa07a;">"1"</span>/&gt;
+  &lt;<span style="color: #87cefa;">cache</span> <span style="color: #eedd82;">mode</span>=<span style="color: #ffa07a;">"passthrough"</span>/&gt;
+  &lt;<span style="color: #87cefa;">maxphysaddr</span> <span style="color: #eedd82;">mode</span>=<span style="color: #ffa07a;">"passthrough"</span> <span style="color: #eedd82;">limit</span>=<span style="color: #ffa07a;">"40"</span>/&gt;
+&lt;/<span style="color: #87cefa;">cpu</span>&gt;
+</pre>
+</div>
+
+<p>
+配置中的cpuset对应逻辑CPU（ <b>用小写的cpu表示逻辑CPU</b> ），对应 lstopo 命令中 PU P# 的概念，即 <span class="underline">Processing Unit Processor</span> ，是CPU每个core中的处理单元，也就是超线程技术中的 <span class="underline">thread</span> 。在大小核架构下，一个大核拥有两个处理单元，一个小核只有一个。VM配置中 <span class="underline">emulatorpin</span> 和 <span class="underline">iothreadpin</span> 是I/O相关线程，在存在大量I/O请求的场景下应该pin不同的cpu
+</p>
+
+<pre class="example" id="orgf6a170c">
+对于普通的Win10 VM，I/O并不密集，因此pin相同的cpu以节省资源
+
+但要注意这两者不要和vcpupin的cpu有重叠，否则会降低VM运行性能
+</pre>
+
+<p>
+​CPU pin只是第一步，后续要确保Host不在这些pin过的cpu上分配任务，从而不跟VM抢占资源，需要进行 <b>cpu隔离</b>
+</p>
+
+<pre class="example" id="org265966d">
+可以用Libvirt hook来实现，详见3.1 Cpu隔离Hook
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgcc08ca0" class="outline-4">
+<h4 id="orgcc08ca0">内存调优</h4>
+<div class="outline-text-4" id="text-orgcc08ca0">
+<p>
+​QEMU/KVM默认使用 <span class="underline">2MB</span> 的透明大页内存，在VM启动时将根据配置的VM内存大小，自动锁定相应数量的内存大页，让VM独占以提升性能
+</p>
+
+<pre class="example" id="org567b18b">
+本人使用的Ubuntu 23.10内核已将大页设置为madvise模式，即系统默认启用透明大页，无需对大页配置进行更改
+</pre>
+<p>
+需确保在VM启动时有足够多的连续2MB内存，可供QEMU/KVM申请足够数量的内存大页即可
+</p>
+
+<pre class="example" id="orgf3325fd">
+该需求可以通过3.2 内存优化Hook实现，该hook用来对Host内存进行回收、压缩以释放足够内存空间
+
+查看此 https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF#Transparent_huge_pages 以了解更多大页相关配置
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org48cd0af" class="outline-3">
+<h3 id="org48cd0af">Libvirt Hooks</h3>
+<div class="outline-text-3" id="text-org48cd0af">
+<p>
+​Libvirt hook提供一种在 <span class="underline">libvirt服务</span> 某个 <span class="underline">生命周期</span> <b>执行</b> <span class="underline">特定脚本</span> 的能力，hook脚本放置在 <span class="underline">/etc/libvirt/hooks</span> 目录，关于VM管理的脚本入口文件是 <span class="underline">/etc/libvirt/hooks/qemu</span> ，其默认用法如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">/etc/libvirt/hooks/qemu $<span style="color: #eedd82;">vm_name</span> $<span style="color: #eedd82;">hook_name</span> $<span style="color: #eedd82;">sub_name</span> $<span style="color: #eedd82;">extra</span>
+</pre>
+</div>
+
+<pre class="example" id="orgd32ab1d">
+更多信息请查阅：https://www.libvirt.org/hooks.html
+
+要使用这个hook，需要判断VM实例名称、hook名称、子动作名称等参数，颇为不便
+
+</pre>
+
+<p>
+在这里使用 <span class="underline">VFIO-Tools Hook Helper</span> 对hook使用流程进行简化。Libvirt hook helper实际上是一个脚本，内容如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/usr/bin/</span><span style="color: #00ffff;">env</span><span style="color: #ff4500;"> bash</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Author: SharkWipf</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Copy this file to /etc/libvirt/hooks, make sure it's called "qemu".</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">After this file is installed, restart libvirt.</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">From now on, you can easily add per-guest qemu hooks.</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Add your hooks in /etc/libvirt/hooks/qemu.d/vm_name/hook_name/state_name.</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">For a list of available hooks, please refer to https://www.libvirt.org/hooks.html</span>
+<span style="color: #ff4500;">#</span>
+
+<span style="color: #eedd82;">GUEST_NAME</span>=<span style="color: #ffa07a;">"$1"</span>
+<span style="color: #eedd82;">HOOK_NAME</span>=<span style="color: #ffa07a;">"$2"</span>
+<span style="color: #eedd82;">STATE_NAME</span>=<span style="color: #ffa07a;">"$3"</span>
+<span style="color: #eedd82;">MISC</span>=<span style="color: #ffa07a;">"${@:4}"</span>
+
+<span style="color: #eedd82;">BASEDIR</span>=<span style="color: #ffa07a;">"$(dirname $0)"</span>
+
+<span style="color: #eedd82;">HOOKPATH</span>=<span style="color: #ffa07a;">"$BASEDIR/qemu.d/$GUEST_NAME/$HOOK_NAME/$STATE_NAME"</span>
+
+<span style="color: #b0c4de;">set</span> -e <span style="color: #ff4500;"># </span><span style="color: #ff4500;">If a script exits with an error, we should as well.</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">check if it's a non-empty executable file</span>
+<span style="color: #00ffff;">if</span> [ -f <span style="color: #ffa07a;">"$HOOKPATH"</span> ] &amp;&amp; [ -s <span style="color: #ffa07a;">"$HOOKPATH"</span> ] &amp;&amp; [ -x <span style="color: #ffa07a;">"$HOOKPATH"</span> ]; <span style="color: #00ffff;">then</span>
+    <span style="color: #b0c4de;">eval</span> <span style="color: #ffa07a;">\"</span>$<span style="color: #eedd82;">HOOKPATH</span><span style="color: #ffa07a;">\"</span> <span style="color: #ffa07a;">"$@"</span>
+<span style="color: #00ffff;">elif</span> [ -d <span style="color: #ffa07a;">"$HOOKPATH"</span> ]; <span style="color: #00ffff;">then</span>
+    <span style="color: #00ffff;">while </span><span style="color: #b0c4de;">read</span> file; <span style="color: #00ffff;">do</span>
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">check for null string</span>
+        <span style="color: #00ffff;">if</span> [ ! -z <span style="color: #ffa07a;">"$file"</span> ]; <span style="color: #00ffff;">then</span>
+            <span style="color: #b0c4de;">eval</span> <span style="color: #ffa07a;">\"</span>$<span style="color: #eedd82;">file</span><span style="color: #ffa07a;">\"</span> <span style="color: #ffa07a;">"$@"</span>
+        <span style="color: #00ffff;">fi</span>
+    <span style="color: #00ffff;">done</span> &lt;&lt;&lt; <span style="color: #ffa07a;">"$(find -L "$HOOKPATH" -maxdepth 1 -type f -executable -print;)"</span>
+<span style="color: #00ffff;">fi</span>
+</pre>
+</div>
+
+<pre class="example" id="orga721d6a">
+​简单来说就是优化了hook脚本的管理方式
+</pre>
+
+<p>
+安装完hook helper后重启libvirtd服务，即可通过如下结构管理VM hook：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">/etc/libvirt/hooks/qemu.d/$<span style="color: #eedd82;">vm_name</span>/$<span style="color: #eedd82;">hook_name</span>/$<span style="color: #eedd82;">sub_name</span>/*
+</pre>
+</div>
+
+<p>
+​例如名称为win10的VM，其prepare hook、begin子动作要执行的脚本是setup.sh，则将脚本放在如下位置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">/etc/libvirt/hooks/qemu.d/win10/prepare/begin/setup.sh
+</pre>
+</div>
+
+<p>
+​ Hook数量不限，类型不限定是shell脚本，指定任何解释器均可。较为重要的几个hook类型如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">Before a VM is started, before resources are allocated:</span>
+/etc/libvirt/hooks/qemu.d/$<span style="color: #eedd82;">vm_name</span>/prepare/begin/*
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Before a VM is started, after resources are allocated:</span>
+/etc/libvirt/hooks/qemu.d/$<span style="color: #eedd82;">vm_name</span>/start/begin/*
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">After a VM has started up:</span>
+/etc/libvirt/hooks/qemu.d/$<span style="color: #eedd82;">vm_name</span>/started/begin/*
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">After a VM has shut down, before releasing its resources:</span>
+/etc/libvirt/hooks/qemu.d/$<span style="color: #eedd82;">vm_name</span>/stopped/end/*
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">After a VM has shut down, after resources are released:</span>
+/etc/libvirt/hooks/qemu.d/$<span style="color: #eedd82;">vm_name</span>/release/end/*
+</pre>
+</div>
+
+<pre class="example" id="orga3227fe">
+接下来以上述Win10 VM为例，创建若干启动和停止hook，分别用来实现cpu隔离、大页分配和cpu释放等操作自动化
+</pre>
+</div>
+<div id="outline-container-org1d75d1c" class="outline-4">
+<h4 id="org1d75d1c">Cpu隔离Hook</h4>
+<div class="outline-text-4" id="text-org1d75d1c">
+<p>
+创建脚本 <span class="underline">/etc/libvirt/hooks/qemu.d/win10/isolate-cpus.sh</span> ，用于实现cpu隔离和恢复（只需隔离vcpupin配置的cpu）：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/usr/bin/</span><span style="color: #00ffff;">env</span><span style="color: #ff4500;"> bash</span>
+
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Original author: Rokas Kupstys <a href="mailto:rokups%40zoho.com">&lt;rokups@zoho.com&gt;</a></span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Heavily modified by: Danny Lin <a href="mailto:danny%40kdrag0n.dev">&lt;danny@kdrag0n.dev&gt;</a></span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">And by ME: https://github.com/yjzzjy4</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Use systemd to isolate pinned cpus.</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Target file locations:</span>
+<span style="color: #ff4500;">#   </span><span style="color: #ff4500;">- $SYSCONFDIR/hooks/qemu.d/$vm_name/prepare/begin/isolate-cpus.sh</span>
+<span style="color: #ff4500;">#   </span><span style="color: #ff4500;">- $SYSCONFDIR/hooks/qemu.d/$vm_name/release/end/isolate-cpus.sh</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">$SYSCONFDIR usually is /etc/libvirt.</span>
+<span style="color: #ff4500;">#</span>
+
+<span style="color: #eedd82;">ALL_CPUS</span>=<span style="color: #ffa07a;">'0-19'</span>
+<span style="color: #eedd82;">HOST_CPUS</span>=<span style="color: #ffa07a;">'0-11'</span>        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Cpus reserved for host</span>
+<span style="color: #eedd82;">VIRT_CPUS</span>=<span style="color: #ffa07a;">'12-19'</span>       <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Cpus reserved for virtual machine(s)</span>
+
+<span style="color: #eedd82;">VM_NAME</span>=<span style="color: #ffa07a;">"$1"</span>
+<span style="color: #eedd82;">VM_ACTION</span>=<span style="color: #ffa07a;">"$2/$3"</span>
+
+<span style="color: #00ffff;">function</span> <span style="color: #87cefa;">isolate_cpus</span>() {
+    systemctl set-property --runtime -- user.slice <span style="color: #eedd82;">AllowedCPUs</span>=$<span style="color: #eedd82;">HOST_CPUS</span>
+    systemctl set-property --runtime -- system.slice <span style="color: #eedd82;">AllowedCPUs</span>=$<span style="color: #eedd82;">HOST_CPUS</span>
+    systemctl set-property --runtime -- init.scope <span style="color: #eedd82;">AllowedCPUs</span>=$<span style="color: #eedd82;">HOST_CPUS</span>
+}
+
+<span style="color: #00ffff;">function</span> <span style="color: #87cefa;">unisolate_cpus</span>() {
+    systemctl set-property --runtime -- user.slice <span style="color: #eedd82;">AllowedCPUs</span>=$<span style="color: #eedd82;">ALL_CPUS</span>
+    systemctl set-property --runtime -- system.slice <span style="color: #eedd82;">AllowedCPUs</span>=$<span style="color: #eedd82;">ALL_CPUS</span>
+    systemctl set-property --runtime -- init.scope <span style="color: #eedd82;">AllowedCPUs</span>=$<span style="color: #eedd82;">ALL_CPUS</span>
+}
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">For convenient manual invocation</span>
+<span style="color: #00ffff;">if</span> [[ <span style="color: #ffa07a;">"$VM_NAME"</span> == <span style="color: #ffa07a;">"shield"</span> ]]; <span style="color: #00ffff;">then</span>
+    isolate_cpus
+    <span style="color: #00ffff;">exit</span> 0
+<span style="color: #00ffff;">elif</span> [[ <span style="color: #ffa07a;">"$VM_NAME"</span> == <span style="color: #ffa07a;">"unshield"</span> ]]; <span style="color: #00ffff;">then</span>
+    unisolate_cpus
+    <span style="color: #00ffff;">exit</span> 0
+<span style="color: #00ffff;">fi</span>
+
+<span style="color: #00ffff;">if</span> [[ <span style="color: #ffa07a;">"$VM_ACTION"</span> == <span style="color: #ffa07a;">"prepare/begin"</span> ]]; <span style="color: #00ffff;">then</span>
+    <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"libvirt-qemu systemd: Reserving CPUs $VIRT_CPUS for VM $VM_NAME"</span> &gt; /dev/kmsg 2&gt;&amp;1
+    isolate_cpus &gt; /dev/kmsg 2&gt;&amp;1
+    <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"libvirt-qemu systemd: Successfully reserved CPUs $VIRT_CPUS"</span> &gt; /dev/kmsg 2&gt;&amp;1
+<span style="color: #00ffff;">elif</span> [[ <span style="color: #ffa07a;">"$VM_ACTION"</span> == <span style="color: #ffa07a;">"release/end"</span> ]]; <span style="color: #00ffff;">then</span>
+    <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"libvirt-qemu systemd: Releasing CPUs $VIRT_CPUS from VM $VM_NAME"</span> &gt; /dev/kmsg 2&gt;&amp;1
+    unisolate_cpus &gt; /dev/kmsg 2&gt;&amp;1
+    <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"libvirt-qemu systemd: Successfully released CPUs $VIRT_CPUS"</span> &gt; /dev/kmsg 2&gt;&amp;1
+<span style="color: #00ffff;">fi</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org7ed6312" class="outline-4">
+<h4 id="org7ed6312">内存优化Hook</h4>
+<div class="outline-text-4" id="text-org7ed6312">
+<p>
+创建脚本 <span class="underline">/etc/libvirt/hooks/qemu.d/win10/better-hugepages.sh</span> ，用于回收并压缩内存，使VM启动时有足够的连续内存作为透明大页使用：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/usr/bin/</span><span style="color: #00ffff;">env</span><span style="color: #ff4500;"> bash</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Author: SharkWipf (https://github.com/SharkWipf)</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">This file depends on the PassthroughPOST hook helper script found here:</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">https://github.com/PassthroughPOST/VFIO-Tools/tree/master/libvirt_hooks</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">This hook only needs to run on `prepare/begin`, not on stop.</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Place this script in this directory:</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">$SYSCONFDIR/libvirt/hooks/qemu.d/your_vm/prepare/begin/</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">$SYSCONFDIR usually is /etc/libvirt.</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">This hook will help free and compact memory to ease THP allocation.</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">QEMU VMs will use THP (Transparent HugePages) by default if enough</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">unfragmented memory can be found on startup. If your memory is very</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">fragmented, this may cause a slow VM startup (like a slowly responding </span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">VM start button/command), and may cause QEMU to fall back to regular</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">memory pages, slowing down VM performance.</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">If you (suspect you) suffer from this, this hook will help ease THP</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">allocation so you don't need to resort to misexplained placebo scripts.</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Don't use the old hugepages.sh script in this repo. It's useless.</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">It's only kept in for archival reasons and offers no benefits.</span>
+<span style="color: #ff4500;">#</span>
+
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Finish writing any outstanding writes to disk.</span>
+sync
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Drop all filesystem caches to free up more memory.</span>
+<span style="color: #b0c4de;">echo</span> 3 &gt; /proc/sys/vm/drop_caches
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Do another run of writing any possible new outstanding writes.</span>
+sync
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Tell the kernel to "defragment" memory where possible.</span>
+<span style="color: #b0c4de;">echo</span> 1 &gt; /proc/sys/vm/compact_memory
+</pre>
+</div>
+<p>
+​由于使用的是动态大页，VM关闭时Host系统会自动回收大页内存，因此better-hugepages.sh脚本仅需在VM启动时执行
+</p>
+
+<pre class="example" id="org6fc3e88">
+上述两个脚本源自 https://github.com/PassthroughPOST/VFIO-Tools
+
+第一个脚本修改为使用systemd隔离cpu，要使用cset，请参阅原地址
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgc60b3c4" class="outline-4">
+<h4 id="orgc60b3c4">线性阵列启停Hook</h4>
+<div class="outline-text-4" id="text-orgc60b3c4">
+<pre class="example" id="org3c7ede7">
+根据此前的配置，Win10 VM的系统硬盘是一个线性软阵列
+
+该阵列在Host重启后将不复存在，需要再次运行start-md0.sh脚本启动阵列
+</pre>
+
+<p>
+一个更好的做法是在VM启动时自动启动阵列，VM关闭后停止阵列，可以使用hook脚本实现该需求。将 <span class="underline">start-md0.sh</span> 和 <span class="underline">stop-md0.sh</span> 整合成一个hook脚本， <span class="underline">/etc/libvirt/hooks/qemu.d/win10/manage-vdisk.sh</span> ：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/usr/bin/</span><span style="color: #00ffff;">env</span><span style="color: #ff4500;"> bash</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Author: yjzzjy4 (https://github.com/yjzzjy4)</span>
+<span style="color: #ff4500;">#</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">This file creates and distroys /dev/md0 for booting physical Windows drive.</span>
+<span style="color: #ff4500;">#</span>
+
+<span style="color: #eedd82;">WIN_PART</span>=/dev/nvme1n1p2
+<span style="color: #eedd82;">EFI_DIR</span>=/etc/libvirt/hooks/qemu.d/win10/md0
+
+<span style="color: #eedd82;">VM_ACTION</span>=<span style="color: #ffa07a;">"$2/$3"</span>
+
+<span style="color: #00ffff;">if</span> [[ <span style="color: #ffa07a;">"$VM_ACTION"</span> == <span style="color: #ffa07a;">"prepare/begin"</span> ]]; <span style="color: #00ffff;">then</span>
+    <span style="color: #00ffff;">if</span> [[ -e /dev/md0 ]]; <span style="color: #00ffff;">then</span>
+        <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"/dev/md0 already exists"</span> &gt; /dev/kmsg 2&gt;&amp;1
+        <span style="color: #00ffff;">exit</span> 1
+    <span style="color: #00ffff;">fi</span>
+
+    <span style="color: #00ffff;">if</span> mountpoint -q -- <span style="color: #ffa07a;">"${WIN_PART}"</span>; <span style="color: #00ffff;">then</span>
+        <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"Unmounting ${WIN_PART}..."</span> &gt; /dev/kmsg 2&gt;&amp;1
+        umount ${<span style="color: #eedd82;">WIN_PART</span>}
+    <span style="color: #00ffff;">fi</span>
+
+    modprobe loop
+    modprobe linear
+    <span style="color: #eedd82;">LOOP0</span>=$(losetup -f <span style="color: #ffa07a;">"${EFI_DIR}/loop-efi0"</span> --show)
+    <span style="color: #eedd82;">LOOP1</span>=$(losetup -f <span style="color: #ffa07a;">"${EFI_DIR}/loop-efi1"</span> --show)
+    mdadm --build --verbose /dev/md0 --chunk=512 --level=linear --raid-devices=3 ${<span style="color: #eedd82;">LOOP0</span>} ${<span style="color: #eedd82;">WIN_PART</span>} ${<span style="color: #eedd82;">LOOP1</span>}
+    chown $<span style="color: #eedd82;">USER</span>:disk /dev/md0
+    <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"$LOOP0 $LOOP1"</span> &gt; <span style="color: #ffa07a;">"${EFI_DIR}/.win10-loop-devices"</span>
+<span style="color: #00ffff;">elif</span> [[ <span style="color: #ffa07a;">"$VM_ACTION"</span> == <span style="color: #ffa07a;">"release/end"</span> ]]; <span style="color: #00ffff;">then</span>
+    mdadm --stop /dev/md0
+    xargs losetup -d &lt; <span style="color: #ffa07a;">"${EFI_DIR}/.win10-loop-devices"</span>
+<span style="color: #00ffff;">fi</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgc8ab39b" class="outline-4">
+<h4 id="orgc8ab39b">测试Hooks</h4>
+<div class="outline-text-4" id="text-orgc8ab39b">
+<p>
+​将创建的所有hooks整理一下，利用软链接的形式存放到Win10 VM对应的生命周期目录中，最后得到如下结构：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ tree -ah /etc/libvirt/hooks/qemu.d/win10
+[4.0K]  /etc/libvirt/hooks/qemu.d/win10
+&#9500;&#9472;&#9472; [1.4K]  better-hugepages.sh
+&#9500;&#9472;&#9472; [1.7K]  isolate-cpus.sh
+&#9500;&#9472;&#9472; [ 950]  manage-vdisk.sh
+&#9500;&#9472;&#9472; [4.0K]  md0
+&#9474;&#160;&#160; &#9500;&#9472;&#9472; [100M]  loop-efi0
+&#9474;&#160;&#160; &#9500;&#9472;&#9472; [1.0M]  loop-efi1
+&#9474;&#160;&#160; &#9492;&#9472;&#9472; [  23]  .win10-loop-devices
+&#9500;&#9472;&#9472; [4.0K]  prepare
+&#9474;&#160;&#160; &#9492;&#9472;&#9472; [4.0K]  begin
+&#9474;&#160;&#160;     &#9500;&#9472;&#9472; [  21]  00-manage-vdisk.sh -&gt; ../../manage-vdisk.sh
+&#9474;&#160;&#160;     &#9500;&#9472;&#9472; [  25]  01-better-hugepages.sh -&gt; ../../better-hugepages.sh
+&#9474;&#160;&#160;     &#9492;&#9472;&#9472; [  21]  02-isolate-cpus.sh -&gt; ../../isolate-cpus.sh
+&#9492;&#9472;&#9472; [4.0K]  release
+&#9492;&#9472;&#9472; [4.0K]  end
+&#9500;&#9472;&#9472; [  21]  00-isolate-cpus.sh -&gt; ../../isolate-cpus.sh
+&#9492;&#9472;&#9472; [  21]  01-manage-vdisk.sh -&gt; ../../manage-vdisk.sh
+
+6 directories, 11 files
+</pre>
+</div>
+
+<p>
+​注意：这里没有写关于自动挂载SMB的hook，因为找不到一个合适的生命周期用于自动挂载。并且由于挂载操作是用户级的，且Host作为SMB的client。故建议需要使用的用户随用随挂载，只需运行一行命令（或者在文件管理器中点一下），操作简单
+</p>
+<pre class="example" id="org03a489f">
+在VM关机之前先将SMB卸载即可，不卸载也没问题，反正也访问不了（报错：Host is down）
+</pre>
+
+<p>
+​在启动Win10 VM之前，先记录一下系统状态，方便和启动后进行对比以验证hooks是否生效。首先是大页分配情况：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ grep AnonHugePages /proc/meminfo
+AnonHugePages:         0 kB
+</pre>
+</div>
+
+<p>
+​可知系统此时没有使用任何大页内存。再查看dev/md0是否存在：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ls -al /dev | grep md0
+</pre>
+</div>
+
+<p>
+​未见任何输出，表示dev/md0不存在。最后查看CPU拓扑：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ lstopo-no-graphics --no-bridges --no-io
+<span style="color: #87cefa;">Machine</span> (31GB total) + Package L#0
+NUMANode L#0 (P#0 31GB)
+L3 L#0 (24MB)
+L2 L#0 (1280KB) + L1d L#0 (48KB) + L1i L#0 (32KB) + Core L#0
+PU L#0 (P#0)
+PU L#1 (P#1)
+L2 L#1 (1280KB) + L1d L#1 (48KB) + L1i L#1 (32KB) + Core L#1
+PU L#2 (P#2)
+PU L#3 (P#3)
+L2 L#2 (1280KB) + L1d L#2 (48KB) + L1i L#2 (32KB) + Core L#2
+PU L#4 (P#4)
+PU L#5 (P#5)
+L2 L#3 (1280KB) + L1d L#3 (48KB) + L1i L#3 (32KB) + Core L#3
+PU L#6 (P#6)
+PU L#7 (P#7)
+L2 L#4 (1280KB) + L1d L#4 (48KB) + L1i L#4 (32KB) + Core L#4
+PU L#8 (P#8)
+PU L#9 (P#9)
+L2 L#5 (1280KB) + L1d L#5 (48KB) + L1i L#5 (32KB) + Core L#5
+PU L#10 (P#10)
+PU L#11 (P#11)
+L2 L#6 (2048KB)
+L1d L#6 (32KB) + L1i L#6 (64KB) + Core L#6 + PU L#12 (P#12)
+L1d L#7 (32KB) + L1i L#7 (64KB) + Core L#7 + PU L#13 (P#13)
+L1d L#8 (32KB) + L1i L#8 (64KB) + Core L#8 + PU L#14 (P#14)
+L1d L#9 (32KB) + L1i L#9 (64KB) + Core L#9 + PU L#15 (P#15)
+L2 L#7 (2048KB)
+L1d L#10 (32KB) + L1i L#10 (64KB) + Core L#10 + PU L#16 (P#16)
+L1d L#11 (32KB) + L1i L#11 (64KB) + Core L#11 + PU L#17 (P#17)
+L1d L#12 (32KB) + L1i L#12 (64KB) + Core L#12 + PU L#18 (P#18)
+L1d L#13 (32KB) + L1i L#13 (64KB) + Core L#13 + PU L#19 (P#19)
+</pre>
+</div>
+
+<p>
+​Host系统可见所有的cpu，也可以使用所有的cpu。现在启动Win10 VM：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ virsh start win10 
+Domain <span style="color: #ffa07a;">'win10'</span> started
+</pre>
+</div>
+
+<p>
+​再次检查大页分配情况：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ grep AnonHugePages /proc/meminfo
+AnonHugePages:   8392704 kB
+</pre>
+</div>
+
+<pre class="example" id="org12c9ebe">
+​8392704KB=8196MB，Host系统为Win10 VM分配了8GB内存，即8192MB，说明QEMU/KVM在VM启动时已经锁定足额大页内存
+</pre>
+
+<p>
+然后查看dev/md0是否存在：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ls -al /dev | grep md0
+brw-rw----   1 root    disk      9,     0  4&#26376; 25 23:16 md0
+brw-rw----   1 root    disk    259,     7  4&#26376; 25 23:16 md0p1
+brw-rw----   1 root    disk    259,     8  4&#26376; 25 23:16 md0p2
+</pre>
+</div>
+
+<pre class="example" id="org75a3663">
+​结果表明线性阵列dev/md0已存在，并被Win10 VM作为系统盘使用
+</pre>
+<p>
+最后查看CPU拓扑：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ lstopo-no-graphics --no-bridges --no-io
+<span style="color: #87cefa;">Machine</span> (31GB total) + Package L#0
+NUMANode L#0 (P#0 31GB)
+L3 L#0 (24MB)
+L2 L#0 (1280KB) + L1d L#0 (48KB) + L1i L#0 (32KB) + Core L#0
+PU L#0 (P#0)
+PU L#1 (P#1)
+L2 L#1 (1280KB) + L1d L#1 (48KB) + L1i L#1 (32KB) + Core L#1
+PU L#2 (P#2)
+PU L#3 (P#3)
+L2 L#2 (1280KB) + L1d L#2 (48KB) + L1i L#2 (32KB) + Core L#2
+PU L#4 (P#4)
+PU L#5 (P#5)
+L2 L#3 (1280KB) + L1d L#3 (48KB) + L1i L#3 (32KB) + Core L#3
+PU L#6 (P#6)
+PU L#7 (P#7)
+L2 L#4 (1280KB) + L1d L#4 (48KB) + L1i L#4 (32KB) + Core L#4
+PU L#8 (P#8)
+PU L#9 (P#9)
+L2 L#5 (1280KB) + L1d L#5 (48KB) + L1i L#5 (32KB) + Core L#5
+PU L#10 (P#10)
+PU L#11 (P#11)
+</pre>
+</div>
+
+<pre class="example" id="org728e62c">
+此时Host的操作系统只能“看见”大核，所有小核正在被VM独占，因此在Host视角下，小核已经全部消失了
+</pre>
+<p>
+最后附上一张Host和VM的截图（两个系统分别在两个分辨率不同的显示器上，故截图有一部分是黑边）：
+</p>
+
+
+<div id="org9eecade" class="figure">
+<p><img src="pic/1498406-20240426170825477-750375458.png" alt="1498406-20240426170825477-750375458.png" width="90%" />
+</p>
+</div>
+
+<p>
+可以看到Win10 VM拥有8个核心、8个线程和8GB内存。CPU型号识别正常，且C:和D:驱动器均是QEMU的SCSI设备。关于SMB共享，也可以通过文件管理器正常挂载，如图：
+</p>
+
+
+<div id="orge27d7c8" class="figure">
+<p><img src="pic/1498406-20240426170908352-1849766592.png" alt="1498406-20240426170908352-1849766592.png" width="90%" />
+</p>
+</div>
+
+<p>
+​VM关闭后，上述配置将被逆转，即在Host操作系统上恢复原样。至此所有hooks均生效，VM配置和性能调优均已完成
+</p>
+</div>
 </div>
 </div>
 </div>
