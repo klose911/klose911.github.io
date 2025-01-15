@@ -1,0 +1,213 @@
+#+TITLE: DTrace
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_HOME: freebsd.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+_DTrace_ ，也称为 *动态跟踪* ，是由 _Sun™_ 开发的一个用来在生产和试验性生产系统上找出系统瓶颈的工具。 在任何情况下它都不是一个调试工具， 而是一个实时系统分析寻找出性能及其他问题的工具
+
+#+begin_example
+  DTrace 是个特别好的分析工具，带有大量的帮助诊断系统问题的特性，还可以使用预先写好的脚本利用它的功能
+
+  用户也可以通过使用 DTrace D 语言创建他们自己定制的分析工具， 以满足特定的需求
+#+end_example
+* 实现上的差异
+#+begin_example
+  虽然 FreeBSD 上的 DTrace 与 Solaris™ 上的非常相似， 在继续深入之前需要说明一下存在的差异
+#+end_example
+
+用户首先会注意到的便是 FreeBSD 上的 DTrace 需要明确地被启用。DTrace 相关的内核选项和模块必须开启后才能正常工作
+
+有一个 _DDB_CTF_  *内核选项* 用来开启从内核与内核模块加载 CTF 数据。CTF 是 Solaris™  _Compact C Type Format_ 封装了类似于 DWARF 和 venerable stabs 简化的 *调试信息* 。CTF 数据是由 _ctfconvert_ 和 _ctfmerge_ 工具加入二进制文件的
++ ctfconvert 工具分析由编译器生成的 DWARFELF 调试 section
++ ctfmerge 合并目标文件的 CTFELF section 到可执行文件或共享库
+
+#+begin_example
+更多关于在启用 FreeBSD 内核上启用此项的详细内容即将完成
+#+end_example
+
+比起 Solaris™， FreeBSD 有几个不同提供器。 最值得注意的是 _dtmalloc 提供器_ ， 可以根据类型追踪 FreeBSD 内核中的 malloc()。
+
+只有 *root* 可以使用 FreeBSD 上的 DTrace
+#+begin_example
+这是由系统安全上的差异造成的，Solaris™ 提供了一些 FreeBSD 上还未实现的低层的安全检查
+#+end_example
+
+同样， _/dev/dtrace/dtrace_ 也被严格的限制为仅供 root 用户访问
+
+最后，DTrace 为 _Sun™ CDDL 许可_ 下发布的软件，这个许可表示带有 DTrace 选项的 FreeBSD 内核仍为 BSD 许可； 然而， 以二进制发布模块， 或者加载二进制模块则需遵守 CDDL
+
+#+begin_example
+随 FreeBSD 发行的 Common Development and Distribution License
+
+可以在查阅 /usr/src/cddl/contrib/opensolaris/OPENSOLARIS.LICENSE 或者通过 http://www.opensolaris.org/os/licensing 查看在线版本。
+#+end_example
+*  启用 DTrace 支持
+在内核配置文件中加入以下几行来开启对 DTrace 的支持：
+
+#+begin_src sh 
+  options         KDTRACE_HOOKS
+  options         DDB_CTF
+#+end_src
+
+#+begin_example
+  使用 AMD64 架构的需要在内核配置文件中加入如下这行：
+
+  options         KDTRACE_FRAME
+
+  此选项提供了对 FBT 特性的支持。 DTrace 可以在没有此选项的情况下正常工作， 但是函数边界跟踪便会有所限制
+#+end_example
+
+所有的源代码都必须重新使用 _CTF 选项_ 编译安装。重新编译 FreeBSD 源代码可以通过以下的命令完成：
+
+#+begin_src sh 
+  $ cd /usr/src
+
+  $ make WITH_CTF=1 kernel
+
+  # 系统需要重新启动
+#+end_src
+
+在重新启动和新内核载入内存之后，需要添加 _Korn shell_ 的支持，安装 _shells/ksh93_ 。 同样也可以通过 shells/pdksh 或者 shells/mksh 使用这些工具
+
+#+begin_example
+因为 DTrace 工具包有一些工具是由 ksh 写的
+#+end_example
+
+最后是获得最新的 DTrace 工具包。 当前版本可以通过下面的链接找到 http://www.opensolaris.org/os/community/dtrace/dtracetoolkit/
+
+#+begin_example
+这个工具包含有一个安装机制，尽管如此，并不需要安装便可使用它们
+#+end_example
+* 使用 DTrace
+在使用 DTrace 的功能之前，DTrace 设备必须存在。 使用如下的命令装载此设备：
+
+#+begin_src sh 
+  $ kldload dtraceall
+#+end_src
+
+DTrace 支持现在应该可以使用了。 管理员现在可以使用如下的命令查看所有的探测器：
+
+#+begin_src sh 
+  $ dtrace -l | more
+#+end_src
+
+工具包是事先写好的一堆脚本，与 DTrace 一起运行来收集系统信息。有脚本用来检查已打开的文件，内存，CPU 使用率和许多东西。使用如下的命令解开脚本：
+
+#+begin_src sh 
+  $ gunzip -c DTraceToolkit* | tar xvf -
+#+end_src
+
+使用 cd 命令切换到那个目录， 并修改所有文件的可执行权限，把那些名字小写的文件权限改为 755。所有这些脚本都需要修改它们的内容。那些指向 /usr/bin/ksh 需要修改成 /usr/local/bin/ksh，另外使用 /usr/bin/sh 需要变更为 /bin/sh，最后还有使用 /usr/bin/perl 的需要变更为 /usr/local/bin/perl
+
+#+begin_example
+  此刻还需谨慎提醒一下 FreeBSD 的 DTrace 支持仍是 不完整的 和 试验性 的
+
+  这些脚本中的大多数都无法运行，因为它们过于针对 Solaris™ 或者使用了目前还不支持的探测器
+#+end_example
+
+至今 DTrace 工具包中只有两个脚本在 FreeBSD 上是完全支持的： _hotkernel_ 和 _procsystime_ 脚本。这两个脚本便是下一部分将要探讨的
+
+** hotkernel 
+hotkernel 被设计成验明哪个函数占用了内核时间。 正常运行的话，它将生成类似以下的输出：
+
+#+begin_src sh 
+  $ ./hotkernel
+  Sampling... Hit Ctrl-C to end.
+#+end_src
+
+系统管理员必须使用 Ctrl+C 组合键停止这个进程。 紧接着中止之后，脚本便会一张内核函数与测定时间的列表， 使用增量排序输出：
+
+#+begin_src sh 
+  kernel`_thread_lock_flags                                   2   0.0%
+  0xc1097063                                                  2   0.0%
+  kernel`sched_userret                                        2   0.0%
+  kernel`kern_select                                          2   0.0%
+  kernel`generic_copyin                                       3   0.0%
+  kernel`_mtx_assert                                          3   0.0%
+  kernel`vm_fault                                             3   0.0%
+  kernel`sopoll_generic                                       3   0.0%
+  kernel`fixup_filename                                       4   0.0%
+  kernel`_isitmyx                                             4   0.0%
+  kernel`find_instance                                        4   0.0%
+  kernel`_mtx_unlock_flags                                    5   0.0%
+  kernel`syscall                                              5   0.0%
+  kernel`DELAY                                                5   0.0%
+  0xc108a253                                                  6   0.0%
+  kernel`witness_lock                                         7   0.0%
+  kernel`read_aux_data_no_wait                                7   0.0%
+  kernel`Xint0x80_syscall                                     7   0.0%
+  kernel`witness_checkorder                                   7   0.0%
+  kernel`sse2_pagezero                                        8   0.0%
+  kernel`strncmp                                              9   0.0%
+  kernel`spinlock_exit                                       10   0.0%
+  kernel`_mtx_lock_flags                                     11   0.0%
+  kernel`witness_unlock                                      15   0.0%
+  kernel`sched_idletd                                       137   0.3%
+  0xc10981a5                                              42139  99.3%
+#+end_src
+
+这个脚本也能与内核模块一起工作。要使用此特性， 用 _-m_ 标志运行脚本：
+
+#+begin_src sh 
+  $ ./hotkernel -m
+  Sampling... Hit Ctrl-C to end.
+  ^C
+
+  MODULE                                                  COUNT   PCNT
+  0xc107882e                                                  1   0.0%
+  0xc10e6aa4                                                  1   0.0%
+  0xc1076983                                                  1   0.0%
+  0xc109708a                                                  1   0.0%
+  0xc1075a5d                                                  1   0.0%
+  0xc1077325                                                  1   0.0%
+  0xc108a245                                                  1   0.0%
+  0xc107730d                                                  1   0.0%
+  0xc1097063                                                  2   0.0%
+  0xc108a253                                                 73   0.0%
+  kernel                                                    874   0.4%
+  0xc10981a5                                             213781  99.6%
+#+end_src
+
+** procsystime 
+procsystime 脚本捕捉并打印给定 PID 的系统调用时间。 在下面的例子中，新生成了一个 /bin/csh 实例。procsystime 执行后则等待在新运行的 csh 上键入一些命令。 这是测试的结果：
+
+#+begin_src sh 
+  $ ./procsystime -n csh
+  Tracing... Hit Ctrl-C to end...
+  ^C
+
+  Elapsed Times for processes csh,
+
+	   SYSCALL          TIME (ns)
+	    getpid               6131
+	 sigreturn               8121
+	     close              19127
+	     fcntl              19959
+	       dup              26955
+	   setpgid              28070
+	      stat              31899
+	 setitimer              40938
+	     wait4              62717
+	 sigaction              67372
+       sigprocmask             119091
+      gettimeofday             183710
+	     write             263242
+	    execve             492547
+	     ioctl             770073
+	     vfork            3258923
+	sigsuspend            6985124
+	      read         3988049784
+#+end_src
+
+#+begin_example
+  正如显示的那样，read 系统调用似乎使用了最多的纳秒单位时间， getpid() 系统调用使用了最少的时间
+#+end_example
+
+* D 语言
+DTrace 工具包包括了很多由 DTrace 特殊语言写成的脚本。 在 Sun™ 的文档中称这类语言为 _D 语言_ ， 它与 C++ 非常类似
+
+#+begin_example
+  对此语言更深入的讨论则超出了这篇文章的范围
+
+  更多相关的讨论可以在 http://wikis.sun.com/display/DTrace/Documentation 找到
+#+end_example
