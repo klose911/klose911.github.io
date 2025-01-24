@@ -1,0 +1,197 @@
+#+TITLE: ip 命令用法归纳
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+*ip* 是 _iproute2_ 工具包里面的一个命令行工具，用于配置网络接口以及路由表。
+
+#+begin_example
+iproute2 正在逐步取代旧的 net-tools（ifconfig），所以是时候学习下 iproute2 的使用方法
+#+end_example
+* 接口信息
+** 查看接口状态和详细统计
+不指定接口则显示所有接口的详细统计
+#+begin_example
+ip -d -s link show [dev <接口名>] 
+#+end_example
+
+查看 ens34 接口信息
+
+#+begin_src sh 
+  [root: ~]# ip -d -s -s link show ens34
+  3: ens34: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP mode DEFAULT qlen 1000
+  link/ether 88:32:9b:ca:3f:4a brd ff:ff:ff:ff:ff:ff promiscuity 0 addrgenmode eui64 
+  RX: bytes  packets  errors  dropped overrun mcast   
+  581645     6100     0       0       0       0       
+  RX errors: length   crc     frame   fifo    missed
+  0        0       0       0       0       
+  TX: bytes  packets  errors  dropped carrier collsns 
+  3743584    3939     0       0       0       0       
+  TX errors: aborted  fifo   window heartbeat transns
+  0        0       0       0       2     
+#+end_src
+* IP 地址
+** 查看接口 IP 地址
+不指定接口则显示所有接口的 IP 地址
+
+#+begin_example
+ip addr show [dev <接口名>]
+#+end_example
+** 查看接口 IPv6 地址
+不指定接口则显示所有接口的 IPv6 地址
+
+#+begin_example
+ip -6 addr show [dev <接口名>]
+#+end_example
+** 为接口添加 IP 地址
+#+begin_example
+ip addr add <IP 地址/前缀长度> [broadcast <广播地址>] dev <接口名>
+#+end_example
+
+为 ens34 添加 IP 地址 192.168.1.111/24 并检查
+
+#+begin_src sh 
+  [root: ~]# ip addr add 192.168.1.111/24 dev ens34
+  3: ens34: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP qlen 1000
+  link/ether 88:32:9b:ca:3f:4a brd ff:ff:ff:ff:ff:ff
+  inet 10.16.1.2/24 brd 10.16.1.255 scope global ens34
+  valid_lft forever preferred_lft forever
+  inet 192.168.1.111/24 scope global ens34
+  valid_lft forever preferred_lft forever
+  inet6 fe80::f65c:89ff:fecd:3ab5/64 scope link 
+  valid_lft forever preferred_lft forever
+#+end_src
+
+
+** 为接口删除 IP 地址
+#+begin_example
+ip addr del <IP 地址/前缀长度> dev <接口名>
+#+end_example
+** 为接口删除 IPv6 地址
+#+begin_example
+ip -6 addr del <IP 地址/前缀长度> dev <接口名>
+#+end_example
+
+
+* 接口
+
+** 启用接口
+#+begin_example
+ip link set <接口名> up
+#+end_example
+
+** 禁用接口
+#+begin_example
+ip link set <接口名> down
+#+end_example
+
+** 设置接口 MAC 地址
+#+begin_example
+ip link set <接口名> address <值>
+#+end_example
+
+设置前请先禁用接口
+
+** 设置接口 MTU
+#+begin_example
+ip link set <接口名> mtu <值>
+#+end_example
+设置前请先禁用接口
+
+把 ens33 的 MTU 改成 9000 并检查：
+
+#+begin_src sh 
+  [root: ~]# ip link show dev ens33 #修改前
+  2: ens33: <BROADCAST,MULTICAST> mtu 1500 qdisc pfifo_fast state DOWN mode DEFAULT qlen 1000
+  link/ether 88:32:9b:ca:3f:49 brd ff:ff:ff:ff:ff:ff
+
+  ============================================
+
+  [root: ~]# ip link set ens33 mtu 9000
+
+  [root: ~]# ip link show dev ens33  #修改后
+  2: ens33: <BROADCAST,MULTICAST> mtu 9000 qdisc pfifo_fast state DOWN mode DEFAULT qlen 1000
+  link/ether 88:32:9b:ca:3f:49 brd ff:ff:ff:ff:ff:ff
+#+end_src
+
+* VLAN
+
+** 添加 802.1Q VLAN 子接口 
+#+begin_example
+ip link add link <接口名> name <子接口名> type vlan id <VLAN ID>
+#+end_example
+为 ens33 添加 VLAN100 子接口并检查：
+
+#+begin_src sh 
+  [root: ~]# ip link add link ens33 name ens33.100 type vlan id 100
+
+  [root: ~]# ip -d -s -s link show ens33.100
+  7: ens33.100@ens33: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc noqueue state UP mode DEFAULT qlen 1000
+  link/ether 88:32:9b:ca:3f:aa brd ff:ff:ff:ff:ff:ff promiscuity 0 
+  vlan protocol 802.1Q id 100 <REORDER_HDR> addrgenmode eui64 
+  RX: bytes  packets  errors  dropped overrun mcast   
+  0          0        0       0       0       0       
+  RX errors: length   crc     frame   fifo    missed
+  0        0       0       0       0       
+  TX: bytes  packets  errors  dropped carrier collsns 
+  738        9        0       0       0       0       
+  TX errors: aborted  fifo   window heartbeat transns
+  0        0       0       0       3       
+#+end_src
+
+** 删除 802.1Q VLAN 子接口
+#+begin_example
+ip link del <接口名>
+#+end_example
+* 路由表
+** 查看路由表
+
+不指定接口则显示所有接口的路由表
+
+#+begin_example
+ip route show [dev <接口名>]
+#+end_example
+** 查看指定目标地址用的是哪条路由表
+#+begin_example
+ip route get <目标 IP>
+#+end_example
+查看目标地址为 8.8.8.8 用的是哪条路由表
+#+begin_src sh 
+  [root: ~]# ip route get 8.8.8.8
+  8.8.8.8 via 192.168.1.1 dev ens33  src 192.168.1.143 
+  cache 
+  #下一跳是 192.168.1.1，出接口是 ens33，接口的 IP 是 192.168.1.143。
+#+end_src
+** 添加路由表
+#+begin_example
+ip route add <目标 IP 地址/前缀长度> via <下一跳> [dev <出接口>]
+#+end_example
+** 添加默认网关
+#+begin_example
+ip route add default via <默认网关> [dev <出接口>]
+#+end_example
+** 删除路由表
+#+begin_example
+ip route del <目标 IP 地址/前缀长度> via <下一跳> [dev <出接口>]
+#+end_example
+* ARP
+** 查看 ARP 表
+不指定接口则显示所有接口的 ARP 表
+#+begin_example
+ip neigh show [dev <接口名>] 
+#+end_example
+** 添加永久 ARP 条目
+#+begin_example
+ip neigh add <IP 地址> lladdr <以冒号分割的 MAC 地址> dev <接口名> nud permanent
+#+end_example
+** 把动态 ARP 条目转换为永久 ARP 条目（仅限已存在条目
+#+begin_example
+ip neigh change <IP 地址> dev <接口名> nud permanent
+#+end_example
+** 删除 ARP 条目
+#+begin_example
+ip neigh del <IP 地址> dev <接口名>
+#+end_example
+** 清空 ARP 表(不影响永久条目)
+#+begin_example
+ip neigh flush all
+#+end_example
