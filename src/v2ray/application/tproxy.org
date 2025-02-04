@@ -2,3 +2,542 @@
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_HOME: application.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+begin_example
+  在这儿指使用 V2Ray 做透明代理实现路由器翻墙
+
+  使用网关翻墙可以使局域网内的所有设备都具有直接翻墙的能力，并且能够全局代理，而不必每台设备都安装 V2Ray，配置更新时只需在网关修改配置
+#+end_example
+
+透明代理适用于以下情况：
++ 局域网设备较多，比如说办公室、实验室、大家庭等
++ 设备(的软件)无法/不方便设置代理，比如说 Chromecast、电视盒子等
++ 希望设备的所有软件都走代理
+* 优点
+就目前来说，使用 V2Ray 透明代理：
++ 解决了墙外 DNS 污染问题
++ 在解决了 1 的情况下国内域名的即能够解析到国内 CDN
++ 不需要外部软件或自建 DNS 就可决绝 1 和 2 的问题，只要系统支持 V2Ray 和 iptables
++ 能够完美利用 V2Ray 强大而灵活的路由功能，而不必额外维护一个路由表
+* 准备
++ 一台已经搭建 V2Ray 并能正常使用的 VPS
+  #+begin_example
+    本文假设 IP 为 110.231.43.65
+  #+end_example
++ 一台带 iptables、有 root 权限并且系统为 Linux 的设备
+  #+begin_example
+    假设地址为 192.168.1.22，已经配置好 V2Ray 作为客户端
+
+    这个设备可以是路由器、开发板、个人电脑、虚拟机和 Android 设备等，更具普适性地称之为网关
+
+    要是真不愿意出这点钱，用电脑开个虚拟机吧，VirtualBox、Hyper 之类的都可以，但是别忘了网络模式用网桥
+  #+end_example
+* 设置
+1. 网关设备开启 *IP 转发* 。在 _/etc/sysctl.conf_ 文件添加一行 _net.ipv4.ip_forward=1_ ，执行下列命令生效：
+   #+begin_src sh 
+     sysctl -p
+   #+end_src
+2. 网关设备设置静态 IP，与路由器 LAN 口同一个网段，默认网关为路由器的 IP；进入路由器的管理后台，到 DHCP 设定将默认网关地址为网关设备的 IP
+   #+begin_example
+     电脑手机等设备单独设置默认网关，然后电脑/手机重新连接到路由器测试是不是可以正常上网(这时还不能翻墙)，如果不能上网先去学习一个把这个搞定，否则接下来再怎么也同样上不了网
+
+     网关设备设定静态 IP 是为了避免重启后 IP 会发生变化导致其他设备无法联网
+
+     路由器设定 DHCP 默认网关地址是为了让接入到这个路由器的设备将上网的数据包发到网关设备，然后由网关设备转发
+   #+end_example
+3. 在服务器和网关安装最新版本的 V2Ray
+   #+begin_example
+     一定要确定搭建的 V2Ray 能够正常使用
+
+     在网关执行 curl -x socks5://127.0.0.1:1080 google.com 测试配置的 V2Ray 是否可以翻墙(命令中 socks5 指 inbound 协议为 socks，1080 指该 inbound 端口是 1080)
+   #+end_example
+4. 在网关的配置，添加 _dokodemo door_ 协议的 *入站* 配置 ，并 *开启* _sniffing_ 还要在所有 outbound 的 _streamSettins_ 添加 _SO_MARK_ ：
+   #+begin_src js 
+     {
+	 "routing": {...},
+	 "inbounds": [
+	     {
+		 ...
+	     },
+	     {
+		 "port": 12345, //开放的端口号
+		 "protocol": "dokodemo-door",
+		 "settings": {
+		     "network": "tcp,udp",
+		     "followRedirect": true // 这里要为 true 才能接受来自 iptables 的流量
+		 },
+		 "sniffing": {
+		     "enabled": true,
+		     "destOverride": ["http", "tls"]
+		 }
+	     }
+	 ],
+	 "outbounds": [
+	     {
+		 ...
+		     "streamSettings": {
+			 ...
+			     "sockopt": {
+				 "mark": 255  //这里是 SO_MARK，用于 iptables 识别，每个 outbound 都要配置；255可以改成其他数值，但要与下面的 iptables 规则对应；如果有多个 outbound，最好将所有 outbound 的 SO_MARK 都设置成一样的数值
+			     }
+		     }
+	     }
+	     ...
+	 ]
+     }
+   #+end_src
+5. 设定 TCP 透明代理的 iptables 规则，命令如下：
+   #+begin_src sh 
+     iptables -t nat -N V2RAY # 新建一个名为 V2RAY 的链
+     iptables -t nat -A V2RAY -d 192.168.0.0/16 -j RETURN # 直连 192.168.0.0/16 
+     iptables -t nat -A V2RAY -p tcp -j RETURN -m mark --mark 0xff # 直连 SO_MARK 为 0xff 的流量(0xff 是 16 进制数，数值上等同与上面配置的 255)，此规则目的是避免代理本机(网关)流量出现回环问题
+     iptables -t nat -A V2RAY -p tcp -j REDIRECT --to-ports 12345 # 其余流量转发到 12345 端口（即 V2Ray）
+     iptables -t nat -A PREROUTING -p tcp -j V2RAY # 对局域网其他设备进行透明代理
+     iptables -t nat -A OUTPUT -p tcp -j V2RAY # 对本机进行透明代理
+
+     # 设定 UDP 流量透明代理的 iptables 规则
+     ip rule add fwmark 1 table 100
+     ip route add local 0.0.0.0/0 dev lo table 100
+     iptables -t mangle -N V2RAY_MASK
+     iptables -t mangle -A V2RAY_MASK -d 192.168.0.0/16 -j RETURN
+     iptables -t mangle -A V2RAY_MASK -p udp -j TPROXY --on-port 12345 --tproxy-mark 1
+     iptables -t mangle -A PREROUTING -p udp -j V2RAY_MASK
+   #+end_src
+6. 使用电脑/手机尝试直接访问被墙网站
+7. 写开机自动加载上述的 iptables 的脚本
+   #+begin_example
+     或者使用第三方软件(如 iptables-persistent)，否则网关重启后 iptables 会失效(即透明代理会失效)
+   #+end_example
+* 注意
++ 在上面的设置中，假设访问了国外网站，如 Google 等，网关依然会使用的系统 DNS 进行查询，只不过返回的结果是污染过的
+  #+begin_example
+    而 V2Ray 提供的 sniffing 能够从流量中提取域名信息交由 VPS 解析
+
+    也就是说，每次打算访问被墙的网站，DNS 提供商都知道，鉴于国内企业尿性，也许 GFW 也都知道，会不会将这些数据收集喂 AI 也未可知
+  #+end_example
++ sniffing 目前只能从 TLS 和 HTTP 流量中提取域名，如果上网流量有非这两种类型的慎用 sniffing 解决 DNS 污染
++ 由于对 iptables 不熟，总感觉上面对 UDP 流量的透明代理的设置使用上有点问题
++ 喜欢玩网游的朋友可能要失望了，使用 V2Ray 加速游戏效果不是很好
++ V2Ray 只能代理 TCP/UDP 的流量，ICMP 不支持，即就算透明代理成功了之后 ping Google 这类网站也是不通的
++ 按照网上其他的透明代理教程，设置 iptables 肯定要 RETURN 127.0.0.0/8 这类私有地址，但我个人观点是放到 V2Ray 的路由里好一些
+
+* TProxy
+随着 V2Ray 的更新，V2Ray 推出了新的透明代理方式 *TPROXY* ，原来的叫 _REDIRECT_ 。最近测试了一下 TPROXY ，效果还不错，主观感觉比 REDIRECT 好。并且在本文的透明代理中，DNS 服务将由 V2Ray 提供
+#+begin_example
+不过这种方式需要 iptables 的 TPROXY 模块支持，有一些阉割版的系统会精简掉 TPROXY 模块
+#+end_example
+
+** 网关
+1. 用网线将树莓派接入路由器 LAN 口
+   #+begin_example
+     假设分给树莓派的 IP 是 192.168.1.22
+   #+end_example
+2. 树莓派开启 IP 转发（需要开启 IP 转发才能作为网关）
+   #+begin_src sh 
+     $ echo net.ipv4.ip_forward=1 >> /etc/sysctl.conf && sysctl -p
+
+     net.ipv4.ip_forward=1
+   #+end_src
+3. 手动配置 PC 的网络，将默认网关指向树莓派的地址
+   #+begin_example
+     即 192.168.1.22
+
+     此时 PC 应当能正常上网（由于还没设置代理，“正常”是指可以上国内的网站）
+   #+end_example
+   
+** 安装V2ray
+略
+
+** 配置透明代理
+
+*** 为 V2Ray 配置透明代理的入站和 DNS 分流
+以下是 V2Ray 透明代理的配置示例
+#+begin_src js 
+  {
+      "inbounds": [
+	  {
+	      "tag":"transparent",
+	      "port": 12345,
+	      "protocol": "dokodemo-door",
+	      "settings": {
+		  "network": "tcp,udp",
+		  "followRedirect": true
+	      },
+	      "sniffing": {
+		  "enabled": true,
+		  "destOverride": [
+		      "http",
+		      "tls"
+		  ]
+	      },
+	      "streamSettings": {
+		  "sockopt": {
+		      "tproxy": "tproxy", // 透明代理使用 TPROXY 方式
+		      "mark":255
+		  }
+	      }
+	  },
+	  {
+	      "port": 1080, 
+	      "protocol": "socks", // 入口协议为 SOCKS 5
+	      "sniffing": {
+		  "enabled": true,
+		  "destOverride": ["http", "tls"]
+	      },
+	      "settings": {
+		  "auth": "noauth"
+	      }
+	  }
+      ],
+      "outbounds": [
+	  {
+	      "tag": "proxy",
+	      "protocol": "vmess", // 代理服务器
+	      "settings": {
+		  "vnext": [
+		      ...
+		  ]
+	      },
+	      "streamSettings": {
+		  "sockopt": {
+		      "mark": 255
+		  }
+	      },
+	      "mux": {
+		  "enabled": true
+	      }
+	  },
+	  {
+	      "tag": "direct",
+	      "protocol": "freedom",
+	      "settings": {
+		  "domainStrategy": "UseIP"
+	      },
+	      "streamSettings": {
+		  "sockopt": {
+		      "mark": 255
+		  }
+	      }      
+	  },
+	  {
+	      "tag": "block",
+	      "protocol": "blackhole",
+	      "settings": {
+		  "response": {
+		      "type": "http"
+		  }
+	      }
+	  },
+	  {
+	      "tag": "dns-out",
+	      "protocol": "dns",
+	      "streamSettings": {
+		  "sockopt": {
+		      "mark": 255
+		  }
+	      }  
+	  }
+      ],
+      "dns": {
+	  "servers": [
+	      {
+		  "address": "223.5.5.5", //中国大陆域名使用阿里的 DNS
+		  "port": 53,
+		  "domains": [
+		      "geosite:cn",
+		      "ntp.org",   // NTP 服务器
+		      "$myserver.address" // 此处改为你 VPS 的域名
+		  ]
+	      },
+	      {
+		  "address": "114.114.114.114", //中国大陆域名使用 114 的 DNS (备用)
+		  "port": 53,
+		  "domains": [
+		      "geosite:cn",
+		      "ntp.org",   // NTP 服务器
+		      "$myserver.address" // 此处改为你 VPS 的域名
+		  ]
+	      },
+	      {
+		  "address": "8.8.8.8", //非中国大陆域名使用 Google 的 DNS
+		  "port": 53,
+		  "domains": [
+		      "geosite:geolocation-!cn"
+		  ]
+	      },
+	      {
+		  "address": "1.1.1.1", //非中国大陆域名使用 Cloudflare 的 DNS
+		  "port": 53,
+		  "domains": [
+		      "geosite:geolocation-!cn"
+		  ]
+	      }
+	  ]
+      },
+      "routing": {
+	  "domainStrategy": "IPOnDemand",
+	  "rules": [
+	      { // 劫持 53 端口 UDP 流量，使用 V2Ray 的 DNS
+		  "type": "field",
+		  "inboundTag": [
+		      "transparent"
+		  ],
+		  "port": 53,
+		  "network": "udp",
+		  "outboundTag": "dns-out" 
+	      },    
+	      { // 直连 123 端口 UDP 流量（NTP 协议）
+		  "type": "field",
+		  "inboundTag": [
+		      "transparent"
+		  ],
+		  "port": 123,
+		  "network": "udp",
+		  "outboundTag": "direct" 
+	      },    
+	      {
+		  "type": "field", 
+		  "ip": [ 
+		      // 设置 DNS 配置中的国内 DNS 服务器地址直连，以达到 DNS 分流目的
+		      "223.5.5.5",
+		      "114.114.114.114"
+		  ],
+		  "outboundTag": "direct"
+	      },
+	      {
+		  "type": "field",
+		  "ip": [ 
+		      // 设置 DNS 配置中的国外 DNS 服务器地址走代理，以达到 DNS 分流目的
+		      "8.8.8.8",
+		      "1.1.1.1"
+		  ],
+		  "outboundTag": "proxy" // 改为你自己代理的出站 tag
+	      },
+	      { // 广告拦截
+		  "type": "field", 
+		  "domain": [
+		      "geosite:category-ads-all"
+		  ],
+		  "outboundTag": "block"
+	      },
+	      { // BT 流量直连
+		  "type": "field",
+		  "protocol":["bittorrent"], 
+		  "outboundTag": "direct"
+	      },
+	      { // 直连中国大陆主流网站 ip 和 保留 ip
+		  "type": "field", 
+		  "ip": [
+		      "geoip:private",
+		      "geoip:cn"
+		  ],
+		  "outboundTag": "direct"
+	      },
+	      { // 直连中国大陆主流网站域名
+		  "type": "field", 
+		  "domain": [
+		      "geosite:cn"
+		  ],
+		  "outboundTag": "direct"
+	      }
+	  ]
+      }
+  }
+#+end_src
++ dokodemo-door 是用来接收透明代理的入站协议，
+  + followRedirect 须为 true
+  + sockopt.tproxy 项须为 tproxy
+  + 建议开启 snifing，否则路由无法匹配域名
++ 本节添加了 DNS 配置，用来对国内外域名进行 DNS 分流，需要 DNS 配置、DNS 入站、DNS 出站和路由四者配合
+  #+begin_example
+    在本例中 DNS 入站直接使用透明代理入站，可参考DNS 及其应用 
+  #+end_example
++ 在 DNS 配置中，依次配置了 Google、Cloudflare、114 和阿里的 DNS
+  + 由于在阿里的 DNS 中指定了 domain，所以匹配的域名会用阿里的 DNS 查询
+  + 其他的先查询 Google 的 DNS，如果查不到的话再依次查 Cloudflare 及 114 的。所以达到了国内外域名 DNS 分流，以及 DNS 备用
+  + 要注意把TP 服务器和你自己 VPS 域名也加入到直连的 DNS，否则会导致 V2Ray 无法与 VPS 正常连接；
++ DNS 配置只是说明哪些域名查哪个 DNS，至于哪个 DNS 走代理哪个 DNS 直连要在 routing 里设置规则
++ routing 也要设置 123 端口的 UDP 流量直连
+  #+begin_example
+    不然的话要是时间误差超出允许范围(90s)，要使用 NTP 校准时间就要先连上代理，但是连代理又要确保时间准确
+
+    结果就是既连不上代理，也无法自动校准时间
+  #+end_example
++ freedom 的出站设置 domainStrategy 为 UseIP
+  #+begin_example
+    以避免直连时因为使用本机的 DNS 出现一些奇怪问题
+  #+end_example
++ 要在 dokodemo inbound 和所有的 outbound 加一个 _255_ 的 *mark* ，这个 mark 与下文 iptables 命令中 _iptables -t mangle -A V2RAY_MASK -j RETURN -m mark --mark 0xff_ 配合，以直连 V2Ray 发出的流量（blackhole 可以不配置 mark）
+
+** 配置透明代理规则
+此部分分为 iptables 和 nftables，两者作用相同，择其一即可
+
+*** iptables 
+执行下面的命令开启透明代理。由于使用了 TPROXY 方式的透明代理，所以 TCP 流量也是使用 mangle 表：
+
+#+begin_src sh 
+  # 设置策略路由
+  ip rule add fwmark 1 table 100 
+  ip route add local 0.0.0.0/0 dev lo table 100
+
+  # 代理局域网设备
+  iptables -t mangle -N V2RAY
+  iptables -t mangle -A V2RAY -d 127.0.0.1/32 -j RETURN
+  iptables -t mangle -A V2RAY -d 224.0.0.0/4 -j RETURN 
+  iptables -t mangle -A V2RAY -d 255.255.255.255/32 -j RETURN 
+  iptables -t mangle -A V2RAY -d 192.168.0.0/16 -p tcp -j RETURN # 直连局域网，避免 V2Ray 无法启动时无法连网关的 SSH，如果你配置的是其他网段（如 10.x.x.x 等），则修改成自己的
+  iptables -t mangle -A V2RAY -d 192.168.0.0/16 -p udp ! --dport 53 -j RETURN # 直连局域网，53 端口除外（因为要使用 V2Ray 的 DNS)
+  iptables -t mangle -A V2RAY -j RETURN -m mark --mark 0xff    # 直连 SO_MARK 为 0xff 的流量(0xff 是 16 进制数，数值上等同与上面V2Ray 配置的 255)，此规则目的是解决v2ray占用大量CPU（https://github.com/v2ray/v2ray-core/issues/2621）
+  iptables -t mangle -A V2RAY -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 12345 --tproxy-mark 1 # 给 UDP 打标记 1，转发至 12345 端口
+  iptables -t mangle -A V2RAY -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 12345 --tproxy-mark 1 # 给 TCP 打标记 1，转发至 12345 端口
+  iptables -t mangle -A PREROUTING -j V2RAY # 应用规则
+
+  # 代理网关本机
+  iptables -t mangle -N V2RAY_MASK 
+  iptables -t mangle -A V2RAY_MASK -d 224.0.0.0/4 -j RETURN 
+  iptables -t mangle -A V2RAY_MASK -d 255.255.255.255/32 -j RETURN 
+  iptables -t mangle -A V2RAY_MASK -d 192.168.0.0/16 -p tcp -j RETURN # 直连局域网
+  iptables -t mangle -A V2RAY_MASK -d 192.168.0.0/16 -p udp ! --dport 53 -j RETURN # 直连局域网，53 端口除外（因为要使用 V2Ray 的 DNS）
+  iptables -t mangle -A V2RAY_MASK -j RETURN -m mark --mark 0xff    # 直连 SO_MARK 为 0xff 的流量(0xff 是 16 进制数，数值上等同与上面V2Ray 配置的 255)，此规则目的是避免代理本机(网关)流量出现回环问题
+  iptables -t mangle -A V2RAY_MASK -p udp -j MARK --set-mark 1   # 给 UDP 打标记，重路由
+  iptables -t mangle -A V2RAY_MASK -p tcp -j MARK --set-mark 1   # 给 TCP 打标记，重路由
+  iptables -t mangle -A OUTPUT -j V2RAY_MASK # 应用规则
+
+  # 新建 DIVERT 规则，避免已有连接的包二次通过 TPROXY，理论上有一定的性能提升
+  iptables -t mangle -N DIVERT
+  iptables -t mangle -A DIVERT -j MARK --set-mark 1
+  iptables -t mangle -A DIVERT -j ACCEPT
+  iptables -t mangle -I PREROUTING -p tcp -m socket -j DIVERT
+#+end_src
+
+#+begin_example
+执行了以上 ip 和 iptables 命令后，局域网同网段的设备以及网关本身就可以直接翻墙了
+#+end_example
+
+在类 ss-redir 透明代理中，有两个观点非常深入人心：
+1. UDP 只能 TPROXY
+2. TPROXY 不能用于 OUTPUT 链
+
+从这两个观点很容易得出一个推论：*无法在提供透明代理的本机(即本例中的网关)上对 UDP 透明代理* 。但实际上，在本例的配置中无论是 TCP 还是 UDP，都可以实现在本机上的透明代理，而且都是用 TPROXY。其实关键在于这三句命令：
+
+#+begin_src sh 
+  iptables -t mangle -A V2RAY_MASK -p udp -j MARK --set-mark 1
+  iptables -t mangle -A V2RAY_MASK -p tcp -j MARK --set-mark 1
+  iptables -t mangle -A OUTPUT -j V2RAY_MASK
+#+end_src
+
+给 OUTPUT 链的 TCP 和 UDP 打个标记 1(OUTPUT 应用 V2RAY_MASK 链)。由于 Netfilter 的特性，在 OUTPUT 链打标记会使相应的包重路由到 PREROUTING 链上，在已经配置好了 PREROUTING 相关的透明代理的情况下，OUTPUT 链也可以透明代理了，也就是网关对自身的 UDP 流量透明代理自身
+
+#+begin_example
+  因为这是 netfilter 本身的特性，Shadowsocks 应该也可以用同样的方法对本机的 UDP 透明代理
+#+end_example
+
+*** nftables
+#+begin_example
+  nftables 与 iptables 同样基于 netfilter 框架，早在 2014 年就引入 Linux 内核中，旨在改进 iptables 的一些问题并且将之替换
+
+  目前有不少 Linux 发行版默认网络过滤以 nftables 替换了 iptables，但是直到 4.19 的 Linux 内核才有 nft_tproxy 模块，这个模块是透明代理所必须的
+
+  如果使用 nftables 配置透明代理，必须具备 nft_tproxy 和 nft_socket 模块，可通过命令 lsmod | grep nft 查看
+
+  尽管 nftables 是趋势，可以预见的是在相当长的时间里 iptables 仍将是主流
+
+  以下 nftables 规则仅在 Debian 11 测试通过，暂未发现问题
+#+end_example
+
+以下是 nftables 规则语句，本质与 iptables 没什么差别：
+
+#+begin_src sh
+  # 设置策略路由
+  ip rule add fwmark 1 table 100 
+  ip route add local 0.0.0.0/0 dev lo table 100
+
+  #代理局域网设备
+  nft add table v2ray
+  nft add chain v2ray prerouting { type filter hook prerouting priority 0 \; }
+  nft add rule v2ray prerouting ip daddr {127.0.0.1/32, 224.0.0.0/4, 255.255.255.255/32} return
+  nft add rule v2ray prerouting meta l4proto tcp ip daddr 192.168.0.0/16 return
+  nft add rule v2ray prerouting ip daddr 192.168.0.0/16 udp dport != 53 return
+  nft add rule v2ray prerouting mark 0xff return # 直连 0xff 流量
+  nft add rule v2ray prerouting meta l4proto {tcp, udp} mark set 1 tproxy to 127.0.0.1:12345 accept # 转发至 V2Ray 12345 端口
+
+  # 代理网关本机
+  nft add chain v2ray output { type route hook output priority 0 \; }
+  nft add rule v2ray output ip daddr {127.0.0.1/32, 224.0.0.0/4, 255.255.255.255/32} return
+  nft add rule v2ray output meta l4proto tcp ip daddr 192.168.0.0/16 return
+  nft add rule v2ray output ip daddr 192.168.0.0/16 udp dport != 53 return
+  nft add rule v2ray output mark 0xff return # 直连 0xff 流量
+  nft add rule v2ray output meta l4proto {tcp, udp} mark set 1 accept # 重路由至 prerouting
+
+  # DIVERT 规则
+  nft add table filter
+  nft add chain filter divert { type filter hook prerouting priority -150 \; }
+  nft add rule filter divert meta l4proto tcp socket transparent 1 meta mark set 1 accept
+#+end_src
+
+** 开机自动运行透明代理规则
+由于策略路由以及 iptables/nftables 有重启会失效的特性，所以当测试配置没有问题之后，需要再弄个服务在开机时自动配置策略路由和 iptables，否则每次开机的时候就要手动执行一遍：
+1. 由于 iptables 命令有点多，所以先将 iptables 规则保存到 /etc/iptables/rules.v4 中
+   #+begin_src sh 
+     mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4
+
+     # 如果是 nftables，则执行：
+     mkdir -p /etc/nftables && nft list ruleset > /etc/nftables/rules.v4
+   #+end_src
+2. 在 /etc/systemd/system/ 目录下创建一个名为 tproxyrule.service 的文件，然后添加以下内容并保存：
+   #+begin_src sh 
+     [Unit]
+     Description=Tproxy rule
+     After=network.target
+     Wants=network.target
+
+     [Service]
+
+     Type=oneshot
+     RemainAfterExit=yes
+     # 注意分号前后要有空格
+     ExecStart=/sbin/ip rule add fwmark 1 table 100 ; /sbin/ip route add local 0.0.0.0/0 dev lo table 100 ; /sbin/iptables-restore /etc/iptables/rules.v4
+     ExecStop=/sbin/ip rule del fwmark 1 table 100 ; /sbin/ip route del local 0.0.0.0/0 dev lo table 100 ; /sbin/iptables -t mangle -F
+     # 如果是 nftables，则改为以下命令
+     # ExecStart=/sbin/ip rule add fwmark 1 table 100 ; /sbin/ip route add local 0.0.0.0/0 dev lo table 100 ; /sbin/nft -f /etc/nftables/rules.v4
+     # ExecStop=/sbin/ip rule del fwmark 1 table 100 ; /sbin/ip route del local 0.0.0.0/0 dev lo table 100 ; /sbin/nft flush ruleset
+
+     [Install]
+     WantedBy=multi-user.target
+   #+end_src
+3. 执行下面的命令使 tproxyrule.service 可以开机自动运行：
+   #+begin_src sh 
+     systemctl enable tproxyrule
+   #+end_src
+
+** 其他
+*** 解决 too many open files 问题
+对 UDP 透明代理比较容易出现“卡住”的情况，这个时候细心的朋友可能会发现日志中出现了非常多 _too many open files_ 的语句，这主要是受到最大文件描述符数值的限制，把这个数值往大调就好了。设置步骤如下：
+1. 修改 _/etc/systemd/system/v2ray.service_ 文件，在 [Service] 下加入 _LimitNPROC=500_ 和 _LimitNOFILE=1000000_ ，修改后的内容如下：
+   #+begin_src sh 
+     [Unit]
+     Description=V2Ray Service
+     Documentation=https://www.v2fly.org/
+     After=network.target nss-lookup.target
+
+     [Service]
+     User=nobody
+     CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+     AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+     NoNewPrivileges=true
+     ExecStart=/usr/local/bin/v2ray -config /usr/local/etc/v2ray/config.json
+     Restart=on-failure
+     RestartPreventExitStatus=23
+     LimitNPROC=500
+     LimitNOFILE=1000000
+
+     [Install]
+     WantedBy=multi-user.target
+   #+end_src
+2. 执行 _systemctl daemon-reload && systemctl restart v2ray_ 生效
+*** 备注
+1. TPROXY 与 REDIRECT 是针对 TCP 而言的两种透明代理模式，两者的差异主要在于 TPROXY 可以透明代理 IPV6，而 REDIRECT 不行，本文主要是将透明代理模式改为 TPROXY 并且使用了 V2Ray 的 DNS
+   #+begin_example
+     但没有 IPV6 环境，无法进行测试，所以本文只适用于 IPV4
+   #+end_example
+2. 由于设计原因，V2Ray 不支持 Full Cone 类型的 NAT
