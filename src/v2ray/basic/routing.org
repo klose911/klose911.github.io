@@ -1,0 +1,142 @@
+#+TITLE: 路由
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: basic.html
+#+HTML_LINK_UP: log.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+V2Ray 的一大特点就是内置了路由功能，用大白话说就是可以根据自己的实际情况制定一些规则来满足自己的上网需求
+#+begin_example
+最简单最常见的就是直连国内网站、拦截特定站点以及代理被墙网站
+#+end_example
+* 简介
+先简单举几个例子，都是客户端的
+
+** 直连
+#+begin_src js 
+  {
+      "log": {
+	  "loglevel": "warning",
+	  "access": "D:\\v2ray\\access.log",
+	  "error": "D:\\v2ray\\error.log"
+      },
+      "inbounds": [
+	  {
+	      "port": 1080,
+	      "protocol": "socks",
+	      "settings": {
+		  "auth": "noauth"  
+	      }
+	  }
+      ],
+      "outbounds": [
+	  {
+	      "protocol": "freedom", //原来是 VMess，现在改成 freedom
+	      "settings": {
+	      }
+	  }
+      ]
+  }
+#+end_src
+
+如果修改成这个配置重启客户端之后，会发现这个时候浏览器设不设置代理其实是一样的。数据包的流向是:
+
+#+begin_src sh 
+  {浏览器} <--(socks)--> {V2Ray 客户端 inbound <-> V2Ray 客户端 outbound} <--(Freedom)--> {目标网站}
+#+end_src
+
+#+begin_example
+V2Ray 客户端从 inbound 接收到数据之后没有经过 VPS 中转，而是直接由 freedom 发出去了，所以效果跟直接访问一个网站是一样的
+#+end_example
+
+
+** 丢弃
+#+begin_src js 
+  {
+      "log":{
+	  "loglevel": "warning",
+	  "access": "D:\\v2ray\\access.log",
+	  "error": "D:\\v2ray\\error.log"
+      },
+      "inbounds": [
+	  {
+	      "port": 1080,
+	      "protocol": "socks",
+	      "settings": {
+		  "auth": "noauth"  
+	      }
+	  }
+      ],
+      "outbounds": [
+	  {
+	      "protocol": "blackhole",
+	      "settings": {
+	      }
+	  }
+      ]
+  }
+#+end_src
+
+V2Ray 从 inbound 接收到数据之后发到 outbound，因为 outbound 是 blackhole，来什么吞掉什么，就是不转发到服务器或者目标网站，相当于要访问什么就阻止访问什么
+
+** 综合
+#+begin_example
+  到这儿为止，总共介绍了几种出口协议：用于代理的 VMess 和 Shadowsocks 协议，用于直连的 freedom 协议，以及用于阻止连接的 blackhole 协议
+
+  利用这几种协议再配合路由功能可以灵活地根据自己的需求针对不同网站进行代理、直连或者拦截
+
+  举个简单的例子，比较大众的需求是被墙网站走代理，国内网站直连，其他一些不喜欢的则拦截(比如说百度的高精度定位)
+#+end_example
+在 V2Ray 的配置中，outbounds 是出口协议的集合，可以在里面放任意多个出口协议。下面给出放 3 个出口协议配置的例子
+#+begin_src js 
+  {
+      "log": {
+	  "loglevel": "warning",
+	  "access": "D:\\v2ray\\access.log",
+	  "error": "D:\\v2ray\\error.log"
+      },
+      "inbounds": [
+	  {
+	      "port": 1080,
+	      "protocol": "socks",
+	      "settings": {
+		  "auth": "noauth"  
+	      }
+	  }
+      ],
+      "outbounds": [ 
+	  {
+	      "protocol": "vmess", // 出口协议
+	      "settings": {
+		  "vnext": [
+		      {
+			  "address": "serveraddr.com", // 服务器 IP 地址
+			  "port": 16823,  // 服务器端口
+			  "users": [
+			      {
+				  "id": "b831381d-6324-4d53-ad4f-8cda48b30811",  // 用户 ID，须与服务器端配置相同
+				  "alterId": 64
+			      }
+			  ]
+		      }
+		  ]
+	      }
+	  },
+	  {
+	      "protocol": "freedom",
+	      "settings": {}
+	  },
+	  {
+	      "protocol": "blackhole",
+	      "settings": {}
+	  }
+      ]
+  }
+#+end_src
+
+#+begin_example
+  当然这个配置只是包含了多个出口协议而已，在包含多个出口协议的情况下，只会以 outbounds 中的第一个出口作为默认的出口
+
+  要达到上面说的被墙网站走代理，国内网站直连，其他特殊网站拦截的效果，还得加入路由功能的配置
+
+  关于路由功能的配置在后面章节描述
+#+end_example

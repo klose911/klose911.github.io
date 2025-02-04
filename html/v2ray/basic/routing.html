@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>基础</title>
+<title>路由</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -196,29 +196,191 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href=""> UP </a>
+ <a accesskey="h" href="log.html"> UP </a>
  |
- <a accesskey="H" href="../v2ray.html"> HOME </a>
+ <a accesskey="H" href="basic.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">基础</h1>
+<h1 class="title">路由</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org96b4d06">简介</a>
+<ul>
+<li><a href="#org78d8f0c">直连</a></li>
+<li><a href="#org43afb5e">丢弃</a></li>
+<li><a href="#orgd447358">综合</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
 <p>
-这章会有大量描述语言对基础配置进行讲解，目的是简要理解 V2Ray 的工作方式
+V2Ray 的一大特点就是内置了路由功能，用大白话说就是可以根据自己的实际情况制定一些规则来满足自己的上网需求
+</p>
+<pre class="example" id="orgdc85b0c">
+最简单最常见的就是直连国内网站、拦截特定站点以及代理被墙网站
+</pre>
+<div id="outline-container-org96b4d06" class="outline-2">
+<h2 id="org96b4d06">简介</h2>
+<div class="outline-text-2" id="text-org96b4d06">
+<p>
+先简单举几个例子，都是客户端的
+</p>
+</div>
+
+<div id="outline-container-org78d8f0c" class="outline-3">
+<h3 id="org78d8f0c">直连</h3>
+<div class="outline-text-3" id="text-org78d8f0c">
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"log"</span>: {
+        <span style="color: #ffa07a;">"loglevel"</span>: <span style="color: #ffa07a;">"warning"</span>,
+        <span style="color: #ffa07a;">"access"</span>: <span style="color: #ffa07a;">"D:\\v2ray\\access.log"</span>,
+        <span style="color: #ffa07a;">"error"</span>: <span style="color: #ffa07a;">"D:\\v2ray\\error.log"</span>
+    },
+    <span style="color: #ffa07a;">"inbounds"</span>: [
+        {
+            <span style="color: #ffa07a;">"port"</span>: 1080,
+            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"socks"</span>,
+            <span style="color: #ffa07a;">"settings"</span>: {
+                <span style="color: #ffa07a;">"auth"</span>: <span style="color: #ffa07a;">"noauth"</span>  
+            }
+        }
+    ],
+    <span style="color: #ffa07a;">"outbounds"</span>: [
+        {
+            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"freedom"</span>, <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#21407;&#26469;&#26159; VMess&#65292;&#29616;&#22312;&#25913;&#25104; freedom</span>
+            <span style="color: #ffa07a;">"settings"</span>: {
+            }
+        }
+    ]
+}
+</pre>
+</div>
+
+<p>
+如果修改成这个配置重启客户端之后，会发现这个时候浏览器设不设置代理其实是一样的。数据包的流向是:
 </p>
 
-<pre class="example" id="orgf93d493">
-本章每小节的提供配置样例都有服务器和客户端的，也就是说可以直接复制到自己的机器上然后修改一下服务器地址即可使用，这是最少工作量的，
-
-也可以针对自己的情况对其它的选项参数作调整
+<div class="org-src-container">
+<pre class="src src-sh">{&#27983;&#35272;&#22120;} &lt;--(socks)--&gt; {V2Ray &#23458;&#25143;&#31471; inbound &lt;-&gt; V2Ray &#23458;&#25143;&#31471; outbound} &lt;--(Freedom)--&gt; {&#30446;&#26631;&#32593;&#31449;}
 </pre>
+</div>
 
-<ul class="org-ul">
-<li><a href="vmess.html">VMess</a></li>
-<li><a href="ss.html">ShadowSocks</a></li>
-<li><a href="http.html">Http</a></li>
-<li><a href="dns.html">DNS</a></li>
-<li><a href="log.html">日志</a></li>
-<li><a href="routing.html">路由</a></li>
-</ul>
+<pre class="example" id="org86697a9">
+V2Ray 客户端从 inbound 接收到数据之后没有经过 VPS 中转，而是直接由 freedom 发出去了，所以效果跟直接访问一个网站是一样的
+</pre>
+</div>
+</div>
+
+
+<div id="outline-container-org43afb5e" class="outline-3">
+<h3 id="org43afb5e">丢弃</h3>
+<div class="outline-text-3" id="text-org43afb5e">
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"log"</span>:{
+        <span style="color: #ffa07a;">"loglevel"</span>: <span style="color: #ffa07a;">"warning"</span>,
+        <span style="color: #ffa07a;">"access"</span>: <span style="color: #ffa07a;">"D:\\v2ray\\access.log"</span>,
+        <span style="color: #ffa07a;">"error"</span>: <span style="color: #ffa07a;">"D:\\v2ray\\error.log"</span>
+    },
+    <span style="color: #ffa07a;">"inbounds"</span>: [
+        {
+            <span style="color: #ffa07a;">"port"</span>: 1080,
+            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"socks"</span>,
+            <span style="color: #ffa07a;">"settings"</span>: {
+                <span style="color: #ffa07a;">"auth"</span>: <span style="color: #ffa07a;">"noauth"</span>  
+            }
+        }
+    ],
+    <span style="color: #ffa07a;">"outbounds"</span>: [
+        {
+            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"blackhole"</span>,
+            <span style="color: #ffa07a;">"settings"</span>: {
+            }
+        }
+    ]
+}
+</pre>
+</div>
+
+<p>
+V2Ray 从 inbound 接收到数据之后发到 outbound，因为 outbound 是 blackhole，来什么吞掉什么，就是不转发到服务器或者目标网站，相当于要访问什么就阻止访问什么
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd447358" class="outline-3">
+<h3 id="orgd447358">综合</h3>
+<div class="outline-text-3" id="text-orgd447358">
+<pre class="example" id="org141d3c1">
+到这儿为止，总共介绍了几种出口协议：用于代理的 VMess 和 Shadowsocks 协议，用于直连的 freedom 协议，以及用于阻止连接的 blackhole 协议
+
+利用这几种协议再配合路由功能可以灵活地根据自己的需求针对不同网站进行代理、直连或者拦截
+
+举个简单的例子，比较大众的需求是被墙网站走代理，国内网站直连，其他一些不喜欢的则拦截(比如说百度的高精度定位)
+</pre>
+<p>
+在 V2Ray 的配置中，outbounds 是出口协议的集合，可以在里面放任意多个出口协议。下面给出放 3 个出口协议配置的例子
+</p>
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"log"</span>: {
+        <span style="color: #ffa07a;">"loglevel"</span>: <span style="color: #ffa07a;">"warning"</span>,
+        <span style="color: #ffa07a;">"access"</span>: <span style="color: #ffa07a;">"D:\\v2ray\\access.log"</span>,
+        <span style="color: #ffa07a;">"error"</span>: <span style="color: #ffa07a;">"D:\\v2ray\\error.log"</span>
+    },
+    <span style="color: #ffa07a;">"inbounds"</span>: [
+        {
+            <span style="color: #ffa07a;">"port"</span>: 1080,
+            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"socks"</span>,
+            <span style="color: #ffa07a;">"settings"</span>: {
+                <span style="color: #ffa07a;">"auth"</span>: <span style="color: #ffa07a;">"noauth"</span>  
+            }
+        }
+    ],
+    <span style="color: #ffa07a;">"outbounds"</span>: [ 
+        {
+            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"vmess"</span>, <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20986;&#21475;&#21327;&#35758;</span>
+            <span style="color: #ffa07a;">"settings"</span>: {
+                <span style="color: #ffa07a;">"vnext"</span>: [
+                    {
+                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"serveraddr.com"</span>, <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26381;&#21153;&#22120; IP &#22320;&#22336;</span>
+                        <span style="color: #ffa07a;">"port"</span>: 16823,  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26381;&#21153;&#22120;&#31471;&#21475;</span>
+                        <span style="color: #ffa07a;">"users"</span>: [
+                            {
+                                <span style="color: #ffa07a;">"id"</span>: <span style="color: #ffa07a;">"b831381d-6324-4d53-ad4f-8cda48b30811"</span>,  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29992;&#25143; ID&#65292;&#39035;&#19982;&#26381;&#21153;&#22120;&#31471;&#37197;&#32622;&#30456;&#21516;</span>
+                                <span style="color: #ffa07a;">"alterId"</span>: 64
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"freedom"</span>,
+            <span style="color: #ffa07a;">"settings"</span>: {}
+        },
+        {
+            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"blackhole"</span>,
+            <span style="color: #ffa07a;">"settings"</span>: {}
+        }
+    ]
+}
+</pre>
+</div>
+
+<pre class="example" id="orgd9ccab1">
+当然这个配置只是包含了多个出口协议而已，在包含多个出口协议的情况下，只会以 outbounds 中的第一个出口作为默认的出口
+
+要达到上面说的被墙网站走代理，国内网站直连，其他特殊网站拦截的效果，还得加入路由功能的配置
+
+关于路由功能的配置在后面章节描述
+</pre>
+</div>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
