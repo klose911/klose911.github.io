@@ -1,0 +1,276 @@
+#+TITLE: HTTP
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: transport.html
+#+HTML_LINK_UP: websocket.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+* HTTP 伪装
+#+begin_example
+V2Ray 自 v2.5 版本开始提供 HTTP 伪装功能，后经作者不断完善，到现在已经非常成熟稳定了
+#+end_example
+V2Ray 的 HTTP 伪装功能可以可以将 V2Ray 的流量伪装成正常的 HTTP 协议的。这里给出一个 HTTP 伪装的服务器端与客户端配置文件示例。
+
+#+begin_example
+配置中关于 HTTP 头字段的内容及含义，Wikipedia 有简要的说明，可参阅
+#+end_example
+** 配置
+*** 服务器
+#+begin_src js 
+  {
+      "log" : {
+	  "access": "/var/log/v2ray/access.log",
+	  "error": "/var/log/v2ray/error.log",
+	  "loglevel": "warning"
+      },
+      "inbounds": [
+	  {
+	      "port": 80, //推荐80端口，更好地迷惑防火墙（好吧实际上并没有什么卵用
+	      "protocol": "vmess",
+	      "settings": {
+		  "clients": [
+		      {
+			  "id": "b831381d-6324-4d53-ad4f-8cda48b30811",
+			  "level": 1,
+			  "alterId": 64
+		      }
+		  ]
+	      },
+	      "streamSettings": {
+		  "network": "tcp",
+		  "tcpSettings": {
+		      "header": { // header 这一项是关于数据包伪装的设置，可自定义合理的内容，但要确保服务器与客户端一致
+			  "type": "http",
+			  "response": {
+			      "version": "1.1",
+			      "status": "200",
+			      "reason": "OK",
+			      "headers": {
+				  "Content-Type": ["application/octet-stream", "application/x-msdownload", "text/html", "application/x-shockwave-flash"],
+				  "Transfer-Encoding": ["chunked"],
+				  "Connection": ["keep-alive"],
+				  "Pragma": "no-cache"
+			      }
+			  }
+		      }
+		  }
+	      }
+	  }
+      ],
+      "outbounds": [
+	  {
+	      "protocol": "freedom",
+	      "settings": {}
+	  },
+	  {
+	      "protocol": "blackhole",
+	      "settings": {},
+	      "tag": "blocked"
+	  }
+      ],
+      "routing": {
+	  "strategy": "rules",
+	  "settings": {
+	      "rules": [
+		  {
+		      "type": "field",
+		      "ip": [
+			  "geoip:private"
+		      ],
+		      "outboundTag": "blocked"
+		  }
+	      ]
+	  }
+      }
+  }
+#+end_src
+*** 客户端
+
+#+begin_src js 
+  {
+      "log": {
+	  "loglevel": "warning"
+      },
+      "inbounds": [
+	  {
+	      "port": 1080,
+	      "protocol": "socks",
+	      "sniffing": {
+		  "enabled": true,
+		  "destOverride": ["http", "tls"]
+	      },
+	      "settings": {
+		  "auth": "noauth"
+	      }
+	  }
+      ],
+      "outbounds": [
+	  {
+	      "protocol": "vmess",
+	      "settings": {
+		  "vnext": [
+		      {
+			  "address": "serveraddr.com",
+			  "port": 80,
+			  "users": [
+			      {
+				  "id": "b831381d-6324-4d53-ad4f-8cda48b30811",
+				  "alterId": 64
+			      }
+			  ]
+		      }
+		  ]
+	      },
+	      "streamSettings": {
+		  "network": "tcp",
+		  "tcpSettings": {
+		      "header": {  //这里的 header 要与服务器保持一致
+			  "type": "http",
+			  "request": {
+			      "version": "1.1",
+			      "method": "GET",
+			      "path": ["/"],
+			      "headers": {
+				  "Host": ["www.cloudflare.com", "www.amazon.com"],
+				  "User-Agent": [
+				      "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.75 Safari/537.36",
+				      "Mozilla/5.0 (iPhone; CPU iPhone OS 10_0_2 like Mac OS X) AppleWebKit/601.1 (KHTML, like Gecko) CriOS/53.0.2785.109 Mobile/14A456 Safari/601.1.46"
+				  ],
+				  "Accept-Encoding": ["gzip, deflate"],
+				  "Connection": ["keep-alive"],
+				  "Pragma": "no-cache"
+			      }
+			  }
+		      }
+		  }
+	      }
+	  },
+	  {
+	      "protocol": "freedom",
+	      "settings": {},
+	      "tag": "direct"
+	  }
+      ],
+      "routing": {
+	  "strategy": "rules",
+	  "settings": {
+	      "domainStrategy": "IPIfNonMatch",
+	      "rules": [
+		  {
+		      "type": "field",
+		      "ip": [
+			  "geoip:private"
+		      ],
+		      "outboundTag": "direct"
+		  },
+		  {
+		      "type": "chinasites",
+		      "outboundTag": "direct"
+		  },
+		  {
+		      "type": "chinaip",
+		      "outboundTag": "direct"
+		  }
+	      ]
+	  }
+      }
+  }
+#+end_src
+* HTTP/2 
+简单地说 HTTP/2 是 HTTP/1.1 的升级版（目前大多数网页还是 HTTP/1.1），HTTP/2 协议一般简称为 _h2_ 
+
+#+begin_example
+  在 v2ray 中使用 h2，经常被用户们用来跟 websocket 方式做比较
+
+  从理论上来说，HTTP/2 在首次连接时，不像 websocket 需完成 upgrade 请求；v2ray 客户端和服务端之间一般直接通信，较少中间层代理
+
+  但是，在配合 CDN、Nginx/Caddy/Apache 等服务组件作为前置分流代理的应用场景上，h2 没有 websocket 方式灵活，因为很多代理并不提供 h2 协议的后端支持
+
+  实际使用中，websocket 和 h2 的方式，在体验上很可能没有明显区别，用户可自行根据需要选择
+#+end_example
+** 配置
+与其它的传输层协议一样在 streamSettings 中配置，不过要注意的是使用 HTTP/2 要开启 TLS
+*** 服务器
+#+begin_src js 
+  {
+      "inbounds": [
+	  {
+	      "port": 443,
+	      "protocol": "vmess",
+	      "settings": {
+		  "clients": [
+		      {
+			  "id": "b831381d-6324-4d53-ad4f-8cda48b30811",
+			  "alterId": 64
+		      }
+		  ]
+	      },
+	      "streamSettings": {
+		  "network": "h2", // h2 也可写成 http，效果一样
+		  "httpSettings": { //此项是关于 HTTP/2 的设置
+		      "path": "/ray"
+		  },
+		  "security": "tls", // 配置tls
+		  "tlsSettings": {
+		      "certificates": [
+			  {
+			      "certificateFile": "/etc/v2ray/v2ray.crt", // 证书文件，详见 tls 小节
+			      "keyFile": "/etc/v2ray/v2ray.key" // 密钥文件
+			  }
+		      ]
+		  }
+	      }
+	  }
+      ],
+      "outbounds": [
+	  {
+	      "protocol": "freedom",
+	      "settings": {}
+	  }
+      ]
+  }
+#+end_src
+*** 客户端
+#+begin_src js 
+  {
+      "inbounds": [
+	  {
+	      "port": 1080,
+	      "listen": "127.0.0.1",
+	      "protocol": "socks",
+	      "sniffing": {
+		  "enabled": true,
+		  "destOverride": ["http", "tls"]
+	      },
+	      "settings": {
+		  "auth": "noauth",
+		  "udp": false
+	      }
+	  }
+      ],
+      "outbounds": [
+	  {
+	      "protocol": "vmess",
+	      "settings": {
+		  "vnext": [
+		      {
+			  "address": "mydomain.me",
+			  "port": 443,
+			  "users": [
+			      {
+				  "id": "b831381d-6324-4d53-ad4f-8cda48b30811",
+				  "alterId": 64
+			      }
+			  ]
+		      }
+		  ]
+	      },
+	      "streamSettings": {
+		  "network": "h2",
+		  "httpSettings": { //此项是关于 HTTP/2 的设置
+		      "path": "/ray"
+		  },
+		  "security": "tls"
+	      }
+	  }
+      ]
+  }
+#+end_src
