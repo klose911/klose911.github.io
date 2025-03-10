@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>前置代理</title>
+<title>负载均衡</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -196,169 +196,105 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="reverse_proxy.html"> UP </a>
+ <a accesskey="h" href="forward_proxy.html"> UP </a>
  |
  <a accesskey="H" href="application.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">前置代理</h1>
+<h1 class="title">负载均衡</h1>
 <div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org851c49c">基本配置</a>
-<ul>
-<li><a href="#orgb96d79f">客户端</a></li>
-<li><a href="#orge4cacad">Https</a></li>
-</ul>
-</li>
+<li><a href="#org9460b78">配置</a></li>
+<li><a href="#org548a948">原理</a></li>
+<li><a href="#orgb29d5d0">注意</a></li>
 </ul>
 </div>
 </div>
 <p>
-前置代理可以在需要 http 代理才能联网的场景下用到,本质上前置代理是 <a href="https://guide.v2fly.org/advanced/outboundproxy.html">代理转发</a> 的一种,只需要修改客户端配置即可
+相较于 Shadowsocks 等其它的代理，V2Ray 可以配置多服务器实现负载均衡。此处的负载均衡并非是自动选择一个延迟或网速最好的服务器进行连接，而是指多个服务器共同承担网络流量，从而减小单个服务器的资源占用及提高服务器的利用率
 </p>
-<div id="outline-container-org851c49c" class="outline-2">
-<h2 id="org851c49c">基本配置</h2>
-<div class="outline-text-2" id="text-org851c49c">
-<p>
-使用前置代理可以实现先通过 HTTP 代理联网,然后再使用 V2Ray(VMESS)的效果.并且 HTTP 代理服务器只能看见加密的流量,并不能看到在访问什么
-</p>
-</div>
-<div id="outline-container-orgb96d79f" class="outline-3">
-<h3 id="orgb96d79f">客户端</h3>
-<div class="outline-text-3" id="text-orgb96d79f">
-<div class="org-src-container">
-<pre class="src src-js">{
-    <span style="color: #ffa07a;">"outbounds"</span>: [
-        {
-            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"vmess"</span>,
-            <span style="color: #ffa07a;">"settings"</span>: { <span style="color: #ff4500;">// </span><span style="color: #ff4500;">settings &#30340;&#26681;&#25454;&#23454;&#38469;&#24773;&#20917;&#20462;&#25913;</span>
-                <span style="color: #ffa07a;">"vnext"</span>: [
-                    {
-                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"1.1.1.1"</span>,
-                        <span style="color: #ffa07a;">"port"</span>: 8888,
-                        <span style="color: #ffa07a;">"users"</span>: [
-                            {
-                                <span style="color: #ffa07a;">"alterId"</span>: 64,
-                                <span style="color: #ffa07a;">"id"</span>: <span style="color: #ffa07a;">"b12614c5-5ca4-4eba-a215-c61d642116ce"</span>
-                            }
-                        ]
-                    }
-                ]
-            },
-            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"VMESS"</span>,
-            <span style="color: #ffa07a;">"proxySettings"</span>: {
-                <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"HTTP"</span>  
-            }
-        },
-        {
-            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"http"</span>,
-            <span style="color: #ffa07a;">"settings"</span>: {
-                <span style="color: #ffa07a;">"servers"</span>: [
-                    {
-                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"192.168.108.1"</span>,<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#26381;&#21153;&#22120;IP</span>
-                        <span style="color: #ffa07a;">"port"</span>: 3128,<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#26381;&#21153;&#22120;&#31471;&#21475;</span>
-                        <span style="color: #ffa07a;">"users"</span>: [
-                            {
-                                <span style="color: #ffa07a;">"user"</span>: <span style="color: #ffa07a;">"my-username"</span>,<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#23558;my-username&#25913;&#20026;&#20320;&#30340;&#29992;&#25143;&#21517;.</span>
-                                <span style="color: #ffa07a;">"pass"</span>: <span style="color: #ffa07a;">"my-password"</span> <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#23558;my-password&#25913;&#20026;&#20320;&#30340;&#23494;&#30721;</span>
-                            }
-                        ]
-                    }
-                ]
-            },
-            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"HTTP"</span>
-        }
-    ]
-}
+
+<pre class="example" id="orgbb07182">
+举个实际例子，早期的时候 V2Ray 优化稍差，再加上我的vps特别小，恰恰网络带宽非常大
+
+所以每当使用代理全力下载大文件时 VPS 负荷很大，当时 CPU 占用率都在 80% 以上，时而超过 95%
+
+这样的情况使得下载东西时基本都限一下速，就怕商家停了我的机子
+
+后来突然想到 V2Ray 可以均衡负载，配置好双服务器均衡之后大流量下载虽然 CPU 占用率还有 50% 左右，但至少我可以毫无顾忌地大流量下载了
 </pre>
-</div>
-</div>
-</div>
-<div id="outline-container-orge4cacad" class="outline-3">
-<h3 id="orge4cacad">Https</h3>
-<div class="outline-text-3" id="text-orge4cacad">
+<div id="outline-container-org9460b78" class="outline-2">
+<h2 id="org9460b78">配置</h2>
+<div class="outline-text-2" id="text-org9460b78">
 <p>
-如果需要 https 代理为出口的话需要这样写
+实现负载均衡很简单，在客户端配置同一个 outbound 的 vnext 写入各个服务器的配置即可(前提是服务器已经部署好并能正常使用)。形如：
 </p>
 
 <div class="org-src-container">
 <pre class="src src-js">{
-    <span style="color: #ffa07a;">"outbounds"</span>: [
+    <span style="color: #ffa07a;">"inbounds"</span>: [
+        ...
+    ],
+    <span style="color: #ffa07a;">"outbound"</span>: [
         {
             <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"vmess"</span>,
-            <span style="color: #ffa07a;">"settings"</span>: { <span style="color: #ff4500;">// </span><span style="color: #ff4500;">settings &#30340;&#26681;&#25454;&#23454;&#38469;&#24773;&#20917;&#20462;&#25913;</span>
+            <span style="color: #ffa07a;">"settings"</span>: {
                 <span style="color: #ffa07a;">"vnext"</span>: [
                     {
-                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"1.1.1.1"</span>,
-                        <span style="color: #ffa07a;">"port"</span>: 8888,
+                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"address_of_vps1"</span>,
+                        <span style="color: #ffa07a;">"port"</span>: 8232,
                         <span style="color: #ffa07a;">"users"</span>: [
                             {
-                                <span style="color: #ffa07a;">"alterId"</span>: 64,
-                                <span style="color: #ffa07a;">"id"</span>: <span style="color: #ffa07a;">"b12614c5-5ca4-4eba-a215-c61d642116ce"</span>
+                                <span style="color: #ffa07a;">"id"</span>: <span style="color: #ffa07a;">"1ce383ea-13e9-4939-9b1d-20d67135969a"</span>,
+                                <span style="color: #ffa07a;">"alterId"</span>: 64
                             }
                         ]
-                    }
-                ]
-            },
-            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"VMESS"</span>,
-            <span style="color: #ffa07a;">"proxySettings"</span>: {
-                <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"HTTP"</span>  
-            }
-        },
-        {
-            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"http"</span>,
-            <span style="color: #ffa07a;">"settings"</span>: {
-                <span style="color: #ffa07a;">"servers"</span>: [
+                    },
                     {
-                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"192.168.108.1"</span>,<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#26381;&#21153;&#22120;IP</span>
-                        <span style="color: #ffa07a;">"port"</span>: 3128,<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#26381;&#21153;&#22120;&#31471;&#21475;</span>
+                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"address_of_vps2"</span>,
+                        <span style="color: #ffa07a;">"port"</span>: 4822,
                         <span style="color: #ffa07a;">"users"</span>: [
                             {
-                                <span style="color: #ffa07a;">"user"</span>: <span style="color: #ffa07a;">"my-username"</span>,<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#23558;my-username&#25913;&#20026;&#20320;&#30340;&#29992;&#25143;&#21517;.</span>
-                                <span style="color: #ffa07a;">"pass"</span>: <span style="color: #ffa07a;">"my-password"</span> <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#23558;my-password&#25913;&#20026;&#20320;&#30340;&#23494;&#30721;</span>
+                                <span style="color: #ffa07a;">"id"</span>: <span style="color: #ffa07a;">"bc172445-4b5e-49b2-a712-12c5295fd26b"</span>,
+                                <span style="color: #ffa07a;">"alterId"</span>: 64
                             }
                         ]
                     }
+                    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#36824;&#26377;&#26356;&#22810;&#26381;&#21153;&#22120;&#21487;&#32487;&#32493;&#28155;&#21152;</span>
                 ]
             },
             <span style="color: #ffa07a;">"streamSettings"</span>: {
-                <span style="color: #ffa07a;">"security"</span>: <span style="color: #ffa07a;">"tls"</span>,
-                <span style="color: #ffa07a;">"tlsSettings"</span>: {
-                    <span style="color: #ffa07a;">"allowInsecure"</span>: <span style="color: #7fffd4;">false</span>
-                    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#26159;&#21542;&#26816;&#27979;&#35777;&#20070;&#26377;&#25928;&#24615;,&#22312;&#33258;&#23450;&#20041;&#35777;&#20070;&#30340;&#24773;&#20917;&#24320;&#21487;&#20197;&#24320;&#21551;(false&#25913;&#20026;true)&#36825;&#20010;</span>
-                }
-            },
-            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"HTTP"</span>
-        }
+                ...
+            }
+        },
+        ...
     ]
 }
 </pre>
 </div>
-
+</div>
+</div>
+<div id="outline-container-org548a948" class="outline-2">
+<h2 id="org548a948">原理</h2>
+<div class="outline-text-2" id="text-org548a948">
 <p>
-注意:使用 HTTP 为前置代理时,因为 HTTP 协议的特性 <b>无法代理 UDP 包</b> ,所以 <b>底层传输协议</b> 不要选择 <span class="underline">KCP</span> , <span class="underline">QUIC</span> 之类以 UDP 传输的协议
+V2Ray 是以轮询的方式均衡负载，也就是说当有流量需要通过代理时，首先走第一个 vnext 配置的服务器，有第二个连接就走第二个服务器，接着第三个，以此类推。轮询完一遍又头开始轮询。这样的方式虽然简单粗暴，特别是对于拥有多个性能差的 VPS 的人来说比较有用
 </p>
 
-<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<pre class="example" id="org43ddaa5">
+另外也能减小长时间大流量连接单个 IP 的特征
 
-
-<colgroup>
-<col  class="org-left" />
-
-<col  class="org-left" />
-
-<col  class="org-left" />
-</colgroup>
-<tbody>
-<tr>
-<td class="org-left"><a href="load_balancer.html">Next：负载均衡</a></td>
-<td class="org-left"><a href="reverse_proxy.html">Previous：反向代理</a></td>
-<td class="org-left"><a href="application.html">Home：应用</a></td>
-</tr>
-</tbody>
-</table>
+由于没有足够的样本，我个人对这样的条件作为代理判据持怀疑态度，给自己一个心理安慰
+</pre>
 </div>
+</div>
+<div id="outline-container-orgb29d5d0" class="outline-2">
+<h2 id="orgb29d5d0">注意</h2>
+<div class="outline-text-2" id="text-orgb29d5d0">
+<p>
+端口、id 这些在 vnext 数组内的配置项可以各不相同，但是它们的 <b>传输层</b> 配置 <span class="underline">streamSettings</span> 必须一致
+</p>
 </div>
 </div>
 </div>
