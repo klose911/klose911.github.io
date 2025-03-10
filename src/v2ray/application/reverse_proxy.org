@@ -1,0 +1,297 @@
+#+TITLE: 反向代理
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: application.html
+#+HTML_LINK_UP: tproxy.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+#+begin_example
+反向代理是一个呼声比较高的功能请求，从 v2.x 版本时就有不少人询问开发者能否加入这个功能，直至 v4.0 终于推出了
+#+end_example
+反向代理的主要是用来作 *内网穿透* ，其实就是利用 VPS 访问不具有公网 IP 的内网服务器
+
+#+begin_example
+  具体的例子是，家里有一台 NAS，因为没有公网 IP，正常情况下在外面（离开了家里的网络）没法直接访问这台 NAS，但是通过反向代理就可以
+
+  提到反向代理，就不得不提一下如今广为推崇的 FRP，V2Ray 的配置相较来说会难以理解一些，希望做好准备
+#+end_example
+* 原理
+#+begin_example
+  为了易于理解，约定有 3 种设备，名为 A, B, C
+
+  其中 A 为不具备公网 IP 的内网服务器，运行了 NAS 或个人网盘等
+
+  B 为具有公网 IP 的服务器，如平常购买的 VPS
+
+  C 为想要访问 NAS 或私有网盘的设备（本节假设已经搭建好了私有网盘，监听的端口为 80）
+
+  这 3 种的每一种设备都可以是一台或多台，先以每种设备都是 1 台来说明
+#+end_example
+
+为了能够建立反向代理连接，A 和 B 都要运行 V2Ray，C 可以不运行 V2Ray 。在设置好配置文件并运行 V2Ray 之后，反向代理中连接建立的次序为：
+1. A 会主动向 B 发起请求，建立起一个连接
+2. 用户在 C 上向 B 发起请求，欲访问 A 上的私有网盘
+3. B 接受 C 的请求，通过 A 向 B 建立的连接转发给 A(即 B 反向连接了 A)
+
+#+ATTR_HTML: image :width 80% 
+[[file:../pic/block_of_reverse-doko.6abc2d13.png]]
+
+以上过程效果就相当于 C 向 A 发起请求，达到了访问 A 的私有网盘的目的：
++ A 向 B 发起请求，A 需要一个 outbound ，B 需要一个 inbound
+  #+begin_example
+    因为 A 的 outbound 是连接到 B 的 inbound
+
+    具备 inbound 和 outbound 的协议有 3 种：VMess, Shadowsocks 和 Socks，这里以 VMess 为例
+  #+end_example
++ C 向 B 发起请求，B 还需要一个 inbound，C 不运行 V2
+  #+begin_example
+    B 的 inbound 要接受不是来自 V2 的流量，只能是任意门 dokodemo-door
+  #+end_example
++ 因为是 A 来访问最终的服务器(私有网盘)，所以 A 还需有一个 outbound，即 freedom
+  #+begin_example
+    也就是说 A 需要两个 outbound（VMess 和 freedom）
+
+    B 需要两个 inbound(VMess 和 dokodemo-door)
+  #+end_example
++ 为了让 A 能够主动连接 B， A 需要配置 *反向代理* _reverse_
+  + 同样的，为了能够让 B 反向连接 A， B 也需要配置 *反向代理* _reverse_
++ 最后还要配置好 *路由* 
+
+* 配置
+以下给出具体配置，请结合原理部分的描述进行理解
+** A 的配置
+#+begin_src js 
+  {  
+      "reverse":{ 
+	  // 这是 A 的反向代理设置，必须有下面的 bridges 对象
+	  "bridges":[  
+	      {  
+		  "tag":"bridge", // 关于 A 的反向代理标签，在路由中会用到
+		  "domain":"private.cloud.com" // A 和 B 反向代理通信的域名，可以自己取一个，可以不是自己购买的域名，但必须跟下面 B 中的 reverse 配置的域名一致
+	      }
+	  ]
+      },
+      "outbounds": [
+	  {  
+	      //A连接B的outbound  
+	      "tag":"tunnel", // A 连接 B 的 outbound 的标签，在路由中会用到
+	      "protocol":"vmess",
+	      "settings":{  
+		  "vnext":[  
+		      {  
+			  "address":"serveraddr.com", // B 地址，IP 或 实际的域名
+			  "port":16823,
+			  "users":[  
+			      {  
+				  "id":"b831381d-6324-4d53-ad4f-8cda48b30811",
+				  "alterId":64
+			      }
+			  ]
+		      }
+		  ]
+	      }
+	  },
+	  // 另一个 outbound，最终连接私有网盘    
+	  {  
+	      "protocol":"freedom",
+	      "settings":{  
+	      },
+	      "tag":"out"
+	  }    
+      ],
+      "routing":{   
+	  "rules":[  
+	      {  
+		  // 配置 A 主动连接 B 的路由规则
+		  "type":"field",
+		  "inboundTag":[  
+		      "bridge"
+		  ],
+		  "domain":[  
+		      "full:private.cloud.com"
+		  ],
+		  "outboundTag":"tunnel"
+	      },
+	      {  
+		  // 反向连接访问私有网盘的规则
+		  "type":"field",
+		  "inboundTag":[  
+		      "bridge"
+		  ],
+		  "outboundTag":"out"
+	      }
+	  ]
+      }
+  }
+#+end_src
+** B 的配置
+#+begin_src js 
+  {  
+      "reverse":{  //这是 B 的反向代理设置，必须有下面的 portals 对象
+	  "portals":[  
+	      {  
+		  "tag":"portal",
+		  "domain":"private.cloud.com"        // 必须和上面 A 设定的域名一样
+	      }
+	  ]
+      },
+      "inbounds": [
+	  {  
+	      // 接受 C 的inbound
+	      "tag":"external", // 标签，路由中用到
+	      "port":80,
+	      // 开放 80 端口，用于接收外部的 HTTP 访问 
+	      "protocol":"dokodemo-door",
+	      "settings":{  
+		  "address":"127.0.0.1",
+		  "port":80, //假设 NAS 监听的端口为 80
+		  "network":"tcp"
+	      }
+	  },
+	  // 另一个 inbound，接受 A 主动发起的请求  
+	  {  
+	      "tag": "tunnel",// 标签，路由中用到
+	      "port":16823,
+	      "protocol":"vmess",
+	      "settings":{  
+		  "clients":[  
+		      {  
+			  "id":"b831381d-6324-4d53-ad4f-8cda48b30811",
+			  "alterId":64
+		      }
+		  ]
+	      }
+	  }
+      ],
+      "routing":{  
+	  "rules":[  
+	      {  //路由规则，接收 C 请求后发给 A
+		  "type":"field",
+		  "inboundTag":[  
+		      "external"
+		  ],
+		  "outboundTag":"portal"
+	      },
+	      {  //路由规则，让 B 能够识别这是 A 主动发起的反向代理连接
+		  "type":"field",
+		  "inboundTag":[  
+		      "tunnel"
+		  ],
+		  "domain":[  
+		      "full:private.cloud.com"
+		  ],
+		  "outboundTag":"portal"
+	      }
+	  ]
+      }
+  }
+#+end_src
+
+* 访问
+配置好 A 和 B 的 V2Ray 配置后，先后运行 A 和 B 的 V2Ray，同时搭建在 A 私有网盘也要运行。然后 C 接入跟 A 不同的网络（比如说到邻居家蹭网），用浏览器访问 B 的 IP 或域名，这时就能内网穿透访问私有网盘了
+
+
+* 优化
+上面介绍利用反向代理访问不具备公网 IP 的内网服务（私有网盘）。但是这种反向代理有一个局限，那就是 *只能分配有限的端口映射* 
+#+begin_example
+  比如说，映射了私有网盘的 80 端口，如果家里有好多设备，运行了很多软件（比如私有网盘、NAS、个人博客、代码仓库等）
+
+  前面介绍的反向代理也可以用，但是有一一分配端口映射，很不优雅，配置写起来也烦
+
+  接下来介绍另一种反向代理的配置方式，解决了刚刚所举例子的问题，也具有更强的普适性，对于广大网友来说更加实用
+#+end_example
+接下来的反向代理可以实现：
++ 对于留学生等海外华人，有时候想看中文的视频或听中文音乐等，因为版权原因，没法直接上大陆的网站观看，买大陆的 VPS 又太贵。如果在大陆家里搭建一个 V2Ray，再买一个海外的 VPS，利用反向代理就可以随便看大陆可以看的视频
++ 对于大学生，可以利用反向代理在校外访问校园网的资源，无限制下载论文等
++ 对于程序员，可以在家里查看公司的代码仓库
++ 对于普通用户，可以在外面看家里的监控
+
+** 原理
+原理与上一节的反向代理大同小异，差别在于 B 的 dokodemo-door 改成 VMess，然后 C 需要安装 V2Ray 连接 B 的 VMess
+#+ATTR_HTML: image :width 80% 
+[[file:../pic/block_of_reverse-vmess.cd11ba0c.png]]
+
+最终的效果就是 C 通过 V2Ray 连接 B，B 反向代理给 A，就相当于 C 使用 V2Ray 通过 A 代理上网
+
+#+begin_example
+（勘误：图中 C 的 inbound 应为 Socks）
+#+end_example
+
+** A 的配置
+A 的配置与上一节无变化
+
+** B 的配置
+B 的配置只有 inbound 部分发生了变化
+
+#+begin_src js 
+  {  
+      "reverse":{  //这是 B 的反向代理设置，必须有下面的 portals 对象
+	  "portals":[  
+	      {  
+		  "tag":"portal",
+		  "domain":"pc1.localhost"        // 必须和上面 A 设定的域名一样
+	      }
+	  ]
+      },
+      "inbounds":[
+	  {  
+	      // 接受 C 的inbound
+	      "tag":"tunnel", // 标签，路由中用到
+	      "port":11872,
+	      "protocol":"vmess",
+	      "settings":{  
+		  "clients":[  
+		      {  
+			  "id":"a26efdb8-ef34-4278-a4e6-2af32cc010aa",
+			  "alterId":64
+		      }
+		  ]
+	      }
+	  },
+	  // 另一个 inbound，接受 A 主动发起的请求  
+	  {  
+	      "tag": "interconn",// 标签，路由中用到
+	      "port":16823,
+	      "protocol":"vmess",
+	      "settings":{  
+		  "clients":[  
+		      {  
+			  "id":"b831381d-6324-4d53-ad4f-8cda48b30811",
+			  "alterId":64
+		      }
+		  ]
+	      }
+	  }
+      ],
+      "routing":{   
+	  "rules":[  
+	      {  //路由规则，接收 C 的请求后发给 A
+		  "type":"field",
+		  "inboundTag":[  
+		      "interconn"
+		  ],
+		  "outboundTag":"portal"
+	      },
+	      {  //路由规则，让 B 能够识别这是 A 主动发起的反向代理连接
+		  "type":"field",
+		  "inboundTag":[  
+		      "tunnel"
+		  ],
+		  "domain":[  
+		      "full:private.cloud.com" // 将指定域名的请求发给 A，如果希望将全部流量发给 A，这里可以不设置域名规则。
+		  ],
+		  "outboundTag":"portal"
+	      }
+	  ]
+      }
+  }
+#+end_src
+
+#+begin_example
+Tips： 在 B 的配置中，可以使用同一个 VMess inbound 来接受 A 和 C 的请求来简化配置
+#+end_example
+
+** C 的配置
+与普通客户端配置一样，连接的服务器是 B，因此忽略
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:forward_proxy.org][Next：前置代理]] | [[file:tproxy.org][Previous：透明代理]] | [[file:application.org][Home：应用]] |
