@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>负载均衡</title>
+<title>Android 免 Root 运行 core</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -196,124 +196,257 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="forward_proxy.html"> UP </a>
+ <a accesskey="h" href="load_balancer.html"> UP </a>
  |
  <a accesskey="H" href="application.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">负载均衡</h1>
+<h1 class="title">Android 免 Root 运行 core</h1>
 <div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org9460b78">配置</a></li>
-<li><a href="#org548a948">原理</a></li>
-<li><a href="#orgb29d5d0">注意</a></li>
+<li><a href="#org7bde692">编译</a>
+<ul>
+<li><a href="#org517d564">环境变量</a></li>
+<li><a href="#org1af9e6d">资源存放</a></li>
+</ul>
+</li>
+<li><a href="#org224790a">运行</a>
+<ul>
+<li><a href="#org2157731">连接ADB</a></li>
+<li><a href="#orgbe2aa71">检测设备</a></li>
+<li><a href="#orgea809e2">传输文件</a></li>
+</ul>
+</li>
+<li><a href="#org106b7e7">全局代理</a>
+<ul>
+<li><a href="#orgf428d39">细节</a></li>
+</ul>
+</li>
+<li><a href="#org6cc230d">其他</a></li>
 </ul>
 </div>
 </div>
 <p>
-相较于 Shadowsocks 等其它的代理，V2Ray 可以配置多服务器实现负载均衡。此处的负载均衡并非是自动选择一个延迟或网速最好的服务器进行连接，而是指多个服务器共同承担网络流量，从而减小单个服务器的资源占用及提高服务器的利用率
+安卓无 Root 权限运行 V2Ray-core 并配置全局代理
 </p>
 
-<pre class="example" id="org449d8b6">
-举个实际例子，早期的时候 V2Ray 优化稍差，再加上我的vps特别小，恰恰网络带宽非常大
-
-所以每当使用代理全力下载大文件时 VPS 负荷很大，当时 CPU 占用率都在 80% 以上，时而超过 95%
-
-这样的情况使得下载东西时基本都限一下速，就怕商家停了我的机子
-
-后来突然想到 V2Ray 可以均衡负载，配置好双服务器均衡之后大流量下载虽然 CPU 占用率还有 50% 左右，但至少我可以毫无顾忌地大流量下载了
+<pre class="example" id="org52893d3">
+此方法适用于不经常更改配置且设备无 Root 权限的用户
 </pre>
-<div id="outline-container-org9460b78" class="outline-2">
-<h2 id="org9460b78">配置</h2>
-<div class="outline-text-2" id="text-org9460b78">
-<p>
-实现负载均衡很简单，在客户端配置同一个 outbound 的 vnext 写入各个服务器的配置即可(前提是服务器已经部署好并能正常使用)。形如：
-</p>
 
+<p>
+准备工具：
+</p>
+<ul class="org-ul">
+<li>电脑</li>
+<li>adb 环境</li>
+<li>数据线(用于设备与电脑连接)</li>
+</ul>
+
+<p>
+技能：
+</p>
+<ul class="org-ul">
+<li>了解 APN 设置</li>
+<li>Linux 经验</li>
+<li>会编译 V2Ray-core</li>
+<li>会设置操作系统的环境变量</li>
+</ul>
+
+<p>
+环境：
+</p>
+<ul class="org-ul">
+<li><p>
+Android 10
+</p>
+<pre class="example" id="org8dcec80">
+由于 Golang 仅支持 Android 10+ 低版本 Android 可能无法通过此方法运行
+</pre></li>
+<li>ARM V8</li>
+</ul>
+
+<p>
+缺点：
+</p>
+<ul class="org-ul">
+<li>设备重启后需要手动启动程序</li>
+<li>USB 使用 <span class="underline">文件传输</span> 模式时会自动结束所有通过此方法启动的进程</li>
+</ul>
+<div id="outline-container-org7bde692" class="outline-2">
+<h2 id="org7bde692">编译</h2>
+<div class="outline-text-2" id="text-org7bde692">
+<p>
+Go 语言主要通过 <span class="underline">GOOS</span> 和 <span class="underline">GOARCH</span> 来控制编译环境
+</p>
+</div>
+<div id="outline-container-org517d564" class="outline-3">
+<h3 id="org517d564">环境变量</h3>
+<div class="outline-text-3" id="text-org517d564">
+<p>
+使用 arm64 即为 ARM V8
+</p>
 <div class="org-src-container">
-<pre class="src src-js">{
-    <span style="color: #ffa07a;">"inbounds"</span>: [
-        ...
-    ],
-    <span style="color: #ffa07a;">"outbound"</span>: [
-        {
-            <span style="color: #ffa07a;">"protocol"</span>: <span style="color: #ffa07a;">"vmess"</span>,
-            <span style="color: #ffa07a;">"settings"</span>: {
-                <span style="color: #ffa07a;">"vnext"</span>: [
-                    {
-                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"address_of_vps1"</span>,
-                        <span style="color: #ffa07a;">"port"</span>: 8232,
-                        <span style="color: #ffa07a;">"users"</span>: [
-                            {
-                                <span style="color: #ffa07a;">"id"</span>: <span style="color: #ffa07a;">"1ce383ea-13e9-4939-9b1d-20d67135969a"</span>,
-                                <span style="color: #ffa07a;">"alterId"</span>: 64
-                            }
-                        ]
-                    },
-                    {
-                        <span style="color: #ffa07a;">"address"</span>: <span style="color: #ffa07a;">"address_of_vps2"</span>,
-                        <span style="color: #ffa07a;">"port"</span>: 4822,
-                        <span style="color: #ffa07a;">"users"</span>: [
-                            {
-                                <span style="color: #ffa07a;">"id"</span>: <span style="color: #ffa07a;">"bc172445-4b5e-49b2-a712-12c5295fd26b"</span>,
-                                <span style="color: #ffa07a;">"alterId"</span>: 64
-                            }
-                        ]
-                    }
-                    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#36824;&#26377;&#26356;&#22810;&#26381;&#21153;&#22120;&#21487;&#32487;&#32493;&#28155;&#21152;</span>
-                ]
-            },
-            <span style="color: #ffa07a;">"streamSettings"</span>: {
-                ...
-            }
-        },
-        ...
-    ]
-}
+<pre class="src src-sh"><span style="color: #b0c4de;">export</span> <span style="color: #eedd82;">GOOS</span>=android
+<span style="color: #b0c4de;">export</span> <span style="color: #eedd82;">GOARCH</span>=arm64
+</pre>
+</div>
+
+<p>
+其他 ARM 架构，列如 V7：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #b0c4de;">export</span> <span style="color: #eedd82;">GOOS</span>=android
+<span style="color: #b0c4de;">export</span> <span style="color: #eedd82;">GOARCH</span>=arm
+<span style="color: #b0c4de;">export</span> <span style="color: #eedd82;">GOARM</span>=7
+</pre>
+</div>
+
+<p>
+进入 v2ray-core 目录：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">go build -o ./v2ray -trimpath -ldflags <span style="color: #ffa07a;">"-s -w -buildid="</span> ./main
+go build -o ./v2ctl -trimpath -ldflags <span style="color: #ffa07a;">"-s -w -buildid="</span> -tags confonly ./infra/control/main
 </pre>
 </div>
 </div>
 </div>
-<div id="outline-container-org548a948" class="outline-2">
-<h2 id="org548a948">原理</h2>
-<div class="outline-text-2" id="text-org548a948">
+<div id="outline-container-org1af9e6d" class="outline-3">
+<h3 id="org1af9e6d">资源存放</h3>
+<div class="outline-text-3" id="text-org1af9e6d">
 <p>
-V2Ray 是以轮询的方式均衡负载，也就是说当有流量需要通过代理时，首先走第一个 vnext 配置的服务器，有第二个连接就走第二个服务器，接着第三个，以此类推。轮询完一遍又头开始轮询。这样的方式虽然简单粗暴，特别是对于拥有多个性能差的 VPS 的人来说比较有用
+将 <span class="underline">v2ray</span> 和 <span class="underline">v2ctl</span> 以及配置文件等资源放入设备的内部存储中
 </p>
-
-<pre class="example" id="org2c79b63">
-另外也能减小长时间大流量连接单个 IP 的特征
-
-由于没有足够的样本，我个人对这样的条件作为代理判据持怀疑态度，给自己一个心理安慰
+<pre class="example" id="org2fbb2fe">
+例如 "手机内部存储/V2Ray" 文件夹
 </pre>
 </div>
 </div>
-<div id="outline-container-orgb29d5d0" class="outline-2">
-<h2 id="orgb29d5d0">注意</h2>
-<div class="outline-text-2" id="text-orgb29d5d0">
+</div>
+<div id="outline-container-org224790a" class="outline-2">
+<h2 id="org224790a">运行</h2>
+<div class="outline-text-2" id="text-org224790a">
+</div>
+<div id="outline-container-org2157731" class="outline-3">
+<h3 id="org2157731">连接ADB</h3>
+<div class="outline-text-3" id="text-org2157731">
+<ol class="org-ol">
+<li>使用数据线连接电脑</li>
+<li>打开设备的 USB 调试</li>
+<li>开启 "仅充电" 模式下允许 ADB 调试</li>
+<li>将 USB 连接模式改为 "文件传输"</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgbe2aa71" class="outline-3">
+<h3 id="orgbe2aa71">检测设备</h3>
+<div class="outline-text-3" id="text-orgbe2aa71">
 <p>
-端口、id 这些在 vnext 数组内的配置项可以各不相同，但是它们的 <b>传输层</b> 配置 <span class="underline">streamSettings</span> 必须一致
+打开终端输入并以下命令：
 </p>
+<div class="org-src-container">
+<pre class="src src-sh">$ adb devices 
+</pre>
+</div>
 
-<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<pre class="example" id="org57cb689">
+若设备提示 "是否允许 USB 调试"，勾选 "始终允许..." 后确认
+</pre>
 
+<p>
+终端显示如下则表示为连接成功：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">List of devices attached
+1234567C06011253        device
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgea809e2" class="outline-3">
+<h3 id="orgea809e2">传输文件</h3>
+<div class="outline-text-3" id="text-orgea809e2">
+<p>
+继续输入以下命令，此时终端会变为手机的标识符：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ adb shell 
+</pre>
+</div>
 
-<colgroup>
-<col  class="org-left" />
+<p>
+将设备内部存储中的 V2Ray 程序复制到设备临时目录中并给予权限：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cp /sdcard/V2Ray/* /data/local/tmp/
+$ cd /data/local/tmp/
+$ chmod 777 *
+</pre>
+</div>
 
-<col  class="org-left" />
+<p>
+尝试运行一下
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ./v2ray 
+</pre>
+</div>
 
-<col  class="org-left" />
-</colgroup>
-<tbody>
-<tr>
-<td class="org-left"><a href="android.html">Next: Android</a></td>
-<td class="org-left"><a href="forward_proxy.html">Previous：前置代理</a></td>
-<td class="org-left"><a href="application.html">Home：应用</a></td>
-</tr>
-</tbody>
-</table>
+<pre class="example" id="org880bc5b">
+由于系统限制，建议 Inbound 内的入站使用 1024 以上的端口号
+</pre>
+
+<p>
+后台运行 V2Ray:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">nohup ./v2ray &amp;
+</pre>
+</div>
+
+<pre class="example" id="org5066c3e">
+测试无问题后按下 Ctrl+C 结束进程，然后把 USB 传输模式改为 "仅充电"
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org106b7e7" class="outline-2">
+<h2 id="org106b7e7">全局代理</h2>
+<div class="outline-text-2" id="text-org106b7e7">
+<p>
+此处使用系统 APN 来完成，Inbound 需要一个 HTTP 入站代理。由于默认的 APN 不允许更改，所以需要新建一个 APN
+</p>
+<ul class="org-ul">
+<li>内容复制默认的就可以</li>
+<li>设置中 "代理" 一栏中填入 127.0.0.1，端口号为你 HTTP 入站的端口号，保存即可</li>
+</ul>
+
+<p>
+返回上层设置，选择这个 APN 即可
+</p>
+</div>
+<div id="outline-container-orgf428d39" class="outline-3">
+<h3 id="orgf428d39">细节</h3>
+<div class="outline-text-3" id="text-orgf428d39">
+<p>
+HTTP 代理只在 HTTP 场景下才会使用，理论上来讲并不会影响游戏对局，但这里并没有实验
+</p>
+<pre class="example" id="orgefa810a">
+使用 APN 的代理方式大多数的应用程序都会有效，但如 Telegram 这类特殊的应用程序无效
+
+此类程序应用内设置中通常都会提供设置代理的选项，手动设置一下即可
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org6cc230d" class="outline-2">
+<h2 id="org6cc230d">其他</h2>
+<div class="outline-text-2" id="text-org6cc230d">
+<p>
+相比套壳 App，使用此方式启动的 core 长时间运行并不会导致设备发热和明显的电量消耗
+</p>
 </div>
 </div>
 </div>
