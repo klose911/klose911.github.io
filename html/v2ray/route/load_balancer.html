@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>路由</title>
+<title>负载均衡</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style>
@@ -196,20 +196,130 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href=""> UP </a>
+ <a accesskey="h" href="bt.html"> UP </a>
  |
- <a accesskey="H" href="../v2ray.html"> HOME </a>
+ <a accesskey="H" href="route.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">路由</h1>
+<h1 class="title">负载均衡</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgcb0b993">配置</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="orgf5dd3ed">
+在前面的章节当中有提到过利用 V2Ray 的一个特性来实现负载均衡
+
+但是由于这种负载均衡是投机取巧利用配置实现的，最终的效果不尽如人意，也就在特殊情况下用一用而已，也有人认为这种轮询的机制压根算不上负载均衡
+
+不过经过漫长的等待，V2Ray 终于可均衡负载了，但是可能 V2Ray 认为时机还不成熟，官方文档上并没有负载均衡方面的描述
+</pre>
+<div id="outline-container-orgcb0b993" class="outline-2">
+<h2 id="orgcb0b993">配置</h2>
+<div class="outline-text-2" id="text-orgcb0b993">
 <p>
-V2Ray 提供了强大的路由功能:
+负载均衡的配置位于 <span class="underline">routing</span> 字段，仅需在 <span class="underline">客户端</span> 上配置即可：
 </p>
 <ul class="org-ul">
-<li><a href="site_data.html">域名文件</a></li>
-<li><a href="bt.html">禁用BT</a></li>
-<li><a href="load_balancer.html">负载均衡</a></li>
+<li>在 routing 当中，配置一个 <span class="underline">balancers 数组</span> ,代表这负载均衡的 <b>规则</b> :
+<ul class="org-ul">
+<li>负载均衡唯一的 <b>标签</b></li>
+<li>均衡策略(目前的策略好像只有随机选择)</li>
+<li>可选择的出站代理</li>
+</ul></li>
+<li>在路由规则中根据需要配置特定的流量进行负载均衡</li>
 </ul>
 
+<div class="org-src-container">
+<pre class="src src-js">{
+
+    <span style="color: #ffa07a;">"inbounds"</span>: [
+        ...
+    ],
+    <span style="color: #ffa07a;">"outbounds"</span>: [
+        {
+            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"us1"</span>,
+            ...
+        },
+        {
+            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"jp1"</span>,
+            ...
+        },
+        {
+            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"jp2"</span>,
+            ...
+        },
+        {
+            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"hk1"</span>,
+            ...
+        },
+        {
+            <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"direct"</span>,
+            ...
+        }
+    ],
+    <span style="color: #ffa07a;">"routing"</span>: {
+        <span style="color: #ffa07a;">"domainStrategy"</span>: <span style="color: #ffa07a;">"IPOnDemand"</span>,
+        <span style="color: #ffa07a;">"balancers"</span>: [
+            {
+                <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"b1"</span>,
+                <span style="color: #ffa07a;">"selector"</span>: [
+                    <span style="color: #ffa07a;">"jp1"</span>,
+                    <span style="color: #ffa07a;">"jp2"</span>
+                ]
+            },
+            {
+                <span style="color: #ffa07a;">"tag"</span>: <span style="color: #ffa07a;">"b2"</span>,
+                <span style="color: #ffa07a;">"selector"</span>: [
+                    <span style="color: #ffa07a;">"us1"</span>,
+                    <span style="color: #ffa07a;">"hk1"</span>
+                ]
+            }
+        ],
+        <span style="color: #ffa07a;">"rules"</span>: [
+            {
+                <span style="color: #ffa07a;">"type"</span>: <span style="color: #ffa07a;">"field"</span>,
+                <span style="color: #ffa07a;">"outboundTag"</span>: <span style="color: #ffa07a;">"direct"</span>,
+                <span style="color: #ffa07a;">"ip"</span>: [
+                    <span style="color: #ffa07a;">"geoip:private"</span>,
+                    <span style="color: #ffa07a;">"geoip:cn"</span>
+                ]
+            },
+            {
+                <span style="color: #ffa07a;">"type"</span>: <span style="color: #ffa07a;">"field"</span>,
+                <span style="color: #ffa07a;">"outboundTag"</span>: <span style="color: #ffa07a;">"direct"</span>,
+                <span style="color: #ffa07a;">"domain"</span>: [
+                    <span style="color: #ffa07a;">"geosite:cn"</span>
+                ]
+            },
+            {
+                <span style="color: #ffa07a;">"type"</span>: <span style="color: #ffa07a;">"field"</span>,
+                <span style="color: #ffa07a;">"network"</span>: <span style="color: #ffa07a;">"tcp,udp"</span>,
+                <span style="color: #ffa07a;">"balancerTag"</span>: <span style="color: #ffa07a;">"b1"</span>
+            }
+        ]
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="org9efd916">
+在本例中，最后一个路由规则为负载均衡
+
+根据示例可以知道目的地址是私有 IP 或中国大陆的流量直连，其余的所有流量是负载均衡 b1(即 在 jp1 和 jp2 两者之间选择)
+
+没有使用到 b2 的负载均衡
+</pre>
+
+<p>
+从配置中可以看出，V2Ray 的负载均衡同样有着高度灵活的优点，可以针对指定的流量进行负载均衡，也可以按需配置多个负载均衡，不同底层传输配置的出站协议也可以负载均衡，可以说 V2Ray 的路由有多灵活那么它的负载均衡就有多灵活
+</p>
+
+<pre class="example" id="org492c68d">
+可能是刚刚推出的原因，现在的均衡策略只有随机选择，随着时间的推进应该会陆续有其他的策略
+</pre>
 
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
 
@@ -221,11 +331,13 @@ V2Ray 提供了强大的路由功能:
 </colgroup>
 <tbody>
 <tr>
-<td class="org-left"><a href="../application/application.html">Previous: 应用</a></td>
-<td class="org-left"><a href="../v2ray.html">Home: 指南</a></td>
+<td class="org-left"><a href="bt.html">Previous：禁用BT</a></td>
+<td class="org-left"><a href="route.html">Home：路由</a></td>
 </tr>
 </tbody>
 </table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
