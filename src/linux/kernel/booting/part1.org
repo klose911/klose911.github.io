@@ -1,7 +1,7 @@
 #+TITLE: 从引导程序到内核
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_HOME: ./booting.html
-#+OPTIONS: num:nil timestamp:nil
+#+OPTIONS: num:nil timestamp:nil ^:nil
 * 神奇的电源按钮，接下来会发生什么？
 
 #+begin_example
@@ -208,3 +208,87 @@ coreboot 文档给出了答案:
 
 _0xFFFFFFF0_ 这个地址被映射到了 _ROM_ ，因此 CPU 执行的第一条指令来自于 ROM，而不是 RAM
 * 引导程序
+在现实世界中，要启动 Linux 系统，有多种 *引导程序* 可以选择。比如 [[https://www.gnu.org/software/grub/][GRUB 2]] 和 _syslinux_ 。Linux内核通过 [[http://lxr.free-electrons.com/source/Documentation/x86/boot.txt?v=3.18][Boot protocol]] 来定义应该如何实现引导程序
+#+begin_example
+在这里将只介绍 GRUB 2
+#+end_example
+
+现在 BIOS 已经选择了一个启动设备，并且将控制权转移给了启动扇区中的代码，在例子中，启动扇区代码是 [[http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/boot.S;hb=HEAD][boot.img]]
+#+begin_example
+因为这段代码只能占用一个扇区，因此非常简单，只做一些必要的初始化
+#+end_example
+
+然后就跳转到 _GRUB 2's core image_ 去执行。 Core image 的代码请参考 [[http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/diskboot.S;hb=HEAD][diskboot.img]]，一般来说 core image 在磁盘上存储在启动扇区之后到第一个可用分区之前。core image 的初始化代码会把整个 core image （包括 _GRUB 2的内核代码_ 和 _文件系统驱动_ ） *引导* 到 _内存_ 中。 引导完成之后，[[http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/kern/main.c][grub_main]]将被调用。
+
+_grub_main_ 初始化控制台，计算模块基地址，设置 root 设备，读取 grub 配置文件，加载模块。最后，将 GRUB 置于 *normal* 模式，在这个模式中， *grub_normal_execute* ( _grub-core/normal/main.c_ ) 将被调用以完成最后的准备工作，然后显示一个菜单列出所用可用的操作系统。当某个操作系统被选择之后，*grub_menu_execute_entry* 开始执行，它将调用 GRUB 的 _boot_ 命令，来 *引导* 被选中的 _操作系统_
+
+就像 kernel boot protocol 所描述的，引导程序必须 *填充* _kernel setup header_ （位于 kernel setup code 偏移 *0x01f1* 处） 的必要字段。kernel setup header的定义开始于 [[http://lxr.free-electrons.com/source/arch/x86/boot/header.S?v=3.18][arch/x86/boot/header.S]]：
+
+#+begin_src asm 
+	  .globl hdr
+  hdr:
+  setup_sects: .byte 0
+  root_flags:  .word ROOT_RDONLY
+  syssize:     .long 0
+  ram_size:    .word 0
+  vid_mode:    .word SVGA_MODE
+  root_dev:    .word 0
+  boot_flag:   .word 0xAA55
+#+end_src
+
+bootloader必须填充在 Linux boot protocol 中标记为 *write* 的 _头信息_ ，比如 _type_of_loader_ ，这些头信息可能来自命令行，或者通过计算得到
+
+#+begin_example
+  在这里不会详细介绍所有的 kernel setup header，将在需要的时候逐个介绍
+
+  不过，可以自己通过 boot protocol 来了解这些设置
+#+end_example
+
+通过阅读 kernel boot protocol，在内核被引导入内存后，内存使用情况将如下表所示：
+
+#+begin_example
+	   | Protected-mode kernel  |
+  100000   +------------------------+
+	   | I/O memory hole        |
+  0A0000   +------------------------+
+	   | Reserved for BIOS      | Leave as much as possible unused
+	   ~                        ~
+	   | Command line           | (Can also be below the X+10000 mark)
+  X+10000  +------------------------+
+	   | Stack/heap             | For use by the kernel real-mode code.
+  X+08000  +------------------------+
+	   | Kernel setup           | The kernel real-mode code.
+	   | Kernel boot sector     | The kernel legacy boot sector.
+	 X +------------------------+
+	   | Boot loader            | <- Boot sector entry point 0x7C00
+  001000   +------------------------+
+	   | Reserved for MBR/BIOS  |
+  000800   +------------------------+
+	   | Typically used by MBR  |
+  000600   +------------------------+
+	   | BIOS use only          |
+  000000   +------------------------+
+#+end_example
+
+所以当 bootloader 完成任务，将执行权移交给 kernel，kernel 的代码从以下地址开始执行：
+#+begin_src sh 
+  0x1000 + X + sizeof(KernelBootSector) + 1
+
+  # 个人以为应该是 X + sizeof(KernelBootSector) + 1 因为 X 已经是一个具体的物理地址了，不是一个偏移
+#+end_src
+
+上面的公式中， X 是 _kernel bootsector_ 被引导入 _内存的位置_
+
+#+begin_example
+在我的机器上， X 的值是 0x10000
+#+end_example
+
+可以通过 _memory dump_ 来检查这个地址：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/kernel_first_address.png]] 
+
+#+begin_example
+  到这里，引导程序完成它的使命，并将控制权移交给了 Linux kernel
+
+  下面就来看看 kernel setup code 都做了些什么
+#+end_example
