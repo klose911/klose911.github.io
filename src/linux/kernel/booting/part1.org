@@ -77,7 +77,7 @@ _CS 寄存器_ 包含两个部分：可视段选择器和 _隐含基址_ 。 结
   '0xfffffff0'
 #+end_src
 
-得到的 _0xfffffff0_ 是位于 _4GB - 16 字节_ 处的地址。 这个地方是 *复位向量* [[http://en.wikipedia.org/wiki/Reset_vector][Reset vector]] ，CPU在电源重置后期望执行的第一条指令的内存地址。它包含一个 _jump_ 指令，这个指令通常 *指向* _BIOS入口点_ 。举个例子，如果访问 [[http://www.coreboot.org/][coreboot]] 源代码，将看到：
+得到的 _0xfffffff0_ 是位于 _4GB - 16 字节_ 处的地址。 这个地方是 *复位向量* [[https://en.wikipedia.org/wiki/Reset_vector][Reset vector]] ，CPU在电源重置后期望执行的第一条指令的内存地址。它包含一个 _jump_ 指令，这个指令通常 *指向* _BIOS入口点_ 。举个例子，如果访问 [[https://www.coreboot.org/][coreboot]] 源代码，将看到：
 
 #+begin_src asm
 	  .section ".reset", "ax", %progbits
@@ -208,21 +208,21 @@ coreboot 文档给出了答案:
 
 _0xFFFFFFF0_ 这个地址被映射到了 _ROM_ ，因此 CPU 执行的第一条指令来自于 ROM，而不是 RAM
 * 引导程序
-在现实世界中，要启动 Linux 系统，有多种 *引导程序* 可以选择。比如 [[https://www.gnu.org/software/grub/][GRUB 2]] 和 _syslinux_ 。Linux内核通过 [[http://lxr.free-electrons.com/source/Documentation/x86/boot.txt?v=3.18][Boot protocol]] 来定义应该如何实现引导程序
+在现实世界中，要启动 Linux 系统，有多种 *引导程序* 可以选择。比如 [[https://www.gnu.org/software/grub/][GRUB 2]] 和 _syslinux_ 。Linux内核通过 [[https://github.com/torvalds/linux/blob/v3.18/Documentation/x86/boot.txt][Boot protocol]] 来定义应该如何实现引导程序
 #+begin_example
 在这里将只介绍 GRUB 2
 #+end_example
 
-现在 BIOS 已经选择了一个启动设备，并且将控制权转移给了启动扇区中的代码，在例子中，启动扇区代码是 [[http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/boot.S;hb=HEAD][boot.img]]
+现在 BIOS 已经选择了一个启动设备，并且将控制权转移给了启动扇区中的代码，在例子中，启动扇区代码是 [[https://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/boot.S;hb=HEAD][boot.img]]
 #+begin_example
 因为这段代码只能占用一个扇区，因此非常简单，只做一些必要的初始化
 #+end_example
 
-然后就跳转到 _GRUB 2's core image_ 去执行。 Core image 的代码请参考 [[http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/diskboot.S;hb=HEAD][diskboot.img]]，一般来说 core image 在磁盘上存储在启动扇区之后到第一个可用分区之前。core image 的初始化代码会把整个 core image （包括 _GRUB 2的内核代码_ 和 _文件系统驱动_ ） *引导* 到 _内存_ 中。 引导完成之后，[[http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/kern/main.c][grub_main]]将被调用。
+然后就跳转到 _GRUB 2's core image_ 去执行。 Core image 的代码请参考 [[https://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/diskboot.S;hb=HEAD][diskboot.img]]，一般来说 core image 在磁盘上存储在启动扇区之后到第一个可用分区之前。core image 的初始化代码会把整个 core image （包括 _GRUB 2的内核代码_ 和 _文件系统驱动_ ） *引导* 到 _内存_ 中。 引导完成之后，[[http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/kern/main.c][grub_main]]将被调用。
 
 _grub_main_ 初始化控制台，计算模块基地址，设置 root 设备，读取 grub 配置文件，加载模块。最后，将 GRUB 置于 *normal* 模式，在这个模式中， *grub_normal_execute* ( _grub-core/normal/main.c_ ) 将被调用以完成最后的准备工作，然后显示一个菜单列出所用可用的操作系统。当某个操作系统被选择之后，*grub_menu_execute_entry* 开始执行，它将调用 GRUB 的 _boot_ 命令，来 *引导* 被选中的 _操作系统_
 
-就像 kernel boot protocol 所描述的，引导程序必须 *填充* _kernel setup header_ （位于 kernel setup code 偏移 *0x01f1* 处） 的必要字段。kernel setup header的定义开始于 [[http://lxr.free-electrons.com/source/arch/x86/boot/header.S?v=3.18][arch/x86/boot/header.S]]：
+就像 kernel boot protocol 所描述的，引导程序必须 *填充* _kernel setup header_ （位于 kernel setup code 偏移 *0x01f1* 处） 的必要字段。kernel setup header的定义开始于 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/header.S][arch/x86/boot/header.S]]：
 
 #+begin_src asm 
 	  .globl hdr
@@ -292,3 +292,121 @@ bootloader必须填充在 Linux boot protocol 中标记为 *write* 的 _头信�
 
   下面就来看看 kernel setup code 都做了些什么
 #+end_example
+* 内核设置
+#+begin_example
+  经过上面的一系列操作，终于进入到内核了
+
+  不过从技术上说，内核还没有被运行起来，因为首先需要正确设置内核，启动内存管理，进程管理等等
+#+end_example
+内核设置代码的运行起点是  [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/header.S][arch/x86/boot/header.S]] 中定义的 _start 函数
+
+#+begin_example
+在 _start 函数开始之前，还有很多的代码，那这些代码是做什么的呢？
+#+end_example
+
+实际上 _start 开始之前的代码是 kernel 自带的 bootloader
+#+begin_example
+  在很久以前，是可以使用这个 bootloader 来启动 Linux 的
+
+  不过在新的 Linux 中，这个 bootloader 代码已经不再启动 Linux 内核，而只是输出一个错误信息
+#+end_example
+
+如果运行下面的命令，直接使用 Linux 内核来启动，会看到下图所示的错误：
+
+#+begin_src sh 
+  qemu-system-x86_64 vmlinuz-3.18-generic
+#+end_src
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/try_vmlinuz_in_qemu.png]]
+
+为了能够作为 bootloader 来使用, header.S 开始处定义了 [[https://en.wikipedia.org/wiki/DOS_MZ_executable][MZ]] 魔术数字, 并且定义了 [[https://en.wikipedia.org/wiki/Portable_Executable][PE]] 头，在 PE 头中定义了输出的字符串：
+
+#+begin_src asm 
+	  #ifdef CONFIG_EFI_STUB
+	  # "MZ", MS-DOS header
+	  .byte 0x4d
+	  .byte 0x5a
+	  #endif
+	  ...
+	  ...
+	  ...
+  pe_header:
+	  .ascii "PE"
+	  .word 0
+#+end_src
+
+#+begin_example
+  之所以代码需要这样写，这个是因为遵从 UEFI 的硬件需要这样的结构才能正常引导操作系统
+#+end_example
+
+去除这些作为 bootloader 使用的代码，真正的内核代码就从 _start 开始了：
+#+begin_src asm 
+	  // header.S line 292
+	  .globl _start
+  _start:
+#+end_src
+
+其他的 bootloader (grub2) 知道 _start 所在的位置（ _从 MZ 头开始偏移 0x200 字节_ ），所以这些 bootloader 就会忽略所有在这个位置前的代码（这些之前的代码位于 .bstext 段中）， 直接跳转到这个位置启动内核：
+
+#+begin_src asm
+	  //
+	  // arch/x86/boot/setup.ld
+	  //
+	  . = 0;                    // current position
+	  .bstext : { *(.bstext) }  // put .bstext section to position 0
+	  .bsdata : { *(.bsdata) }
+#+end_src
+
+#+begin_src asm 
+	  .globl _start
+  _start:
+	  .byte 0xeb
+	  .byte start_of_setup-1f
+  1:
+	  //
+	  // rest of the header
+	  //
+#+end_src
+
+_start 开始就是一个 jmp 语句
+#+begin_example
+jmp 语句的 opcode 是 0xeb
+#+end_example
+这个跳转语句是一个短跳转，跟在后面的是一个相对地址 _start_of_setup - 1f_
+
+#+begin_example
+在汇编代码中 Nf 代表了当前代码之后第一个标号为 N 的代码段的地址
+#+end_example
+
+在 _start 标号之后的第一个标号为 1 的代码段中包含了剩下的 _setup header 结构_ 。在标号为 1 的代码段结束之后，紧接着就是标号为 _start_of_setup 的代码段_
+
+#+begin_example
+  start_of_setup 这个代码段位于 .entrytext 代码区
+
+  这个代码段中的第一条指令实际上是内核开始执行之后真正的第一条指令
+#+end_example
+
+下面来看一下 GRUB2 的代码是如何跳转到 _start 标号处的。从 Linux 内核代码中，知道 _start 标号的代码位于偏移 _0x200_ 处。在 GRUB2 的源代码中可以看到下面的代码：
+
+#+begin_src c
+  state.gs = state.fs = state.es = state.ds = state.ss = segment;
+  state.cs = segment + 0x20;
+#+end_src
+
+在我的机器上，因为我的内核代码被加载到了内存地址 0x10000 处，所以在上面的代码执行完成之后 cs = 0x1020
+
+#+begin_src c 
+  fs = es = ds = ss = 0x1000
+		  cs = 0x1020
+#+end_src
+
+#+begin_example
+因此第一条指令的内存地址将是 cs << 4 + 0 = 0x10200，刚好是 0x10000 开始后的 0x200 处的指令
+#+end_example
+
+接下来从 start_of_setup 标号开始的代码需要完成下面这些事情：
++ 将所有段寄存器的值设置成一样的内容
++ 设置堆栈
++ 设置 [[https://en.wikipedia.org/wiki/.bss][bss]]bss *静态变量区* 
++ 跳转到 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c][main.c]] 开始执行代码
