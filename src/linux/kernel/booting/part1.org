@@ -408,5 +408,149 @@ jmp 语句的 opcode 是 0xeb
 接下来从 start_of_setup 标号开始的代码需要完成下面这些事情：
 + 将所有段寄存器的值设置成一样的内容
 + 设置堆栈
-+ 设置 [[https://en.wikipedia.org/wiki/.bss][bss]]bss *静态变量区* 
++ 设置 [[https://en.wikipedia.org/wiki/.bss][bss]] *静态变量区* 
 + 跳转到 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c][main.c]] 开始执行代码
+
+* 设置C语言运行环境
+绝大部分的 setup 代码都是为 C 语言运行环境做准备
+** 段寄存器设置
+首先，内核保证将 _ds_ 和 _es_ 段寄存器指向相同地址，随后，使用 _cld_ 指令来 *清理* _方向标志位_ ：
+
+#+begin_src asm 
+	  movw	%ds, %ax
+	  movw	%ax, %es
+	  cld
+#+end_src
+
+#+begin_example
+  上面一节中所写的， 为了能够跳转到 _start 标号出执行代码，grub2 将 cs 段寄存器的值设置成了 0x1020
+
+  这个值和其他段寄存器都是不一样的
+#+end_example
+
+下面的代码就是将 cs 段寄存器的值和其他段寄存器一致：
+
+#+begin_src asm 
+	  pushw	%ds
+	  pushw	$6f
+	  lretw
+#+end_src
+
+这段代码首先将 ds寄存器的值入栈，然后将标号为 _6_ 的代码段地址入栈 ，接着执行 _lretw_ 指令，这条指令将把标号为 6 的内存地址放入 _ip 寄存器_ [[https://en.wikipedia.org/wiki/Program_counter][instruction pointer]]
+#+begin_example
+这样一来 ds 和 cs 段寄存器就拥有了相同的值
+#+end_example
+** 设置堆栈
+在设置了 ds 和 es 寄存器之后，接下来 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/header.S#L467][step]] 的代码将检查 ss 寄存器的内容，如果寄存器的内容不对，那么将进行更正：
+#+begin_src asm 
+	  movw	%ss, %dx
+	  cmpw	%ax, %dx
+	  movw	%sp, %dx
+	  je	2f
+#+end_src
+
+当进入这段代码的时候， ss 寄存器的值可能是一下三种情况之一：
+*** ss 寄存器的值是 0x10000 ( 和其他除了 cs 寄存器之外的所有寄存器的一样）
+代码将直接跳转到标号为 2 的代码处执行:
+#+begin_src asm 
+  2: 	andw	$~3, %dx // 判断是否4字节对齐 
+	  jnz	3f // 对齐直接跳转到 3 处代码
+	  movw	$0xfffc, %dx // 64KB地址段的最后一个4字节地址
+
+  3:      movw	%ax, %ss // $ss = $ax
+	  movzwl  %dx, %esp // $esp = $dx 
+	  sti
+#+end_src
++ 首先将 dx 寄存器的值（就是 *当前sp 寄存器* 的值） 4字节对齐，然后检查是否为0
+  #+begin_example
+      如果是0，堆栈就不对了，因为堆栈是从大地址向小地址发展的
+  #+end_example
+  + 如果是0，那么就将 dx 寄存器的值设置成 _0xfffc_ 
+  + 如果不是0，那么就保持当前值不变
+
++ 接下来，就将 ax 寄存器的值（ 0x10000 ）设置到 ss 寄存器，并根据 dx 寄存器的值设置正确的 sp。这样就得到了正确的堆栈设置，具体请参考下图：
+  #+ATTR_HTML: image :width 90% 
+  [[file:../pic/stack1.png]]
+*** ss 寄存器的值不是 0x10000，但是 _CAN_USE_HEAP_ 标志被设置了
+首先将 setup code 的结束地址 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/setup.ld#L52][_end]] 写入 dx 寄存器。然后检查 loadflags 中是否设置了 CAN_USE_HEAP 标志。 根据 kernel boot protocol 的定义，loadflags 是一个标志字段。这个字段的 _Bit 7_ 就是 CAN_USE_HEAP 标志：
+#+begin_example
+  Field name:	loadflags
+
+    This field is a bitmask.
+
+    Bit 7 (write): CAN_USE_HEAP
+	  Set this bit to 1 to indicate that the value entered in the
+	  heap_end_ptr is valid.  If this field is clear, some setup code
+	  functionality will be disabled.
+#+end_example
+loadflags 字段可以设置的标志包括：
+#+begin_src c 
+  #define LOADED_HIGH	    (1<<0)
+  #define QUIET_FLAG	    (1<<5)
+  #define KEEP_SEGMENTS	(1<<6)
+  #define CAN_USE_HEAP	(1<<7)
+#+end_src
+如果 CAN_USE_HEAP 被置位，：
+1. 将 _heap_end_ptr_ 放入 dx 寄存器，然后加上 STACK_SIZE （最小堆栈大小是 _512 bytes_ ）
+2. 在加法完成之后
+   + 如果结果没有溢出（CF flag 没有置位），那么就跳转到标号为 2 的代码处继续执行
+   #+begin_example
+     这段代码的逻辑在1中已经详细介绍了
+   #+end_example
+   + 如果CF置位那么程序就出错了
+   
+最终就得到了如下图所示的堆栈：
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/stack2.png]]
+
+*** ss 寄存器的值不是 0x10000，同时 _CAN_USE_HEAP_ 标志没有被设置
+那么将 _dx 寄存器_ 的值 *加上* _STACK_SIZE_ ，然后跳转到标号为 2 的代码处继续执行，接着就得到了如下图所示的堆栈：
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/minimal_stack.png]]
+
+** 设置BSS
+在正式执行 C 代码之前，还有2件事情需要完成：
+1. 设置正确的 BSS段
+2. 检查 magic 签名
+
+接下来的代码，首先检查 magic 签名  [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/setup.ld#L39][setup_sig]] ，如果签名不对，直接跳转到 setup_bad 部分执行代码：
+
+#+begin_src asm 
+	  cmpl	$0x5a5aaa55, setup_sig
+	  jne	setup_bad
+#+end_src
+
+#+begin_example
+如果 magic 签名是对的， 那么只要设置好 BSS 段，就可以开始执行 C 代码了
+#+end_example
+
+_BSS 段_ 用来 *存储* 那些 _没有被初始化的静态变量_ 。对于这个段使用的内存， 使用下面的代码将其全部清零：
+
+#+begin_src asm 
+	  movw	$__bss_start, %di // 将 __bss_start 地址放入 di 寄存器
+	  movw	$_end+3, %cx // 将 _end + 3 （4字节对齐） 地址放入 cx
+	  xorl	%eax, %eax // 使用 xor 指令将 ax 寄存器清零
+	  subw	%di, %cx // 计算 BSS 段的大小 （ cx - di ），并放入 cx 寄存器
+	  shrw	$2, %cx // 将 cx 寄存器除4
+	  rep; stosl // 将 ax 寄存器的值（0）写入 寄存器整个 BSS 段
+#+end_src
+
+代码执行完成之后，将得到如下图所示的 BSS 段:
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/bss.png]]
+
+* 跳转到 main 函数
+
+到目前为止，已经完成了堆栈和 BSS 的设置，现在可以正式跳入 main() 函数来执行 C 代码了：
+#+begin_src asm
+	  call main
+#+end_src
+
+main() 函数定义在  [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c][arch/x86/boot/main.c]] 
+
+#+begin_example
+将在下一章详细介绍这个函数做了什么事情
+#+end_example
+
