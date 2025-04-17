@@ -217,6 +217,7 @@
 </ul>
 </li>
 <li><a href="#orgf68aaf2">将启动参数拷贝到 zeropage</a></li>
+<li><a href="#orgb475a98">控制台初始化</a></li>
 </ul>
 </li>
 </ul>
@@ -225,7 +226,7 @@
 <div id="outline-container-org1ffb6e6" class="outline-2">
 <h2 id="org1ffb6e6">内核启动的第一步</h2>
 <div class="outline-text-2" id="text-org1ffb6e6">
-<pre class="example" id="org20f18a5">
+<pre class="example" id="org73acc93">
 在 上一节 中开始接触到内核启动代码，并且分析了初始化部分，最后停在了对 arch/x86/boot/main.c 的 main 函数调用
 </pre>
 
@@ -245,7 +246,7 @@
 <div id="outline-container-orgb92f0d1" class="outline-2">
 <h2 id="orgb92f0d1">保护模式</h2>
 <div class="outline-text-2" id="text-orgb92f0d1">
-<pre class="example" id="orgd2e3efc">
+<pre class="example" id="orgabe7969">
 在操作系统可以使用Intel 64位CPU的长模式之前，内核必须首先将CPU切换到保护模式运行
 
 什么是保护模式？
@@ -256,7 +257,7 @@
 <a href="https://en.wikipedia.org/wiki/Protected_mode">保护模式</a> 于1982年被引入到Intel CPU家族，并且从那之后，直到Intel 64出现，保护模式都是Intel CPU的主要运行模式。淘汰实模式的主要原因是因为在实模式下，系统能够访问的内存非常有限
 </p>
 
-<pre class="example" id="orga653456">
+<pre class="example" id="orgb74593f">
 在实模式下，系统最多只能访问1M内存，而且在很多时候，实际能够访问的内存只有640K
 </pre>
 
@@ -283,7 +284,7 @@
 <p>
 使用这2个信息，可以通过下面的公式计算出对应的物理地址：
 </p>
-<pre class="example" id="orgb931c5b">
+<pre class="example" id="org185c540">
 PhysicalAddress = Segment * 16 + Offset
 </pre>
 
@@ -291,7 +292,7 @@ PhysicalAddress = Segment * 16 + Offset
 在保护模式中，内存段的定义和实模式完全不同。在保护模式中，每个内存段不再是64K大小，段的 <span class="underline">大小</span> 和 <span class="underline">起始位置</span> 是通过一个叫做 <b>段描述符</b> 的数据结构进行描述。所有内存段的段描述符存储在一个叫做 <b>全局描述符表</b> <span class="underline">GDT</span> 的内存结构中。全局描述符表这个内存数据结构在内存中的位置并不是固定的，它的地址保存在一个 <b>特殊寄存器</b> <span class="underline">GDTR</span> 中
 </p>
 
-<pre class="example" id="orgc7609d3">
+<pre class="example" id="orgdd3f0a7">
 马上将在Linux内核代码中看到全局描述符表的地址是如何被保存到 GDTR 中
 </pre>
 
@@ -320,7 +321,7 @@ PhysicalAddress = Segment * 16 + Offset
 <p>
 像前面说的，全局描述符表包含了所有内存段的描述符。每个段描述符长度是 <span class="underline">64位</span> ，结构如下图描述：
 </p>
-<pre class="example" id="org7ae36da">
+<pre class="example" id="orgcc0106e">
 31          24        19      16              7            0
 ------------------------------------------------------------
 |             | |B| |A|       | |   | |0|E|W|A|            |
@@ -348,7 +349,7 @@ PhysicalAddress = Segment * 16 + Offset
 <li><p>
 <b>Limit</b> [ <span class="underline">20位</span> ] 被保存在上述内存结构的 <span class="underline">0-15</span> 和 <span class="underline">48-51</span> 位。根据上述内存结构中 <span class="underline">G位</span> 的设置，这20位内存定义的 <b>内存长度</b> 是不一样的
 </p>
-<pre class="example" id="orgeb9bcb0">
+<pre class="example" id="org223957e">
 下面是一些具体的例子：
 
 如果G = 0, 并且Limit = 0， 那么表示段长度是1 byte
@@ -363,19 +364,19 @@ PhysicalAddress = Segment * 16 + Offset
 <li><p>
 如果 <span class="underline">G = 0</span> , 那么 <span class="underline">内存段的长度</span> 是按照 <span class="underline">1 byte</span> 进行 <b>增长</b> 的 ，最大的内存段长度将是 <span class="underline">1M</span> bytes
 </p>
-<pre class="example" id="org62d78c4">
+<pre class="example" id="org3310214">
 Limit每增加1，段长度增加1 bytes
 </pre></li>
 <li><p>
 如果 <span class="underline">G = 1</span> , 那么 <span class="underline">内存段的长度</span> 是按照 <span class="underline">4K bytes</span> 进行 <b>增长</b> 的，最大的内存段长度将是 <span class="underline">4G</span> bytes
 </p>
-<pre class="example" id="orgf2fe62a">
+<pre class="example" id="org3161bf6">
 Limit每增加1，段长度增加4K bytes 
 </pre></li>
 <li><p>
 段长度的计算公式：
 </p>
-<pre class="example" id="org6f76973">
+<pre class="example" id="orge542cdc">
 base_seg_length * ( LIMIT + 1)
 </pre></li>
 </ul></li>
@@ -383,7 +384,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 <b>Type/Attribute</b> ( <span class="underline">40-47 bits</span> ) 定义了内存段的 <b>类型</b> 以及支持的 <b>操作</b> 。上述内存结构的 <span class="underline">第43位</span> 决定了内存段是数据段还是代码段：
 </p>
-<pre class="example" id="org9f01f38">
+<pre class="example" id="org7914e69">
 |           Type Field        | Descriptor Type | Description
 |-----------------------------|-----------------|------------------
 | Decimal                     |                 |
@@ -412,7 +413,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">E = 0</span> ，数据段是 <b>向上扩展</b> <span class="underline">数据段</span> ，反之为 向下扩展数据段
 </p>
-<pre class="example" id="org7a7aade">
+<pre class="example" id="org993bc5e">
 关于向上扩展和向下扩展数据段，可以参考链接 http://www.sudleyplace.com/dpmione/expanddown.html
 
 在一般情况下，应该是不会使用向下扩展数据段的
@@ -420,7 +421,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">W = 1</span> ，说明这个数据段是 <b>可写的</b> ，否则不可写
 </p>
-<pre class="example" id="orgf230be1">
+<pre class="example" id="org2c4d320">
 所有数据段都是可读的
 </pre></li>
 <li><span class="underline">A位</span> 表示该内存段是否 <b>已经被CPU访问</b></li>
@@ -430,7 +431,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">C = 1</span> ，说明这个代码段 <b>可以被低优先级的代码访问</b> ，反之如果C = 0，说明只能同优先级的代码段可以访问
 </p>
-<pre class="example" id="org39e6471">
+<pre class="example" id="org88dede8">
 比如 C=1 可以被用户态代码访问
 </pre></li>
 <li>如果 <span class="underline">R = 1</span> ，说明该代码段 <b>可读</b> 。代码段是 <b>永远没有写权限</b> 的</li>
@@ -440,7 +441,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 <b>P</b> 标志 <span class="underline">bit 47</span>  说明该内存段是否已经 <b>存在</b> 于 <span class="underline">内存中</span>
 </p>
-<pre class="example" id="org40f7df9">
+<pre class="example" id="org02eff05">
 如果P = 0，那么在访问这个内存段的时候将报错
 </pre></li>
 <li><b>AVL</b> 标志 <span class="underline">bit 52</span> 这个位在Linux内核中没有被使用</li>
@@ -456,7 +457,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果该标志置位，则默认值是 <span class="underline">32位地址</span> 和 <span class="underline">32位或8位的操作数</span></li>
 <li>如果该标志为0，则默认值是 <span class="underline">16位地址</span> 和 <span class="underline">16位或8位的操作数</span></li>
 </ul>
-<pre class="example" id="orgefdff7c">
+<pre class="example" id="orgfe3c043">
 指令前缀0x66可以用来选择非默认值的操作数大小
 
 前缀0x67可用来选择非默认值的地址大小
@@ -468,7 +469,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果该标志置位，则使用32位栈指针并存放在ESP寄存器中</li>
 <li>如果该标志为0，则使用16位栈指针并存放在SP寄存器中</li>
 </ul>
-<pre class="example" id="org3ceac52">
+<pre class="example" id="orgeee1875">
 如果堆栈段被设置成一个下扩数据段，这个B标志也同时指定了堆栈段的上界限
 </pre></li>
 <li>下扩数据段：此时该标志称为 <span class="underline">B标志</span> ，用于指明 <b>堆栈段的上界限</b> 
@@ -477,7 +478,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果没有设置该标志，则堆栈段的上界限是 <b>0xFFFF</b> <span class="underline">64KB</span></li>
 </ul></li>
 </ul>
-<pre class="example" id="orga4613d7">
+<pre class="example" id="orge76a048">
 对于32位代码和数据段，这个标志应该总是设置为1
 
 对于16位代码和数据段，这个标志被设置为0
@@ -492,7 +493,7 @@ base_seg_length * ( LIMIT + 1)
 <p>
 在保护模式下，段寄存器保存的不再是一个内存段的基地址，而是一个称为 <b>段选择子</b>  的结构。每个段描述符都对应一个段选择子。段选择子是一个 <span class="underline">16位</span> 的数据结构，下图显示了这个数据结构的内容：
 </p>
-<pre class="example" id="org555ea21">
+<pre class="example" id="org6af7b9c">
 -----------------------------
 |       Index    | TI | RPL |
 -----------------------------
@@ -504,7 +505,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 RPL :  <span class="underline">请求者优先级</span>
 </p>
-<pre class="example" id="org1da352d">
+<pre class="example" id="org11139e8">
 这个优先级将和段描述符中的优先级协同工作，共同确定访问是否合法
 </pre></li>
 </ul>
@@ -536,7 +537,7 @@ RPL :  <span class="underline">请求者优先级</span>
 </ol>
 
 
-<div id="org8aa2e0c" class="figure">
+<div id="orgca85d3c" class="figure">
 <p><img src="../pic/linear_address.png" alt="linear_address.png" width="90%" />
 </p>
 </div>
@@ -557,7 +558,7 @@ RPL :  <span class="underline">请求者优先级</span>
 <li>跳转开始执行保护模式代码</li>
 </ul>
 
-<pre class="example" id="org52e3be6">
+<pre class="example" id="org75459a1">
 在后面的章节中，将看到Linux 内核中完整的转换代码。不过在系统进入保护模式之前，内核有很多的准备工作需要进行
 
 先打开C文件 arch/x86/boot/main.c 这个文件包含了很多的函数，这些函数分别会执行 键盘初始化 ， 内存堆初始化 等等操作...
@@ -568,6 +569,122 @@ RPL :  <span class="underline">请求者优先级</span>
 
 <div id="outline-container-orgf68aaf2" class="outline-3">
 <h3 id="orgf68aaf2">将启动参数拷贝到 zeropage</h3>
+<div class="outline-text-3" id="text-orgf68aaf2">
+<p>
+main函数首先调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c#L30">copy_boot_params(void)</a> 。这个函数将 <span class="underline">内核设置信息</span> <b>拷贝</b> 到 <span class="underline">boot_params结构</span> 的相应字段。可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/uapi/asm/bootparam.h#L11">arch/x86/include/uapi/asm/bootparam.h</a> 找到 <span class="underline">boot_params</span> 结构的定义
+</p>
+<ul class="org-ul">
+<li>boot_params结构中包含 <span class="underline">struct setup_header hdr</span> 字段。这个结构包含了 <a href="https://www.kernel.org/doc/Documentation/x86/boot.txt">linux boot protocol</a> 中定义的相同字段</li>
+</ul>
+
+<p>
+在内核编译的时候copy_boot_params完成两个工作：
+</p>
+<ol class="org-ol">
+<li>将 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/header.S#L281">Header.S</a> 中定义的 <span class="underline">hdr</span> 结构中的内容拷贝到 <span class="underline">boot_params</span> 结构的字段 <span class="underline">struct setup_header hdr</span> 中</li>
+<li>如果内核是通过老的命令行协议运行起来的，那么就更新内核的命令行指针</li>
+</ol>
+
+<p>
+这里需要注意的是拷贝 hdr 数据结构的 <span class="underline">memcpy</span> 函数不是C语言中的函数，而是定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/copy.S">copy.S</a>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">GLOBAL</span>(memcpy)
+        <span style="color: #00ffff;">pushw</span>   <span style="color: #eedd82;">%si</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push si to stack</span>
+        <span style="color: #00ffff;">pushw</span>   <span style="color: #eedd82;">%di</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push di to stack</span>
+        <span style="color: #00ffff;">movw</span>    <span style="color: #eedd82;">%ax</span>, <span style="color: #eedd82;">%di</span>     <span style="color: #ff4500;">;</span><span style="color: #ff4500;">move &amp;boot_param.hdr to di</span>
+        <span style="color: #00ffff;">movw</span>    <span style="color: #eedd82;">%dx</span>, <span style="color: #eedd82;">%si</span>     <span style="color: #ff4500;">;</span><span style="color: #ff4500;">move &amp;hdr to si</span>
+        <span style="color: #00ffff;">pushw</span>   <span style="color: #eedd82;">%cx</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push cx to stack ( sizeof(hdr) )</span>
+        <span style="color: #00ffff;">shrw</span>    $2, <span style="color: #eedd82;">%cx</span>    
+        <span style="color: #00ffff;">rep</span><span style="color: #ff4500;">; </span><span style="color: #ff4500;">movsl           ;copy based on 4 bytes</span>
+        <span style="color: #00ffff;">popw</span>    <span style="color: #eedd82;">%cx</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">pop cx</span>
+        <span style="color: #00ffff;">andw</span>    $3, <span style="color: #eedd82;">%cx</span>      <span style="color: #ff4500;">;</span><span style="color: #ff4500;">cx = cx % 4</span>
+        <span style="color: #00ffff;">rep</span><span style="color: #ff4500;">; </span><span style="color: #ff4500;">movsb           ;copy based on one byte</span>
+        <span style="color: #00ffff;">popw</span>    <span style="color: #eedd82;">%di</span>
+        <span style="color: #00ffff;">popw</span>    <span style="color: #eedd82;">%si</span>
+        <span style="color: #00ffff;">retl</span>
+<span style="color: #87cefa;">ENDPROC</span>(memcpy)
+</pre>
+</div>
+
+<p>
+在 <span class="underline">copy.S</span> 文件中， 可以看到所有的方法都开始于 <b>GLOBAL 宏</b> 定义，而结束于 <b>ENDPROC 宏</b> 定义。可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/linkage.h">arch/x86/include/asm/linkage.h</a> 中找到 <span class="underline">GLOBAL 宏</span> 定义
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">GLOBAL</span>(<span style="color: #eedd82;">name</span>)    \
+        <span style="color: #00ffff;">.globl</span> name<span style="color: #ff4500;">;    </span><span style="color: #ff4500;">\</span>
+        <span style="color: #00ffff;">name</span>:
+</pre>
+</div>
+
+<pre class="example" id="orged2588b">
+这个宏给代码段分配了一个名字标签，并且让这个名字全局可用 
+</pre>
+
+<p>
+可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/include/linux/linkage.h">include/linux/linkage.h</a> 中找到 <span class="underline">ENDPROC 宏</span> 的定义
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">ENDPROC</span>(<span style="color: #eedd82;">name</span>) \
+        <span style="color: #00ffff;">.type</span> name, @function ASM_NL \
+        <span style="color: #00ffff;">END</span>(name)
+</pre>
+</div>
+
+<pre class="example" id="org23fdbf7">
+这个宏通过 END(name) 代码标识了汇编函数的结束，同时将函数名输出，从而静态分析工具可以找到这个函数
+</pre>
+
+<p>
+memcpy 代码首先将 <span class="underline">si</span> 和 <span class="underline">di</span> 寄存器的值 <b>压入堆栈</b> 进行保存，这么做的原因是因为后续的代码将修改 si 和 di 寄存器的值
+</p>
+
+<pre class="example" id="org1bec586">
+memcpy 函数（也包括其他定义在copy.s中的其他函数）使用了 fastcall 调用规则
+
+意味着所有的函数调用参数是通过 ax, dx, cx寄存器传入的，而不是传统的通过堆栈传入
+</pre>
+
+<p>
+因此在使用下面的代码调用 memcpy 函数的时候：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">memcpy(&amp;boot_params.hdr, &amp;hdr, <span style="color: #00ffff;">sizeof</span> hdr);
+</pre>
+</div>
+
+<p>
+函数的参数是这样传递的
+</p>
+<ul class="org-ul">
+<li>ax 寄存器：指向 boot_param.hdr 的内存地址</li>
+<li>dx 寄存器：指向 hdr 的内存地址</li>
+<li>cx 寄存器：包含 hdr 结构的大小</li>
+</ul>
+
+<p>
+memcpy 函数在将 si 和 di 寄存器压栈之后:
+</p>
+<ol class="org-ol">
+<li>将 boot_param.hdr 的地址放入 di 寄存器</li>
+<li>将 hdr 的地址放入 si 寄存器</li>
+<li>将 hdr 数据结构的大小压栈</li>
+<li>接下来代码首先以4个字节为单位，将 si 寄存器指向的内存内容拷贝到 di 寄存器指向的内存
+<ol class="org-ol">
+<li>当剩下的字节数不足4字节的时候，代码将原始的 hdr 数据结构大小出栈放入 cx</li>
+<li>然后对 cx 的值对4求模，接下来就是根据 cx 的值，以字节为单位将 si 寄存器指向的内存内容拷贝到 di 寄存器指向的内存</li>
+</ol></li>
+<li>当拷贝操作完成之后，将保留的 si 以及 di 寄存器值出栈，函数返回</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-orgb475a98" class="outline-3">
+<h3 id="orgb475a98">控制台初始化</h3>
 </div>
 </div>
 </div>
