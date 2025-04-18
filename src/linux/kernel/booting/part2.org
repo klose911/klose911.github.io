@@ -309,3 +309,109 @@ memcpy 函数在将 si 和 di 寄存器压栈之后:
 5. 当拷贝操作完成之后，将保留的 si 以及 di 寄存器值出栈，函数返回
 
 ** 控制台初始化
+#+begin_example
+在 hdr 结构体被拷贝到 boot_params.hdr 成员之后，系统接下来将进行控制台的初始化
+#+end_example
+控制台初始化时通过调用 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/early_serial_console.c][arch/x86/boot/early_serial_console.c]] 中定义的 *console_init* 函数实现的。这个函数首先查看命令行参数是否包含 _earlyprintk_ 选项。如果命令行参数包含该选项，那么函数将分析这个选项的内容。得到控制台将使用的 _串口信息_ ，然后进行串口的初始化。以下是 earlyprintk 选项可能的取值：
++ serial,0x3f8,115200
++ serial,ttyS0,115200
++ ttyS0,115200
+
+当串口初始化成功之后，如果命令行参数包含 _debug_ 选项，将看到如下的输出：
+#+begin_src c 
+  if (cmdline_find_option_bool("debug"))
+    puts("early console in setup code\n");
+#+end_src
+
+_puts_ 函数定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/tty.c][tty.c]] 。这个函数只是简单的调用 *putchar* 函数将输入字符串中的内容按字节输出。下面来看看 _putchar_ 函数的实现：
+
+#+begin_src c 
+  void __attribute__((section(".inittext"))) putchar(int ch)
+  {
+    if (ch == '\n')
+      putchar('\r');
+
+    bios_putchar(ch);
+
+    if (early_serial_base != 0)
+      serial_putchar(ch);
+  }
+#+end_src
+
+__attribute__((section(".inittext"))) 说明这段代码将被放入 _.inittext 代码段_ 。关于 .inittext 代码段的定义 可以在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/setup.ld#L19][setup.ld]] 中找到
+#+begin_example
+如果需要输出的字符是 \n ，那么 putchar 函数将调用自己首先输出一个字符 \r
+#+end_example
+
+接下来，就调用 _bios_putchar_ 函数将字符输出到显示器（使用bios *int10 中断* ）：
+
+#+begin_src c 
+  static void __attribute__((section(".inittext"))) bios_putchar(int ch)
+  {
+    struct biosregs ireg;
+
+    initregs(&ireg);
+    ireg.bx = 0x0007;
+    ireg.cx = 0x0001;
+    ireg.ah = 0x0e;
+    ireg.al = ch;
+    intcall(0x10, &ireg, NULL);
+  }
+#+end_src
+
+_initreg 函数_ 接受一个 _biosregs 结构的地址_ 作为输入参数，该函数首先调用 _memset 函数_ 将 _biosregs 结构体所有成员_ *清0*
+
+#+begin_src c 
+  memset(reg, 0, sizeof *reg);
+  reg->eflags |= X86_EFLAGS_CF;
+  reg->ds = ds();
+  reg->es = ds();
+  reg->fs = fs();
+  reg->gs = gs();
+#+end_src
+
+下面让来看看 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/copy.S#L36][memset]] 函数的实现:
+
+#+begin_src asm 
+  GLOBAL(memset)
+      pushw   %di
+      movw    %ax, %di
+      movzbl  %dl, %eax
+      imull   $0x01010101,%eax
+      pushw   %cx
+      shrw    $2, %cx
+      rep; stosl
+      popw    %cx
+      andw    $3, %cx
+      rep; stosb
+      popw    %di
+      retl
+  ENDPROC(memset)
+#+end_src
+
+#+begin_example
+memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函数的参数是通过 ax，dx 以及 cx 寄存器传入函数内部的
+#+end_example
+
+就像memcpy函数一样，memset 函数：
+1. 一开始将 di 寄存器入栈
+2. 然后将 biosregs 结构的地址从 ax 寄存器拷贝到di寄存器
+3. 接下来，使用 _movzbl_ 指令将 dl 寄存器的内容拷贝到 ax 寄存器的低字节
+   #+begin_example
+     这样 ax 寄存器就包含了需要拷贝到 di 寄存器所指向的内存的值
+   #+end_example
+4. 接下来的 _imull_ 指令将 _eax 寄存器_ 的值 *乘上* _0x01010101_
+   #+begin_example
+     这么做的原因是代码每次将尝试拷贝4个字节内存的内容。下面让来看一个具体的例子
+
+     假设需要将 0x7 这个数值放到内存中，在执行 imull 指令之前，eax 寄存器的值是 0x7
+
+     在 imull 指令被执行之后，eax 寄存器的内容变成了 0x07070707（4个字节的 0x7）
+   #+end_example
+5. 在 imull 指令之后，代码使用 rep; stosl 指令将 eax 寄存器的内容拷贝到 es:di 指向的内存
+
+在 bisoregs 结构体被 initregs 函数正确填充之后，bios_putchar 调用中断 0x10 在显示器上输出一个字符
+
+接下来 putchar 函数检查是否初始化了串口，如果串口被初始化了，那么将调用serial_putchar将字符输出到串口
+
+** 堆初始化
