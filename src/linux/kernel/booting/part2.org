@@ -54,7 +54,7 @@ PhysicalAddress = Segment * 16 + Offset
 具体的汇编代码看起来是这样的：
 
 #+begin_src asm 
-	  lgdt gdt
+  	lgdt gdt
 #+end_src
 
 _lgdt_ 汇编代码将把全局描述符表的基地址和大小保存到 _GDTR 寄存器_ 中。GDTR 是一个 _48位_ 的寄存器，这个寄存器中的保存了2部分的内容:
@@ -239,29 +239,29 @@ main函数首先调用了 [[https://github.com/torvalds/linux/blob/v3.18/arch/x8
 这里需要注意的是拷贝 hdr 数据结构的 _memcpy_ 函数不是C语言中的函数，而是定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/copy.S][copy.S]]:
 
 #+begin_src asm 
-  GLOBAL(memcpy)
-	  pushw	%si          ;push si to stack
-	  pushw	%di          ;push di to stack
-	  movw	%ax, %di     ;move &boot_param.hdr to di
-	  movw	%dx, %si     ;move &hdr to si
-	  pushw	%cx          ;push cx to stack ( sizeof(hdr) )
-	  shrw	$2, %cx    
-	  rep; movsl           ;copy based on 4 bytes
-	  popw	%cx          ;pop cx
-	  andw	$3, %cx      ;cx = cx % 4
-	  rep; movsb           ;copy based on one byte
-	  popw	%di
-	  popw	%si
-	  retl
-  ENDPROC(memcpy)
+  	GLOBAL(memcpy)
+  	pushw	%si          ;push si to stack
+  	pushw	%di          ;push di to stack
+  	movw	%ax, %di     ;move &boot_param.hdr to di
+  	movw	%dx, %si     ;move &hdr to si
+  	pushw	%cx          ;push cx to stack ( sizeof(hdr) )
+  	shrw	$2, %cx    
+  	rep; movsl           ;copy based on 4 bytes
+  	popw	%cx          ;pop cx
+  	andw	$3, %cx      ;cx = cx % 4
+  	rep; movsb           ;copy based on one byte
+  	popw	%di
+  	popw	%si
+  	retl
+  	ENDPROC(memcpy)
 #+end_src
 
 在 _copy.S_ 文件中， 可以看到所有的方法都开始于 *GLOBAL 宏* 定义，而结束于 *ENDPROC 宏* 定义。可以在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/linkage.h][arch/x86/include/asm/linkage.h]] 中找到 _GLOBAL 宏_ 定义
 
 #+begin_src asm 
-  #define GLOBAL(name)	\
-	  .globl name;	\
-	  name:
+  	#define GLOBAL(name)	\
+  	.globl name;	\
+  name:
 #+end_src
 
 #+begin_example
@@ -271,9 +271,9 @@ main函数首先调用了 [[https://github.com/torvalds/linux/blob/v3.18/arch/x8
 可以在 [[https://github.com/torvalds/linux/blob/v3.18/include/linux/linkage.h][include/linux/linkage.h]] 中找到 _ENDPROC 宏_ 的定义
 
 #+begin_src asm 
-  #define ENDPROC(name) \
-	  .type name, @function ASM_NL \
-	  END(name)
+  	#define ENDPROC(name) \
+  	.type name, @function ASM_NL \
+  	END(name)
 #+end_src
 
 #+begin_example
@@ -373,20 +373,20 @@ _initreg 函数_ 接受一个 _biosregs 结构的地址_ 作为输入参数，�
 下面让来看看 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/copy.S#L36][memset]] 函数的实现:
 
 #+begin_src asm 
-  GLOBAL(memset)
-      pushw   %di
-      movw    %ax, %di
-      movzbl  %dl, %eax
-      imull   $0x01010101,%eax
-      pushw   %cx
-      shrw    $2, %cx
-      rep; stosl
-      popw    %cx
-      andw    $3, %cx
-      rep; stosb
-      popw    %di
-      retl
-  ENDPROC(memset)
+  	GLOBAL(memset)
+  	pushw   %di
+  	movw    %ax, %di
+  	movzbl  %dl, %eax
+  	imull   $0x01010101,%eax
+  	pushw   %cx
+  	shrw    $2, %cx
+  	rep; stosl
+  	popw    %cx
+  	andw    $3, %cx
+  	rep; stosb
+  	popw    %di
+  	retl
+  	ENDPROC(memset)
 #+end_src
 
 #+begin_example
@@ -415,3 +415,68 @@ memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函�
 接下来 putchar 函数检查是否初始化了串口，如果串口被初始化了，那么将调用serial_putchar将字符输出到串口
 
 ** 堆初始化
+#+begin_example
+  当堆栈和bss段在header.S中被初始化之后 (细节请参考上一节)
+
+  内核需要初始化全局堆
+#+end_example
+
+全局堆的初始化是通过 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c#L116][init_heap]] 函数实现的。代码首先检查内核设置头中的 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/header.S#L321][loadflags]] 是否设置了 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/uapi/asm/bootparam.h#L21][CAN_USE_HEAP]]标志。 如果该标记被设置了，那么代码将计算堆栈的结束地址：
+
+#+begin_src c 
+  char *stack_end;
+      
+  //%P1 is (-STACK_SIZE)
+  if (boot_params.hdr.loadflags & CAN_USE_HEAP) {
+    asm("leal %P1(%%esp),%0"
+        : "=r" (stack_end) : "i" (-STACK_SIZE));
+#+end_src
+
+#+begin_example
+换言之 stack_end = esp - STACK_SIZE 
+#+end_example
+
+在计算了堆栈结束地址之后，代码计算了堆的结束地址：
+#+begin_src c 
+  //heap_end = heap_end_ptr + 512
+  heap_end = (char *)((size_t)boot_params.hdr.heap_end_ptr + 0x200);
+#+end_src
+
+接下来代码判断 heap_end 是否大于 stack_end：
++ 如果条件成立，将 stack_end 设置成 heap_end
+  #+begin_example
+    这么做是因为在大部分系统中全局堆和堆栈是相邻的，但是增长方向是相反的
+  #+end_example
+
+#+begin_example
+  到这里为止，全局堆就被正确初始化了，现在就可以使用 GET_HEAP 方法
+
+  至于这个函数的实现和使用，将在后续的章节中看到
+#+end_example
+
+** 检查CPU类型
+在堆栈初始化之后，内核代码通过调用 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/cpu.c][arch/x86/boot/cpu.c]] 提供的 *validate_cpu* 方法检查CPU级别以确定系统是否能够在当前的CPU上运行。validate_cpu 调用了 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/cpucheck.c#L102][check_cpu]] 方法得到当前系统的CPU级别，并且和系统预设的最低CPU级别进行比较
+
+#+begin_src c 
+  /*from cpu.c*/
+  check_cpu(&cpu_level, &req_level, &err_flags);
+  /*after check_cpu call, req_level = req_level defined in cpucheck.c*/
+  if (cpu_level < req_level) {
+    printf("This kernel requires an %s CPU, ", cpu_name(req_level)); 
+    printf("but only detected an %s CPU.\n", cpu_name(cpu_level));
+    return -1;
+   }
+#+end_src
+
+#+begin_example
+如果不满足条件，则不允许系统运行
+#+end_example
+
+除此之外，check_cpu 方法还做了大量的其他检测和设置工作，下面就简单介绍一些：
+1. 检查cpu标志，如果cpu是64位cpu，那么就设置 [[https://en.wikipedia.org/wiki/Long_mode][long mode]]
+2. 检查CPU的制造商，根据制造商的不同，设置不同的CPU选项
+   #+begin_example
+     比如对于AMD出厂的cpu，如果不支持 SSE+SSE2，那么就禁止这些选项
+   #+end_example
+
+** 内存分布侦测

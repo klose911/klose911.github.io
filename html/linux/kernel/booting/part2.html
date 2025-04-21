@@ -218,6 +218,9 @@
 </li>
 <li><a href="#orgb352616">将启动参数拷贝到 zeropage</a></li>
 <li><a href="#orgb475a98">控制台初始化</a></li>
+<li><a href="#orga5c1afc">堆初始化</a></li>
+<li><a href="#org4cf3286">检查CPU类型</a></li>
+<li><a href="#org465722d">内存分布侦测</a></li>
 </ul>
 </li>
 </ul>
@@ -226,7 +229,7 @@
 <div id="outline-container-org1ffb6e6" class="outline-2">
 <h2 id="org1ffb6e6">内核启动的第一步</h2>
 <div class="outline-text-2" id="text-org1ffb6e6">
-<pre class="example" id="org0f03343">
+<pre class="example" id="org4f5eac2">
 在 上一节 中开始接触到内核启动代码，并且分析了初始化部分，最后停在了对 arch/x86/boot/main.c 的 main 函数调用
 </pre>
 
@@ -245,7 +248,7 @@
 <div id="outline-container-orgb92f0d1" class="outline-2">
 <h2 id="orgb92f0d1">保护模式</h2>
 <div class="outline-text-2" id="text-orgb92f0d1">
-<pre class="example" id="orgd5744e5">
+<pre class="example" id="org68b5bda">
 在操作系统可以使用Intel 64位CPU的长模式之前，内核必须首先将CPU切换到保护模式运行
 
 什么是保护模式？
@@ -256,7 +259,7 @@
 <a href="https://en.wikipedia.org/wiki/Protected_mode">保护模式</a> 于1982年被引入到Intel CPU家族，并且从那之后，直到Intel 64出现，保护模式都是Intel CPU的主要运行模式。淘汰实模式的主要原因是因为在实模式下，系统能够访问的内存非常有限
 </p>
 
-<pre class="example" id="org0a2f664">
+<pre class="example" id="org6b1c334">
 在实模式下，系统最多只能访问1M内存，而且在很多时候，实际能够访问的内存只有640K
 </pre>
 
@@ -282,7 +285,7 @@
 <p>
 使用这2个信息，可以通过下面的公式计算出对应的物理地址：
 </p>
-<pre class="example" id="org9c3dbf5">
+<pre class="example" id="orgee7a166">
 PhysicalAddress = Segment * 16 + Offset
 </pre>
 
@@ -290,7 +293,7 @@ PhysicalAddress = Segment * 16 + Offset
 在保护模式中，内存段的定义和实模式完全不同。在保护模式中，每个内存段不再是64K大小，段的 <span class="underline">大小</span> 和 <span class="underline">起始位置</span> 是通过一个叫做 <b>段描述符</b> 的数据结构进行描述。所有内存段的段描述符存储在一个叫做 <b>全局描述符表</b> <span class="underline">GDT</span> 的内存结构中。全局描述符表这个内存数据结构在内存中的位置并不是固定的，它的地址保存在一个 <b>特殊寄存器</b> <span class="underline">GDTR</span> 中
 </p>
 
-<pre class="example" id="org722784a">
+<pre class="example" id="orgf874d80">
 马上将在Linux内核代码中看到全局描述符表的地址是如何被保存到 GDTR 中
 </pre>
 
@@ -317,7 +320,7 @@ PhysicalAddress = Segment * 16 + Offset
 <p>
 像前面说的，全局描述符表包含了所有内存段的描述符。每个段描述符长度是 <span class="underline">64位</span> ，结构如下图描述：
 </p>
-<pre class="example" id="org7d34eea">
+<pre class="example" id="orgb9a7a72">
 31          24        19      16              7            0
 ------------------------------------------------------------
 |             | |B| |A|       | |   | |0|E|W|A|            |
@@ -345,7 +348,7 @@ PhysicalAddress = Segment * 16 + Offset
 <li><p>
 <b>Limit</b> [ <span class="underline">20位</span> ] 被保存在上述内存结构的 <span class="underline">0-15</span> 和 <span class="underline">48-51</span> 位。根据上述内存结构中 <span class="underline">G位</span> 的设置，这20位内存定义的 <b>内存长度</b> 是不一样的
 </p>
-<pre class="example" id="org35459b1">
+<pre class="example" id="org0f0f05f">
 下面是一些具体的例子：
 
 如果G = 0, 并且Limit = 0， 那么表示段长度是1 byte
@@ -360,19 +363,19 @@ PhysicalAddress = Segment * 16 + Offset
 <li><p>
 如果 <span class="underline">G = 0</span> , 那么 <span class="underline">内存段的长度</span> 是按照 <span class="underline">1 byte</span> 进行 <b>增长</b> 的 ，最大的内存段长度将是 <span class="underline">1M</span> bytes
 </p>
-<pre class="example" id="orgfc77abf">
+<pre class="example" id="orgdb00132">
 Limit每增加1，段长度增加1 bytes
 </pre></li>
 <li><p>
 如果 <span class="underline">G = 1</span> , 那么 <span class="underline">内存段的长度</span> 是按照 <span class="underline">4K bytes</span> 进行 <b>增长</b> 的，最大的内存段长度将是 <span class="underline">4G</span> bytes
 </p>
-<pre class="example" id="orgc435af8">
+<pre class="example" id="orgf85b6fd">
 Limit每增加1，段长度增加4K bytes 
 </pre></li>
 <li><p>
 段长度的计算公式：
 </p>
-<pre class="example" id="org34fb2e4">
+<pre class="example" id="orgb0b9785">
 base_seg_length * ( LIMIT + 1)
 </pre></li>
 </ul></li>
@@ -380,7 +383,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 <b>Type/Attribute</b> ( <span class="underline">40-47 bits</span> ) 定义了内存段的 <b>类型</b> 以及支持的 <b>操作</b> 。上述内存结构的 <span class="underline">第43位</span> 决定了内存段是数据段还是代码段：
 </p>
-<pre class="example" id="org09ced7b">
+<pre class="example" id="org8edb582">
 |           Type Field        | Descriptor Type | Description
 |-----------------------------|-----------------|------------------
 | Decimal                     |                 |
@@ -409,7 +412,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">E = 0</span> ，数据段是 <b>向上扩展</b> <span class="underline">数据段</span> ，反之为 向下扩展数据段
 </p>
-<pre class="example" id="org908bcd1">
+<pre class="example" id="org065194a">
 关于向上扩展和向下扩展数据段，可以参考链接 http://www.sudleyplace.com/dpmione/expanddown.html
 
 在一般情况下，应该是不会使用向下扩展数据段的
@@ -417,7 +420,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">W = 1</span> ，说明这个数据段是 <b>可写的</b> ，否则不可写
 </p>
-<pre class="example" id="orga1a0a65">
+<pre class="example" id="org8ff1b9d">
 所有数据段都是可读的
 </pre></li>
 <li><span class="underline">A位</span> 表示该内存段是否 <b>已经被CPU访问</b></li>
@@ -427,7 +430,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">C = 1</span> ，说明这个代码段 <b>可以被低优先级的代码访问</b> ，反之如果C = 0，说明只能同优先级的代码段可以访问
 </p>
-<pre class="example" id="org09e7ba4">
+<pre class="example" id="org331e9bc">
 比如 C=1 可以被用户态代码访问
 </pre></li>
 <li>如果 <span class="underline">R = 1</span> ，说明该代码段 <b>可读</b> 。代码段是 <b>永远没有写权限</b> 的</li>
@@ -437,7 +440,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 <b>P</b> 标志 <span class="underline">bit 47</span>  说明该内存段是否已经 <b>存在</b> 于 <span class="underline">内存中</span>
 </p>
-<pre class="example" id="orgc61af3f">
+<pre class="example" id="org12e767a">
 如果P = 0，那么在访问这个内存段的时候将报错
 </pre></li>
 <li><b>AVL</b> 标志 <span class="underline">bit 52</span> 这个位在Linux内核中没有被使用</li>
@@ -453,7 +456,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果该标志置位，则默认值是 <span class="underline">32位地址</span> 和 <span class="underline">32位或8位的操作数</span></li>
 <li>如果该标志为0，则默认值是 <span class="underline">16位地址</span> 和 <span class="underline">16位或8位的操作数</span></li>
 </ul>
-<pre class="example" id="orgf9ceaa2">
+<pre class="example" id="org618461f">
 指令前缀0x66可以用来选择非默认值的操作数大小
 
 前缀0x67可用来选择非默认值的地址大小
@@ -465,7 +468,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果该标志置位，则使用32位栈指针并存放在ESP寄存器中</li>
 <li>如果该标志为0，则使用16位栈指针并存放在SP寄存器中</li>
 </ul>
-<pre class="example" id="orgfbde6cf">
+<pre class="example" id="org66aacb8">
 如果堆栈段被设置成一个下扩数据段，这个B标志也同时指定了堆栈段的上界限
 </pre></li>
 <li>下扩数据段：此时该标志称为 <span class="underline">B标志</span> ，用于指明 <b>堆栈段的上界限</b> 
@@ -474,7 +477,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果没有设置该标志，则堆栈段的上界限是 <b>0xFFFF</b> <span class="underline">64KB</span></li>
 </ul></li>
 </ul>
-<pre class="example" id="org93f68f6">
+<pre class="example" id="org6400604">
 对于32位代码和数据段，这个标志应该总是设置为1
 
 对于16位代码和数据段，这个标志被设置为0
@@ -488,7 +491,7 @@ base_seg_length * ( LIMIT + 1)
 <p>
 在保护模式下，段寄存器保存的不再是一个内存段的基地址，而是一个称为 <b>段选择子</b>  的结构。每个段描述符都对应一个段选择子。段选择子是一个 <span class="underline">16位</span> 的数据结构，下图显示了这个数据结构的内容：
 </p>
-<pre class="example" id="org5814c9b">
+<pre class="example" id="org1c8c8f6">
 -----------------------------
 |       Index    | TI | RPL |
 -----------------------------
@@ -500,7 +503,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 RPL :  <span class="underline">请求者优先级</span>
 </p>
-<pre class="example" id="org030ec0d">
+<pre class="example" id="org17dc7a8">
 这个优先级将和段描述符中的优先级协同工作，共同确定访问是否合法
 </pre></li>
 </ul>
@@ -531,7 +534,7 @@ RPL :  <span class="underline">请求者优先级</span>
 </ol>
 
 
-<div id="org2b5ed58" class="figure">
+<div id="org3a40794" class="figure">
 <p><img src="../pic/linear_address.png" alt="linear_address.png" width="90%" />
 </p>
 </div>
@@ -550,7 +553,7 @@ RPL :  <span class="underline">请求者优先级</span>
 <li>跳转开始执行保护模式代码</li>
 </ul>
 
-<pre class="example" id="org6dcdd74">
+<pre class="example" id="org538b90a">
 在后面的章节中，将看到Linux 内核中完整的转换代码。不过在系统进入保护模式之前，内核有很多的准备工作需要进行
 
 先打开C文件 arch/x86/boot/main.c 这个文件包含了很多的函数，这些函数分别会执行 键盘初始化 ， 内存堆初始化 等等操作...
@@ -582,19 +585,19 @@ main函数首先调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/
 
 <div class="org-src-container">
 <pre class="src src-asm"><span style="color: #87cefa;">GLOBAL</span>(memcpy)
-          <span style="color: #00ffff;">pushw</span> <span style="color: #eedd82;">%si</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push si to stack</span>
-          <span style="color: #00ffff;">pushw</span> <span style="color: #eedd82;">%di</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push di to stack</span>
-          <span style="color: #00ffff;">movw</span>  <span style="color: #eedd82;">%ax</span>, <span style="color: #eedd82;">%di</span>     <span style="color: #ff4500;">;</span><span style="color: #ff4500;">move &amp;boot_param.hdr to di</span>
-          <span style="color: #00ffff;">movw</span>  <span style="color: #eedd82;">%dx</span>, <span style="color: #eedd82;">%si</span>     <span style="color: #ff4500;">;</span><span style="color: #ff4500;">move &amp;hdr to si</span>
-          <span style="color: #00ffff;">pushw</span> <span style="color: #eedd82;">%cx</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push cx to stack ( sizeof(hdr) )</span>
-          <span style="color: #00ffff;">shrw</span>  $2, <span style="color: #eedd82;">%cx</span>    
-          <span style="color: #00ffff;">rep</span><span style="color: #ff4500;">; </span><span style="color: #ff4500;">movsl           ;copy based on 4 bytes</span>
-          <span style="color: #00ffff;">popw</span>  <span style="color: #eedd82;">%cx</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">pop cx</span>
-          <span style="color: #00ffff;">andw</span>  $3, <span style="color: #eedd82;">%cx</span>      <span style="color: #ff4500;">;</span><span style="color: #ff4500;">cx = cx % 4</span>
-          <span style="color: #00ffff;">rep</span><span style="color: #ff4500;">; </span><span style="color: #ff4500;">movsb           ;copy based on one byte</span>
-          <span style="color: #00ffff;">popw</span>  <span style="color: #eedd82;">%di</span>
-          <span style="color: #00ffff;">popw</span>  <span style="color: #eedd82;">%si</span>
-          <span style="color: #00ffff;">retl</span>
+<span style="color: #87cefa;">pushw</span>   <span style="color: #00ffff;">%si</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push si to stack</span>
+<span style="color: #87cefa;">pushw</span>   <span style="color: #00ffff;">%di</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push di to stack</span>
+<span style="color: #87cefa;">movw</span>    <span style="color: #00ffff;">%ax</span>, <span style="color: #eedd82;">%di</span>     <span style="color: #ff4500;">;</span><span style="color: #ff4500;">move &amp;boot_param.hdr to di</span>
+<span style="color: #87cefa;">movw</span>    <span style="color: #00ffff;">%dx</span>, <span style="color: #eedd82;">%si</span>     <span style="color: #ff4500;">;</span><span style="color: #ff4500;">move &amp;hdr to si</span>
+<span style="color: #87cefa;">pushw</span>   <span style="color: #00ffff;">%cx</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">push cx to stack ( sizeof(hdr) )</span>
+<span style="color: #87cefa;">shrw</span>    <span style="color: #00ffff;">$2</span>, <span style="color: #eedd82;">%cx</span>    
+<span style="color: #87cefa;">rep</span><span style="color: #ff4500;">; </span><span style="color: #ff4500;">movsl           ;copy based on 4 bytes</span>
+<span style="color: #87cefa;">popw</span>    <span style="color: #00ffff;">%cx</span>          <span style="color: #ff4500;">;</span><span style="color: #ff4500;">pop cx</span>
+<span style="color: #87cefa;">andw</span>    <span style="color: #00ffff;">$3</span>, <span style="color: #eedd82;">%cx</span>      <span style="color: #ff4500;">;</span><span style="color: #ff4500;">cx = cx % 4</span>
+<span style="color: #87cefa;">rep</span><span style="color: #ff4500;">; </span><span style="color: #ff4500;">movsb           ;copy based on one byte</span>
+<span style="color: #87cefa;">popw</span>    <span style="color: #00ffff;">%di</span>
+<span style="color: #87cefa;">popw</span>    <span style="color: #00ffff;">%si</span>
+<span style="color: #87cefa;">retl</span>
 <span style="color: #87cefa;">ENDPROC</span>(memcpy)
 </pre>
 </div>
@@ -604,13 +607,13 @@ main函数首先调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/
 </p>
 
 <div class="org-src-container">
-<pre class="src src-asm"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">GLOBAL</span>(<span style="color: #eedd82;">name</span>)    \
-          <span style="color: #00ffff;">.globl</span> name<span style="color: #ff4500;">;  </span><span style="color: #ff4500;">\</span>
-          <span style="color: #00ffff;">name</span>:
+<pre class="src src-asm">        #define GLOBAL(name)    \
+        <span style="color: #00ffff;">.globl</span> name<span style="color: #ff4500;">;    </span><span style="color: #ff4500;">\</span>
+<span style="color: #87cefa;">name</span>:
 </pre>
 </div>
 
-<pre class="example" id="org9370e00">
+<pre class="example" id="orgf299111">
 这个宏给代码段分配了一个名字标签，并且让这个名字全局可用 
 </pre>
 
@@ -620,12 +623,12 @@ main函数首先调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/
 
 <div class="org-src-container">
 <pre class="src src-asm"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">ENDPROC</span>(<span style="color: #eedd82;">name</span>) \
-          <span style="color: #00ffff;">.type</span> name, @function ASM_NL \
-          <span style="color: #00ffff;">END</span>(name)
+<span style="color: #00ffff;">.type</span> name, @function ASM_NL \
+<span style="color: #87cefa;">END</span>(name)
 </pre>
 </div>
 
-<pre class="example" id="org681c7b6">
+<pre class="example" id="org63be440">
 这个宏通过 END(name) 代码标识了汇编函数的结束，同时将函数名输出，从而静态分析工具可以找到这个函数
 </pre>
 
@@ -633,7 +636,7 @@ main函数首先调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/
 memcpy 代码首先将 <span class="underline">si</span> 和 <span class="underline">di</span> 寄存器的值 <b>压入堆栈</b> 进行保存，这么做的原因是因为后续的代码将修改 si 和 di 寄存器的值
 </p>
 
-<pre class="example" id="org54504b3">
+<pre class="example" id="org07855ce">
 memcpy 函数（也包括其他定义在copy.s中的其他函数）使用了 fastcall 调用规则
 
 意味着所有的函数调用参数是通过 ax, dx, cx寄存器传入的，而不是传统的通过堆栈传入
@@ -676,7 +679,7 @@ memcpy 函数在将 si 和 di 寄存器压栈之后:
 <div id="outline-container-orgb475a98" class="outline-3">
 <h3 id="orgb475a98">控制台初始化</h3>
 <div class="outline-text-3" id="text-orgb475a98">
-<pre class="example" id="orgdbe9573">
+<pre class="example" id="orgd89478c">
 在 hdr 结构体被拷贝到 boot_params.hdr 成员之后，系统接下来将进行控制台的初始化
 </pre>
 <p>
@@ -689,9 +692,226 @@ memcpy 函数在将 si 和 di 寄存器压栈之后:
 </ul>
 
 <p>
-当串口初始化成功之后，如果命令行参数包含 debug 选项，将看到如下的输出
+当串口初始化成功之后，如果命令行参数包含 <span class="underline">debug</span> 选项，将看到如下的输出：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span> (cmdline_find_option_bool(<span style="color: #ffa07a;">"debug"</span>))
+  puts(<span style="color: #ffa07a;">"early console in setup code\n"</span>);
+</pre>
+</div>
+
+<p>
+<span class="underline">puts</span> 函数定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/tty.c">tty.c</a> 。这个函数只是简单的调用 <b>putchar</b> 函数将输入字符串中的内容按字节输出。下面来看看 <span class="underline">putchar</span> 函数的实现：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span> <span style="color: #00ffff;">__attribute__</span>((section(<span style="color: #ffa07a;">".inittext"</span>))) <span style="color: #87cefa;">putchar</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">ch</span>)
+{
+  <span style="color: #00ffff;">if</span> (ch == <span style="color: #ffa07a;">'\n'</span>)
+    putchar(<span style="color: #ffa07a;">'\r'</span>);
+
+  bios_putchar(ch);
+
+  <span style="color: #00ffff;">if</span> (early_serial_base != 0)
+    serial_putchar(ch);
+}
+</pre>
+</div>
+
+<p>
+<span class="underline">_attribute__((section(".inittext"))) 说明这段代码将被放入 _.inittext 代码段</span> 。关于 .inittext 代码段的定义 可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/setup.ld#L19">setup.ld</a> 中找到
+</p>
+<pre class="example" id="org0b373d5">
+如果需要输出的字符是 \n ，那么 putchar 函数将调用自己首先输出一个字符 \r
+</pre>
+
+<p>
+接下来，就调用 <span class="underline">bios_putchar</span> 函数将字符输出到显示器（使用bios <b>int10 中断</b> ）：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #98fb98;">void</span> <span style="color: #00ffff;">__attribute__</span>((section(<span style="color: #ffa07a;">".inittext"</span>))) <span style="color: #87cefa;">bios_putchar</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">ch</span>)
+{
+  <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">biosregs</span> <span style="color: #eedd82;">ireg</span>;
+
+  initregs(&amp;ireg);
+  ireg.bx = 0x0007;
+  ireg.cx = 0x0001;
+  ireg.ah = 0x0e;
+  ireg.al = ch;
+  intcall(0x10, &amp;ireg, <span style="color: #7fffd4;">NULL</span>);
+}
+</pre>
+</div>
+
+<p>
+<span class="underline">initreg 函数</span> 接受一个 <span class="underline">biosregs 结构的地址</span> 作为输入参数，该函数首先调用 <span class="underline">memset 函数</span> 将 <span class="underline">biosregs 结构体所有成员</span> <b>清0</b>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">memset</span>(reg, 0, <span style="color: #00ffff;">sizeof</span> *reg);
+reg-&gt;eflags |= X86_EFLAGS_CF;
+reg-&gt;ds = ds();
+reg-&gt;es = ds();
+reg-&gt;fs = fs();
+reg-&gt;gs = gs();
+</pre>
+</div>
+
+<p>
+下面让来看看 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/copy.S#L36">memset</a> 函数的实现:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">GLOBAL</span>(memset)
+<span style="color: #87cefa;">pushw</span>   <span style="color: #00ffff;">%di</span>
+<span style="color: #87cefa;">movw</span>    <span style="color: #00ffff;">%ax</span>, <span style="color: #eedd82;">%di</span>
+<span style="color: #87cefa;">movzbl</span>  <span style="color: #00ffff;">%dl</span>, <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">imull</span>   <span style="color: #00ffff;">$0x01010101</span>,<span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">pushw</span>   <span style="color: #00ffff;">%cx</span>
+<span style="color: #87cefa;">shrw</span>    <span style="color: #00ffff;">$2</span>, <span style="color: #eedd82;">%cx</span>
+<span style="color: #87cefa;">rep</span><span style="color: #ff4500;">; </span><span style="color: #ff4500;">stosl</span>
+<span style="color: #87cefa;">popw</span>    <span style="color: #00ffff;">%cx</span>
+<span style="color: #87cefa;">andw</span>    <span style="color: #00ffff;">$3</span>, <span style="color: #eedd82;">%cx</span>
+<span style="color: #87cefa;">rep</span><span style="color: #ff4500;">; </span><span style="color: #ff4500;">stosb</span>
+<span style="color: #87cefa;">popw</span>    <span style="color: #00ffff;">%di</span>
+<span style="color: #87cefa;">retl</span>
+<span style="color: #87cefa;">ENDPROC</span>(memset)
+</pre>
+</div>
+
+<pre class="example" id="org9abd730">
+memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函数的参数是通过 ax，dx 以及 cx 寄存器传入函数内部的
+</pre>
+
+<p>
+就像memcpy函数一样，memset 函数：
+</p>
+<ol class="org-ol">
+<li>一开始将 di 寄存器入栈</li>
+<li>然后将 biosregs 结构的地址从 ax 寄存器拷贝到di寄存器</li>
+<li><p>
+接下来，使用 <span class="underline">movzbl</span> 指令将 dl 寄存器的内容拷贝到 ax 寄存器的低字节
+</p>
+<pre class="example" id="orga1725dd">
+这样 ax 寄存器就包含了需要拷贝到 di 寄存器所指向的内存的值
+</pre></li>
+<li><p>
+接下来的 <span class="underline">imull</span> 指令将 <span class="underline">eax 寄存器</span> 的值 <b>乘上</b> <span class="underline">0x01010101</span>
+</p>
+<pre class="example" id="orgb68f088">
+这么做的原因是代码每次将尝试拷贝4个字节内存的内容。下面让来看一个具体的例子
+
+假设需要将 0x7 这个数值放到内存中，在执行 imull 指令之前，eax 寄存器的值是 0x7
+
+在 imull 指令被执行之后，eax 寄存器的内容变成了 0x07070707（4个字节的 0x7）
+</pre></li>
+<li>在 imull 指令之后，代码使用 rep; stosl 指令将 eax 寄存器的内容拷贝到 es:di 指向的内存</li>
+</ol>
+
+<p>
+在 bisoregs 结构体被 initregs 函数正确填充之后，bios_putchar 调用中断 0x10 在显示器上输出一个字符
+</p>
+
+<p>
+接下来 putchar 函数检查是否初始化了串口，如果串口被初始化了，那么将调用serial_putchar将字符输出到串口
 </p>
 </div>
+</div>
+<div id="outline-container-orga5c1afc" class="outline-3">
+<h3 id="orga5c1afc">堆初始化</h3>
+<div class="outline-text-3" id="text-orga5c1afc">
+<pre class="example" id="org8debd0b">
+当堆栈和bss段在header.S中被初始化之后 (细节请参考上一节)
+
+内核需要初始化全局堆
+</pre>
+
+<p>
+全局堆的初始化是通过 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c#L116">init_heap</a> 函数实现的。代码首先检查内核设置头中的 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/header.S#L321">loadflags</a> 是否设置了 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/uapi/asm/bootparam.h#L21">CAN_USE_HEAP</a>标志。 如果该标记被设置了，那么代码将计算堆栈的结束地址：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">stack_end</span>;
+
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">%P1 is (-STACK_SIZE)</span>
+<span style="color: #00ffff;">if</span> (boot_params.hdr.loadflags &amp; CAN_USE_HEAP) {
+  <span style="color: #00ffff;">asm</span>(<span style="color: #ffa07a;">"leal %P1(%%esp),%0"</span>
+      : <span style="color: #ffa07a;">"=r"</span> (stack_end) : <span style="color: #ffa07a;">"i"</span> (-STACK_SIZE));
+</pre>
+</div>
+
+<pre class="example" id="orgdde70ab">
+换言之 stack_end = esp - STACK_SIZE 
+</pre>
+
+<p>
+在计算了堆栈结束地址之后，代码计算了堆的结束地址：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">//</span><span style="color: #ff4500;">heap_end = heap_end_ptr + 512</span>
+heap_end = (<span style="color: #98fb98;">char</span> *)((<span style="color: #98fb98;">size_t</span>)boot_params.hdr.heap_end_ptr + 0x200);
+</pre>
+</div>
+
+<p>
+接下来代码判断 heap_end 是否大于 stack_end：
+</p>
+<ul class="org-ul">
+<li><p>
+如果条件成立，将 stack_end 设置成 heap_end
+</p>
+<pre class="example" id="orgba0c4c9">
+这么做是因为在大部分系统中全局堆和堆栈是相邻的，但是增长方向是相反的
+</pre></li>
+</ul>
+
+<pre class="example" id="orgbca4e44">
+到这里为止，全局堆就被正确初始化了，现在就可以使用 GET_HEAP 方法
+
+至于这个函数的实现和使用，将在后续的章节中看到
+</pre>
+</div>
+</div>
+<div id="outline-container-org4cf3286" class="outline-3">
+<h3 id="org4cf3286">检查CPU类型</h3>
+<div class="outline-text-3" id="text-org4cf3286">
+<p>
+在堆栈初始化之后，内核代码通过调用 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/cpu.c">arch/x86/boot/cpu.c</a> 提供的 <b>validate_cpu</b> 方法检查CPU级别以确定系统是否能够在当前的CPU上运行。validate_cpu 调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/cpucheck.c#L102">check_cpu</a> 方法得到当前系统的CPU级别，并且和系统预设的最低CPU级别进行比较
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">/*</span><span style="color: #ff4500;">from cpu.c</span><span style="color: #ff4500;">*/</span>
+check_cpu(&amp;cpu_level, &amp;req_level, &amp;err_flags);
+<span style="color: #ff4500;">/*</span><span style="color: #ff4500;">after check_cpu call, req_level = req_level defined in cpucheck.c</span><span style="color: #ff4500;">*/</span>
+<span style="color: #00ffff;">if</span> (cpu_level &lt; req_level) {
+  printf(<span style="color: #ffa07a;">"This kernel requires an %s CPU, "</span>, cpu_name(req_level)); 
+  printf(<span style="color: #ffa07a;">"but only detected an %s CPU.\n"</span>, cpu_name(cpu_level));
+  <span style="color: #00ffff;">return</span> -1;
+ }
+</pre>
+</div>
+
+<pre class="example" id="orgb37da9d">
+如果不满足条件，则不允许系统运行
+</pre>
+
+<p>
+除此之外，check_cpu 方法还做了大量的其他检测和设置工作，下面就简单介绍一些：
+</p>
+<ol class="org-ol">
+<li>检查cpu标志，如果cpu是64位cpu，那么就设置 <a href="https://en.wikipedia.org/wiki/Long_mode">long mode</a></li>
+<li><p>
+检查CPU的制造商，根据制造商的不同，设置不同的CPU选项
+</p>
+<pre class="example" id="org0684001">
+比如对于AMD出厂的cpu，如果不支持 SSE+SSE2，那么就禁止这些选项
+</pre></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org465722d" class="outline-3">
+<h3 id="org465722d">内存分布侦测</h3>
 </div>
 </div>
 </div>
