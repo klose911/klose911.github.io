@@ -221,6 +221,7 @@
 <li><a href="#orga5c1afc">堆初始化</a></li>
 <li><a href="#org4cf3286">检查CPU类型</a></li>
 <li><a href="#org465722d">内存分布侦测</a></li>
+<li><a href="#org587b338">键盘初始化</a></li>
 </ul>
 </li>
 </ul>
@@ -229,7 +230,7 @@
 <div id="outline-container-org1ffb6e6" class="outline-2">
 <h2 id="org1ffb6e6">内核启动的第一步</h2>
 <div class="outline-text-2" id="text-org1ffb6e6">
-<pre class="example" id="org4f5eac2">
+<pre class="example" id="orgb107345">
 在 上一节 中开始接触到内核启动代码，并且分析了初始化部分，最后停在了对 arch/x86/boot/main.c 的 main 函数调用
 </pre>
 
@@ -248,7 +249,7 @@
 <div id="outline-container-orgb92f0d1" class="outline-2">
 <h2 id="orgb92f0d1">保护模式</h2>
 <div class="outline-text-2" id="text-orgb92f0d1">
-<pre class="example" id="org68b5bda">
+<pre class="example" id="orgad1c904">
 在操作系统可以使用Intel 64位CPU的长模式之前，内核必须首先将CPU切换到保护模式运行
 
 什么是保护模式？
@@ -259,7 +260,7 @@
 <a href="https://en.wikipedia.org/wiki/Protected_mode">保护模式</a> 于1982年被引入到Intel CPU家族，并且从那之后，直到Intel 64出现，保护模式都是Intel CPU的主要运行模式。淘汰实模式的主要原因是因为在实模式下，系统能够访问的内存非常有限
 </p>
 
-<pre class="example" id="org6b1c334">
+<pre class="example" id="org135ed86">
 在实模式下，系统最多只能访问1M内存，而且在很多时候，实际能够访问的内存只有640K
 </pre>
 
@@ -285,7 +286,7 @@
 <p>
 使用这2个信息，可以通过下面的公式计算出对应的物理地址：
 </p>
-<pre class="example" id="orgee7a166">
+<pre class="example" id="org42b9daf">
 PhysicalAddress = Segment * 16 + Offset
 </pre>
 
@@ -293,7 +294,7 @@ PhysicalAddress = Segment * 16 + Offset
 在保护模式中，内存段的定义和实模式完全不同。在保护模式中，每个内存段不再是64K大小，段的 <span class="underline">大小</span> 和 <span class="underline">起始位置</span> 是通过一个叫做 <b>段描述符</b> 的数据结构进行描述。所有内存段的段描述符存储在一个叫做 <b>全局描述符表</b> <span class="underline">GDT</span> 的内存结构中。全局描述符表这个内存数据结构在内存中的位置并不是固定的，它的地址保存在一个 <b>特殊寄存器</b> <span class="underline">GDTR</span> 中
 </p>
 
-<pre class="example" id="orgf874d80">
+<pre class="example" id="orgb0f3aa1">
 马上将在Linux内核代码中看到全局描述符表的地址是如何被保存到 GDTR 中
 </pre>
 
@@ -320,7 +321,7 @@ PhysicalAddress = Segment * 16 + Offset
 <p>
 像前面说的，全局描述符表包含了所有内存段的描述符。每个段描述符长度是 <span class="underline">64位</span> ，结构如下图描述：
 </p>
-<pre class="example" id="orgb9a7a72">
+<pre class="example" id="org3f57a36">
 31          24        19      16              7            0
 ------------------------------------------------------------
 |             | |B| |A|       | |   | |0|E|W|A|            |
@@ -348,7 +349,7 @@ PhysicalAddress = Segment * 16 + Offset
 <li><p>
 <b>Limit</b> [ <span class="underline">20位</span> ] 被保存在上述内存结构的 <span class="underline">0-15</span> 和 <span class="underline">48-51</span> 位。根据上述内存结构中 <span class="underline">G位</span> 的设置，这20位内存定义的 <b>内存长度</b> 是不一样的
 </p>
-<pre class="example" id="org0f0f05f">
+<pre class="example" id="org2388063">
 下面是一些具体的例子：
 
 如果G = 0, 并且Limit = 0， 那么表示段长度是1 byte
@@ -363,19 +364,19 @@ PhysicalAddress = Segment * 16 + Offset
 <li><p>
 如果 <span class="underline">G = 0</span> , 那么 <span class="underline">内存段的长度</span> 是按照 <span class="underline">1 byte</span> 进行 <b>增长</b> 的 ，最大的内存段长度将是 <span class="underline">1M</span> bytes
 </p>
-<pre class="example" id="orgdb00132">
+<pre class="example" id="org1884846">
 Limit每增加1，段长度增加1 bytes
 </pre></li>
 <li><p>
 如果 <span class="underline">G = 1</span> , 那么 <span class="underline">内存段的长度</span> 是按照 <span class="underline">4K bytes</span> 进行 <b>增长</b> 的，最大的内存段长度将是 <span class="underline">4G</span> bytes
 </p>
-<pre class="example" id="orgf85b6fd">
+<pre class="example" id="org3c27621">
 Limit每增加1，段长度增加4K bytes 
 </pre></li>
 <li><p>
 段长度的计算公式：
 </p>
-<pre class="example" id="orgb0b9785">
+<pre class="example" id="orgd2538ba">
 base_seg_length * ( LIMIT + 1)
 </pre></li>
 </ul></li>
@@ -383,7 +384,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 <b>Type/Attribute</b> ( <span class="underline">40-47 bits</span> ) 定义了内存段的 <b>类型</b> 以及支持的 <b>操作</b> 。上述内存结构的 <span class="underline">第43位</span> 决定了内存段是数据段还是代码段：
 </p>
-<pre class="example" id="org8edb582">
+<pre class="example" id="org9a8d76c">
 |           Type Field        | Descriptor Type | Description
 |-----------------------------|-----------------|------------------
 | Decimal                     |                 |
@@ -412,7 +413,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">E = 0</span> ，数据段是 <b>向上扩展</b> <span class="underline">数据段</span> ，反之为 向下扩展数据段
 </p>
-<pre class="example" id="org065194a">
+<pre class="example" id="orgd1ad57a">
 关于向上扩展和向下扩展数据段，可以参考链接 http://www.sudleyplace.com/dpmione/expanddown.html
 
 在一般情况下，应该是不会使用向下扩展数据段的
@@ -420,7 +421,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">W = 1</span> ，说明这个数据段是 <b>可写的</b> ，否则不可写
 </p>
-<pre class="example" id="org8ff1b9d">
+<pre class="example" id="orgce80bb2">
 所有数据段都是可读的
 </pre></li>
 <li><span class="underline">A位</span> 表示该内存段是否 <b>已经被CPU访问</b></li>
@@ -430,7 +431,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 如果 <span class="underline">C = 1</span> ，说明这个代码段 <b>可以被低优先级的代码访问</b> ，反之如果C = 0，说明只能同优先级的代码段可以访问
 </p>
-<pre class="example" id="org331e9bc">
+<pre class="example" id="orgcbbcf2d">
 比如 C=1 可以被用户态代码访问
 </pre></li>
 <li>如果 <span class="underline">R = 1</span> ，说明该代码段 <b>可读</b> 。代码段是 <b>永远没有写权限</b> 的</li>
@@ -440,7 +441,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 <b>P</b> 标志 <span class="underline">bit 47</span>  说明该内存段是否已经 <b>存在</b> 于 <span class="underline">内存中</span>
 </p>
-<pre class="example" id="org12e767a">
+<pre class="example" id="org76231a9">
 如果P = 0，那么在访问这个内存段的时候将报错
 </pre></li>
 <li><b>AVL</b> 标志 <span class="underline">bit 52</span> 这个位在Linux内核中没有被使用</li>
@@ -456,7 +457,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果该标志置位，则默认值是 <span class="underline">32位地址</span> 和 <span class="underline">32位或8位的操作数</span></li>
 <li>如果该标志为0，则默认值是 <span class="underline">16位地址</span> 和 <span class="underline">16位或8位的操作数</span></li>
 </ul>
-<pre class="example" id="org618461f">
+<pre class="example" id="org3b6b811">
 指令前缀0x66可以用来选择非默认值的操作数大小
 
 前缀0x67可用来选择非默认值的地址大小
@@ -468,7 +469,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果该标志置位，则使用32位栈指针并存放在ESP寄存器中</li>
 <li>如果该标志为0，则使用16位栈指针并存放在SP寄存器中</li>
 </ul>
-<pre class="example" id="org66aacb8">
+<pre class="example" id="orgfdac2b0">
 如果堆栈段被设置成一个下扩数据段，这个B标志也同时指定了堆栈段的上界限
 </pre></li>
 <li>下扩数据段：此时该标志称为 <span class="underline">B标志</span> ，用于指明 <b>堆栈段的上界限</b> 
@@ -477,7 +478,7 @@ base_seg_length * ( LIMIT + 1)
 <li>如果没有设置该标志，则堆栈段的上界限是 <b>0xFFFF</b> <span class="underline">64KB</span></li>
 </ul></li>
 </ul>
-<pre class="example" id="org6400604">
+<pre class="example" id="org5b2a446">
 对于32位代码和数据段，这个标志应该总是设置为1
 
 对于16位代码和数据段，这个标志被设置为0
@@ -491,7 +492,7 @@ base_seg_length * ( LIMIT + 1)
 <p>
 在保护模式下，段寄存器保存的不再是一个内存段的基地址，而是一个称为 <b>段选择子</b>  的结构。每个段描述符都对应一个段选择子。段选择子是一个 <span class="underline">16位</span> 的数据结构，下图显示了这个数据结构的内容：
 </p>
-<pre class="example" id="org1c8c8f6">
+<pre class="example" id="orge7674a4">
 -----------------------------
 |       Index    | TI | RPL |
 -----------------------------
@@ -503,7 +504,7 @@ base_seg_length * ( LIMIT + 1)
 <li><p>
 RPL :  <span class="underline">请求者优先级</span>
 </p>
-<pre class="example" id="org17dc7a8">
+<pre class="example" id="orge1fe1ca">
 这个优先级将和段描述符中的优先级协同工作，共同确定访问是否合法
 </pre></li>
 </ul>
@@ -534,7 +535,7 @@ RPL :  <span class="underline">请求者优先级</span>
 </ol>
 
 
-<div id="org3a40794" class="figure">
+<div id="org66dbec7" class="figure">
 <p><img src="../pic/linear_address.png" alt="linear_address.png" width="90%" />
 </p>
 </div>
@@ -553,7 +554,7 @@ RPL :  <span class="underline">请求者优先级</span>
 <li>跳转开始执行保护模式代码</li>
 </ul>
 
-<pre class="example" id="org538b90a">
+<pre class="example" id="orgd57d346">
 在后面的章节中，将看到Linux 内核中完整的转换代码。不过在系统进入保护模式之前，内核有很多的准备工作需要进行
 
 先打开C文件 arch/x86/boot/main.c 这个文件包含了很多的函数，这些函数分别会执行 键盘初始化 ， 内存堆初始化 等等操作...
@@ -613,7 +614,7 @@ main函数首先调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/
 </pre>
 </div>
 
-<pre class="example" id="orgf299111">
+<pre class="example" id="org2933d65">
 这个宏给代码段分配了一个名字标签，并且让这个名字全局可用 
 </pre>
 
@@ -628,7 +629,7 @@ main函数首先调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/
 </pre>
 </div>
 
-<pre class="example" id="org63be440">
+<pre class="example" id="org8910dce">
 这个宏通过 END(name) 代码标识了汇编函数的结束，同时将函数名输出，从而静态分析工具可以找到这个函数
 </pre>
 
@@ -636,7 +637,7 @@ main函数首先调用了 <a href="https://github.com/torvalds/linux/blob/v3.18/
 memcpy 代码首先将 <span class="underline">si</span> 和 <span class="underline">di</span> 寄存器的值 <b>压入堆栈</b> 进行保存，这么做的原因是因为后续的代码将修改 si 和 di 寄存器的值
 </p>
 
-<pre class="example" id="org07855ce">
+<pre class="example" id="orge37f82b">
 memcpy 函数（也包括其他定义在copy.s中的其他函数）使用了 fastcall 调用规则
 
 意味着所有的函数调用参数是通过 ax, dx, cx寄存器传入的，而不是传统的通过堆栈传入
@@ -679,7 +680,7 @@ memcpy 函数在将 si 和 di 寄存器压栈之后:
 <div id="outline-container-orgb475a98" class="outline-3">
 <h3 id="orgb475a98">控制台初始化</h3>
 <div class="outline-text-3" id="text-orgb475a98">
-<pre class="example" id="orgd89478c">
+<pre class="example" id="orgcbe1494">
 在 hdr 结构体被拷贝到 boot_params.hdr 成员之后，系统接下来将进行控制台的初始化
 </pre>
 <p>
@@ -721,7 +722,7 @@ memcpy 函数在将 si 和 di 寄存器压栈之后:
 <p>
 <span class="underline">_attribute__((section(".inittext"))) 说明这段代码将被放入 _.inittext 代码段</span> 。关于 .inittext 代码段的定义 可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/setup.ld#L19">setup.ld</a> 中找到
 </p>
-<pre class="example" id="org0b373d5">
+<pre class="example" id="orgdd3d512">
 如果需要输出的字符是 \n ，那么 putchar 函数将调用自己首先输出一个字符 \r
 </pre>
 
@@ -780,7 +781,7 @@ reg-&gt;gs = gs();
 </pre>
 </div>
 
-<pre class="example" id="org9abd730">
+<pre class="example" id="orgcfc71ca">
 memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函数的参数是通过 ax，dx 以及 cx 寄存器传入函数内部的
 </pre>
 
@@ -793,13 +794,13 @@ memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函�
 <li><p>
 接下来，使用 <span class="underline">movzbl</span> 指令将 dl 寄存器的内容拷贝到 ax 寄存器的低字节
 </p>
-<pre class="example" id="orga1725dd">
+<pre class="example" id="org4fad211">
 这样 ax 寄存器就包含了需要拷贝到 di 寄存器所指向的内存的值
 </pre></li>
 <li><p>
 接下来的 <span class="underline">imull</span> 指令将 <span class="underline">eax 寄存器</span> 的值 <b>乘上</b> <span class="underline">0x01010101</span>
 </p>
-<pre class="example" id="orgb68f088">
+<pre class="example" id="org89f0b47">
 这么做的原因是代码每次将尝试拷贝4个字节内存的内容。下面让来看一个具体的例子
 
 假设需要将 0x7 这个数值放到内存中，在执行 imull 指令之前，eax 寄存器的值是 0x7
@@ -821,7 +822,7 @@ memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函�
 <div id="outline-container-orga5c1afc" class="outline-3">
 <h3 id="orga5c1afc">堆初始化</h3>
 <div class="outline-text-3" id="text-orga5c1afc">
-<pre class="example" id="org8debd0b">
+<pre class="example" id="orgca867db">
 当堆栈和bss段在header.S中被初始化之后 (细节请参考上一节)
 
 内核需要初始化全局堆
@@ -841,7 +842,7 @@ memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函�
 </pre>
 </div>
 
-<pre class="example" id="orgdde70ab">
+<pre class="example" id="orgda6390e">
 换言之 stack_end = esp - STACK_SIZE 
 </pre>
 
@@ -861,12 +862,12 @@ heap_end = (<span style="color: #98fb98;">char</span> *)((<span style="color: #9
 <li><p>
 如果条件成立，将 stack_end 设置成 heap_end
 </p>
-<pre class="example" id="orgba0c4c9">
+<pre class="example" id="org6252bdf">
 这么做是因为在大部分系统中全局堆和堆栈是相邻的，但是增长方向是相反的
 </pre></li>
 </ul>
 
-<pre class="example" id="orgbca4e44">
+<pre class="example" id="org4a1a7a6">
 到这里为止，全局堆就被正确初始化了，现在就可以使用 GET_HEAP 方法
 
 至于这个函数的实现和使用，将在后续的章节中看到
@@ -892,7 +893,7 @@ check_cpu(&amp;cpu_level, &amp;req_level, &amp;err_flags);
 </pre>
 </div>
 
-<pre class="example" id="orgb37da9d">
+<pre class="example" id="org89495b5">
 如果不满足条件，则不允许系统运行
 </pre>
 
@@ -904,7 +905,7 @@ check_cpu(&amp;cpu_level, &amp;req_level, &amp;err_flags);
 <li><p>
 检查CPU的制造商，根据制造商的不同，设置不同的CPU选项
 </p>
-<pre class="example" id="org0684001">
+<pre class="example" id="org0844f8b">
 比如对于AMD出厂的cpu，如果不支持 SSE+SSE2，那么就禁止这些选项
 </pre></li>
 </ol>
@@ -912,6 +913,77 @@ check_cpu(&amp;cpu_level, &amp;req_level, &amp;err_flags);
 </div>
 <div id="outline-container-org465722d" class="outline-3">
 <h3 id="org465722d">内存分布侦测</h3>
+<div class="outline-text-3" id="text-org465722d">
+<p>
+接下来，内核调用 <b>detect_memory</b> 方法进行内存侦测，以得到系统当前内存的使用分布。该方法使用多种编程接口，包括 <span class="underline">0xe820</span> （获取全部内存分配）， <span class="underline">0xe801</span> 和 <span class="underline">0x88</span> （获取临近内存大小），进行内存分布侦测。在这里只介绍 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/memory.c">arch/x86/boot/memory.c</a> 中提供的 <b>detect_memory_e820</b> 方法。该方法首先调用 <span class="underline">initregs</span> 方法初始化 <span class="underline">biosregs</span> 数据结构，然后向该数据结构填入 <span class="underline">0xe820 编程接口</span> 所要求的参数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">initregs(&amp;ireg);
+ireg.ax  = 0xe820;
+ireg.cx  = <span style="color: #00ffff;">sizeof</span> buf;
+ireg.edx = SMAP;
+ireg.di  = (<span style="color: #98fb98;">size_t</span>)&amp;buf;
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>ax: 固定为 <span class="underline">0xe820</span></li>
+<li>cx: 包含 <span class="underline">数据缓冲区的大小</span> ，该缓冲区将包含 <span class="underline">系统内存的信息数据</span></li>
+<li>edx: 必须是 <b>SMAP</b> 这个魔术数字，就是 <span class="underline">0x534d4150</span></li>
+<li>es:di : 包含 <span class="underline">数据缓冲区的地址</span></li>
+<li>ebx: 必须为 <span class="underline">0</span></li>
+</ul>
+
+<p>
+接下来就是通过一个循环来收集内存信息了。每个循环都开始于一个 <b>0x15 中断</b> 调用，这个中断调用返回 <span class="underline">地址分配表中的一项</span> ，接着程序将返回的 <span class="underline">ebx</span>  <b>设置</b> 到 <span class="underline">biosregs 数据结构</span> 中，然后进行下一次的 0x15 中断调用
+</p>
+
+<pre class="example" id="org25f561d">
+那么循环什么时候结束呢？
+</pre>
+
+<p>
+直到 0x15 调用返回的 <span class="underline">eflags</span> 包含标志 <b>X86_EFLAGS_CF</b> :
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">intcall(0x15, &amp;ireg, &amp;oreg);
+ireg.ebx = oreg.ebx;
+</pre>
+</div>
+
+<p>
+在循环结束之后， <span class="underline">整个内存分配</span> 信息将被写入到 <span class="underline">e820entry 数组</span> 中，这个数组的每个元素包含下面3个信息:
+</p>
+<ul class="org-ul">
+<li>内存段的起始地址</li>
+<li>内存段的大小</li>
+<li><p>
+内存段的类型
+</p>
+<pre class="example" id="org6792e45">
+类型可以是reserved, usable等等
+</pre></li>
+</ul>
+
+<p>
+可以在 <span class="underline">dmesg</span> 输出中看到这个数组的内容：
+</p>
+
+<pre class="example" id="org1999b7f">
+[    0.000000] e820: BIOS-provided physical RAM map:
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable
+[    0.000000] BIOS-e820: [mem 0x000000000009fc00-0x000000000009ffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000000f0000-0x00000000000fffff] reserved
+[    0.000000] BIOS-e820: [mem 0x0000000000100000-0x000000003ffdffff] usable
+[    0.000000] BIOS-e820: [mem 0x000000003ffe0000-0x000000003fffffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000fffc0000-0x00000000ffffffff] reserved
+</pre>
+</div>
+</div>
+<div id="outline-container-org587b338" class="outline-3">
+<h3 id="org587b338">键盘初始化</h3>
 </div>
 </div>
 </div>

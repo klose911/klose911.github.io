@@ -480,3 +480,53 @@ memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函�
    #+end_example
 
 ** 内存分布侦测
+接下来，内核调用 *detect_memory* 方法进行内存侦测，以得到系统当前内存的使用分布。该方法使用多种编程接口，包括 _0xe820_ （获取全部内存分配）， _0xe801_ 和 _0x88_ （获取临近内存大小），进行内存分布侦测。在这里只介绍 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/memory.c][arch/x86/boot/memory.c]] 中提供的 *detect_memory_e820* 方法。该方法首先调用 _initregs_ 方法初始化 _biosregs_ 数据结构，然后向该数据结构填入 _0xe820 编程接口_ 所要求的参数：
+
+#+begin_src c 
+  initregs(&ireg);
+  ireg.ax  = 0xe820;
+  ireg.cx  = sizeof buf;
+  ireg.edx = SMAP;
+  ireg.di  = (size_t)&buf;
+#+end_src
+
++ ax: 固定为 _0xe820_ 
++ cx: 包含 _数据缓冲区的大小_ ，该缓冲区将包含 _系统内存的信息数据_
++ edx: 必须是 *SMAP* 这个魔术数字，就是 _0x534d4150_
++ es:di : 包含 _数据缓冲区的地址_
++ ebx: 必须为 _0_
+
+接下来就是通过一个循环来收集内存信息了。每个循环都开始于一个 *0x15 中断* 调用，这个中断调用返回 _地址分配表中的一项_ ，接着程序将返回的 _ebx_  *设置* 到 _biosregs 数据结构_ 中，然后进行下一次的 0x15 中断调用
+
+#+begin_example
+那么循环什么时候结束呢？
+#+end_example
+
+直到 0x15 调用返回的 _eflags_ 包含标志 *X86_EFLAGS_CF* :
+
+#+begin_src c 
+  intcall(0x15, &ireg, &oreg);
+  ireg.ebx = oreg.ebx;
+#+end_src
+
+在循环结束之后， _整个内存分配_ 信息将被写入到 _e820entry 数组_ 中，这个数组的每个元素包含下面3个信息:
++ 内存段的起始地址
++ 内存段的大小
++ 内存段的类型
+  #+begin_example
+    类型可以是reserved, usable等等
+  #+end_example
+
+可以在 _dmesg_ 输出中看到这个数组的内容：
+
+#+begin_example
+  [    0.000000] e820: BIOS-provided physical RAM map:
+  [    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable
+  [    0.000000] BIOS-e820: [mem 0x000000000009fc00-0x000000000009ffff] reserved
+  [    0.000000] BIOS-e820: [mem 0x00000000000f0000-0x00000000000fffff] reserved
+  [    0.000000] BIOS-e820: [mem 0x0000000000100000-0x000000003ffdffff] usable
+  [    0.000000] BIOS-e820: [mem 0x000000003ffe0000-0x000000003fffffff] reserved
+  [    0.000000] BIOS-e820: [mem 0x00000000fffc0000-0x00000000ffffffff] reserved
+#+end_example
+
+** 键盘初始化
