@@ -530,3 +530,141 @@ memset 函数和 memcpy 函数一样使用了 fastcall 调用规则，因此函�
 #+end_example
 
 ** 键盘初始化
+接下来内核调用 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c#L65][keyboard_init()]] 方法进行键盘初始化操作。 首先，方法调用 initregs 初始化寄存器结构，然后调用 [[https://www.ctyme.com/intr/rb-1756.htm][0x16]] 中断来 *获取* _键盘状态_ ：
+
+#+begin_src c 
+  initregs(&ireg);
+  ireg.ah = 0x02;     /* Get keyboard status */
+  intcall(0x16, &ireg, &oreg);
+  boot_params.kbd_status = oreg.al;
+#+end_src
+
+在获取了键盘状态之后，代码再次调用0x16中断来 *设置* 键盘的 _按键检测频率_ ：
+#+begin_src c 
+  ireg.ax = 0x0305;   /* Set keyboard repeat rate */
+  intcall(0x16, &ireg, NULL);
+#+end_src
+
+** 系统参数查询
+接下来内核将进行一系列的参数查询
+#+begin_example
+  在这里将不深入介绍所有这些查询，将在后续章节中再进行详细介绍
+#+end_example
+
+*** mca 
+[[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/mca.c#L18][query_mca]] 方法调用 [[http://www.ctyme.com/intr/rb-1594.htm][0x15]] 中断来获取 _机器的型号信息_ ， _BIOS版本_ 以及 _其他一些硬件相关的属性_ ：
+
+#+begin_src c 
+  int query_mca(void)
+  {
+    struct biosregs ireg, oreg;
+    u16 len;
+
+    initregs(&ireg);
+    ireg.ah = 0xc0;
+    intcall(0x15, &ireg, &oreg);
+
+    if (oreg.eflags & X86_EFLAGS_CF)
+      return -1;  /* No MCA present */
+
+    set_fs(oreg.es);
+    len = rdfs16(oreg.bx);
+
+    if (len > sizeof(boot_params.sys_desc_table))
+      len = sizeof(boot_params.sys_desc_table);
+
+    copy_from_fs(&boot_params.sys_desc_table, oreg.bx, len);
+    return 0;
+  }
+#+end_src
+
+这个方法：
+1. 设置 _ah 寄存器_ 的值为 _0xc0_
+2. 然后调用 *0x15 BIOS中断*
+3. 中断返回之后代码检查 _carry flag_
+   + 如果它被 _置位_ ，说明BIOS不支持MCA
+   + 如果 _CF_ 被设置成 _0_ ，那么 _ES:BX 指向系统信息表_ 。这个表的内容如下所示：
+     #+begin_example
+       Offset  Size    Description
+        00h    WORD    number of bytes following
+        02h    BYTE    model (see #00515)
+        03h    BYTE    submodel (see #00515)
+        04h    BYTE    BIOS revision: 0 for first release, 1 for 2nd, etc.
+        05h    BYTE    feature byte 1 (see #00510)
+        06h    BYTE    feature byte 2 (see #00511)
+        07h    BYTE    feature byte 3 (see #00512)
+        08h    BYTE    feature byte 4 (see #00513)
+        09h    BYTE    feature byte 5 (see #00514)
+       ---AWARD BIOS---
+        0Ah  N BYTEs   AWARD copyright notice
+       ---Phoenix BIOS---
+        0Ah    BYTE    ??? (00h)
+        0Bh    BYTE    major version
+        0Ch    BYTE    minor version (BCD)
+        0Dh  4 BYTEs   ASCIZ string "PTL" (Phoenix Technologies Ltd)
+       ---Quadram Quad386---
+        0Ah 17 BYTEs   ASCII signature string "Quadram Quad386XT"
+       ---Toshiba (Satellite Pro 435CDS at least)---
+        0Ah  7 BYTEs   signature "TOSHIBA"
+        11h    BYTE    ??? (8h)
+        12h    BYTE    ??? (E7h) product ID??? (guess)
+        13h  3 BYTEs   "JPN"
+     #+end_example
+4. 接下来代码调用 *set_fs* 方法，将 _es 寄存器_ 的值写入 _fs 寄存器_ :
+   #+begin_src c 
+     static inline void set_fs(u16 seg)
+     {
+       asm volatile("movw %0,%%fs" : : "rm" (seg));
+     }
+   #+end_src
+   + 在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/boot.h][boot.h]] 存在很多类似于 set_fs 的方法
+     #+begin_example
+       比如 set_gs 
+     #+end_example
+5. 在 query_mca 的最后，代码将 _es:bx 指向的内存地址的内容_ *拷贝* 到 _boot_params.sys_desc_table_ 
+
+*** Intel SpeedStep
+接下来，内核调用 _query_ist_ 方法获取 [[http://en.wikipedia.org/wiki/SpeedStep][Intel SpeedStep]] 信息。这个方法首先检查CPU类型，然后调用 *0x15 中断* 获得这个信息并放入 _boot_params_ 中
+
+*** APM 
+内核会调用 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/apm.c#L21][query_apm_bios]] 方法从BIOS获得 [[https://en.wikipedia.org/wiki/Advanced_Power_Management][高级电源管理]] 信息。query_apm_bios 也是调用_ 0x15 中断_ ，只不过将 _ax_ 设置成 _0x5300_ 以得到APM设置信息。中断调用返回之后，代码将检查 bx 和 cx 的值：
++ 如果 bx 不是 _0x504d_ ( PM 标记 )，或者 cx 不是 _0x02_ (0x02，表示支持32位模式)，那么代码直接返回错误
++ 否则，将进行下面的步骤
+  1. 使用 _ax = 0x5304_ 来调用 0x15 中断，以 *断开* APM 接口
+  2. 使用 _ax = 0x5303_ 调用 0x15 中断，使用 _32位接口_ *重新连接* APM
+  3. 使用 _ax = 0x5300_ 调用 0x15 中断 *再次获取* APM设置
+  4. 将信息写入 _boot_params.apm_bios_info_ 
+
+需要注意的是，只有在 *CONFIG_APM* 或者 *CONFIG_APM_MODULE* 被设置的情况下，query_apm_bios 方法才会被调用：
+
+#+begin_src c 
+  #if defined(CONFIG_APM) || defined(CONFIG_APM_MODULE)
+  query_apm_bios();
+  #endif
+#+end_src
+
+*** Disk Drive 
+最后是 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/edd.c#L122][query_edd]] 方法调用, 这个方法从BIOS中查询 *Enhanced Disk Drive* 信息。代码检查 _内核命令行参数_ 是否 *设置* 了 _edd 选项_ ：
++ 如果 edd选项设置成 off，query_edd 不做任何操作，直接返回
++ 如果EDD被激活了，query_edd  *遍历* 所有 _BIOS支持的硬盘_ ，并 *获取* 相应 _硬盘的EDD信息_ ：
+  + 0x80 是 _第一块硬盘_
+  + EDD_MBR_SIG_MAX 是一个宏，值为16
+  #+begin_src c 
+    for (devno = 0x80; devno < 0x80+EDD_MBR_SIG_MAX; devno++) {
+      if (!get_edd_info(devno, &ei) && boot_params.eddbuf_entries < EDDMAXNR) {
+        memcpy(edp, &ei, sizeof ei);
+        edp++;
+        boot_params.eddbuf_entries++;
+      }
+      //     ...
+      //  ...
+      //  ...
+  #+end_src
+
+
+代码把获得的信息放入数组 [[https://github.com/torvalds/linux/blob/v3.18/include/uapi/linux/edd.h#L172][edd_info]] 中：
++ _get_edd_info_ 方法通过调用 _0x13 中断_ 调用（设置 _ah = 0x41_ ) 来 *检查* EDD是否被硬盘支持
+  + 如果EDD被支持，代码将再次调用 0x13 中断，在这次调用中 _ah = 0x48_ ，并且 _si_ 指向一个 _数据缓冲区地址_
+  + 中断调用之后，EDD信息将被保存到 _si 指向的缓冲区地址_ 
+
+
