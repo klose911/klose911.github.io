@@ -1,0 +1,75 @@
+#+TITLE: 显示模式
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: ./booting.html
+#+HTML_LINK_UP: ./part3.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+前面内核启动过程之旅停在了对 *set_video* 函数的调用（ [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c#L181][main.c]]）。接下来将读到下面的内容：
++ 显示模式的初始化
++ 在进入保护模式之前的准备工作
++ 正式进入保护模式
+
+
+* 显示模式
+可以在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/video.c#L315][arch/x86/boot/video.c]] 找到这个函数的定义。 这个函数首先从 _boot_params.hdr 结构_ 获取 _显示模式设置_ ：
+
+#+begin_src c 
+  u16 mode = boot_params.hdr.vid_mode;
+#+end_src
+
+#+begin_example
+  至于 boot_params.hdr 数据结构中的内容，是通过 copy_boot_params 函数实现的
+
+  关于这个函数的实现细节请查看上一节的内容
+#+end_example
+boot_params.hdr 中的 _vid_mode_ 是 *引导程序* 必须填入的字段。可以在 kernel boot protocol 文档中找到关于 vid_mode 的详细信息：
+#+begin_example
+  Offset	Proto	Name		Meaning
+  /Size
+  01FA/2	ALL	    vid_mode	Video mode control
+#+end_example
+
+而在 linux kernel boot protocol 文档中定义了如何通过命令行参数的方式为 vid_mode 字段传入相应的值：
+
+#+begin_example
+  ,**** SPECIAL COMMAND LINE OPTIONS
+  vga=<mode>
+  	<mode> here is either an integer (in C notation, either
+  	decimal, octal, or hexadecimal) or one of the strings
+  	"normal" (meaning 0xFFFF), "ext" (meaning 0xFFFE) or "ask"
+  	(meaning 0xFFFD).  This value should be entered into the
+  	vid_mode field, as it is used by the kernel before the command
+  	line is parsed.
+#+end_example
+
+根据上面的描述，可以通过将 _vga_ 选项写入 grub 或者写到引导程序的配置文件，从而让内核命令行得到相应的显示模式设置信息：
+
+#+begin_example
+  这个选项可以接受不同类型的值来表示相同的意思
+
+  比如可以传入 0XFFFD 或者 ask，这2个值都表示需要显示一个菜单让用户选择想要的显示模式
+#+end_example
+
+#+ATTR_HTML: image :width 90% 
+[[file:../pic/video_mode_setup_menu.png]]
+
+
+通过这个菜单，用户可以选择想要进入的显示模式
+
+#+begin_example
+  不过进一步了解显示模式的设置过程之前，先回头了解一些重要的概念
+#+end_example
+
+** 内核数据类型
+在前面已经接触到了一个类似于 _u16_ 的内核数据类型。下面列出了更多内核支持的数据类型：
+
+#+CAPTION: data type in kernel 
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| Type | char | short | int | long | u8 | u16 | u32 | u64 |
+| Size |    1 |     2 |   4 |    8 |  1 |   2 |   4 |   8 |
+
+#+begin_example
+  如果尝试阅读内核代码，最好能够牢记这些数据类型
+#+end_example
+
+** 堆操作 API

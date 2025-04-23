@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>内核引导过程</title>
+<title>显示模式</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -196,20 +196,163 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href=""> UP </a>
+ <a accesskey="h" href="./part3.html"> UP </a>
  |
- <a accesskey="H" href="../kernel.html"> HOME </a>
+ <a accesskey="H" href="./booting.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">内核引导过程</h1>
+<h1 class="title">显示模式</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgdb4f352">显示模式</a>
+<ul>
+<li><a href="#org0e5e71e">内核数据类型</a></li>
+<li><a href="#orgb826d8f">堆操作 API</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
 <p>
-本章介绍了Linux内核引导过程。此处将在这看到一些描述内核加载过程的整个周期的文章：
+前面内核启动过程之旅停在了对 <b>set_video</b> 函数的调用（ <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c#L181">main.c</a>）。接下来将读到下面的内容：
+</p>
+<ul class="org-ul">
+<li>显示模式的初始化</li>
+<li>在进入保护模式之前的准备工作</li>
+<li>正式进入保护模式</li>
+</ul>
+<div id="outline-container-orgdb4f352" class="outline-2">
+<h2 id="orgdb4f352">显示模式</h2>
+<div class="outline-text-2" id="text-orgdb4f352">
+<p>
+可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/video.c#L315">arch/x86/boot/video.c</a> 找到这个函数的定义。 这个函数首先从 <span class="underline">boot_params.hdr 结构</span> 获取 <span class="underline">显示模式设置</span> ：
 </p>
 
-<ul class="org-ul">
-<li><a href="part1.html">从引导程序到内核</a></li>
-<li><a href="part2.html">保护模式</a></li>
-<li><a href="part3.html">显示模式</a></li>
-</ul>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">u16</span> <span style="color: #eedd82;">mode</span> = boot_params.hdr.vid_mode;
+</pre>
+</div>
+
+<pre class="example" id="org41c9afe">
+至于 boot_params.hdr 数据结构中的内容，是通过 copy_boot_params 函数实现的
+
+关于这个函数的实现细节请查看上一节的内容
+</pre>
+<p>
+boot_params.hdr 中的 <span class="underline">vid_mode</span> 是 <b>引导程序</b> 必须填入的字段。可以在 kernel boot protocol 文档中找到关于 vid_mode 的详细信息：
+</p>
+<pre class="example" id="org88a728b">
+Offset	Proto	Name		Meaning
+/Size
+01FA/2	ALL	    vid_mode	Video mode control
+</pre>
+
+<p>
+而在 linux kernel boot protocol 文档中定义了如何通过命令行参数的方式为 vid_mode 字段传入相应的值：
+</p>
+
+<pre class="example" id="orgdf2d219">
+**** SPECIAL COMMAND LINE OPTIONS
+vga=&lt;mode&gt;
+	&lt;mode&gt; here is either an integer (in C notation, either
+	decimal, octal, or hexadecimal) or one of the strings
+	"normal" (meaning 0xFFFF), "ext" (meaning 0xFFFE) or "ask"
+	(meaning 0xFFFD).  This value should be entered into the
+	vid_mode field, as it is used by the kernel before the command
+	line is parsed.
+</pre>
+
+<p>
+根据上面的描述，可以通过将 <span class="underline">vga</span> 选项写入 grub 或者写到引导程序的配置文件，从而让内核命令行得到相应的显示模式设置信息：
+</p>
+
+<pre class="example" id="orgf0b23ab">
+这个选项可以接受不同类型的值来表示相同的意思
+
+比如可以传入 0XFFFD 或者 ask，这2个值都表示需要显示一个菜单让用户选择想要的显示模式
+</pre>
+
+
+<div id="orgca340f7" class="figure">
+<p><img src="../pic/video_mode_setup_menu.png" alt="video_mode_setup_menu.png" width="90%" />
+</p>
+</div>
+
+
+<p>
+通过这个菜单，用户可以选择想要进入的显示模式
+</p>
+
+<pre class="example" id="orgd55e79d">
+不过进一步了解显示模式的设置过程之前，先回头了解一些重要的概念
+</pre>
+</div>
+<div id="outline-container-org0e5e71e" class="outline-3">
+<h3 id="org0e5e71e">内核数据类型</h3>
+<div class="outline-text-3" id="text-org0e5e71e">
+<p>
+在前面已经接触到了一个类似于 <span class="underline">u16</span> 的内核数据类型。下面列出了更多内核支持的数据类型：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> data type in kernel</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Type</td>
+<td class="org-right">char</td>
+<td class="org-right">short</td>
+<td class="org-right">int</td>
+<td class="org-right">long</td>
+<td class="org-right">u8</td>
+<td class="org-right">u16</td>
+<td class="org-right">u32</td>
+<td class="org-right">u64</td>
+</tr>
+
+<tr>
+<td class="org-left">Size</td>
+<td class="org-right">1</td>
+<td class="org-right">2</td>
+<td class="org-right">4</td>
+<td class="org-right">8</td>
+<td class="org-right">1</td>
+<td class="org-right">2</td>
+<td class="org-right">4</td>
+<td class="org-right">8</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org1bda414">
+如果尝试阅读内核代码，最好能够牢记这些数据类型
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb826d8f" class="outline-3">
+<h3 id="orgb826d8f">堆操作 API</h3>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
