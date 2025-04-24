@@ -209,9 +209,17 @@
 <ul>
 <li><a href="#org0e5e71e">内核数据类型</a></li>
 <li><a href="#orgb826d8f">堆操作 API</a></li>
-<li><a href="#org71b554a">设置显示模式</a></li>
+<li><a href="#org71b554a">设置显示模式</a>
+<ul>
+<li><a href="#org7f9cc46">stroe_mode_params</a></li>
+<li><a href="#org29100be">save_screen</a></li>
+<li><a href="#org9dd7d5a">probe_cards</a></li>
+<li><a href="#org808e9e1">set_video 主循环</a></li>
 </ul>
 </li>
+</ul>
+</li>
+<li><a href="#org332f8fa">切换到保护模式之前的最后的准备工作</a></li>
 </ul>
 </div>
 </div>
@@ -235,7 +243,7 @@
 </pre>
 </div>
 
-<pre class="example" id="orgd887cee">
+<pre class="example" id="orgb121d98">
 至于 boot_params.hdr 数据结构中的内容，是通过 copy_boot_params 函数实现的
 
 关于这个函数的实现细节请查看上一节的内容
@@ -243,7 +251,7 @@
 <p>
 boot_params.hdr 中的 <span class="underline">vid_mode</span> 是 <b>引导程序</b> 必须填入的字段。可以在 kernel boot protocol 文档中找到关于 vid_mode 的详细信息：
 </p>
-<pre class="example" id="orgf4f6b4a">
+<pre class="example" id="org057b7fc">
 Offset	Proto	Name		Meaning
 /Size
 01FA/2	ALL	    vid_mode	Video mode control
@@ -253,7 +261,7 @@ Offset	Proto	Name		Meaning
 而在 linux kernel boot protocol 文档中定义了如何通过命令行参数的方式为 vid_mode 字段传入相应的值：
 </p>
 
-<pre class="example" id="org919c0e6">
+<pre class="example" id="org1fb56a4">
 **** SPECIAL COMMAND LINE OPTIONS
 vga=&lt;mode&gt;
 	&lt;mode&gt; here is either an integer (in C notation, either
@@ -268,14 +276,14 @@ vga=&lt;mode&gt;
 根据上面的描述，可以通过将 <span class="underline">vga</span> 选项写入 grub 或者写到引导程序的配置文件，从而让内核命令行得到相应的显示模式设置信息：
 </p>
 
-<pre class="example" id="org1170a8a">
+<pre class="example" id="org5d24a42">
 这个选项可以接受不同类型的值来表示相同的意思
 
 比如可以传入 0XFFFD 或者 ask，这2个值都表示需要显示一个菜单让用户选择想要的显示模式
 </pre>
 
 
-<div id="org4d969e5" class="figure">
+<div id="org2d75052" class="figure">
 <p><img src="../pic/video_mode_setup_menu.png" alt="video_mode_setup_menu.png" width="90%" />
 </p>
 </div>
@@ -285,7 +293,7 @@ vga=&lt;mode&gt;
 通过这个菜单，用户可以选择想要进入的显示模式
 </p>
 
-<pre class="example" id="org705df98">
+<pre class="example" id="orgd1cc3c4">
 不过进一步了解显示模式的设置过程之前，先回头了解一些重要的概念
 </pre>
 </div>
@@ -345,7 +353,7 @@ vga=&lt;mode&gt;
 </tbody>
 </table>
 
-<pre class="example" id="org52f3131">
+<pre class="example" id="org7aa04af">
 如果尝试阅读内核代码，最好能够牢记这些数据类型
 </pre>
 </div>
@@ -362,7 +370,7 @@ vga=&lt;mode&gt;
 </pre>
 </div>
 
-<pre class="example" id="org3b6abfc">
+<pre class="example" id="org55967df">
 在上一节中，已经通过 init_heap 函数完成了 HEAP 的初始化，
 
 而 _end 标号，在 boot.h 中通过 extern char _end[]; 来引用
@@ -388,7 +396,7 @@ vga=&lt;mode&gt;
 <li><p>
 __alignof__(type) : 返回对于请求的数据类型需要怎样的对齐方式
 </p>
-<pre class="example" id="orgb6ede1f">
+<pre class="example" id="orgaaa0899">
 根据我的了解这个是 gcc 提供的一个功能 
 </pre></li>
 <li>n : 需要分配多少个对应数据类型的对象</li>
@@ -440,14 +448,326 @@ __alignof__(type) : 返回对于请求的数据类型需要怎样的对齐方式
 </pre>
 </div>
 
-<pre class="example" id="org001b230">
+<pre class="example" id="org894dbdd">
 下面继续显示模式设置过程
 </pre>
 </div>
 </div>
 <div id="outline-container-org71b554a" class="outline-3">
 <h3 id="org71b554a">设置显示模式</h3>
+<div class="outline-text-3" id="text-org71b554a">
 </div>
+<div id="outline-container-org7f9cc46" class="outline-4">
+<h4 id="org7f9cc46">stroe_mode_params</h4>
+<div class="outline-text-4" id="text-org7f9cc46">
+<p>
+在 RESET_HEAP() 函数被调用之后，set_video 函数接着调用 <b>store_mode_params</b> 函数将对应显示模式的相关参数写入 <span class="underline">boot_params.screen_info</span> 字段。这个字段的结构定义可以在 <a href="https://github.com/0xAX/linux/blob/master/include/uapi/linux/screen_info.h">include/uapi/linux/screen_info.h</a> 中找到
+</p>
+
+<p>
+<span class="underline">store_mode_params</span> 函数将调用 <b>store_cursor_position</b> 函数将 <span class="underline">当前屏幕上光标的位置</span> <b>保存</b> 起来：
+</p>
+<ol class="org-ol">
+<li>函数初始化一个类型为 <span class="underline">biosregs</span> 的变量，将其中的 <span class="underline">AH 寄存器</span> 内容设置成 <span class="underline">0x3</span></li>
+<li>调用 <b>0x10 BIOS 中断</b></li>
+<li>当中断调用返回之后， <span class="underline">DL</span> 和 <span class="underline">DH</span> 寄存器分别包含了 <span class="underline">当前光标</span> 的 <b>行和列信息</b></li>
+<li>这2个信息将被保存到 <span class="underline">boot_params.screen_info</span> 字段的 <b>orig_x</b> 和 <b>orig_y</b> 字段</li>
+</ol>
+
+<p>
+在 store_cursor_position 函数执行完毕之后，store_mode_params 函数将调用 <b>store_video_mode</b> 函数将当前使用的 <span class="underline">显示模式</span> <b>保存</b> 到 <span class="underline">boot_params.screen_info.orig_video_mode</span> 
+</p>
+
+<p>
+然后 store_mode_params 函数将根据当前显示模式的设定，给 <span class="underline">video_segment 变量</span> 设置正确的值
+</p>
+<pre class="example" id="org09ecfb7">
+实际上就是设置显示内存的起始地址
+</pre>
+
+<p>
+在 BIOS 将控制权转移到引导扇区的时候，显示内存地址和显示模式的对应关系如下表所示：
+</p>
+<pre class="example" id="org43a8f9f">
+0xB000:0x0000 	32 Kb 	Monochrome Text Video Memory
+0xB800:0x0000 	32 Kb 	Color Text Video Memory
+
+如果当前显示模式是 MDA, HGC 或者单色 VGA 模式，那么 video_sgement 的值将被设置成 0xB000
+
+如果当前显示模式是彩色模式，那么 video_segment 的值将被设置成 0xB800
+</pre>
+
+<p>
+在这之后，store_mode_params 函数将保存 <span class="underline">字体大小</span> 信息到 <b>boot_params.screen_info.orig_video_points</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#20445;&#23384;&#23383;&#20307;&#22823;&#23567;&#20449;&#24687;</span>
+set_fs(0);
+font_size = rdfs16(0x485);
+boot_params.screen_info.orig_video_points = font_size;
+</pre>
+</div>
+<p>
+这段代码首先调用 <b>set_fs</b> 函数（在 <a href="https://github.com/0xAX/linux/blob/master/arch/x86/boot/boot.h">boot.h</a> 中定义了许多类似的函数进行寄存器操作）将数字 <span class="underline">0</span> 放入 <span class="underline">FS 寄存器</span> 。接着从 <span class="underline">内存地址 0x485 处</span> 获取 <b>字体大小</b> 信息并保存到 <span class="underline">boot_params.screen_info.orig_video_points</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">x = rdfs16(0x44a);
+y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
+</pre>
+</div>
+
+<p>
+接下来代码将从 <span class="underline">地址 0x44a 处</span> 获得 <b>屏幕列</b> 信息，从 <span class="underline">地址 0x484 处</span> 获得 <b>屏幕行信息</b> ，并将它们保存到 <span class="underline">boot_params.screen_info.orig_video_cols</span> 和 <span class="underline">boot_params.screen_info.orig_video_lines</span>
+</p>
+
+<pre class="example" id="orgd0ecf10">
+到这里，store_mode_params 的执行就结束了
+</pre>
+</div>
+</div>
+<div id="outline-container-org29100be" class="outline-4">
+<h4 id="org29100be">save_screen</h4>
+<div class="outline-text-4" id="text-org29100be">
+<p>
+接下来，set_video 函数将调用 <b>save_screen</b> 函数将 <span class="underline">当前屏幕上的所有信息</span> <b>保存</b> 到 <span class="underline">HEAP</span> 中。这个函数首先获得当前屏幕的所有信息（包括屏幕大小，当前光标位置，屏幕上的字符信息），并且保存到 saved_screen 结构体中。这个结构体的定义如下所示：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">saved_screen</span> {
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">x</span>, <span style="color: #eedd82;">y</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23631;&#24149;&#22823;&#23567;</span>
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">curx</span>, <span style="color: #eedd82;">cury</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24403;&#21069;&#20809;&#26631;&#20301;&#32622;</span>
+  <span style="color: #98fb98;">u16</span> *<span style="color: #eedd82;">data</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23631;&#24149;&#19978;&#30340;&#23383;&#31526;&#20449;&#24687;</span>
+} <span style="color: #eedd82;">saved</span>;
+</pre>
+</div>
+
+<p>
+接下来函数将检查 HEAP 中是否有足够的空间保存这个结构体的数据：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span> (!heap_free(saved.x*saved.y*<span style="color: #00ffff;">sizeof</span>(u16)+512)) 
+  <span style="color: #00ffff;">return</span>;
+</pre>
+</div>
+
+<p>
+如果 HEAP 有足够的空间，代码将在 HEAP 中分配相应的空间并且将 saved_screen 保存到 HEAP
+</p>
+</div>
+</div>
+<div id="outline-container-org9dd7d5a" class="outline-4">
+<h4 id="org9dd7d5a">probe_cards</h4>
+<div class="outline-text-4" id="text-org9dd7d5a">
+<p>
+接下来 set_video 函数将调用 <b>probe_cards(0)</b> 。 这个函数简单 <b>遍历</b> <span class="underline">所有的显卡</span> ，并通过 <b>调用</b> <span class="underline">驱动程序</span> <b>设置</b> <span class="underline">显卡所支持的显示模式</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">for</span> (card = video_cards; card &lt; video_cards_end; card++) {
+  <span style="color: #00ffff;">if</span> (card-&gt;unsafe == unsafe) {
+    <span style="color: #00ffff;">if</span> (card-&gt;probe)
+      card-&gt;nmodes = card-&gt;probe();
+    <span style="color: #00ffff;">else</span>
+      card-&gt;nmodes = 0;
+  }
+ }
+</pre>
+</div>
+<p>
+如果仔细看上面的代码，会发现 <b>video_cards</b> 
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">extern</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">card_info</span> <span style="color: #eedd82;">video_cards</span>[], <span style="color: #eedd82;">video_cards_end</span>[];
+</pre>
+</div>
+
+<pre class="example" id="orgb654593">
+这个变量并没有被声明，那么程序怎么能够正常编译执行呢？
+</pre>
+
+<p>
+实际上它指向了一个在 <a href="https://github.com/0xAX/linux/blob/master/arch/x86/boot/setup.ld">arch/x86/boot/setup.ld</a> 中定义的叫做 <b>.videocards</b> 的 <span class="underline">内存段</span> ：
+</p>
+
+<pre class="example" id="orgc5f5278">
+.videocards	: {
+	video_cards = .;
+	*(.videocards)
+	video_cards_end = .;
+}
+</pre>
+
+<p>
+在内核初始化代码中，对于每个支持的显示模式都是使用下面的代码进行定义的：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #98fb98;">__videocard</span> <span style="color: #eedd82;">video_vga</span> = {
+  .card_name    = <span style="color: #ffa07a;">"VGA"</span>,
+  .probe                = vga_probe,
+  .set_mode     = vga_set_mode,
+};
+</pre>
+</div>
+
+<p>
+<b>__videocard</b> 是一个宏定义，如下所示：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">__videocard</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">card_info</span> <span style="color: #87cefa;">__section</span>(<span style="color: #ffa07a;">".videocards"</span>) <span style="color: #00ffff;">__attribute__</span>((used))
+</pre>
+</div>
+
+<p>
+因此 __videocard 是一个 <b>card_info 结构</b> ，这个结构定义如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">card_info</span> {
+  <span style="color: #00ffff;">const</span> <span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">card_name</span>;
+  <span style="color: #98fb98;">int</span> (*<span style="color: #87cefa;">set_mode</span>)(<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">mode_info</span> *<span style="color: #eedd82;">mode</span>);
+  <span style="color: #98fb98;">int</span> (*<span style="color: #87cefa;">probe</span>)(<span style="color: #98fb98;">void</span>);
+  <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">mode_info</span> *<span style="color: #eedd82;">modes</span>;
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">nmodes</span>;
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">unsafe</span>;
+  <span style="color: #98fb98;">u16</span> <span style="color: #eedd82;">xmode_first</span>;
+  <span style="color: #98fb98;">u16</span> <span style="color: #eedd82;">xmode_n</span>;
+};
+</pre>
+</div>
+
+<p>
+在 .videocards 内存段实际上存放的就是 <b>所有</b> 被 <span class="underline">内核初始化代码</span> <b>定义</b> 的 <span class="underline">card_info 结构</span>
+</p>
+
+<pre class="example" id="org8ae5b90">
+.videocards 内存段可以看成是一个数组
+
+因此所以 probe_cards 函数可以使用 video_cards，通过循环遍历所有的 card_info
+</pre>
+</div>
+</div>
+<div id="outline-container-org808e9e1" class="outline-4">
+<h4 id="org808e9e1">set_video 主循环</h4>
+<div class="outline-text-4" id="text-org808e9e1">
+<p>
+在 probe_cards 执行完成之后，终于进入 set_video 函数的主循环了。在这个循环中
+</p>
+<ul class="org-ul">
+<li>如果 <span class="underline">vid_mode=ask</span> ，那么将显示一个菜单让用户选择想要的显示模式，然后代码将根据用户的选择或者 vid_mod 的值 ，通过调用 <b>set_mode 函数</b> 来设置正确的显示模式
+<ul class="org-ul">
+<li>如果设置成功，循环结束</li>
+<li>否则显示菜单让用户选择显示模式，继续进行设置显示模式的尝试</li>
+</ul></li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">for</span> (;;) {
+  <span style="color: #00ffff;">if</span> (mode == ASK_VGA)
+    mode = mode_menu();
+
+  <span style="color: #00ffff;">if</span> (!set_mode(mode))
+    <span style="color: #00ffff;">break</span>;
+
+  printf(<span style="color: #ffa07a;">"Undefined video mode number: %x\n"</span>, mode);
+  mode = ASK_VGA;
+ }
+</pre>
+</div>
+
+<p>
+可以在 <a href="https://github.com/0xAX/linux/blob/master/arch/x86/boot/video-mode.c#L147">video-mode.c</a> 中找到 <b>set_mode</b> 函数的定义
+</p>
+<ul class="org-ul">
+<li><p>
+这个函数只接受一个参数，这个参数是对应的 <span class="underline">显示模式的数字表示</span>
+</p>
+<pre class="example" id="orge7ac12a">
+这个数字来自于显示模式选择菜单，或者从内核命令行参数获得
+</pre></li>
+</ul>
+
+<p>
+set_mode 函数实现如下：
+</p>
+<ol class="org-ol">
+<li>首先 <b>检查</b> 传入的 mode 参数</li>
+<li>然后调用 <b>raw_set_mode</b> 函数
+<ul class="org-ul">
+<li>将 <b>遍历</b> 内核知道的 <span class="underline">所有 card_info 信息</span> 
+<ul class="org-ul">
+<li>如果发现某张显卡支持传入的模式，调用 card_info 结构中保存的 <b>set_mode 函数地址</b> 进行显卡显示模式的设置</li>
+</ul></li>
+</ul></li>
+</ol>
+
+<p>
+比如下面的代码就是 vga显卡 set_mode 函数对应的真正 <a href="https://github.com/0xAX/linux/blob/master/arch/x86/boot/video-vga.c#L191">vga_set_mode</a> 的实现，这个函数根据输入的 <span class="underline">vga 显示模式</span> ，调用不同的函数完成显示模式的设置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #98fb98;">int</span> <span style="color: #87cefa;">vga_set_mode</span>(<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">mode_info</span> *<span style="color: #eedd82;">mode</span>)
+{
+  vga_set_basic_mode();
+
+  force_x = mode-&gt;x;
+  force_y = mode-&gt;y;
+
+  <span style="color: #00ffff;">switch</span> (mode-&gt;mode) {
+  <span style="color: #00ffff;">case</span> VIDEO_80x25:
+    <span style="color: #00ffff;">break</span>;
+  <span style="color: #00ffff;">case</span> VIDEO_8POINT:
+    vga_set_8font();
+    <span style="color: #00ffff;">break</span>;
+  <span style="color: #00ffff;">case</span> VIDEO_80x43:
+    vga_set_80x43();
+    <span style="color: #00ffff;">break</span>;
+  <span style="color: #00ffff;">case</span> VIDEO_80x28:
+    vga_set_14font();
+    <span style="color: #00ffff;">break</span>;
+  <span style="color: #00ffff;">case</span> VIDEO_80x30:
+    vga_set_80x30();
+    <span style="color: #00ffff;">break</span>;
+  <span style="color: #00ffff;">case</span> VIDEO_80x34:
+    vga_set_80x34();
+    <span style="color: #00ffff;">break</span>;
+  <span style="color: #00ffff;">case</span> VIDEO_80x60:
+    vga_set_80x60();
+    <span style="color: #00ffff;">break</span>;
+  }
+  <span style="color: #00ffff;">return</span> 0;
+}
+</pre>
+</div>
+
+<pre class="example" id="orge6f3112">
+在上面的代码中，每个 vga_set*** 函数只是简单调用 0x10 BIOS 中断来进行显示模式的设置
+</pre>
+
+<p>
+在显卡的显示模式被正确设置之后，这个 <b>最终的显示模式</b> 被写回 <span class="underline">boot_params.hdr.vid_mode</span> 
+</p>
+
+<p>
+接下来 set_video 函数将调用 <b>vesa_store_edid 函数</b> ， 这个函数只是简单的将 <a href="https://en.wikipedia.org/wiki/Extended_Display_Identification_Data">EDID</a> <span class="underline">Extended Display Identification Data</span> 写入内存，以便于内核访问
+</p>
+
+<p>
+最后， set_video 将调用 <b>do_restore 函数</b> 将前面保存的当前屏幕信息还原到屏幕上 
+</p>
+
+<pre class="example" id="org371bba3">
+到这里为止，显示模式的设置完成，接下来可以切换到保护模式了
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org332f8fa" class="outline-2">
+<h2 id="org332f8fa">切换到保护模式之前的最后的准备工作</h2>
 </div>
 </div>
 <div id="postamble" class="status">

@@ -147,3 +147,222 @@ boot_params.hdr 中的 _vid_mode_ 是 *引导程序* 必须填入的字段。可
 #+end_example
 
 ** 设置显示模式
+*** stroe_mode_params 
+在 RESET_HEAP() 函数被调用之后，set_video 函数接着调用 *store_mode_params* 函数将对应显示模式的相关参数写入 _boot_params.screen_info_ 字段。这个字段的结构定义可以在 [[https://github.com/0xAX/linux/blob/master/include/uapi/linux/screen_info.h][include/uapi/linux/screen_info.h]] 中找到
+
+_store_mode_params_ 函数将调用 *store_cursor_position* 函数将 _当前屏幕上光标的位置_ *保存* 起来：
+1. 函数初始化一个类型为 _biosregs_ 的变量，将其中的 _AH 寄存器_ 内容设置成 _0x3_ 
+2. 调用 *0x10 BIOS 中断* 
+3. 当中断调用返回之后， _DL_ 和 _DH_ 寄存器分别包含了 _当前光标_ 的 *行和列信息* 
+4. 这2个信息将被保存到 _boot_params.screen_info_ 字段的 *orig_x* 和 *orig_y* 字段 
+
+在 store_cursor_position 函数执行完毕之后，store_mode_params 函数将调用 *store_video_mode* 函数将当前使用的 _显示模式_ *保存* 到 _boot_params.screen_info.orig_video_mode_ 
+
+然后 store_mode_params 函数将根据当前显示模式的设定，给 _video_segment 变量_ 设置正确的值
+#+begin_example
+实际上就是设置显示内存的起始地址
+#+end_example
+
+在 BIOS 将控制权转移到引导扇区的时候，显示内存地址和显示模式的对应关系如下表所示：
+#+begin_example
+  0xB000:0x0000 	32 Kb 	Monochrome Text Video Memory
+  0xB800:0x0000 	32 Kb 	Color Text Video Memory
+
+  如果当前显示模式是 MDA, HGC 或者单色 VGA 模式，那么 video_sgement 的值将被设置成 0xB000
+
+  如果当前显示模式是彩色模式，那么 video_segment 的值将被设置成 0xB800
+#+end_example
+
+在这之后，store_mode_params 函数将保存 _字体大小_ 信息到 *boot_params.screen_info.orig_video_points* ：
+
+#+begin_src c 
+  //保存字体大小信息
+  set_fs(0);
+  font_size = rdfs16(0x485);
+  boot_params.screen_info.orig_video_points = font_size;
+#+end_src
+这段代码首先调用 *set_fs* 函数（在 [[https://github.com/0xAX/linux/blob/master/arch/x86/boot/boot.h][boot.h]] 中定义了许多类似的函数进行寄存器操作）将数字 _0_ 放入 _FS 寄存器_ 。接着从 _内存地址 0x485 处_ 获取 *字体大小* 信息并保存到 _boot_params.screen_info.orig_video_points_
+
+#+begin_src c 
+  x = rdfs16(0x44a);
+  y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
+#+end_src
+
+接下来代码将从 _地址 0x44a 处_ 获得 *屏幕列* 信息，从 _地址 0x484 处_ 获得 *屏幕行信息* ，并将它们保存到 _boot_params.screen_info.orig_video_cols_ 和 _boot_params.screen_info.orig_video_lines_
+
+#+begin_example
+到这里，store_mode_params 的执行就结束了
+#+end_example
+
+*** save_screen 
+接下来，set_video 函数将调用 *save_screen* 函数将 _当前屏幕上的所有信息_ *保存* 到 _HEAP_ 中。这个函数首先获得当前屏幕的所有信息（包括屏幕大小，当前光标位置，屏幕上的字符信息），并且保存到 saved_screen 结构体中。这个结构体的定义如下所示：
+
+#+begin_src c 
+  static struct saved_screen {
+    int x, y; // 屏幕大小
+    int curx, cury; // 当前光标位置
+    u16 *data; // 屏幕上的字符信息
+  } saved;
+#+end_src
+
+接下来函数将检查 HEAP 中是否有足够的空间保存这个结构体的数据：
+#+begin_src c 
+  if (!heap_free(saved.x*saved.y*sizeof(u16)+512)) 
+    return;
+#+end_src
+
+如果 HEAP 有足够的空间，代码将在 HEAP 中分配相应的空间并且将 saved_screen 保存到 HEAP
+
+*** probe_cards
+接下来 set_video 函数将调用 *probe_cards(0)* 。 这个函数简单 *遍历* _所有的显卡_ ，并通过 *调用* _驱动程序_ *设置* _显卡所支持的显示模式_ ：
+
+#+begin_src c 
+  for (card = video_cards; card < video_cards_end; card++) {
+    if (card->unsafe == unsafe) {
+      if (card->probe)
+        card->nmodes = card->probe();
+      else
+        card->nmodes = 0;
+    }
+   }
+#+end_src
+如果仔细看上面的代码，会发现 *video_cards* 
+#+begin_src c
+  extern struct card_info video_cards[], video_cards_end[];
+#+end_src
+
+#+begin_example
+这个变量并没有被声明，那么程序怎么能够正常编译执行呢？
+#+end_example
+
+实际上它指向了一个在 [[https://github.com/0xAX/linux/blob/master/arch/x86/boot/setup.ld][arch/x86/boot/setup.ld]] 中定义的叫做 *.videocards* 的 _内存段_ ：
+
+#+begin_example
+  	.videocards	: {
+  		video_cards = .;
+  		,*(.videocards)
+  		video_cards_end = .;
+  	}
+#+end_example
+
+在内核初始化代码中，对于每个支持的显示模式都是使用下面的代码进行定义的：
+
+#+begin_src c 
+  static __videocard video_vga = {
+    .card_name	= "VGA",
+    .probe		= vga_probe,
+    .set_mode	= vga_set_mode,
+  };
+#+end_src
+
+*__videocard* 是一个宏定义，如下所示：
+
+#+begin_src c 
+  #define __videocard struct card_info __section(".videocards") __attribute__((used))
+#+end_src
+
+因此 __videocard 是一个 *card_info 结构* ，这个结构定义如下：
+
+#+begin_src c 
+  struct card_info {
+    const char *card_name;
+    int (*set_mode)(struct mode_info *mode);
+    int (*probe)(void);
+    struct mode_info *modes;
+    int nmodes;
+    int unsafe;
+    u16 xmode_first;
+    u16 xmode_n;
+  };
+#+end_src
+
+在 .videocards 内存段实际上存放的就是 *所有* 被 _内核初始化代码_ *定义* 的 _card_info 结构_
+
+#+begin_example
+  .videocards 内存段可以看成是一个数组
+
+  因此所以 probe_cards 函数可以使用 video_cards，通过循环遍历所有的 card_info
+#+end_example
+
+*** set_video 主循环
+在 probe_cards 执行完成之后，终于进入 set_video 函数的主循环了。在这个循环中
++ 如果 _vid_mode=ask_ ，那么将显示一个菜单让用户选择想要的显示模式，然后代码将根据用户的选择或者 vid_mod 的值 ，通过调用 *set_mode 函数* 来设置正确的显示模式
+  + 如果设置成功，循环结束
+  + 否则显示菜单让用户选择显示模式，继续进行设置显示模式的尝试
+
+#+begin_src c 
+  for (;;) {
+    if (mode == ASK_VGA)
+      mode = mode_menu();
+
+    if (!set_mode(mode))
+      break;
+
+    printf("Undefined video mode number: %x\n", mode);
+    mode = ASK_VGA;
+   }
+#+end_src
+
+可以在 [[https://github.com/0xAX/linux/blob/master/arch/x86/boot/video-mode.c#L147][video-mode.c]] 中找到 *set_mode* 函数的定义
++ 这个函数只接受一个参数，这个参数是对应的 _显示模式的数字表示_
+  #+begin_example
+    这个数字来自于显示模式选择菜单，或者从内核命令行参数获得
+  #+end_example
+
+set_mode 函数实现如下：
+1. 首先 *检查* 传入的 mode 参数
+2. 然后调用 *raw_set_mode* 函数
+   + 将 *遍历* 内核知道的 _所有 card_info 信息_ 
+     + 如果发现某张显卡支持传入的模式，调用 card_info 结构中保存的 *set_mode 函数地址* 进行显卡显示模式的设置
+
+比如下面的代码就是 vga显卡 set_mode 函数对应的真正 [[https://github.com/0xAX/linux/blob/master/arch/x86/boot/video-vga.c#L191][vga_set_mode]] 的实现，这个函数根据输入的 _vga 显示模式_ ，调用不同的函数完成显示模式的设置：
+
+#+begin_src c 
+  static int vga_set_mode(struct mode_info *mode)
+  {
+    vga_set_basic_mode();
+
+    force_x = mode->x;
+    force_y = mode->y;
+
+    switch (mode->mode) {
+    case VIDEO_80x25:
+      break;
+    case VIDEO_8POINT:
+      vga_set_8font();
+      break;
+    case VIDEO_80x43:
+      vga_set_80x43();
+      break;
+    case VIDEO_80x28:
+      vga_set_14font();
+      break;
+    case VIDEO_80x30:
+      vga_set_80x30();
+      break;
+    case VIDEO_80x34:
+      vga_set_80x34();
+      break;
+    case VIDEO_80x60:
+      vga_set_80x60();
+      break;
+    }
+    return 0;
+  }
+#+end_src
+
+#+begin_example
+在上面的代码中，每个 vga_set*** 函数只是简单调用 0x10 BIOS 中断来进行显示模式的设置
+#+end_example
+
+在显卡的显示模式被正确设置之后，这个 *最终的显示模式* 被写回 _boot_params.hdr.vid_mode_ 
+
+接下来 set_video 函数将调用 *vesa_store_edid 函数* ， 这个函数只是简单的将 [[https://en.wikipedia.org/wiki/Extended_Display_Identification_Data][EDID]] _Extended Display Identification Data_ 写入内存，以便于内核访问
+
+最后， set_video 将调用 *do_restore 函数* 将前面保存的当前屏幕信息还原到屏幕上 
+
+#+begin_example
+到这里为止，显示模式的设置完成，接下来可以切换到保护模式了
+#+end_example
+
+* 切换到保护模式之前的最后的准备工作
