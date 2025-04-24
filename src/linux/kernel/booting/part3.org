@@ -73,3 +73,77 @@ boot_params.hdr 中的 _vid_mode_ 是 *引导程序* 必须填入的字段。可
 #+end_example
 
 ** 堆操作 API
+在 set_video 函数将 vid_mod 的值设置完成之后，将调用 *RESET_HEAP 宏* 将 _HEAP 头_ 指向 *_end* 符号。RESET_HEAP 宏定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/boot.h#L199][boot.h]]：
+
+#+begin_src c 
+  #define RESET_HEAP() ((void *)( HEAP = _end ))
+#+end_src
+
+#+begin_example
+  在上一节中，已经通过 init_heap 函数完成了 HEAP 的初始化，
+
+  而 _end 标号，在 boot.h 中通过 extern char _end[]; 来引用
+
+  从这里可以看出，在内核初始化的时候堆和栈是共享内存空间的
+#+end_example
+
+下面一个是 *GET_HEAP 宏* ：
+
+#+begin_src c 
+  #define GET_HEAP(type, n)					\
+    ((type *)__get_heap(sizeof(type),__alignof__(type),(n)))
+#+end_src
+
+这个宏调用了 *__get_heap 函数* 来进行 _内存的分配_ 。__get_heap 需要下面3个参数来进行内存分配操作：
++  某个数据类型所占用的字节数
++ __alignof__(type) : 返回对于请求的数据类型需要怎样的对齐方式
+  #+begin_example
+    根据我的了解这个是 gcc 提供的一个功能 
+  #+end_example
++ n : 需要分配多少个对应数据类型的对象
+
+下面是 __get_heap 函数的实现：
+#+begin_src c
+  /**
+   ,* 分配heap内存
+   ,*
+   ,* @param s 某个数据类型所占用的字节数
+   ,* @param a 对于请求的数据类型需要怎样的对齐方式
+   ,* @param n 需要分配多少个对应数据类型的对象
+   ,*
+   ,* @return 返回HEAP指针
+   ,*/
+  static inline char *__get_heap(size_t s, size_t a, size_t n)
+  {
+    char *tmp;
+
+    HEAP = (char *)(((size_t)HEAP+(a-1)) & ~(a-1)); // 根据对齐方式要求（参数 a ）调整 HEAP 的值
+    tmp = HEAP; // 将 HEAP 值赋值给一个临时变量 tmp
+    HEAP += s*n; // 根据需要分配的对象的个数（参数 n ），预留出所需要的内存
+    return tmp; // 将 tmp 返回给调用端
+  }
+#+end_src
+
+最后一个关于 HEAP 的操作是：
+
+#+begin_src c
+  /**
+   ,* 判断heap是否有足够的内存
+   ,*
+   ,* @param n 内存数量
+   ,*
+   ,* @return 足够内存返回真，否则返回假
+   ,*/
+  static inline bool heap_free(size_t n)
+  {
+    // 简单做了一个减法 heap_end - HEAP
+    // 如果相减的结果大于请求的内存，那么就返回真，否则返回假 
+    return (int)(heap_end - HEAP) >= (int)n;
+  }
+#+end_src
+
+#+begin_example
+下面继续显示模式设置过程
+#+end_example
+
+** 设置显示模式

@@ -209,6 +209,7 @@
 <ul>
 <li><a href="#org0e5e71e">内核数据类型</a></li>
 <li><a href="#orgb826d8f">堆操作 API</a></li>
+<li><a href="#org71b554a">设置显示模式</a></li>
 </ul>
 </li>
 </ul>
@@ -234,7 +235,7 @@
 </pre>
 </div>
 
-<pre class="example" id="org41c9afe">
+<pre class="example" id="orgd887cee">
 至于 boot_params.hdr 数据结构中的内容，是通过 copy_boot_params 函数实现的
 
 关于这个函数的实现细节请查看上一节的内容
@@ -242,7 +243,7 @@
 <p>
 boot_params.hdr 中的 <span class="underline">vid_mode</span> 是 <b>引导程序</b> 必须填入的字段。可以在 kernel boot protocol 文档中找到关于 vid_mode 的详细信息：
 </p>
-<pre class="example" id="org88a728b">
+<pre class="example" id="orgf4f6b4a">
 Offset	Proto	Name		Meaning
 /Size
 01FA/2	ALL	    vid_mode	Video mode control
@@ -252,7 +253,7 @@ Offset	Proto	Name		Meaning
 而在 linux kernel boot protocol 文档中定义了如何通过命令行参数的方式为 vid_mode 字段传入相应的值：
 </p>
 
-<pre class="example" id="orgdf2d219">
+<pre class="example" id="org919c0e6">
 **** SPECIAL COMMAND LINE OPTIONS
 vga=&lt;mode&gt;
 	&lt;mode&gt; here is either an integer (in C notation, either
@@ -267,14 +268,14 @@ vga=&lt;mode&gt;
 根据上面的描述，可以通过将 <span class="underline">vga</span> 选项写入 grub 或者写到引导程序的配置文件，从而让内核命令行得到相应的显示模式设置信息：
 </p>
 
-<pre class="example" id="orgf0b23ab">
+<pre class="example" id="org1170a8a">
 这个选项可以接受不同类型的值来表示相同的意思
 
 比如可以传入 0XFFFD 或者 ask，这2个值都表示需要显示一个菜单让用户选择想要的显示模式
 </pre>
 
 
-<div id="orgca340f7" class="figure">
+<div id="org4d969e5" class="figure">
 <p><img src="../pic/video_mode_setup_menu.png" alt="video_mode_setup_menu.png" width="90%" />
 </p>
 </div>
@@ -284,7 +285,7 @@ vga=&lt;mode&gt;
 通过这个菜单，用户可以选择想要进入的显示模式
 </p>
 
-<pre class="example" id="orgd55e79d">
+<pre class="example" id="org705df98">
 不过进一步了解显示模式的设置过程之前，先回头了解一些重要的概念
 </pre>
 </div>
@@ -344,13 +345,108 @@ vga=&lt;mode&gt;
 </tbody>
 </table>
 
-<pre class="example" id="org1bda414">
+<pre class="example" id="org52f3131">
 如果尝试阅读内核代码，最好能够牢记这些数据类型
 </pre>
 </div>
 </div>
 <div id="outline-container-orgb826d8f" class="outline-3">
 <h3 id="orgb826d8f">堆操作 API</h3>
+<div class="outline-text-3" id="text-orgb826d8f">
+<p>
+在 set_video 函数将 vid_mod 的值设置完成之后，将调用 <b>RESET_HEAP 宏</b> 将 <span class="underline">HEAP 头</span> 指向 <b>_end</b> 符号。RESET_HEAP 宏定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/boot.h#L199">boot.h</a>：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">RESET_HEAP</span>() ((<span style="color: #98fb98;">void</span> *)( HEAP = _end ))
+</pre>
+</div>
+
+<pre class="example" id="org3b6abfc">
+在上一节中，已经通过 init_heap 函数完成了 HEAP 的初始化，
+
+而 _end 标号，在 boot.h 中通过 extern char _end[]; 来引用
+
+从这里可以看出，在内核初始化的时候堆和栈是共享内存空间的
+</pre>
+
+<p>
+下面一个是 <b>GET_HEAP 宏</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">GET_HEAP</span>(<span style="color: #eedd82;">type</span>, <span style="color: #eedd82;">n</span>)                                       \
+  ((<span style="color: #98fb98;">type</span> *)__get_heap(<span style="color: #00ffff;">sizeof</span>(type),__alignof__(type),(n)))
+</pre>
+</div>
+
+<p>
+这个宏调用了 <b>__get_heap 函数</b> 来进行 <span class="underline">内存的分配</span> 。__get_heap 需要下面3个参数来进行内存分配操作：
+</p>
+<ul class="org-ul">
+<li>某个数据类型所占用的字节数</li>
+<li><p>
+__alignof__(type) : 返回对于请求的数据类型需要怎样的对齐方式
+</p>
+<pre class="example" id="orgb6ede1f">
+根据我的了解这个是 gcc 提供的一个功能 
+</pre></li>
+<li>n : 需要分配多少个对应数据类型的对象</li>
+</ul>
+
+<p>
+下面是 __get_heap 函数的实现：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ffa07a;">/**</span>
+<span style="color: #ffa07a;"> * &#20998;&#37197;heap&#20869;&#23384;</span>
+<span style="color: #ffa07a;"> *</span>
+<span style="color: #ffa07a;"> * </span><span style="color: #7fffd4;">@param</span><span style="color: #ffa07a;"> s &#26576;&#20010;&#25968;&#25454;&#31867;&#22411;&#25152;&#21344;&#29992;&#30340;&#23383;&#33410;&#25968;</span>
+<span style="color: #ffa07a;"> * </span><span style="color: #7fffd4;">@param</span><span style="color: #ffa07a;"> a &#23545;&#20110;&#35831;&#27714;&#30340;&#25968;&#25454;&#31867;&#22411;&#38656;&#35201;&#24590;&#26679;&#30340;&#23545;&#40784;&#26041;&#24335;</span>
+<span style="color: #ffa07a;"> * </span><span style="color: #7fffd4;">@param</span><span style="color: #ffa07a;"> n &#38656;&#35201;&#20998;&#37197;&#22810;&#23569;&#20010;&#23545;&#24212;&#25968;&#25454;&#31867;&#22411;&#30340;&#23545;&#35937;</span>
+<span style="color: #ffa07a;"> *</span>
+<span style="color: #ffa07a;"> * </span><span style="color: #7fffd4;">@return</span><span style="color: #ffa07a;"> &#36820;&#22238;HEAP&#25351;&#38024;</span>
+<span style="color: #ffa07a;"> */</span>
+<span style="color: #00ffff;">static</span> <span style="color: #00ffff;">inline</span> <span style="color: #98fb98;">char</span> *<span style="color: #87cefa;">__get_heap</span>(<span style="color: #98fb98;">size_t</span> <span style="color: #eedd82;">s</span>, <span style="color: #98fb98;">size_t</span> <span style="color: #eedd82;">a</span>, <span style="color: #98fb98;">size_t</span> <span style="color: #eedd82;">n</span>)
+{
+  <span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">tmp</span>;
+
+  HEAP = (<span style="color: #98fb98;">char</span> *)(((<span style="color: #98fb98;">size_t</span>)HEAP+(a-1)) &amp; ~(a-1)); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26681;&#25454;&#23545;&#40784;&#26041;&#24335;&#35201;&#27714;&#65288;&#21442;&#25968; a &#65289;&#35843;&#25972; HEAP &#30340;&#20540;</span>
+  tmp = HEAP; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; HEAP &#20540;&#36171;&#20540;&#32473;&#19968;&#20010;&#20020;&#26102;&#21464;&#37327; tmp</span>
+  HEAP += s*n; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26681;&#25454;&#38656;&#35201;&#20998;&#37197;&#30340;&#23545;&#35937;&#30340;&#20010;&#25968;&#65288;&#21442;&#25968; n &#65289;&#65292;&#39044;&#30041;&#20986;&#25152;&#38656;&#35201;&#30340;&#20869;&#23384;</span>
+  <span style="color: #00ffff;">return</span> tmp; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; tmp &#36820;&#22238;&#32473;&#35843;&#29992;&#31471;</span>
+}
+</pre>
+</div>
+
+<p>
+最后一个关于 HEAP 的操作是：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ffa07a;">/**</span>
+<span style="color: #ffa07a;"> * &#21028;&#26029;heap&#26159;&#21542;&#26377;&#36275;&#22815;&#30340;&#20869;&#23384;</span>
+<span style="color: #ffa07a;"> *</span>
+<span style="color: #ffa07a;"> * </span><span style="color: #7fffd4;">@param</span><span style="color: #ffa07a;"> n &#20869;&#23384;&#25968;&#37327;</span>
+<span style="color: #ffa07a;"> *</span>
+<span style="color: #ffa07a;"> * </span><span style="color: #7fffd4;">@return</span><span style="color: #ffa07a;"> &#36275;&#22815;&#20869;&#23384;&#36820;&#22238;&#30495;&#65292;&#21542;&#21017;&#36820;&#22238;&#20551;</span>
+<span style="color: #ffa07a;"> */</span>
+<span style="color: #00ffff;">static</span> <span style="color: #00ffff;">inline</span> <span style="color: #98fb98;">bool</span> <span style="color: #87cefa;">heap_free</span>(<span style="color: #98fb98;">size_t</span> <span style="color: #eedd82;">n</span>)
+{
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31616;&#21333;&#20570;&#20102;&#19968;&#20010;&#20943;&#27861; heap_end - HEAP</span>
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#30456;&#20943;&#30340;&#32467;&#26524;&#22823;&#20110;&#35831;&#27714;&#30340;&#20869;&#23384;&#65292;&#37027;&#20040;&#23601;&#36820;&#22238;&#30495;&#65292;&#21542;&#21017;&#36820;&#22238;&#20551; </span>
+  <span style="color: #00ffff;">return</span> (<span style="color: #98fb98;">int</span>)(heap_end - HEAP) &gt;= (<span style="color: #98fb98;">int</span>)n;
+}
+</pre>
+</div>
+
+<pre class="example" id="org001b230">
+下面继续显示模式设置过程
+</pre>
+</div>
+</div>
+<div id="outline-container-org71b554a" class="outline-3">
+<h3 id="org71b554a">设置显示模式</h3>
 </div>
 </div>
 </div>
