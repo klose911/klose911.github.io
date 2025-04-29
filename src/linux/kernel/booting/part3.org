@@ -366,3 +366,162 @@ set_mode 函数实现如下：
 #+end_example
 
 * 切换到保护模式之前的最后的准备工作
+在进入保护模式之前的最后一个函数调用发生在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c#L184][main.c]] 中的 *go_to_protected_mode* 函数，就像这个函数的注释说的，这个函数将进行最后的准备工作然后进入保护模式
+
+#+begin_example
+下面就来具体看看最后的准备工作是什么，以及系统是如何切换到保护模式的
+#+end_example
+
+go_to_protected_mode 函数的实现在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/pm.c#L104][arch/x86/boot/pm.c]] 
+
+** realmode_switch_hook
+首先调用的是 *realmode_switch_hook* 函数，后者如果发现 realmode_switch hook， 那么将调用它并禁止 [[http://en.wikipedia.org/wiki/Non-maskable_interrupt][NMI]] 中断，反之将直接禁止 NMI 中断
+#+begin_example
+  只有当 bootloader 运行在宿主环境下（比如在 DOS 下运行 ）， hook 才会被使用
+
+  可以在 https://www.kernel.org/doc/Documentation/x86/boot.txt  (ADVANCED BOOT LOADER HOOKS) 中详细了解 hook 函数的信息
+#+end_example
+
+
+#+begin_src c 
+  /*
+   ,* Invoke the realmode switch hook if present; otherwise
+   ,* disable all interrupts.
+   ,*/
+  static void realmode_switch_hook(void)
+  {
+    if (boot_params.hdr.realmode_swtch) {
+      asm volatile("lcallw *%0"
+  		 : : "m" (boot_params.hdr.realmode_swtch)
+  		 : "eax", "ebx", "ecx", "edx");
+    } else {
+      asm volatile("cli");
+      outb(0x80, 0x70); /* Disable NMI */
+      io_delay();
+    }
+  }
+#+end_src
+
+*realmode_switch* 指向了一个 _16 位实模式代码地址_ （远跳转指针），这个16位代码将禁止 NMI 中断
+
+#+begin_example
+所以在上述代码中，如果 realmode_swtch hook 存在，代码是用了 lcallw 指令进行远函数调用
+#+end_example
+
+在我的环境中，因为不存在这个 hook ，所以代码是直接进入 else 部分进行了 NMI 的禁止：
+
+#+begin_src c
+  asm volatile("cli");
+  outb(0x80, 0x70);	/* Disable NMI */
+  io_delay();
+#+end_src
+
+上面的代码首先调用 _cli_ 汇编指令 *清除* 了 _中断标志 IF_ ，这条指令执行之后，外部中断就被禁止了，紧接着的下一行代码就禁止了 NMI 中断
+
+#+begin_example
+  这里简单介绍一下中断。中断是由硬件或者软件产生的
+
+  当中断产生的时候， CPU 将得到通知，这个时候， CPU 将停止当前指令的执行，保存当前代码的环境，然后将控制权移交到中断处理程序
+
+  当中断处理程序完成之后，将恢复中断之前的运行环境，从而被中断的代码将继续运行
+
+  NMI 中断是一类特殊的中断，往往预示着系统发生了不可恢复的错误，所以在正常运行的操作系统中，NMI 中断是不会被禁止的
+
+  但是在进入保护模式之前，由于特殊需求，代码禁止了这类中断
+
+  将在后续的章节中对中断做更多的介绍，这里就不展开了
+#+end_example
+
+在 NMI 中断被禁止之后（通过写 _0x80_ 进 *CMOS 地址寄存器* _0x70_ ），函数接着调用了 *io_delay* 函数进行了 _短暂的延时_ 以 *等待* _I/O 操作完成_ 。下面就是 *io_delay* 函数的实现：
+
+#+begin_src c 
+  static inline void io_delay(void)
+  {
+    const u16 DELAY_PORT = 0x80;
+    asm volatile("outb %%al,%0" : : "dN" (DELAY_PORT));
+  }
+#+end_src
+
+对 I/O 端口 _0x80_ 写入任何的字节都将得到 1 ms 的延时
+
+#+begin_example
+  在上面的代码中，代码将 al 寄存器中的值写到了这个端口
+
+  在这个 io_delay 调用完成之后， realmode_switch_hook 函数就完成了所有工作
+#+end_example
+
+** enable_a20
+下一个函数调用是 *enable_a20*，这个函数激活 [[https://en.wikipedia.org/wiki/A20_line][A20 地址线]]，可以在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/a20.c][arch/x86/boot/a20.c]] 找到这个函数的实现。这个函数会尝试使用不同的方式来使能 A20 地址线
+
+
+首先将调用 *a20_test_short* （该函数将调用 *a20_test* 函数） 来 *检测* _A20 地址线_ 是否已经被 *激活* 了：
+#+begin_src c 
+  static int a20_test(int loops)
+  {
+    int ok = 0;
+    int saved, ctr;
+
+    set_fs(0x0000); // 将 0x0000 放入 FS 寄存器
+    set_gs(0xffff); // 将 0xffff 放入 GS 寄存器
+
+    saved = ctr = rdfs32(A20_TEST_ADDR); // 通过 rdfs32 函数调用，将 A20_TEST_ADDR 内存地址 (4*0x80) 的内容放入 saved 和 ctr 变量 
+
+    while (loops--) {
+      wrfs32(++ctr, A20_TEST_ADDR); // 使用 wrfs32 函数将更新过的 ctr 的值写入 fs:gs 
+      io_delay();	/* Serialize and make delay constant */ // 延时 1ms 
+      ok = rdgs32(A20_TEST_ADDR+0x10) ^ ctr; // 从 GS:A20_TEST_ADDR+0x10 读取内容 
+      if (ok) // 如果该地址内容不为0，那么 A20 已经被激活 
+        break; // 
+    }
+
+    wrfs32(saved, A20_TEST_ADDR);
+    return ok;
+  }
+#+end_src
+
+
+如果 A20 没有被激活，代码将尝试使用多种方法进行 A20 地址激活
+
+#+begin_example
+其中的一种方法就是调用 BIOS 0X15 中断激活 A20 地址线
+#+end_example
+
+如果 enabled_a20 函数调用失败，显示一个错误消息并且调用 *die* 函数结束操作系统运行。die 函数定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/header.S][arch/x86/boot/header.S]]:
+#+begin_src asm 
+  die:
+  	hlt
+  	jmp	die
+  	.size	die, .-die
+#+end_src
+
+** reset_coprocessor
+A20 地址线被激活之后，*reset_coprocessor* 函数被调用：
+
+#+begin_src asm 
+  	outb(0, 0xf0);
+  	outb(0, 0xf1);
+#+end_src
+
+这个函数非常简单，通过将 _0_ 写入 I/O 端口 _0xf0_ 和 _0xf1_ 以 *复位* _数字协处理器_
+
+
+** mask_all_interrupts
+接下来 *mask_all_interrupts* 函数将被调用：
+
+#+begin_src asm 
+  	outb(0xff, 0xa1);       /* Mask all interrupts on the secondary PIC */
+  	outb(0xfb, 0x21);       /* Mask all but cascade on the primary PIC */
+#+end_src
+
+这个函数调用 *屏蔽* 了从 _中断控制器_ ( _Programmable Interrupt Controller_ ) 的 *所有中断* ，和 主中断控制器上除 *IRQ2* 以外的所有中断
+
+#+begin_example
+  IRQ2是主中断控制器上的级联中断，所有从中断控制器的中断将通过这个级联中断报告给 CPU 
+#+end_example
+
+
+* 设置中断描述符表
+
+* 设置全局描述符表 
+
+* 切换进入保护模式

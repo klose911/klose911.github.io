@@ -219,7 +219,17 @@
 </li>
 </ul>
 </li>
-<li><a href="#org332f8fa">切换到保护模式之前的最后的准备工作</a></li>
+<li><a href="#org332f8fa">切换到保护模式之前的最后的准备工作</a>
+<ul>
+<li><a href="#orgf67b7e0">realmode_switch_hook</a></li>
+<li><a href="#org86e9c86">enable_a20</a></li>
+<li><a href="#org650b74c">reset_coprocessor</a></li>
+<li><a href="#orgc6e59ab">mask_all_interrupts</a></li>
+</ul>
+</li>
+<li><a href="#orgc670c0f">设置中断描述符表</a></li>
+<li><a href="#org343ded3">设置全局描述符表</a></li>
+<li><a href="#org8b87e4c">切换进入保护模式</a></li>
 </ul>
 </div>
 </div>
@@ -243,7 +253,7 @@
 </pre>
 </div>
 
-<pre class="example" id="orgb121d98">
+<pre class="example" id="orgb0996d1">
 至于 boot_params.hdr 数据结构中的内容，是通过 copy_boot_params 函数实现的
 
 关于这个函数的实现细节请查看上一节的内容
@@ -251,7 +261,7 @@
 <p>
 boot_params.hdr 中的 <span class="underline">vid_mode</span> 是 <b>引导程序</b> 必须填入的字段。可以在 kernel boot protocol 文档中找到关于 vid_mode 的详细信息：
 </p>
-<pre class="example" id="org057b7fc">
+<pre class="example" id="orga94a660">
 Offset	Proto	Name		Meaning
 /Size
 01FA/2	ALL	    vid_mode	Video mode control
@@ -261,7 +271,7 @@ Offset	Proto	Name		Meaning
 而在 linux kernel boot protocol 文档中定义了如何通过命令行参数的方式为 vid_mode 字段传入相应的值：
 </p>
 
-<pre class="example" id="org1fb56a4">
+<pre class="example" id="org19ada8c">
 **** SPECIAL COMMAND LINE OPTIONS
 vga=&lt;mode&gt;
 	&lt;mode&gt; here is either an integer (in C notation, either
@@ -276,14 +286,14 @@ vga=&lt;mode&gt;
 根据上面的描述，可以通过将 <span class="underline">vga</span> 选项写入 grub 或者写到引导程序的配置文件，从而让内核命令行得到相应的显示模式设置信息：
 </p>
 
-<pre class="example" id="org5d24a42">
+<pre class="example" id="orgf26d319">
 这个选项可以接受不同类型的值来表示相同的意思
 
 比如可以传入 0XFFFD 或者 ask，这2个值都表示需要显示一个菜单让用户选择想要的显示模式
 </pre>
 
 
-<div id="org2d75052" class="figure">
+<div id="org0d8c27b" class="figure">
 <p><img src="../pic/video_mode_setup_menu.png" alt="video_mode_setup_menu.png" width="90%" />
 </p>
 </div>
@@ -293,7 +303,7 @@ vga=&lt;mode&gt;
 通过这个菜单，用户可以选择想要进入的显示模式
 </p>
 
-<pre class="example" id="orgd1cc3c4">
+<pre class="example" id="org56157f5">
 不过进一步了解显示模式的设置过程之前，先回头了解一些重要的概念
 </pre>
 </div>
@@ -353,7 +363,7 @@ vga=&lt;mode&gt;
 </tbody>
 </table>
 
-<pre class="example" id="org7aa04af">
+<pre class="example" id="org9424ae7">
 如果尝试阅读内核代码，最好能够牢记这些数据类型
 </pre>
 </div>
@@ -370,7 +380,7 @@ vga=&lt;mode&gt;
 </pre>
 </div>
 
-<pre class="example" id="org55967df">
+<pre class="example" id="orged0292b">
 在上一节中，已经通过 init_heap 函数完成了 HEAP 的初始化，
 
 而 _end 标号，在 boot.h 中通过 extern char _end[]; 来引用
@@ -396,7 +406,7 @@ vga=&lt;mode&gt;
 <li><p>
 __alignof__(type) : 返回对于请求的数据类型需要怎样的对齐方式
 </p>
-<pre class="example" id="orgaaa0899">
+<pre class="example" id="orgb40927c">
 根据我的了解这个是 gcc 提供的一个功能 
 </pre></li>
 <li>n : 需要分配多少个对应数据类型的对象</li>
@@ -448,7 +458,7 @@ __alignof__(type) : 返回对于请求的数据类型需要怎样的对齐方式
 </pre>
 </div>
 
-<pre class="example" id="org894dbdd">
+<pre class="example" id="org3f27b0f">
 下面继续显示模式设置过程
 </pre>
 </div>
@@ -481,14 +491,14 @@ __alignof__(type) : 返回对于请求的数据类型需要怎样的对齐方式
 <p>
 然后 store_mode_params 函数将根据当前显示模式的设定，给 <span class="underline">video_segment 变量</span> 设置正确的值
 </p>
-<pre class="example" id="org09ecfb7">
+<pre class="example" id="org6fa5004">
 实际上就是设置显示内存的起始地址
 </pre>
 
 <p>
 在 BIOS 将控制权转移到引导扇区的时候，显示内存地址和显示模式的对应关系如下表所示：
 </p>
-<pre class="example" id="org43a8f9f">
+<pre class="example" id="org73d0883">
 0xB000:0x0000 	32 Kb 	Monochrome Text Video Memory
 0xB800:0x0000 	32 Kb 	Color Text Video Memory
 
@@ -522,7 +532,7 @@ y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
 接下来代码将从 <span class="underline">地址 0x44a 处</span> 获得 <b>屏幕列</b> 信息，从 <span class="underline">地址 0x484 处</span> 获得 <b>屏幕行信息</b> ，并将它们保存到 <span class="underline">boot_params.screen_info.orig_video_cols</span> 和 <span class="underline">boot_params.screen_info.orig_video_lines</span>
 </p>
 
-<pre class="example" id="orgd0ecf10">
+<pre class="example" id="orgce4be10">
 到这里，store_mode_params 的执行就结束了
 </pre>
 </div>
@@ -583,7 +593,7 @@ y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
 </pre>
 </div>
 
-<pre class="example" id="orgb654593">
+<pre class="example" id="org7d772c6">
 这个变量并没有被声明，那么程序怎么能够正常编译执行呢？
 </pre>
 
@@ -591,7 +601,7 @@ y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
 实际上它指向了一个在 <a href="https://github.com/0xAX/linux/blob/master/arch/x86/boot/setup.ld">arch/x86/boot/setup.ld</a> 中定义的叫做 <b>.videocards</b> 的 <span class="underline">内存段</span> ：
 </p>
 
-<pre class="example" id="orgc5f5278">
+<pre class="example" id="orgbe6ea15">
 .videocards	: {
 	video_cards = .;
 	*(.videocards)
@@ -643,7 +653,7 @@ y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
 在 .videocards 内存段实际上存放的就是 <b>所有</b> 被 <span class="underline">内核初始化代码</span> <b>定义</b> 的 <span class="underline">card_info 结构</span>
 </p>
 
-<pre class="example" id="org8ae5b90">
+<pre class="example" id="org0bc6c8e">
 .videocards 内存段可以看成是一个数组
 
 因此所以 probe_cards 函数可以使用 video_cards，通过循环遍历所有的 card_info
@@ -685,7 +695,7 @@ y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
 <li><p>
 这个函数只接受一个参数，这个参数是对应的 <span class="underline">显示模式的数字表示</span>
 </p>
-<pre class="example" id="orge7ac12a">
+<pre class="example" id="org3b3eab5">
 这个数字来自于显示模式选择菜单，或者从内核命令行参数获得
 </pre></li>
 </ul>
@@ -743,7 +753,7 @@ set_mode 函数实现如下：
 </pre>
 </div>
 
-<pre class="example" id="orge6f3112">
+<pre class="example" id="orgf59865d">
 在上面的代码中，每个 vga_set*** 函数只是简单调用 0x10 BIOS 中断来进行显示模式的设置
 </pre>
 
@@ -759,7 +769,7 @@ set_mode 函数实现如下：
 最后， set_video 将调用 <b>do_restore 函数</b> 将前面保存的当前屏幕信息还原到屏幕上 
 </p>
 
-<pre class="example" id="org371bba3">
+<pre class="example" id="org42d3bce">
 到这里为止，显示模式的设置完成，接下来可以切换到保护模式了
 </pre>
 </div>
@@ -768,6 +778,221 @@ set_mode 函数实现如下：
 </div>
 <div id="outline-container-org332f8fa" class="outline-2">
 <h2 id="org332f8fa">切换到保护模式之前的最后的准备工作</h2>
+<div class="outline-text-2" id="text-org332f8fa">
+<p>
+在进入保护模式之前的最后一个函数调用发生在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/main.c#L184">main.c</a> 中的 <b>go_to_protected_mode</b> 函数，就像这个函数的注释说的，这个函数将进行最后的准备工作然后进入保护模式
+</p>
+
+<pre class="example" id="org2984884">
+下面就来具体看看最后的准备工作是什么，以及系统是如何切换到保护模式的
+</pre>
+
+<p>
+go_to_protected_mode 函数的实现在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/pm.c#L104">arch/x86/boot/pm.c</a> 
+</p>
+</div>
+<div id="outline-container-orgf67b7e0" class="outline-3">
+<h3 id="orgf67b7e0">realmode_switch_hook</h3>
+<div class="outline-text-3" id="text-orgf67b7e0">
+<p>
+首先调用的是 <b>realmode_switch_hook</b> 函数，后者如果发现 realmode_switch hook， 那么将调用它并禁止 <a href="http://en.wikipedia.org/wiki/Non-maskable_interrupt">NMI</a> 中断，反之将直接禁止 NMI 中断
+</p>
+<pre class="example" id="org1ab305e">
+只有当 bootloader 运行在宿主环境下（比如在 DOS 下运行 ）， hook 才会被使用
+
+可以在 https://www.kernel.org/doc/Documentation/x86/boot.txt  (ADVANCED BOOT LOADER HOOKS) 中详细了解 hook 函数的信息
+</pre>
+
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">/*</span>
+<span style="color: #ff4500;"> * Invoke the realmode switch hook if present; otherwise</span>
+<span style="color: #ff4500;"> * disable all interrupts.</span>
+<span style="color: #ff4500;"> */</span>
+<span style="color: #00ffff;">static</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">realmode_switch_hook</span>(<span style="color: #98fb98;">void</span>)
+{
+  <span style="color: #00ffff;">if</span> (boot_params.hdr.realmode_swtch) {
+    <span style="color: #00ffff;">asm</span> <span style="color: #00ffff;">volatile</span>(<span style="color: #ffa07a;">"lcallw *%0"</span>
+                 : : <span style="color: #ffa07a;">"m"</span> (boot_params.hdr.realmode_swtch)
+                 : <span style="color: #ffa07a;">"eax"</span>, <span style="color: #ffa07a;">"ebx"</span>, <span style="color: #ffa07a;">"ecx"</span>, <span style="color: #ffa07a;">"edx"</span>);
+  } <span style="color: #00ffff;">else</span> {
+    <span style="color: #00ffff;">asm</span> <span style="color: #00ffff;">volatile</span>(<span style="color: #ffa07a;">"cli"</span>);
+    outb(0x80, 0x70); <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">Disable NMI</span><span style="color: #ff4500;"> */</span>
+    io_delay();
+  }
+}
+</pre>
+</div>
+
+<p>
+<b>realmode_switch</b> 指向了一个 <span class="underline">16 位实模式代码地址</span> （远跳转指针），这个16位代码将禁止 NMI 中断
+</p>
+
+<pre class="example" id="orga89a3bc">
+所以在上述代码中，如果 realmode_swtch hook 存在，代码是用了 lcallw 指令进行远函数调用
+</pre>
+
+<p>
+在我的环境中，因为不存在这个 hook ，所以代码是直接进入 else 部分进行了 NMI 的禁止：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">asm</span> <span style="color: #00ffff;">volatile</span>(<span style="color: #ffa07a;">"cli"</span>);
+outb(0x80, 0x70);       <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">Disable NMI</span><span style="color: #ff4500;"> */</span>
+<span style="color: #87cefa;">io_delay</span>();
+</pre>
+</div>
+
+<p>
+上面的代码首先调用 <span class="underline">cli</span> 汇编指令 <b>清除</b> 了 <span class="underline">中断标志 IF</span> ，这条指令执行之后，外部中断就被禁止了，紧接着的下一行代码就禁止了 NMI 中断
+</p>
+
+<pre class="example" id="org4b85721">
+这里简单介绍一下中断。中断是由硬件或者软件产生的
+
+当中断产生的时候， CPU 将得到通知，这个时候， CPU 将停止当前指令的执行，保存当前代码的环境，然后将控制权移交到中断处理程序
+
+当中断处理程序完成之后，将恢复中断之前的运行环境，从而被中断的代码将继续运行
+
+NMI 中断是一类特殊的中断，往往预示着系统发生了不可恢复的错误，所以在正常运行的操作系统中，NMI 中断是不会被禁止的
+
+但是在进入保护模式之前，由于特殊需求，代码禁止了这类中断
+
+将在后续的章节中对中断做更多的介绍，这里就不展开了
+</pre>
+
+<p>
+在 NMI 中断被禁止之后（通过写 <span class="underline">0x80</span> 进 <b>CMOS 地址寄存器</b> <span class="underline">0x70</span> ），函数接着调用了 <b>io_delay</b> 函数进行了 <span class="underline">短暂的延时</span> 以 <b>等待</b> <span class="underline">I/O 操作完成</span> 。下面就是 <b>io_delay</b> 函数的实现：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">inline</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">io_delay</span>(<span style="color: #98fb98;">void</span>)
+{
+  <span style="color: #00ffff;">const</span> <span style="color: #98fb98;">u16</span> <span style="color: #eedd82;">DELAY_PORT</span> = 0x80;
+  <span style="color: #00ffff;">asm</span> <span style="color: #00ffff;">volatile</span>(<span style="color: #ffa07a;">"outb %%al,%0"</span> : : <span style="color: #ffa07a;">"dN"</span> (DELAY_PORT));
+}
+</pre>
+</div>
+
+<p>
+对 I/O 端口 <span class="underline">0x80</span> 写入任何的字节都将得到 1 ms 的延时
+</p>
+
+<pre class="example" id="org7e01da6">
+在上面的代码中，代码将 al 寄存器中的值写到了这个端口
+
+在这个 io_delay 调用完成之后， realmode_switch_hook 函数就完成了所有工作
+</pre>
+</div>
+</div>
+<div id="outline-container-org86e9c86" class="outline-3">
+<h3 id="org86e9c86">enable_a20</h3>
+<div class="outline-text-3" id="text-org86e9c86">
+<p>
+下一个函数调用是 *enable_a20*，这个函数激活 <a href="https://en.wikipedia.org/wiki/A20_line">A20 地址线</a>，可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/a20.c">arch/x86/boot/a20.c</a> 找到这个函数的实现。这个函数会尝试使用不同的方式来使能 A20 地址线
+</p>
+
+
+<p>
+首先将调用 <b>a20_test_short</b> （该函数将调用 <b>a20_test</b> 函数） 来 <b>检测</b> <span class="underline">A20 地址线</span> 是否已经被 <b>激活</b> 了：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #98fb98;">int</span> <span style="color: #87cefa;">a20_test</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">loops</span>)
+{
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">ok</span> = 0;
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">saved</span>, <span style="color: #eedd82;">ctr</span>;
+
+  set_fs(0x0000); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; 0x0000 &#25918;&#20837; FS &#23492;&#23384;&#22120;</span>
+  set_gs(0xffff); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; 0xffff &#25918;&#20837; GS &#23492;&#23384;&#22120;</span>
+
+  saved = ctr = rdfs32(A20_TEST_ADDR); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36890;&#36807; rdfs32 &#20989;&#25968;&#35843;&#29992;&#65292;&#23558; A20_TEST_ADDR &#20869;&#23384;&#22320;&#22336; (4*0x80) &#30340;&#20869;&#23481;&#25918;&#20837; saved &#21644; ctr &#21464;&#37327; </span>
+
+  <span style="color: #00ffff;">while</span> (loops--) {
+    wrfs32(++ctr, A20_TEST_ADDR); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20351;&#29992; wrfs32 &#20989;&#25968;&#23558;&#26356;&#26032;&#36807;&#30340; ctr &#30340;&#20540;&#20889;&#20837; fs:gs </span>
+    io_delay(); <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">Serialize and make delay constant</span><span style="color: #ff4500;"> */</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24310;&#26102; 1ms </span>
+    ok = rdgs32(A20_TEST_ADDR+0x10) ^ ctr; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174; GS:A20_TEST_ADDR+0x10 &#35835;&#21462;&#20869;&#23481; </span>
+    <span style="color: #00ffff;">if</span> (ok) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#35813;&#22320;&#22336;&#20869;&#23481;&#19981;&#20026;0&#65292;&#37027;&#20040; A20 &#24050;&#32463;&#34987;&#28608;&#27963; </span>
+      <span style="color: #00ffff;">break</span>; <span style="color: #ff4500;">// </span>
+  }
+
+  wrfs32(saved, A20_TEST_ADDR);
+  <span style="color: #00ffff;">return</span> ok;
+}
+</pre>
+</div>
+
+
+<p>
+如果 A20 没有被激活，代码将尝试使用多种方法进行 A20 地址激活
+</p>
+
+<pre class="example" id="org66927cf">
+其中的一种方法就是调用 BIOS 0X15 中断激活 A20 地址线
+</pre>
+
+<p>
+如果 enabled_a20 函数调用失败，显示一个错误消息并且调用 <b>die</b> 函数结束操作系统运行。die 函数定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/header.S">arch/x86/boot/header.S</a>:
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">die</span>:
+        <span style="color: #00ffff;">hlt</span>
+        <span style="color: #00ffff;">jmp</span>     die
+        <span style="color: #00ffff;">.size</span>   die, .-die
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org650b74c" class="outline-3">
+<h3 id="org650b74c">reset_coprocessor</h3>
+<div class="outline-text-3" id="text-org650b74c">
+<p>
+A20 地址线被激活之后，*reset_coprocessor* 函数被调用：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">outb</span>(0, 0xf0)<span style="color: #ff4500;">;</span>
+<span style="color: #87cefa;">outb</span>(0, 0xf1)<span style="color: #ff4500;">;</span>
+</pre>
+</div>
+
+<p>
+这个函数非常简单，通过将 <span class="underline">0</span> 写入 I/O 端口 <span class="underline">0xf0</span> 和 <span class="underline">0xf1</span> 以 <b>复位</b> <span class="underline">数字协处理器</span>
+</p>
+</div>
+</div>
+<div id="outline-container-orgc6e59ab" class="outline-3">
+<h3 id="orgc6e59ab">mask_all_interrupts</h3>
+<div class="outline-text-3" id="text-orgc6e59ab">
+<p>
+接下来 <b>mask_all_interrupts</b> 函数将被调用：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">outb</span>(0xff, 0xa1)<span style="color: #ff4500;">;       </span><span style="color: #ff4500;">/* Mask all interrupts on the secondary PIC */</span>
+<span style="color: #87cefa;">outb</span>(0xfb, 0x21)<span style="color: #ff4500;">;       </span><span style="color: #ff4500;">/* Mask all but cascade on the primary PIC</span><span style="color: #ff4500;"> */</span>
+</pre>
+</div>
+
+<p>
+这个函数调用 <b>屏蔽</b> 了从 <span class="underline">中断控制器</span> ( <span class="underline">Programmable Interrupt Controller</span> ) 的 <b>所有中断</b> ，和 主中断控制器上除 <b>IRQ2</b> 以外的所有中断
+</p>
+
+<pre class="example" id="orgb9ffd48">
+IRQ2是主中断控制器上的级联中断，所有从中断控制器的中断将通过这个级联中断报告给 CPU 
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc670c0f" class="outline-2">
+<h2 id="orgc670c0f">设置中断描述符表</h2>
+</div>
+
+<div id="outline-container-org343ded3" class="outline-2">
+<h2 id="org343ded3">设置全局描述符表</h2>
+</div>
+
+<div id="outline-container-org8b87e4c" class="outline-2">
+<h2 id="org8b87e4c">切换进入保护模式</h2>
 </div>
 </div>
 <div id="postamble" class="status">
