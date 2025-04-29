@@ -451,7 +451,7 @@ go_to_protected_mode 函数的实现在 [[https://github.com/torvalds/linux/blob
 #+end_example
 
 ** enable_a20
-下一个函数调用是 *enable_a20*，这个函数激活 [[https://en.wikipedia.org/wiki/A20_line][A20 地址线]]，可以在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/a20.c][arch/x86/boot/a20.c]] 找到这个函数的实现。这个函数会尝试使用不同的方式来使能 A20 地址线
+下一个函数调用是 *enable_a20* ，这个函数激活 [[https://en.wikipedia.org/wiki/A20_line][A20 地址线]]，可以在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/a20.c][arch/x86/boot/a20.c]] 找到这个函数的实现。这个函数会尝试使用不同的方式来使能 A20 地址线
 
 
 首先将调用 *a20_test_short* （该函数将调用 *a20_test* 函数） 来 *检测* _A20 地址线_ 是否已经被 *激活* 了：
@@ -495,7 +495,7 @@ go_to_protected_mode 函数的实现在 [[https://github.com/torvalds/linux/blob
 #+end_src
 
 ** reset_coprocessor
-A20 地址线被激活之后，*reset_coprocessor* 函数被调用：
+A20 地址线被激活之后， *reset_coprocessor* 函数被调用：
 
 #+begin_src asm 
   	outb(0, 0xf0);
@@ -521,7 +521,147 @@ A20 地址线被激活之后，*reset_coprocessor* 函数被调用：
 
 
 * 设置中断描述符表
+现在内核将调用 *setup_idt* 方法来设置 _中断描述符表_ *IDT* ：
+
+#+begin_src c 
+  static void setup_idt(void)
+  {
+    static const struct gdt_ptr null_idt = {0, 0};
+    asm volatile("lidtl %0" : : "m" (null_idt));
+  }
+#+end_src
+
+使用 *lidtl* 指令将 _null_idt_ 所指向的 *中断描述符表* 引入 *寄存器 IDT*
+
+#+begin_example
+  由于 null_idt 没有设定中断描述符表的长度（长度为 0 ），所以这段指令执行之后，实际上没有任何中断调用被设置成功（所有中断调用都是空的）
+
+  在后面的章节中将看到正确的设置
+#+end_example
+
+null_idt 是一个 *gdt_ptr 结构* 的数据，这个结构的定义如下所示：
+
+#+begin_src c 
+  struct gdt_ptr {
+    u16 len; // 16 bit 的长度字段 
+    u32 ptr; // 32 bit 的指针字段 
+  } __attribute__((packed));
+#+end_src
+
+*__attribute__((packed))* 意味着这个结构就只包含 _48 bit 信息_ （ *没有字节对齐优化* ）
+
+#+begin_example
+  在下面一节中，将看到相同的结构将被导入 GDTR 寄存器（GDTR 寄存器是 48 bit 长度的）
+#+end_example
 
 * 设置全局描述符表 
+在设置完中断描述符表之后，将使用 *setup_gdt* 函数来设置全局描述符表。在 setup_gdt 函数中，使用 _boot_gdt 数组_ 定义了需要引入 _GDTR 寄存器_ 的 *段描述符* 信息：
+
+#+begin_src c 
+  //GDT_ENTRY_BOOT_CS 定义在https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/segment.h#L19 
+  static const u64 boot_gdt[] __attribute__((aligned(16))) = {
+    [GDT_ENTRY_BOOT_CS] = GDT_ENTRY(0xc09b, 0, 0xfffff),
+    [GDT_ENTRY_BOOT_DS] = GDT_ENTRY(0xc093, 0, 0xfffff),
+    [GDT_ENTRY_BOOT_TSS] = GDT_ENTRY(0x0089, 4096, 103),
+  };
+#+end_src
+
+在上面的 boot_gdt 数组中，定义了 _代码_ ， _数据_ 和 _TSS_ 段 ( *Task State Segment* , 任务状态段)的 段描述符
+
+#+begin_example
+  因为并没有设置任何的中断调用（记得上面说的 null_idt吗？），所以 TSS 段并不会被使用到
+
+  TSS 段存在的唯一目的就是让 Intel 处理器能够正确进入保护模式
+#+end_example
+
+下面详细了解一下 boot_gdt 这个数组，首先，这个数组被 *__attribute__((aligned(16)))* 修饰，这就意味着这个数组将以 _16 字节_ 为单位 *对齐* 。通过下面的例子来了解一下什么叫 16 字节对齐：
+
+#+begin_src c 
+  #include <stdio.h>
+
+  struct aligned {
+    int a;
+  }__attribute__((aligned(16)));
+
+  struct nonaligned {
+    int b;
+  };
+
+  int main(void)
+  {
+    struct aligned    a;
+    struct nonaligned na;
+
+    printf("Not aligned - %zu \n", sizeof(na));
+    printf("Aligned - %zu \n", sizeof(a));
+
+    return 0;
+  }
+#+end_src
+
+上面的代码可以看出，一旦指定了 16 字节对齐，即使结构中只有一个 int 类型的字段，整个结构也将占用 16 个字节：
+
+#+begin_src sh 
+  $ gcc test.c -o test && test
+  Not aligned - 4
+  Aligned - 16
+#+end_src
+
+因为在 boot_gdt 的定义中，  _GDT_ENTRY_BOOT_CS = 2_ ，所以在数组中有2个空项：
++ 第一项是一个空的描述符
++ 第二项在代码中没有使用
+
+#+begin_example
+  在没有 align 16 之前，整个结构占用了（8*5=40）个字节，加了 align 16 之后，结构就占用了 48 字节 
+#+end_example
+
+上面代码中出现的 *GDT_ENTRY* 是一个 _宏_ 定义，这个宏接受 3 个参数（  _标志_ ， _基地址_ ， _段长度_ ）来产生段描述符结构。具体分析上面数组中的代码段描述符 _GDT_ENTRY_BOOT_CS_ 来看看这个宏是如何工作的，对于这个段，GDT_ENTRY 接受了下面 3 个参数：
++ 基地址: 0
++ 段长度: 0xfffff
++ 标志: 0xc09b
+
+上面这些数字表明，这个段的基地址是 0， 段长度是 0xfffff  (_1 MB_)，而标志字段展开之后是下面的二进制数据：
+#+begin_example
+1100 0000 1001 1011
+#+end_example
+
+这些二进制数据的具体含义如下:
++ 1: (G) 这里为 1，表示段的实际长度是 0xfffff * 4kb = 4GB
++ 1: (D) 表示这个段是一个32位段
++ 0: (L) 这个代码段没有运行在 long mode
++ 0: (AVL) Linux 没有使用
++ 0000: 段长度的4个位
++ 1: (P) 段已经位于内存中
++ 00: (DPL) 段优先级为0
++ 1: (S) 说明这个段是一个代码或者数据段
++ 101: 段类型为可执行/可读
++ 1: 段可访问
+
+#+begin_example
+  关于段描述符的更详细的信息你可以从上一节中获得
+
+  也可以阅读 http://www.intel.com/content/www/us/en/processors/architectures-software-developer-manuals.html 获取全部信息
+#+end_example
+
+在定义了数组之后，代码将获取 GDT 的长度：
+
+#+begin_src c 
+  gdt.len = sizeof(boot_gdt)-1;
+#+end_src
+
+接下来是将 GDT 的地址放入 gdt.ptr 中：
+#+begin_src c 
+  gdt.ptr = (u32)&boot_gdt + (ds() << 4);
+#+end_src
+
+#+begin_example
+这里的地址计算很简单，因为还在实模式，所以就是 ds << 4 + 数组起始地址 
+#+end_example
+
+最后通过执行 *lgdtl 指令* 将 _GDT 信息_ 写入 _GDTR 寄存器_ ：
+
+#+begin_src c 
+  asm volatile("lgdtl %0" : : "m" (gdt));
+#+end_src
 
 * 切换进入保护模式
