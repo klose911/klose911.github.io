@@ -1,4 +1,4 @@
-#+TITLE: 显示模式
+#+TITLE: 进入保护模式
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
 #+HTML_LINK_HOME: ./booting.html
 #+HTML_LINK_UP: ./part3.html
@@ -665,3 +665,89 @@ null_idt 是一个 *gdt_ptr 结构* 的数据，这个结构的定义如下所�
 #+end_src
 
 * 切换进入保护模式
+go_to_protected_mode 函数在完成 IDT, GDT 初始化，并禁止了 NMI 中断之后，将调用 *protected_mode_jump* 函数完成从实模式到保护模式的跳转：
+
+#+begin_src c 
+  protected_mode_jump(boot_params.hdr.code32_start, (u32)&boot_params + (ds() << 4));
+#+end_src
+
+protected_mode_jump 函数实现在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/pmjump.S#L26][arch/x86/boot/pmjump.S]]，它接受下面2个参数:
+1. 保护模式代码的入口， 保存在 *eax* 寄存器
+2. boot_params 结构的地址，保存在 *edx* 寄存器
+
+首先把 _boot_params 地址_ 放入 _esi 寄存器_ ，然后 _将 cs 寄存器_ 内容放入 _bx 寄存器_ ，接着执行 _bx << 4 + 标号为2的代码的地址_ ，这样一来 bx 寄存器就包含了标号为2的代码的地址。接下来代码将把 _数据段索引_ 放入 _cx 寄存器_ ，将 _TSS 段索引_ 放入 _di 寄存器_ ：
+
+#+begin_src asm 
+  	movw	$__BOOT_DS, %cx
+  	movw	$__BOOT_TSS, %di
+#+end_src
+
+#+begin_example
+  就像前面看到的 GDT_ENTRY_BOOT_CS 的值为2，每个段描述符都是 8 字节
+
+  所以 cx 寄存器的值将是 2*8 = 16，di 寄存器的值将是 4*8 =32
+#+end_example
+
+接下来，通过设置 *CR0 寄存器* 相应的位使 CPU 进入保护模式：
+
+#+begin_src asm 
+  	movl	%cr0, %edx
+  	orb	$X86_CR0_PE, %dl
+  	movl	%edx, %cr0
+#+end_src
+
+在进入保护模式之后，通过一个长跳转进入 32 位代码：
+#+begin_src asm 
+  	.byte	0x66, 0xea
+  2:	.long	in_pm32
+  	.word	__BOOT_CS ;(GDT_ENTRY_BOOT_CS*8) = 16，段描述符表索引
+#+end_src
+
+这段代码中
++ 0x66 操作符前缀允许混合执行 16 位和 32 位代码
++ 0xea : 跳转指令的操作符
++ in_pm32 跳转地址偏移
++ __BOOT_CS 代码段描述符索引
+
+在执行了这个跳转命令之后，就在保护模式下执行代码了：
+
+#+begin_src asm 
+  	.code32
+  	.section ".text32","ax"
+#+end_src
+
+保护模式代码的第一步就是重置所有的段寄存器（除了 CS 寄存器）:
+
+#+begin_src asm 
+  	GLOBAL(in_pm32)
+  	movl	%ecx, %ds
+  	movl	%ecx, %es
+  	movl	%ecx, %fs
+  	movl	%ecx, %gs
+  	movl	%ecx, %ss
+#+end_src
+
+#+begin_example
+  因为在实模式代码中将 $__BOOT_DS （数据段描述符索引）放入了 cx 寄存器，所以上面的代码设置所有段寄存器（除了 CS 寄存器）指向数据段
+#+end_example
+
+
+接下来代码将所有的通用寄存器清 0 ：
+#+begin_src asm 
+  	xorl	%ecx, %ecx
+  	xorl	%edx, %edx
+  	xorl	%ebx, %ebx
+  	xorl	%ebp, %ebp
+  	xorl	%edi, %edi
+#+end_src
+
+最后使用 *长跳转* 跳入正在的 32 位代码（通过参数传入的地址）
+
+#+begin_src asm 
+  	jmpl	*%eax ;?jmpl cs:eax?
+#+end_src
+
+#+begin_example
+到这里，我们就进入了保护模式开始执行代码了，下一节将分析这段 32 位代码到底做了些什么
+#+end_example
+
