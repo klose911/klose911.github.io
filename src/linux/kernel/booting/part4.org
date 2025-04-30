@@ -1,0 +1,56 @@
+#+TITLE: 长模式
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: ./booting.html
+#+HTML_LINK_UP: ./part3.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+接下来将会看到在[[https://zh.wikipedia.org/wiki/%E4%BF%9D%E8%AD%B7%E6%A8%A1%E5%BC%8F][保护模式]]中的最初几步，比如：
++ 确认CPU是否支持[[https://zh.wikipedia.org/wiki/%E9%95%BF%E6%A8%A1%E5%BC%8F][长模式]]
++ [[https://zh.wikipedia.org/wiki/SSE][SSE]]和[[https://zh.wikipedia.org/wiki/%E5%88%86%E9%A0%81][分页]]以及页表的初始化
++ 最后还将讨论如何切换到长模式
+
+#+begin_example
+注意：这部分将会有大量的汇编代码，如果不熟悉汇编，建议找本书参考一下
+#+end_example
+
+在前一章节，停在了跳转到位于  [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/pmjump.S#L26][arch/x86/boot/pmjump.S]] 的 32 位入口点这一步：
+
+#+begin_src asm 
+  	jmpl	*%eax
+#+end_src
+
+eax 寄存器包含了 32 位入口点的地址。可以在 [[https://www.kernel.org/doc/Documentation/x86/boot.txt][x86 linux 内核引导协议]] 中找到相关内容：
+
+#+begin_example
+When using bzImage, the protected-mode kernel was relocated to 0x100000
+
+当使用 bzImage 时，保护模式下的内核被重定位至 0x100000
+#+end_example
+
+检查一下 32 位入口点的寄存器值来确保这是对的：
+
+#+begin_example
+  eax            0x100000	1048576
+  ecx            0x0	    0
+  edx            0x0	    0
+  ebx            0x0	    0
+  esp            0x1ff5c	0x1ff5c
+  ebp            0x0	    0x0
+  esi            0x14470	83056
+  edi            0x0	    0
+  eip            0x100000	0x100000
+  eflags         0x46	    [ PF ZF ]
+  cs             0x10	16
+  ss             0x18	24
+  ds             0x18	24
+  es             0x18	24
+  fs             0x18	24
+  gs             0x18	24
+#+end_example
+
+在这里可以看到 cs 寄存器包含了 0x10 （代表了全局描述符表中的第二个索引项）， eip 寄存器的值是 0x100000，并且包括代码段在内的所有内存段的基地址都为0。所以可以得到物理地址： 0:0x100000 或者 0x100000，这和协议规定的一样
+
+#+begin_example
+现在就可以从 32 位入口点代码开始
+#+end_example
+* 32 位入口点

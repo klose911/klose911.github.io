@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>内核引导过程</title>
+<title>长模式</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -196,21 +196,84 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href=""> UP </a>
+ <a accesskey="h" href="./part3.html"> UP </a>
  |
- <a accesskey="H" href="../kernel.html"> HOME </a>
+ <a accesskey="H" href="./booting.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">内核引导过程</h1>
+<h1 class="title">长模式</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org18da092">32 位入口点</a></li>
+</ul>
+</div>
+</div>
 <p>
-本章介绍了Linux内核引导过程。此处将在这看到一些描述内核加载过程的整个周期的文章：
+接下来将会看到在<a href="https://zh.wikipedia.org/wiki/%E4%BF%9D%E8%AD%B7%E6%A8%A1%E5%BC%8F">保护模式</a>中的最初几步，比如：
+</p>
+<ul class="org-ul">
+<li>确认CPU是否支持<a href="https://zh.wikipedia.org/wiki/%E9%95%BF%E6%A8%A1%E5%BC%8F">长模式</a></li>
+<li><a href="https://zh.wikipedia.org/wiki/SSE">SSE</a>和<a href="https://zh.wikipedia.org/wiki/%E5%88%86%E9%A0%81">分页</a>以及页表的初始化</li>
+<li>最后还将讨论如何切换到长模式</li>
+</ul>
+
+<pre class="example" id="orgde7ccc4">
+注意：这部分将会有大量的汇编代码，如果不熟悉汇编，建议找本书参考一下
+</pre>
+
+<p>
+在前一章节，停在了跳转到位于  <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/pmjump.S#L26">arch/x86/boot/pmjump.S</a> 的 32 位入口点这一步：
 </p>
 
-<ul class="org-ul">
-<li><a href="part1.html">从引导程序到内核</a></li>
-<li><a href="part2.html">保护模式</a></li>
-<li><a href="part3.html">进入保护模式</a></li>
-<li><a href="part4.html">长模式</a></li>
-</ul>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">jmpl</span>    *<span style="color: #eedd82;">%eax</span>
+</pre>
+</div>
+
+<p>
+eax 寄存器包含了 32 位入口点的地址。可以在 <a href="https://www.kernel.org/doc/Documentation/x86/boot.txt">x86 linux 内核引导协议</a> 中找到相关内容：
+</p>
+
+<pre class="example" id="org36ed4ee">
+When using bzImage, the protected-mode kernel was relocated to 0x100000
+
+当使用 bzImage 时，保护模式下的内核被重定位至 0x100000
+</pre>
+
+<p>
+检查一下 32 位入口点的寄存器值来确保这是对的：
+</p>
+
+<pre class="example" id="org2b98f5b">
+eax            0x100000	1048576
+ecx            0x0	    0
+edx            0x0	    0
+ebx            0x0	    0
+esp            0x1ff5c	0x1ff5c
+ebp            0x0	    0x0
+esi            0x14470	83056
+edi            0x0	    0
+eip            0x100000	0x100000
+eflags         0x46	    [ PF ZF ]
+cs             0x10	16
+ss             0x18	24
+ds             0x18	24
+es             0x18	24
+fs             0x18	24
+gs             0x18	24
+</pre>
+
+<p>
+在这里可以看到 cs 寄存器包含了 0x10 （代表了全局描述符表中的第二个索引项）， eip 寄存器的值是 0x100000，并且包括代码段在内的所有内存段的基地址都为0。所以可以得到物理地址： 0:0x100000 或者 0x100000，这和协议规定的一样
+</p>
+
+<pre class="example" id="org1f78051">
+现在就可以从 32 位入口点代码开始
+</pre>
+<div id="outline-container-org18da092" class="outline-2">
+<h2 id="org18da092">32 位入口点</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 
