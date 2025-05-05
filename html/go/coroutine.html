@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Go 编程模式</title>
+<title>协程</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -196,18 +196,133 @@
 </head>
 <body>
 <div id="content" class="content">
-<h1 class="title">Go 编程模式</h1>
-<ul class="org-ul">
-<li><a href="basic.html">基础概念</a></li>
-<li><a href="error.html">错误处理</a></li>
-<li><a href="function.html">函数式配置</a></li>
-<li><a href="proxy.html">委托模式</a></li>
-<li><a href="map-reduce.html">map-reduce</a></li>
-<li><a href="code_generation.html">代码生成器</a></li>
-<li><a href="decorator.html">修饰器</a></li>
-<li><a href="pipeline.html">管道</a></li>
-<li><a href="visitor.html">访问者</a></li>
+<h1 class="title">协程</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org6368231">什么是协程</a></li>
+<li><a href="#orgc88307c">协程的优点</a></li>
 </ul>
+</div>
+</div>
+<div id="outline-container-org6368231" class="outline-2">
+<h2 id="org6368231">什么是协程</h2>
+<div class="outline-text-2" id="text-org6368231">
+<p>
+可以简单的认为：协程就是 <b>用户态的线程</b> ，但是 <span class="underline">上下文切换</span> 的时机是靠 <b>调用方</b> 自身去控制的。同时，协程和 <span class="underline">用户态线程</span> 非常接近，用户态线程之间的切换不需要陷入内核，但部分操作系统中用户态线程的切换需要内核态线程的辅助 
+</p>
+
+<p>
+下面是一个简单的例子：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c++"><span style="color: #98fb98;">void</span> <span style="color: #87cefa;">A</span>() {
+  cout &lt;&lt; 1 &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+  cout &lt;&lt; 2 &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+  cout &lt;&lt; 3 &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+}
+
+<span style="color: #98fb98;">void</span> <span style="color: #87cefa;">B</span>() {
+  cout &lt;&lt; <span style="color: #ffa07a;">"x"</span> &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+  cout &lt;&lt; <span style="color: #ffa07a;">"y"</span> &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+  cout &lt;&lt; <span style="color: #ffa07a;">"z"</span> &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+}
+
+<span style="color: #98fb98;">int</span> <span style="color: #87cefa;">main</span>(<span style="color: #98fb98;">void</span>) {
+  A();
+  B();
+}
+</pre>
+</div>
+
+<p>
+在单线程中，上述函数的输出为：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">1 2 3 x y z
+</pre>
+</div>
+
+<p>
+如果用 libco 库将上面程序改造一下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c++"><span style="color: #98fb98;">void</span> <span style="color: #87cefa;">A</span>() {
+  cout &lt;&lt; 1 &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+  cout &lt;&lt; 2 &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+  co_yield_ct();  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20999;&#20986;&#21040;&#20027;&#21327;&#31243;</span>
+  cout &lt;&lt; 3 &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+}
+
+<span style="color: #98fb98;">void</span> <span style="color: #87cefa;">B</span>() {
+  cout &lt;&lt; <span style="color: #ffa07a;">"x"</span> &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+  co_yield_ct();  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20999;&#20986;&#21040;&#20027;&#21327;&#31243;</span>
+  cout &lt;&lt; <span style="color: #ffa07a;">"y"</span> &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+  cout &lt;&lt; <span style="color: #ffa07a;">"z"</span> &lt;&lt; <span style="color: #ffa07a;">" "</span>;
+}
+
+<span style="color: #98fb98;">int</span> <span style="color: #87cefa;">main</span>(<span style="color: #98fb98;">void</span>) {
+  ...  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20027;&#21327;&#31243;</span>
+    co_resume(A);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21551;&#21160;&#21327;&#31243; A // 1, 2 hang </span>
+  co_resume(B);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21551;&#21160;&#21327;&#31243; B // x hang </span>
+  co_resume(A);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174;&#21327;&#31243; A &#20999;&#20986;&#22788;&#32487;&#32493;&#25191;&#34892; // 3 finish </span>
+  co_resume(B);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174;&#21327;&#31243; B &#20999;&#20986;&#22788;&#32487;&#32493;&#25191;&#34892; // y z finish </span>
+}
+</pre>
+</div>
+
+<p>
+同样在单线程中，改造后的程序输出如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">1 2 x 3 y z
+</pre>
+</div>
+
+<p>
+可以看出，切出操作是由 <b>co_yield_ct()</b> 函数实现的，而协程的启动和恢复是由 <b>co_resume()</b> 实现的。函数 A() 和 B() 并不是一个执行完才执行另一个，而是产生了 “交叉执行“ 的效果，这就是通过协程实现的！
+</p>
+</div>
+</div>
+<div id="outline-container-orgc88307c" class="outline-2">
+<h2 id="orgc88307c">协程的优点</h2>
+<div class="outline-text-2" id="text-orgc88307c">
+<pre class="example" id="org33c8d29">
+线程挺好的，为什么需要协程呢？
+
+因为有些时候我们在执行一些操作（尤其是IO操作）时，不希望去做“创建一个新的线程”这种重量级的操作来异步处理
+</pre>
+
+
+<p>
+而是希望：*在当前线程执行中，暂时切换到其他任务中执行，同时在IO真正准备好了之后，再切换回来继续执行！* 相比于多开一个线程来操作，使用协程的好处：
+</p>
+<ul class="org-ul">
+<li>减少了线程的重复高频创建</li>
+<li>尽量避免线程的阻塞</li>
+<li>提升代码的可维护与可理解性</li>
+</ul>
+
+<p>
+同时，下面是一些协程的特点：
+</p>
+<ul class="org-ul">
+<li><p>
+协程可以 <b>主动让出</b> <span class="underline">CPU 时间片</span> 
+</p>
+<pre class="example" id="org3363927">
+注意：不是当前线程让出 CPU 时间片，而是线程内的某个协程让出时间片供同线程内其他协程运行
+</pre></li>
+<li>协程可以 <b>恢复</b> <span class="underline">CPU 上下文</span> ，当另一个协程继续执行时，其需要恢复 CPU 上下文环境</li>
+<li>协程有个 <b>管理者</b> ，管理者可以选择一个协程来运行，其他协程要么 <span class="underline">阻塞</span> ，要么 <span class="underline">ready</span> ，或者 <span class="underline">died</span></li>
+<li>运行中的协程将 <b>占有</b> 当前线程的所有计算资源</li>
+<li>协程天生有栈属性，而且是 <b>lock free</b></li>
+</ul>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 

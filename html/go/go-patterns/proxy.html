@@ -6,10 +6,10 @@
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>委托和反转控制</title>
-<meta name="generator" content="Org mode" />
 <meta name="author" content="Wu, Shanliang" />
+<meta name="generator" content="Org Mode" />
 <style type="text/css">
- <!--/*--><![CDATA[/*><!--*/
+  #content { max-width: 60em; margin: auto; }
   .title  { text-align: center;
              margin-bottom: .2em; }
   .subtitle { text-align: center;
@@ -30,8 +30,9 @@
   #postamble p, #preamble p { font-size: 90%; margin: .2em; }
   p.verse { margin-left: 3%; }
   pre {
-    border: 1px solid #ccc;
-    box-shadow: 3px 3px 3px #eee;
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
     padding: 8pt;
     font-family: monospace;
     overflow: auto;
@@ -39,22 +40,22 @@
   }
   pre.src {
     position: relative;
-    overflow: visible;
-    padding-top: 1.2em;
+    overflow: auto;
   }
   pre.src:before {
     display: none;
     position: absolute;
-    background-color: white;
-    top: -10px;
-    right: 10px;
+    top: -8px;
+    right: 12px;
     padding: 3px;
-    border: 1px solid black;
+    color: #555;
+    background-color: #f2f2f299;
   }
-  pre.src:hover:before { display: inline;}
+  pre.src:hover:before { display: inline; margin-top: 14px;}
   /* Languages per Org manual */
   pre.src-asymptote:before { content: 'Asymptote'; }
   pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
   pre.src-C:before { content: 'C'; }
   /* pre.src-C++ doesn't work in CSS */
   pre.src-clojure:before { content: 'Clojure'; }
@@ -189,79 +190,32 @@
     { font-size: 10px; font-weight: bold; white-space: nowrap; }
   .org-info-js_search-highlight
     { background-color: #ffff00; color: #000000; font-weight: bold; }
-  .org-svg { width: 90%; }
-  /*]]>*/-->
+  .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="css/main.css" />
-<script type="text/javascript">
-/*
-@licstart  The following is the entire license notice for the
-JavaScript code in this tag.
-
-Copyright (C) 2012-2020 Free Software Foundation, Inc.
-
-The JavaScript code in this tag is free software: you can
-redistribute it and/or modify it under the terms of the GNU
-General Public License (GNU GPL) as published by the Free Software
-Foundation, either version 3 of the License, or (at your option)
-any later version.  The code is distributed WITHOUT ANY WARRANTY;
-without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
-
-As additional permission under GNU GPL version 3 section 7, you
-may distribute non-source (e.g., minimized or compacted) forms of
-that code without the copy of the GNU GPL normally required by
-section 4, provided you include this license notice and a URL
-through which recipients can access the Corresponding Source.
-
-
-@licend  The above is the entire license notice
-for the JavaScript code in this tag.
-*/
-<!--/*--><![CDATA[/*><!--*/
- function CodeHighlightOn(elem, id)
- {
-   var target = document.getElementById(id);
-   if(null != target) {
-     elem.cacheClassElem = elem.className;
-     elem.cacheClassTarget = target.className;
-     target.className = "code-highlighted";
-     elem.className   = "code-highlighted";
-   }
- }
- function CodeHighlightOff(elem, id)
- {
-   var target = document.getElementById(id);
-   if(elem.cacheClassElem)
-     elem.className = elem.cacheClassElem;
-   if(elem.cacheClassTarget)
-     target.className = elem.cacheClassTarget;
- }
-/*]]>*///-->
-</script>
 </head>
 <body>
 <div id="org-div-home-and-up">
  <a accesskey="h" href="function.html"> UP </a>
  |
  <a accesskey="H" href="go-patterns.html"> HOME </a>
-</div><div id="content">
+</div><div id="content" class="content">
 <h1 class="title">委托和反转控制</h1>
-<div id="table-of-contents">
+<div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
-<div id="text-table-of-contents">
+<div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org0b15aa2">嵌入和委托</a>
+<li><a href="#orgafd3773">嵌入和委托</a>
 <ul>
-<li><a href="#orgfa85ad6">结构体嵌入</a></li>
-<li><a href="#org4cd4dc3">方法重写</a></li>
-<li><a href="#org51a6ee1">嵌入结构多态</a></li>
+<li><a href="#org2713034">结构体嵌入</a></li>
+<li><a href="#org8ed99e3">方法重写</a></li>
+<li><a href="#orgf408df5">嵌入结构多态</a></li>
 </ul>
 </li>
-<li><a href="#org13af3fe">反转控制</a>
+<li><a href="#org47c604d">反转控制</a>
 <ul>
-<li><a href="#org2664926">实现Undo</a></li>
-<li><a href="#orgc2dc24d">反转依赖</a></li>
+<li><a href="#orgf3c17a1">实现Undo</a></li>
+<li><a href="#orgb25382c">反转依赖</a></li>
 </ul>
 </li>
 </ul>
@@ -271,32 +225,32 @@ for the JavaScript code in this tag.
 反转控制 <span class="underline">Inversion of Control</span> 是一种软件设计的方法，其主要的思想是把 <span class="underline">控制逻辑</span> 与 <span class="underline">业务逻辑</span> <b>分开</b> ，不要在业务逻辑里写控制逻辑，这样会让控制逻辑依赖于业务逻辑，而是反过来，让 <span class="underline">业务逻辑</span> <b>依赖</b> <span class="underline">控制逻辑</span> 
 </p>
 
-<pre class="example">
+<pre class="example" id="orgd1825b6">
 在《IoC/DIP其实是一种管理思想》中的那个开关和电灯的示例一样，开关是控制逻辑，电器是业务逻辑，不要在电器中实现开关，而是把开关抽象成一种协议，让电器都依赖之
 </pre>
 
 <p>
 这样的编程方式可以有效的降低程序复杂度，并提升代码重用
 </p>
-<div id="outline-container-org0b15aa2" class="outline-2">
-<h2 id="org0b15aa2">嵌入和委托</h2>
-<div class="outline-text-2" id="text-org0b15aa2">
+<div id="outline-container-orgafd3773" class="outline-2">
+<h2 id="orgafd3773">嵌入和委托</h2>
+<div class="outline-text-2" id="text-orgafd3773">
 </div>
-<div id="outline-container-orgfa85ad6" class="outline-3">
-<h3 id="orgfa85ad6">结构体嵌入</h3>
-<div class="outline-text-3" id="text-orgfa85ad6">
+<div id="outline-container-org2713034" class="outline-3">
+<h3 id="org2713034">结构体嵌入</h3>
+<div class="outline-text-3" id="text-org2713034">
 <p>
 在Go语言中，可以很方便的把一个结构体给嵌到另一个结构体中。如下所示：
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">Widget</span> <span style="color: #00bfff; font-weight: bold;">struct</span> {
-        X, Y <span style="color: #98f5ff;">int</span>
+<pre class="src src-go"><span style="color: #00ffff;">type</span> <span style="color: #98fb98;">Widget</span> <span style="color: #00ffff;">struct</span> {
+          X, Y <span style="color: #98fb98;">int</span>
 }
 
-<span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">Label</span> <span style="color: #00bfff; font-weight: bold;">struct</span> {
-        Widget        <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Embedding (delegation)</span>
-        Text   <span style="color: #98f5ff;">string</span> <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Aggregation</span>
+<span style="color: #00ffff;">type</span> <span style="color: #98fb98;">Label</span> <span style="color: #00ffff;">struct</span> {
+          Widget        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Embedding (delegation)</span>
+          Text   <span style="color: #98fb98;">string</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Aggregation</span>
 }
 </pre>
 </div>
@@ -306,14 +260,14 @@ for the JavaScript code in this tag.
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #4eee94;">label</span> := <span style="color: #98f5ff;">Label</span>{<span style="color: #98f5ff;">Widget</span>{10, 10}, <span style="color: #deb887;">"State:"</span>}
+<pre class="src src-go"><span style="color: #eedd82;">label</span> := <span style="color: #98fb98;">Label</span>{<span style="color: #98fb98;">Widget</span>{10, 10}, <span style="color: #ffa07a;">"State:"</span>}
 
 label.X = 11
 label.Y = 12
 </pre>
 </div>
 
-<pre class="example">
+<pre class="example" id="orge540a83">
 如果在 Label 结构体里出现了重名，就需要解决重名
 
 例如，如果 成员 X 重名，用 label.X表明 是自己的X ，用  label.Wedget.X 表示嵌入过来的
@@ -324,34 +278,33 @@ label.Y = 12
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">Button</span> <span style="color: #00bfff; font-weight: bold;">struct</span> {
-        Label <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Embedding (delegation)</span>
+<pre class="src src-go"><span style="color: #00ffff;">type</span> <span style="color: #98fb98;">Button</span> <span style="color: #00ffff;">struct</span> {
+          Label <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Embedding (delegation)</span>
 }
 
-<span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">ListBox</span> <span style="color: #00bfff; font-weight: bold;">struct</span> {
-        Widget          <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Embedding (delegation)</span>
-        Texts  []<span style="color: #98f5ff;">string</span> <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Aggregation</span>
-        Index  <span style="color: #98f5ff;">int</span>      <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Aggregation</span>
+<span style="color: #00ffff;">type</span> <span style="color: #98fb98;">ListBox</span> <span style="color: #00ffff;">struct</span> {
+          Widget          <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Embedding (delegation)</span>
+          Texts  []<span style="color: #98fb98;">string</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Aggregation</span>
+          Index  <span style="color: #98fb98;">int</span>      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Aggregation</span>
 }
 </pre>
 </div>
 </div>
 </div>
-
-<div id="outline-container-org4cd4dc3" class="outline-3">
-<h3 id="org4cd4dc3">方法重写</h3>
-<div class="outline-text-3" id="text-org4cd4dc3">
+<div id="outline-container-org8ed99e3" class="outline-3">
+<h3 id="org8ed99e3">方法重写</h3>
+<div class="outline-text-3" id="text-org8ed99e3">
 <p>
 然后，需要两个接口 Painter 用于把组件画出来，Clicker 用于表明点击事件：
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">Painter</span> <span style="color: #00bfff; font-weight: bold;">interface</span> {
-        <span style="color: #daa520; font-weight: bold;">Paint</span>()
+<pre class="src src-go"><span style="color: #00ffff;">type</span> <span style="color: #98fb98;">Painter</span> <span style="color: #00ffff;">interface</span> {
+          <span style="color: #87cefa;">Paint</span>()
 }
 
-<span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">Clicker</span> <span style="color: #00bfff; font-weight: bold;">interface</span> {
-        <span style="color: #daa520; font-weight: bold;">Click</span>()
+<span style="color: #00ffff;">type</span> <span style="color: #98fb98;">Clicker</span> <span style="color: #00ffff;">interface</span> {
+          <span style="color: #87cefa;">Click</span>()
 }
 </pre>
 </div>
@@ -366,26 +319,26 @@ label.Y = 12
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">label</span> <span style="color: #98f5ff;">Label</span>) <span style="color: #daa520; font-weight: bold;">Paint</span>() {
-        fmt.<span style="color: #daa520; font-weight: bold;">Printf</span>(<span style="color: #deb887;">"%p:Label.Paint(%q)\n"</span>, &amp;label, label.Text)
+<pre class="src src-go"><span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">label</span> <span style="color: #98fb98;">Label</span>) <span style="color: #87cefa;">Paint</span>() {
+          fmt.<span style="color: #87cefa;">Printf</span>(<span style="color: #ffa07a;">"%p:Label.Paint(%q)\n"</span>, &amp;label, label.Text)
 }
 
-<span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#22240;&#20026;&#36825;&#20010;&#25509;&#21475;&#21487;&#20197;&#36890;&#36807; Label &#30340;&#23884;&#20837;&#24102;&#21040;&#26032;&#30340;&#32467;&#26500;&#20307;&#65292;</span>
-<span style="color: #5f9ea0; font-style: italic;">//</span><span style="color: #5f9ea0; font-style: italic;">&#25152;&#20197;&#65292;&#21487;&#20197;&#22312; Button &#20013;&#21487;&#20197;&#37325;&#36733;&#36825;&#20010;&#25509;&#21475;&#26041;&#27861;&#20197;</span>
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">button</span> <span style="color: #98f5ff;">Button</span>) <span style="color: #daa520; font-weight: bold;">Paint</span>() { <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Override</span>
-        fmt.<span style="color: #daa520; font-weight: bold;">Printf</span>(<span style="color: #deb887;">"Button.Paint(%s)\n"</span>, button.Text)
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#22240;&#20026;&#36825;&#20010;&#25509;&#21475;&#21487;&#20197;&#36890;&#36807; Label &#30340;&#23884;&#20837;&#24102;&#21040;&#26032;&#30340;&#32467;&#26500;&#20307;&#65292;</span>
+<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#25152;&#20197;&#65292;&#21487;&#20197;&#22312; Button &#20013;&#21487;&#20197;&#37325;&#36733;&#36825;&#20010;&#25509;&#21475;&#26041;&#27861;&#20197;</span>
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">button</span> <span style="color: #98fb98;">Button</span>) <span style="color: #87cefa;">Paint</span>() { <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Override</span>
+          fmt.<span style="color: #87cefa;">Printf</span>(<span style="color: #ffa07a;">"Button.Paint(%s)\n"</span>, button.Text)
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">button</span> <span style="color: #98f5ff;">Button</span>) <span style="color: #daa520; font-weight: bold;">Click</span>() {
-        fmt.<span style="color: #daa520; font-weight: bold;">Printf</span>(<span style="color: #deb887;">"Button.Click(%s)\n"</span>, button.Text)
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">button</span> <span style="color: #98fb98;">Button</span>) <span style="color: #87cefa;">Click</span>() {
+          fmt.<span style="color: #87cefa;">Printf</span>(<span style="color: #ffa07a;">"Button.Click(%s)\n"</span>, button.Text)
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">listBox</span> <span style="color: #98f5ff;">ListBox</span>) <span style="color: #daa520; font-weight: bold;">Paint</span>() {
-        fmt.<span style="color: #daa520; font-weight: bold;">Printf</span>(<span style="color: #deb887;">"ListBox.Paint(%q)\n"</span>, listBox.Texts)
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">listBox</span> <span style="color: #98fb98;">ListBox</span>) <span style="color: #87cefa;">Paint</span>() {
+          fmt.<span style="color: #87cefa;">Printf</span>(<span style="color: #ffa07a;">"ListBox.Paint(%q)\n"</span>, listBox.Texts)
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">listBox</span> <span style="color: #98f5ff;">ListBox</span>) <span style="color: #daa520; font-weight: bold;">Click</span>() {
-        fmt.<span style="color: #daa520; font-weight: bold;">Printf</span>(<span style="color: #deb887;">"ListBox.Click(%q)\n"</span>, listBox.Texts)
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">listBox</span> <span style="color: #98fb98;">ListBox</span>) <span style="color: #87cefa;">Click</span>() {
+          fmt.<span style="color: #87cefa;">Printf</span>(<span style="color: #ffa07a;">"ListBox.Click(%q)\n"</span>, listBox.Texts)
 }
 </pre>
 </div>
@@ -395,27 +348,26 @@ label.Y = 12
 </p>
 </div>
 </div>
-
-<div id="outline-container-org51a6ee1" class="outline-3">
-<h3 id="org51a6ee1">嵌入结构多态</h3>
-<div class="outline-text-3" id="text-org51a6ee1">
+<div id="outline-container-orgf408df5" class="outline-3">
+<h3 id="orgf408df5">嵌入结构多态</h3>
+<div class="outline-text-3" id="text-orgf408df5">
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #4eee94;">button1</span> := <span style="color: #98f5ff;">Button</span>{<span style="color: #98f5ff;">Label</span>{<span style="color: #98f5ff;">Widget</span>{10, 70}, <span style="color: #deb887;">"OK"</span>}}
-<span style="color: #4eee94;">button2</span> := <span style="color: #daa520; font-weight: bold;">NewButton</span>(50, 70, <span style="color: #deb887;">"Cancel"</span>)
+<pre class="src src-go"><span style="color: #eedd82;">button1</span> := <span style="color: #98fb98;">Button</span>{<span style="color: #98fb98;">Label</span>{<span style="color: #98fb98;">Widget</span>{10, 70}, <span style="color: #ffa07a;">"OK"</span>}}
+<span style="color: #eedd82;">button2</span> := <span style="color: #87cefa;">NewButton</span>(50, 70, <span style="color: #ffa07a;">"Cancel"</span>)
 
-<span style="color: #4eee94;">listBox</span> := <span style="color: #98f5ff;">ListBox</span>{<span style="color: #98f5ff;">Widget</span>{10, 40}, 
-        []<span style="color: #98f5ff;">string</span>{<span style="color: #deb887;">"AL"</span>, <span style="color: #deb887;">"AK"</span>, <span style="color: #deb887;">"AZ"</span>, <span style="color: #deb887;">"AR"</span>}, 0}
+<span style="color: #eedd82;">listBox</span> := <span style="color: #98fb98;">ListBox</span>{<span style="color: #98fb98;">Widget</span>{10, 40}, 
+          []<span style="color: #98fb98;">string</span>{<span style="color: #ffa07a;">"AL"</span>, <span style="color: #ffa07a;">"AK"</span>, <span style="color: #ffa07a;">"AZ"</span>, <span style="color: #ffa07a;">"AR"</span>}, 0}
 
-<span style="color: #00bfff; font-weight: bold;">for</span> <span style="color: #4eee94;">_</span>, <span style="color: #4eee94;">painter</span> := <span style="color: #00bfff; font-weight: bold;">range</span> []<span style="color: #98f5ff;">Painter</span>{label, listBox, button1, button2} {
-        painter.<span style="color: #daa520; font-weight: bold;">Paint</span>()
+<span style="color: #00ffff;">for</span> <span style="color: #eedd82;">_</span>, <span style="color: #eedd82;">painter</span> := <span style="color: #00ffff;">range</span> []<span style="color: #98fb98;">Painter</span>{label, listBox, button1, button2} {
+          painter.<span style="color: #87cefa;">Paint</span>()
 }
 
-<span style="color: #00bfff; font-weight: bold;">for</span> <span style="color: #4eee94;">_</span>, <span style="color: #4eee94;">widget</span> := <span style="color: #00bfff; font-weight: bold;">range</span> []<span style="color: #00bfff; font-weight: bold;">interface</span>{}{label, listBox, button1, button2} {
-        widget.(<span style="color: #98f5ff;">Painter</span>).<span style="color: #daa520; font-weight: bold;">Paint</span>()
-        <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #4eee94;">clicker</span>, <span style="color: #4eee94;">ok</span> := widget.(<span style="color: #98f5ff;">Clicker</span>); ok {
-                clicker.<span style="color: #daa520; font-weight: bold;">Click</span>()
-        }
-        fmt.<span style="color: #daa520; font-weight: bold;">Println</span>() <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">print a empty line </span>
+<span style="color: #00ffff;">for</span> <span style="color: #eedd82;">_</span>, <span style="color: #eedd82;">widget</span> := <span style="color: #00ffff;">range</span> []<span style="color: #00ffff;">interface</span>{}{label, listBox, button1, button2} {
+          widget.(<span style="color: #98fb98;">Painter</span>).<span style="color: #87cefa;">Paint</span>()
+          <span style="color: #00ffff;">if</span> <span style="color: #eedd82;">clicker</span>, <span style="color: #eedd82;">ok</span> := widget.(<span style="color: #98fb98;">Clicker</span>); ok {
+                  clicker.<span style="color: #87cefa;">Click</span>()
+          }
+          fmt.<span style="color: #87cefa;">Println</span>() <span style="color: #ff4500;">// </span><span style="color: #ff4500;">print a empty line </span>
 }
 </pre>
 </div>
@@ -426,32 +378,31 @@ label.Y = 12
 </div>
 </div>
 </div>
-
-<div id="outline-container-org13af3fe" class="outline-2">
-<h2 id="org13af3fe">反转控制</h2>
-<div class="outline-text-2" id="text-org13af3fe">
+<div id="outline-container-org47c604d" class="outline-2">
+<h2 id="org47c604d">反转控制</h2>
+<div class="outline-text-2" id="text-org47c604d">
 <p>
 再来看一个示例，有一个存放整数的数据结构，如下所示：
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">IntSet</span> <span style="color: #00bfff; font-weight: bold;">struct</span> {
-        data <span style="color: #00bfff; font-weight: bold;">map</span>[<span style="color: #98f5ff;">int</span>]<span style="color: #98f5ff;">bool</span>
+<pre class="src src-go"><span style="color: #00ffff;">type</span> <span style="color: #98fb98;">IntSet</span> <span style="color: #00ffff;">struct</span> {
+          data <span style="color: #00ffff;">map</span>[<span style="color: #98fb98;">int</span>]<span style="color: #98fb98;">bool</span>
 }
-<span style="color: #00bfff; font-weight: bold;">func</span> <span style="color: #daa520; font-weight: bold;">NewIntSet</span>() <span style="color: #98f5ff;">IntSet</span> {
-        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #98f5ff;">IntSet</span>{<span style="color: #f08080;">make</span>(<span style="color: #00bfff; font-weight: bold;">map</span>[<span style="color: #98f5ff;">int</span>]<span style="color: #98f5ff;">bool</span>)}
-}
-
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">IntSet</span>) <span style="color: #daa520; font-weight: bold;">Add</span>(<span style="color: #4eee94;">x</span> <span style="color: #98f5ff;">int</span>) {
-        set.data[x] = <span style="color: #ffd700;">true</span>
+<span style="color: #00ffff;">func</span> <span style="color: #87cefa;">NewIntSet</span>() <span style="color: #98fb98;">IntSet</span> {
+          <span style="color: #00ffff;">return</span> <span style="color: #98fb98;">IntSet</span>{<span style="color: #b0c4de;">make</span>(<span style="color: #00ffff;">map</span>[<span style="color: #98fb98;">int</span>]<span style="color: #98fb98;">bool</span>)}
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">IntSet</span>) <span style="color: #daa520; font-weight: bold;">Delete</span>(<span style="color: #4eee94;">x</span> <span style="color: #98f5ff;">int</span>) {
-        <span style="color: #f08080;">delete</span>(set.data, x)
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">IntSet</span>) <span style="color: #87cefa;">Add</span>(<span style="color: #eedd82;">x</span> <span style="color: #98fb98;">int</span>) {
+          set.data[x] = <span style="color: #7fffd4;">true</span>
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">IntSet</span>) <span style="color: #daa520; font-weight: bold;">Contains</span>(<span style="color: #4eee94;">x</span> <span style="color: #98f5ff;">int</span>) <span style="color: #98f5ff;">bool</span> {
-        <span style="color: #00bfff; font-weight: bold;">return</span> set.data[x]
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">IntSet</span>) <span style="color: #87cefa;">Delete</span>(<span style="color: #eedd82;">x</span> <span style="color: #98fb98;">int</span>) {
+          <span style="color: #b0c4de;">delete</span>(set.data, x)
+}
+
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">IntSet</span>) <span style="color: #87cefa;">Contains</span>(<span style="color: #eedd82;">x</span> <span style="color: #98fb98;">int</span>) <span style="color: #98fb98;">bool</span> {
+          <span style="color: #00ffff;">return</span> set.data[x]
 }
 </pre>
 </div>
@@ -460,55 +411,54 @@ label.Y = 12
 其中实现了 Add() 、Delete() 和 Contains() 三个操作，前两个是写操作，后一个是读操作 
 </p>
 </div>
-
-<div id="outline-container-org2664926" class="outline-3">
-<h3 id="org2664926">实现Undo</h3>
-<div class="outline-text-3" id="text-org2664926">
+<div id="outline-container-orgf3c17a1" class="outline-3">
+<h3 id="orgf3c17a1">实现Undo</h3>
+<div class="outline-text-3" id="text-orgf3c17a1">
 <p>
 为了实现一个 Undo 的功能。可以把 IntSet 再包装一下变成 <span class="underline">UndoableIntSet</span> ：
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">UndoableIntSet</span> <span style="color: #00bfff; font-weight: bold;">struct</span> { <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Poor style</span>
-        IntSet    <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Embedding (delegation)</span>
-        functions []<span style="color: #00bfff; font-weight: bold;">func</span>()
+<pre class="src src-go"><span style="color: #00ffff;">type</span> <span style="color: #98fb98;">UndoableIntSet</span> <span style="color: #00ffff;">struct</span> { <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Poor style</span>
+             IntSet    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Embedding (delegation)</span>
+             functions []<span style="color: #00ffff;">func</span>()
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> <span style="color: #daa520; font-weight: bold;">NewUndoableIntSet</span>() <span style="color: #98f5ff;">UndoableIntSet</span> {
-        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #98f5ff;">UndoableIntSet</span>{<span style="color: #daa520; font-weight: bold;">NewIntSet</span>(), <span style="color: #ffd700;">nil</span>}
-}
-
-
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">UndoableIntSet</span>) <span style="color: #daa520; font-weight: bold;">Add</span>(<span style="color: #4eee94;">x</span> <span style="color: #98f5ff;">int</span>) { <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Override</span>
-        <span style="color: #00bfff; font-weight: bold;">if</span> !set.<span style="color: #daa520; font-weight: bold;">Contains</span>(x) {
-                set.data[x] = <span style="color: #ffd700;">true</span>
-                set.functions = <span style="color: #f08080;">append</span>(set.functions, <span style="color: #00bfff; font-weight: bold;">func</span>() { set.<span style="color: #daa520; font-weight: bold;">Delete</span>(x) })
-        } <span style="color: #00bfff; font-weight: bold;">else</span> {
-                set.functions = <span style="color: #f08080;">append</span>(set.functions, <span style="color: #ffd700;">nil</span>)
-        }
+<span style="color: #00ffff;">func</span> <span style="color: #87cefa;">NewUndoableIntSet</span>() <span style="color: #98fb98;">UndoableIntSet</span> {
+             <span style="color: #00ffff;">return</span> <span style="color: #98fb98;">UndoableIntSet</span>{<span style="color: #87cefa;">NewIntSet</span>(), <span style="color: #7fffd4;">nil</span>}
 }
 
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">UndoableIntSet</span>) <span style="color: #daa520; font-weight: bold;">Delete</span>(<span style="color: #4eee94;">x</span> <span style="color: #98f5ff;">int</span>) { <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">Override</span>
-        <span style="color: #00bfff; font-weight: bold;">if</span> set.<span style="color: #daa520; font-weight: bold;">Contains</span>(x) {
-                <span style="color: #f08080;">delete</span>(set.data, x)
-                set.functions = <span style="color: #f08080;">append</span>(set.functions, <span style="color: #00bfff; font-weight: bold;">func</span>() { set.<span style="color: #daa520; font-weight: bold;">Add</span>(x) })
-        } <span style="color: #00bfff; font-weight: bold;">else</span> {
-                set.functions = <span style="color: #f08080;">append</span>(set.functions, <span style="color: #ffd700;">nil</span>)
-        }
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">UndoableIntSet</span>) <span style="color: #87cefa;">Add</span>(<span style="color: #eedd82;">x</span> <span style="color: #98fb98;">int</span>) { <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Override</span>
+             <span style="color: #00ffff;">if</span> !set.<span style="color: #87cefa;">Contains</span>(x) {
+                     set.data[x] = <span style="color: #7fffd4;">true</span>
+                     set.functions = <span style="color: #b0c4de;">append</span>(set.functions, <span style="color: #00ffff;">func</span>() { set.<span style="color: #87cefa;">Delete</span>(x) })
+             } <span style="color: #00ffff;">else</span> {
+                     set.functions = <span style="color: #b0c4de;">append</span>(set.functions, <span style="color: #7fffd4;">nil</span>)
+             }
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">UndoableIntSet</span>) <span style="color: #daa520; font-weight: bold;">Undo</span>() <span style="color: #98f5ff;">error</span> {
-        <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #f08080;">len</span>(set.functions) == 0 {
-                <span style="color: #00bfff; font-weight: bold;">return</span> errors.<span style="color: #daa520; font-weight: bold;">New</span>(<span style="color: #deb887;">"No functions to undo"</span>)
-        }
-        <span style="color: #4eee94;">index</span> := <span style="color: #f08080;">len</span>(set.functions) - 1
-        <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #4eee94;">function</span> := set.functions[index]; function != <span style="color: #ffd700;">nil</span> {
-                <span style="color: #daa520; font-weight: bold;">function</span>()
-                set.functions[index] = <span style="color: #ffd700;">nil</span> <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">For garbage collection</span>
-        }
-        set.functions = set.functions[:index]
-        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">nil</span>
+
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">UndoableIntSet</span>) <span style="color: #87cefa;">Delete</span>(<span style="color: #eedd82;">x</span> <span style="color: #98fb98;">int</span>) { <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Override</span>
+             <span style="color: #00ffff;">if</span> set.<span style="color: #87cefa;">Contains</span>(x) {
+                     <span style="color: #b0c4de;">delete</span>(set.data, x)
+                     set.functions = <span style="color: #b0c4de;">append</span>(set.functions, <span style="color: #00ffff;">func</span>() { set.<span style="color: #87cefa;">Add</span>(x) })
+             } <span style="color: #00ffff;">else</span> {
+                     set.functions = <span style="color: #b0c4de;">append</span>(set.functions, <span style="color: #7fffd4;">nil</span>)
+             }
+}
+
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">UndoableIntSet</span>) <span style="color: #87cefa;">Undo</span>() <span style="color: #98fb98;">error</span> {
+             <span style="color: #00ffff;">if</span> <span style="color: #b0c4de;">len</span>(set.functions) == 0 {
+                     <span style="color: #00ffff;">return</span> errors.<span style="color: #87cefa;">New</span>(<span style="color: #ffa07a;">"No functions to undo"</span>)
+             }
+             <span style="color: #eedd82;">index</span> := <span style="color: #b0c4de;">len</span>(set.functions) - 1
+             <span style="color: #00ffff;">if</span> <span style="color: #eedd82;">function</span> := set.functions[index]; function != <span style="color: #7fffd4;">nil</span> {
+                     <span style="color: #87cefa;">function</span>()
+                     set.functions[index] = <span style="color: #7fffd4;">nil</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">For garbage collection</span>
+             }
+             set.functions = set.functions[:index]
+             <span style="color: #00ffff;">return</span> <span style="color: #7fffd4;">nil</span>
 }
 </pre>
 </div>
@@ -528,23 +478,22 @@ label.Y = 12
 通过这样的方式来为已有的代码扩展新的功能是一个很好的选择，这样可以在重用原有代码功能和重新新的功能中达到一个平衡
 </p>
 
-<pre class="example">
+<pre class="example" id="orga310682">
 但是，这种方式最大的问题是，Undo操作其实是一种控制逻辑，并不是业务逻辑
 
 所以，在复用 Undo这个功能上是有问题。因为其中加入了大量跟 IntSet 相关的业务逻辑
 </pre>
 </div>
 </div>
-
-<div id="outline-container-orgc2dc24d" class="outline-3">
-<h3 id="orgc2dc24d">反转依赖</h3>
-<div class="outline-text-3" id="text-orgc2dc24d">
+<div id="outline-container-orgb25382c" class="outline-3">
+<h3 id="orgb25382c">反转依赖</h3>
+<div class="outline-text-3" id="text-orgb25382c">
 <p>
 先声明一种 <span class="underline">函数接口</span> ，表现Undo控制可以接受的函数签名是什么样的：
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">Undo</span> []<span style="color: #00bfff; font-weight: bold;">func</span>()
+<pre class="src src-go"><span style="color: #00ffff;">type</span> <span style="color: #98fb98;">Undo</span> []<span style="color: #00ffff;">func</span>()
 </pre>
 </div>
 
@@ -553,27 +502,27 @@ label.Y = 12
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">undo</span> *<span style="color: #98f5ff;">Undo</span>) <span style="color: #daa520; font-weight: bold;">Add</span>(<span style="color: #4eee94;">function</span> <span style="color: #00bfff; font-weight: bold;">func</span>()) {
-        *undo = <span style="color: #f08080;">append</span>(*undo, function)
+<pre class="src src-go"><span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">undo</span> *<span style="color: #98fb98;">Undo</span>) <span style="color: #87cefa;">Add</span>(<span style="color: #eedd82;">function</span> <span style="color: #00ffff;">func</span>()) {
+          *undo = <span style="color: #b0c4de;">append</span>(*undo, function)
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">undo</span> *<span style="color: #98f5ff;">Undo</span>) <span style="color: #daa520; font-weight: bold;">Undo</span>() <span style="color: #98f5ff;">error</span> {
-        <span style="color: #4eee94;">functions</span> := *undo
-        <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #f08080;">len</span>(functions) == 0 {
-                <span style="color: #00bfff; font-weight: bold;">return</span> errors.<span style="color: #daa520; font-weight: bold;">New</span>(<span style="color: #deb887;">"No functions to undo"</span>)
-        }
-        <span style="color: #4eee94;">index</span> := <span style="color: #f08080;">len</span>(functions) - 1
-        <span style="color: #00bfff; font-weight: bold;">if</span> <span style="color: #4eee94;">function</span> := functions[index]; function != <span style="color: #ffd700;">nil</span> {
-                <span style="color: #daa520; font-weight: bold;">function</span>()
-                functions[index] = <span style="color: #ffd700;">nil</span> <span style="color: #5f9ea0; font-style: italic;">// </span><span style="color: #5f9ea0; font-style: italic;">For garbage collection</span>
-        }
-        *undo = functions[:index]
-        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #ffd700;">nil</span>
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">undo</span> *<span style="color: #98fb98;">Undo</span>) <span style="color: #87cefa;">Undo</span>() <span style="color: #98fb98;">error</span> {
+          <span style="color: #eedd82;">functions</span> := *undo
+          <span style="color: #00ffff;">if</span> <span style="color: #b0c4de;">len</span>(functions) == 0 {
+                  <span style="color: #00ffff;">return</span> errors.<span style="color: #87cefa;">New</span>(<span style="color: #ffa07a;">"No functions to undo"</span>)
+          }
+          <span style="color: #eedd82;">index</span> := <span style="color: #b0c4de;">len</span>(functions) - 1
+          <span style="color: #00ffff;">if</span> <span style="color: #eedd82;">function</span> := functions[index]; function != <span style="color: #7fffd4;">nil</span> {
+                  <span style="color: #87cefa;">function</span>()
+                  functions[index] = <span style="color: #7fffd4;">nil</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">For garbage collection</span>
+          }
+          *undo = functions[:index]
+          <span style="color: #00ffff;">return</span> <span style="color: #7fffd4;">nil</span>
 }
 </pre>
 </div>
 
-<pre class="example">
+<pre class="example" id="org2718ad4">
 这里不必觉得奇怪， Undo 本来就是一个类型，不是一个结构体，所以是一个函数数组也没什么问题
 </pre>
 
@@ -582,44 +531,44 @@ label.Y = 12
 </p>
 
 <div class="org-src-container">
-<pre class="src src-go"><span style="color: #00bfff; font-weight: bold;">type</span> <span style="color: #98f5ff;">IntSet</span> <span style="color: #00bfff; font-weight: bold;">struct</span> {
-        data <span style="color: #00bfff; font-weight: bold;">map</span>[<span style="color: #98f5ff;">int</span>]<span style="color: #98f5ff;">bool</span>
-        undo <span style="color: #98f5ff;">Undo</span>
+<pre class="src src-go"><span style="color: #00ffff;">type</span> <span style="color: #98fb98;">IntSet</span> <span style="color: #00ffff;">struct</span> {
+          data <span style="color: #00ffff;">map</span>[<span style="color: #98fb98;">int</span>]<span style="color: #98fb98;">bool</span>
+          undo <span style="color: #98fb98;">Undo</span>
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> <span style="color: #daa520; font-weight: bold;">NewIntSet</span>() <span style="color: #98f5ff;">IntSet</span> {
-        <span style="color: #00bfff; font-weight: bold;">return</span> <span style="color: #98f5ff;">IntSet</span>{<span style="color: #ffd700;">data</span>: <span style="color: #f08080;">make</span>(<span style="color: #00bfff; font-weight: bold;">map</span>[<span style="color: #98f5ff;">int</span>]<span style="color: #98f5ff;">bool</span>)}
+<span style="color: #00ffff;">func</span> <span style="color: #87cefa;">NewIntSet</span>() <span style="color: #98fb98;">IntSet</span> {
+          <span style="color: #00ffff;">return</span> <span style="color: #98fb98;">IntSet</span>{<span style="color: #7fffd4;">data</span>: <span style="color: #b0c4de;">make</span>(<span style="color: #00ffff;">map</span>[<span style="color: #98fb98;">int</span>]<span style="color: #98fb98;">bool</span>)}
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">IntSet</span>) <span style="color: #daa520; font-weight: bold;">Undo</span>() <span style="color: #98f5ff;">error</span> {
-        <span style="color: #00bfff; font-weight: bold;">return</span> set.undo.<span style="color: #daa520; font-weight: bold;">Undo</span>()
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">IntSet</span>) <span style="color: #87cefa;">Undo</span>() <span style="color: #98fb98;">error</span> {
+          <span style="color: #00ffff;">return</span> set.undo.<span style="color: #87cefa;">Undo</span>()
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">IntSet</span>) <span style="color: #daa520; font-weight: bold;">Contains</span>(<span style="color: #4eee94;">x</span> <span style="color: #98f5ff;">int</span>) <span style="color: #98f5ff;">bool</span> {
-        <span style="color: #00bfff; font-weight: bold;">return</span> set.data[x]
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">IntSet</span>) <span style="color: #87cefa;">Contains</span>(<span style="color: #eedd82;">x</span> <span style="color: #98fb98;">int</span>) <span style="color: #98fb98;">bool</span> {
+          <span style="color: #00ffff;">return</span> set.data[x]
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">IntSet</span>) <span style="color: #daa520; font-weight: bold;">Add</span>(<span style="color: #4eee94;">x</span> <span style="color: #98f5ff;">int</span>) {
-        <span style="color: #00bfff; font-weight: bold;">if</span> !set.<span style="color: #daa520; font-weight: bold;">Contains</span>(x) {
-                set.data[x] = <span style="color: #ffd700;">true</span>
-                set.undo.<span style="color: #daa520; font-weight: bold;">Add</span>(<span style="color: #00bfff; font-weight: bold;">func</span>() { set.<span style="color: #daa520; font-weight: bold;">Delete</span>(x) })
-        } <span style="color: #00bfff; font-weight: bold;">else</span> {
-                set.undo.<span style="color: #daa520; font-weight: bold;">Add</span>(<span style="color: #ffd700;">nil</span>)
-        }
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">IntSet</span>) <span style="color: #87cefa;">Add</span>(<span style="color: #eedd82;">x</span> <span style="color: #98fb98;">int</span>) {
+          <span style="color: #00ffff;">if</span> !set.<span style="color: #87cefa;">Contains</span>(x) {
+                  set.data[x] = <span style="color: #7fffd4;">true</span>
+                  set.undo.<span style="color: #87cefa;">Add</span>(<span style="color: #00ffff;">func</span>() { set.<span style="color: #87cefa;">Delete</span>(x) })
+          } <span style="color: #00ffff;">else</span> {
+                  set.undo.<span style="color: #87cefa;">Add</span>(<span style="color: #7fffd4;">nil</span>)
+          }
 }
 
-<span style="color: #00bfff; font-weight: bold;">func</span> (<span style="color: #4eee94;">set</span> *<span style="color: #98f5ff;">IntSet</span>) <span style="color: #daa520; font-weight: bold;">Delete</span>(<span style="color: #4eee94;">x</span> <span style="color: #98f5ff;">int</span>) {
-        <span style="color: #00bfff; font-weight: bold;">if</span> set.<span style="color: #daa520; font-weight: bold;">Contains</span>(x) {
-                <span style="color: #f08080;">delete</span>(set.data, x)
-                set.undo.<span style="color: #daa520; font-weight: bold;">Add</span>(<span style="color: #00bfff; font-weight: bold;">func</span>() { set.<span style="color: #daa520; font-weight: bold;">Add</span>(x) })
-        } <span style="color: #00bfff; font-weight: bold;">else</span> {
-                set.undo.<span style="color: #daa520; font-weight: bold;">Add</span>(<span style="color: #ffd700;">nil</span>)
-        }
+<span style="color: #00ffff;">func</span> (<span style="color: #eedd82;">set</span> *<span style="color: #98fb98;">IntSet</span>) <span style="color: #87cefa;">Delete</span>(<span style="color: #eedd82;">x</span> <span style="color: #98fb98;">int</span>) {
+          <span style="color: #00ffff;">if</span> set.<span style="color: #87cefa;">Contains</span>(x) {
+                  <span style="color: #b0c4de;">delete</span>(set.data, x)
+                  set.undo.<span style="color: #87cefa;">Add</span>(<span style="color: #00ffff;">func</span>() { set.<span style="color: #87cefa;">Add</span>(x) })
+          } <span style="color: #00ffff;">else</span> {
+                  set.undo.<span style="color: #87cefa;">Add</span>(<span style="color: #7fffd4;">nil</span>)
+          }
 }
 </pre>
 </div>
 
-<pre class="example">
+<pre class="example" id="org18c19ae">
 这个就是控制反转，不再由控制逻辑 Undo 来依赖业务逻辑 IntSet，而是由业务逻辑 IntSet 来依赖 Undo
 
 而依赖的是其实是一个协议，实际上这个协议是一个没有参数的函数数组，这样 Undo 的代码就可以复用了
