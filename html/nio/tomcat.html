@@ -3,28 +3,36 @@
 "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
 <head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>深度解读 Tomcat 中的 NIO 模型</title>
-<meta  http-equiv="Content-Type" content="text/html;charset=utf-8" />
-<meta  name="generator" content="Org-mode" />
-<meta  name="author" content="Wu, Shanliang" />
+<meta name="author" content="Wu, Shanliang" />
+<meta name="generator" content="Org Mode" />
 <style type="text/css">
- <!--/*--><![CDATA[/*><!--*/
-  .title  { text-align: center; }
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
   .todo   { font-family: monospace; color: red; }
-  .done   { color: green; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
   .tag    { background-color: #eee; font-family: monospace;
             padding: 2px; font-size: 80%; font-weight: normal; }
   .timestamp { color: #bebebe; }
   .timestamp-kwd { color: #5f9ea0; }
-  .right  { margin-left: auto; margin-right: 0px;  text-align: right; }
-  .left   { margin-left: 0px;  margin-right: auto; text-align: left; }
-  .center { margin-left: auto; margin-right: auto; text-align: center; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
   .underline { text-decoration: underline; }
   #postamble p, #preamble p { font-size: 90%; margin: .2em; }
   p.verse { margin-left: 3%; }
   pre {
-    border: 1px solid #ccc;
-    box-shadow: 3px 3px 3px #eee;
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
     padding: 8pt;
     font-family: monospace;
     overflow: auto;
@@ -32,43 +40,140 @@
   }
   pre.src {
     position: relative;
-    overflow: visible;
-    padding-top: 1.2em;
+    overflow: auto;
   }
   pre.src:before {
     display: none;
     position: absolute;
-    background-color: white;
-    top: -10px;
-    right: 10px;
+    top: -8px;
+    right: 12px;
     padding: 3px;
-    border: 1px solid black;
+    color: #555;
+    background-color: #f2f2f299;
   }
-  pre.src:hover:before { display: inline;}
-  pre.src-sh:before    { content: 'sh'; }
-  pre.src-bash:before  { content: 'sh'; }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
   pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
-  pre.src-R:before     { content: 'R'; }
-  pre.src-perl:before  { content: 'Perl'; }
-  pre.src-java:before  { content: 'Java'; }
-  pre.src-sql:before   { content: 'SQL'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
 
   table { border-collapse:collapse; }
   caption.t-above { caption-side: top; }
   caption.t-bottom { caption-side: bottom; }
   td, th { vertical-align:top;  }
-  th.right  { text-align: center;  }
-  th.left   { text-align: center;   }
-  th.center { text-align: center; }
-  td.right  { text-align: right;  }
-  td.left   { text-align: left;   }
-  td.center { text-align: center; }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
   dt { font-weight: bold; }
-  .footpara:nth-child(2) { display: inline; }
-  .footpara { display: block; }
+  .footpara { display: inline; }
   .footdef  { margin-bottom: 1em; }
   .figure { padding: 1em; }
   .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
   .inlinetask {
     padding: 10px;
     border: 2px solid gray;
@@ -85,92 +190,46 @@
     { font-size: 10px; font-weight: bold; white-space: nowrap; }
   .org-info-js_search-highlight
     { background-color: #ffff00; color: #000000; font-weight: bold; }
-  /*]]>*/-->
+  .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="css/main.css" />
-<script type="text/javascript">
-/*
-@licstart  The following is the entire license notice for the
-JavaScript code in this tag.
-
-Copyright (C) 2012-2013 Free Software Foundation, Inc.
-
-The JavaScript code in this tag is free software: you can
-redistribute it and/or modify it under the terms of the GNU
-General Public License (GNU GPL) as published by the Free Software
-Foundation, either version 3 of the License, or (at your option)
-any later version.  The code is distributed WITHOUT ANY WARRANTY;
-without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
-
-As additional permission under GNU GPL version 3 section 7, you
-may distribute non-source (e.g., minimized or compacted) forms of
-that code without the copy of the GNU GPL normally required by
-section 4, provided you include this license notice and a URL
-through which recipients can access the Corresponding Source.
-
-
-@licend  The above is the entire license notice
-for the JavaScript code in this tag.
-*/
-<!--/*--><![CDATA[/*><!--*/
- function CodeHighlightOn(elem, id)
- {
-   var target = document.getElementById(id);
-   if(null != target) {
-     elem.cacheClassElem = elem.className;
-     elem.cacheClassTarget = target.className;
-     target.className = "code-highlighted";
-     elem.className   = "code-highlighted";
-   }
- }
- function CodeHighlightOff(elem, id)
- {
-   var target = document.getElementById(id);
-   if(elem.cacheClassElem)
-     elem.className = elem.cacheClassElem;
-   if(elem.cacheClassTarget)
-     target.className = elem.cacheClassTarget;
- }
-/*]]>*///-->
-</script>
 </head>
 <body>
-<div id="content">
+<div id="content" class="content">
 <h1 class="title">深度解读 Tomcat 中的 NIO 模型</h1>
-<div id="table-of-contents">
+<div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
-<div id="text-table-of-contents">
+<div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#sec-1">I/O 复用模型</a>
+<li><a href="#org98aecd5">I/O 复用模型</a>
 <ul>
-<li><a href="#sec-1-1">内核级别</a></li>
-<li><a href="#sec-1-2">同步非阻塞</a></li>
-<li><a href="#sec-1-3">网络事件：</a></li>
-<li><a href="#sec-1-4">Selector复用器</a></li>
+<li><a href="#org565b5d5">内核级别</a></li>
+<li><a href="#orgb230d11">同步非阻塞</a></li>
+<li><a href="#org0109c10">网络事件：</a></li>
+<li><a href="#org69fc3b2">Selector复用器</a></li>
 </ul>
 </li>
-<li><a href="#sec-2">TOMCAT NIO</a>
+<li><a href="#orgcb7371e">TOMCAT NIO</a>
 <ul>
-<li><a href="#sec-2-1">对 IO 模型的支持</a></li>
-<li><a href="#sec-2-2">NIO 配置</a></li>
-<li><a href="#sec-2-3">组件</a></li>
-<li><a href="#sec-2-4">源码解读</a>
+<li><a href="#orgf08c598">对 IO 模型的支持</a></li>
+<li><a href="#org8c10470">NIO 配置</a></li>
+<li><a href="#org418fde9">组件</a></li>
+<li><a href="#org787e693">源码解读</a>
 <ul>
-<li><a href="#sec-2-4-1">0: 初始化</a></li>
-<li><a href="#sec-2-4-2">1: 绑定 IP 地址及端口，将 ServerSocketChannel 设置为阻塞</a></li>
-<li><a href="#sec-2-4-3">2: 启动接收线程</a></li>
-<li><a href="#sec-2-4-4">3: ServerSocketChannel.accept() 接收新连接</a></li>
-<li><a href="#sec-2-4-5">4: 将接收到的链接通道设置为非阻塞</a></li>
-<li><a href="#sec-2-4-6">5: 构造 NioChannel 对象</a></li>
-<li><a href="#sec-2-4-7">6: register 注册到轮询线程</a></li>
-<li><a href="#sec-2-4-8">7: 构造 PollerEvent，并添加到事件队列</a></li>
-<li><a href="#sec-2-4-9">8: 启动轮询线程</a></li>
-<li><a href="#sec-2-4-10">9: 取出队列中新增的 PollerEvent 并注册到 Selector</a></li>
-<li><a href="#sec-2-4-11">10: Selector.select()</a></li>
-<li><a href="#sec-2-4-12">11: 根据选择的 SelectionKey 构造 SocketProcessor 提交到请求处理线程</a>
+<li><a href="#org824fb29">0: 初始化</a></li>
+<li><a href="#org6c948e3">1: 绑定 IP 地址及端口，将 ServerSocketChannel 设置为阻塞</a></li>
+<li><a href="#orgab4ee12">2: 启动接收线程</a></li>
+<li><a href="#orga143624">3: ServerSocketChannel.accept() 接收新连接</a></li>
+<li><a href="#org0ccdade">4: 将接收到的链接通道设置为非阻塞</a></li>
+<li><a href="#orga2548a2">5: 构造 NioChannel 对象</a></li>
+<li><a href="#orge6f7d52">6: register 注册到轮询线程</a></li>
+<li><a href="#orgab52848">7: 构造 PollerEvent，并添加到事件队列</a></li>
+<li><a href="#orgd50cd19">8: 启动轮询线程</a></li>
+<li><a href="#orga2f97cb">9: 取出队列中新增的 PollerEvent 并注册到 Selector</a></li>
+<li><a href="#org61f536f">10: Selector.select()</a></li>
+<li><a href="#org3358926">11: 根据选择的 SelectionKey 构造 SocketProcessor 提交到请求处理线程</a>
 <ul>
-<li><a href="#sec-2-4-12-1">NioBlockingSelector 和 BlockPoller</a></li>
+<li><a href="#org26c76a1">NioBlockingSelector 和 BlockPoller</a></li>
 </ul>
 </li>
 </ul>
@@ -180,101 +239,83 @@ for the JavaScript code in this tag.
 </ul>
 </div>
 </div>
-
-<div id="outline-container-sec-1" class="outline-2">
-<h2 id="sec-1">I/O 复用模型</h2>
-<div class="outline-text-2" id="text-1">
+<div id="outline-container-org98aecd5" class="outline-2">
+<h2 id="org98aecd5">I/O 复用模型</h2>
+<div class="outline-text-2" id="text-org98aecd5">
 <p>
 Tomcat 的 NIO 是基于 I/O 复用来实现的：
 </p>
 
 
-<div class="figure">
+<div id="orga47ea42" class="figure">
 <p><img src="pic/io-select.png" alt="io-select.png" width="80%" />
 </p>
 </div>
 </div>
-
-<div id="outline-container-sec-1-1" class="outline-3">
-<h3 id="sec-1-1">内核级别</h3>
-<div class="outline-text-3" id="text-1-1">
+<div id="outline-container-org565b5d5" class="outline-3">
+<h3 id="org565b5d5">内核级别</h3>
+<div class="outline-text-3" id="text-org565b5d5">
 <p>
 操作系统为代码所处的特权级别分了 4 个级别。不过现代操作系统只用到了 0 和 3 两个级别。0 和 3 的切换就是用户态和内核态的切换：
 </p>
 <ul class="org-ul">
-<li>如果进程执行的是用户代码，当前进程处在用户态
-</li>
-<li>如果进程执行的是内核里面的代码，当前进程处在内核态
-</li>
+<li>如果进程执行的是用户代码，当前进程处在用户态</li>
+<li>如果进程执行的是内核里面的代码，当前进程处在内核态</li>
 </ul>
 </div>
 </div>
-
-
-<div id="outline-container-sec-1-2" class="outline-3">
-<h3 id="sec-1-2">同步非阻塞</h3>
-<div class="outline-text-3" id="text-1-2">
+<div id="outline-container-orgb230d11" class="outline-3">
+<h3 id="orgb230d11">同步非阻塞</h3>
+<div class="outline-text-3" id="text-orgb230d11">
 <p>
 I/O 复用模型，是 <b>同步非阻塞</b> ：
 </p>
 <ul class="org-ul">
-<li>非阻塞：I/O 读写，对应的是 recvfrom 操作，因为数据报文已经准备好，无需阻塞
-</li>
-<li>同步：执行是在一个进程里面执行的
-</li>
-<li>阻塞：阻塞在 select 上面，必须等到读就绪、写就绪等网络事件有时候
-</li>
+<li>非阻塞：I/O 读写，对应的是 recvfrom 操作，因为数据报文已经准备好，无需阻塞</li>
+<li>同步：执行是在一个进程里面执行的</li>
+<li>阻塞：阻塞在 select 上面，必须等到读就绪、写就绪等网络事件有时候</li>
 <li>多路复用：
 <ul class="org-ul">
-<li>多路：N 个连接，每一个连接对应一个 channel，或者说多路就是多个 channel
-</li>
-<li>复用：多个连接复用了一个线程或者少量线程 (在 Tomcat 中是 <b>Math.min(2,Runtime.getRuntime().availableProcessors())</b> 个线程)
-</li>
-</ul>
-</li>
+<li>多路：N 个连接，每一个连接对应一个 channel，或者说多路就是多个 channel</li>
+<li>复用：多个连接复用了一个线程或者少量线程 (在 Tomcat 中是 <b>Math.min(2,Runtime.getRuntime().availableProcessors())</b> 个线程)</li>
+</ul></li>
 </ul>
 </div>
 </div>
-
-<div id="outline-container-sec-1-3" class="outline-3">
-<h3 id="sec-1-3">网络事件：</h3>
-<div class="outline-text-3" id="text-1-3">
+<div id="outline-container-org0109c10" class="outline-3">
+<h3 id="org0109c10">网络事件：</h3>
+<div class="outline-text-3" id="text-org0109c10">
 <ul class="org-ul">
-<li>连接就绪
-</li>
-<li>接收就绪
-</li>
-<li>读就绪
-</li>
-<li>写就绪
-</li>
+<li>连接就绪</li>
+<li>接收就绪</li>
+<li>读就绪</li>
+<li>写就绪</li>
 </ul>
 </div>
 </div>
-
-<div id="outline-container-sec-1-4" class="outline-3">
-<h3 id="sec-1-4">Selector复用器</h3>
-<div class="outline-text-3" id="text-1-4">
+<div id="outline-container-org69fc3b2" class="outline-3">
+<h3 id="org69fc3b2">Selector复用器</h3>
+<div class="outline-text-3" id="text-org69fc3b2">
 <p>
 I/O 复用主要是通过 <b>Selector 复用器</b> 来实现的：
 </p>
 
-<div class="figure">
+<div id="orgec61677" class="figure">
 <p><img src="pic/selector.png" alt="selector.png" width="80%" />
 </p>
 </div>
 </div>
 </div>
 </div>
+<div id="outline-container-orgcb7371e" class="outline-2">
+<h2 id="orgcb7371e">TOMCAT NIO</h2>
+<div class="outline-text-2" id="text-orgcb7371e">
+</div>
+<div id="outline-container-orgf08c598" class="outline-3">
+<h3 id="orgf08c598">对 IO 模型的支持</h3>
+<div class="outline-text-3" id="text-orgf08c598">
 
-<div id="outline-container-sec-2" class="outline-2">
-<h2 id="sec-2">TOMCAT NIO</h2>
-<div class="outline-text-2" id="text-2">
-</div><div id="outline-container-sec-2-1" class="outline-3">
-<h3 id="sec-2-1">对 IO 模型的支持</h3>
-<div class="outline-text-3" id="text-2-1">
-
-<div class="figure">
+<div id="org81bb8f9" class="figure">
 <p><img src="pic/tomcat-io-type.png" alt="tomcat-io-type.png" width="80%" />
 </p>
 </div>
@@ -284,16 +325,14 @@ tomcat 从 6 以后开始支持 NIO 模型，实现是基于 JDK 的 java.nio �
 </p>
 </div>
 </div>
-
-<div id="outline-container-sec-2-2" class="outline-3">
-<h3 id="sec-2-2">NIO 配置</h3>
-<div class="outline-text-3" id="text-2-2">
+<div id="outline-container-org8c10470" class="outline-3">
+<h3 id="org8c10470">NIO 配置</h3>
+<div class="outline-text-3" id="text-org8c10470">
 <p>
 在 Connector 节点配置：
 </p>
 
 <div class="org-src-container">
-
 <pre class="src src-sh"><span style="color: #eedd82;">protocol</span>=<span style="color: #ffa07a;">"org.apache.coyote.http11.Http11NioProtocol"</span>
 <span style="color: #eedd82;">maxConnections</span>=10000
 <span style="color: #eedd82;">maxThreads</span>=50
@@ -304,19 +343,18 @@ tomcat 从 6 以后开始支持 NIO 模型，实现是基于 JDK 的 java.nio �
 Http11NioProtocol 协议下默认最大连接数是 10000，也可以重新修改 maxConnections 的值，同时可以设置最大线程数 maxThreads，这里设置的最大线程数就是 <b>Excutor 的线程池的大小</b> 
 </p>
 
-<pre class="example">
+<pre class="example" id="orga59d91f">
 在 BIO 模式下实际上是没有 maxConnections，即使配置也不会生效
 
 BIO 模式下的 maxConnections 是保持跟 maxThreads 大小一致，因为它是一请求一线程模式
 </pre>
 </div>
 </div>
+<div id="outline-container-org418fde9" class="outline-3">
+<h3 id="org418fde9">组件</h3>
+<div class="outline-text-3" id="text-org418fde9">
 
-<div id="outline-container-sec-2-3" class="outline-3">
-<h3 id="sec-2-3">组件</h3>
-<div class="outline-text-3" id="text-2-3">
-
-<div class="figure">
+<div id="org16c042a" class="figure">
 <p><img src="pic/tomcat-componets.png" alt="tomcat-componets.png" width="80%" />
 </p>
 </div>
@@ -325,428 +363,396 @@ BIO 模式下的 maxConnections 是保持跟 maxThreads 大小一致，因为它
 NioEndpoint 一共包含 LimitLatch、Acceptor、Poller、SocketProcessor、Excutor5 个部分：
 </p>
 <ul class="org-ul">
-<li>LimitLatch ：连接控制器，它负责维护连接数的计算，nio 模式下默认是 10000，达到这个阈值后，就会拒绝连接请求
-</li>
-<li>Acceptor ：负责接收连接，默认是 1 个线程来执行，将请求的事件注册到事件列表
-</li>
-<li>Poller： 来负责轮询，Poller 线程数量是 cpu 的核数 Math.min(2,Runtime.getRuntime().availableProcessors())
-</li>
-<li>SocketProcessor：由 Poller 将就绪的事件生成 SocketProcessor ，同时交给 Excutor 去执行
-</li>
+<li>LimitLatch ：连接控制器，它负责维护连接数的计算，nio 模式下默认是 10000，达到这个阈值后，就会拒绝连接请求</li>
+<li>Acceptor ：负责接收连接，默认是 1 个线程来执行，将请求的事件注册到事件列表</li>
+<li>Poller： 来负责轮询，Poller 线程数量是 cpu 的核数 Math.min(2,Runtime.getRuntime().availableProcessors())</li>
+<li>SocketProcessor：由 Poller 将就绪的事件生成 SocketProcessor ，同时交给 Excutor 去执行</li>
 <li>Excutor ：线程池的大小就是在 Connector 节点配置的 maxThreads 的值。在 Excutor 的线程中：
 <ol class="org-ol">
-<li>从 socket 中读取 http request
-</li>
-<li>解析成 HttpServletRequest 对象
-</li>
-<li>分派到相应的 servlet 并完成逻辑
-</li>
-<li>将 response 通过 socket 发回 client
-</li>
-</ol>
-</li>
+<li>从 socket 中读取 http request</li>
+<li>解析成 HttpServletRequest 对象</li>
+<li>分派到相应的 servlet 并完成逻辑</li>
+<li>将 response 通过 socket 发回 client</li>
+</ol></li>
 </ul>
 
-<pre class="example">
-  在从 socket 中读数据和往 socket 中写数据的过程，并没有像典型的非阻塞的 NIO 的那样，注册 OP_READ 或 OP_WRITE 事件到主 Selector
+<pre class="example" id="orgd8d3726">
+在从 socket 中读数据和往 socket 中写数据的过程，并没有像典型的非阻塞的 NIO 的那样，注册 OP_READ 或 OP_WRITE 事件到主 Selector
 
-  而是 直接通过 socket 完成读写，这时是阻塞完成的
+而是 直接通过 socket 完成读写，这时是阻塞完成的
 
-  但是在 timeout 控制上，使用了 NIO 的 Selector 机制
+但是在 timeout 控制上，使用了 NIO 的 Selector 机制
 
-  这个 Selector 并不是 Poller 线程维护的主 Selector，而是 BlockPoller 线程中维护的 Selector，称之为辅 Selector
+这个 Selector 并不是 Poller 线程维护的主 Selector，而是 BlockPoller 线程中维护的 Selector，称之为辅 Selector
 </pre>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4" class="outline-3">
-<h3 id="sec-2-4">源码解读</h3>
-<div class="outline-text-3" id="text-2-4">
+<div id="outline-container-org787e693" class="outline-3">
+<h3 id="org787e693">源码解读</h3>
+<div class="outline-text-3" id="text-org787e693">
 <p>
 NioEndpoint 执行序列图如下：
 </p>
 
-<div class="figure">
+<div id="org2d70cfd" class="figure">
 <p><img src="pic/tomcat-sequence.png" alt="tomcat-sequence.png" width="80%" />
 </p>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-1" class="outline-4">
-<h4 id="sec-2-4-1">0: 初始化</h4>
-<div class="outline-text-4" id="text-2-4-1">
+<div id="outline-container-org824fb29" class="outline-4">
+<h4 id="org824fb29">0: 初始化</h4>
+<div class="outline-text-4" id="text-org824fb29">
 <p>
 无论是 BIO 还是 NIO，开始都会初始化连接限制，不可能无限增大，NIO 模式下默认是 10000：
 </p>
 
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">startInternal</span>() <span style="color: #00ffff;">throws</span> <span style="color: #98fb98;">Exception</span> {
 
-    <span style="color: #00ffff;">if</span> (!running) {
-        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-        initializeConnectionLatch();
-        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    }
+        <span style="color: #00ffff;">if</span> (!running) {
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                initializeConnectionLatch();
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        }
 }
 <span style="color: #00ffff;">protected</span> <span style="color: #98fb98;">LimitLatch</span> <span style="color: #87cefa;">initializeConnectionLatch</span>() {
-    <span style="color: #00ffff;">if</span> (maxConnections==-1) <span style="color: #00ffff;">return</span> <span style="color: #7fffd4;">null</span>;
-    <span style="color: #00ffff;">if</span> (connectionLimitLatch==<span style="color: #7fffd4;">null</span>) {
-        connectionLimitLatch = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">LimitLatch</span>(getMaxConnections());
-    }
-    <span style="color: #00ffff;">return</span> connectionLimitLatch;
+        <span style="color: #00ffff;">if</span> (maxConnections==-1) <span style="color: #00ffff;">return</span> <span style="color: #7fffd4;">null</span>;
+        <span style="color: #00ffff;">if</span> (connectionLimitLatch==<span style="color: #7fffd4;">null</span>) {
+                connectionLimitLatch = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">LimitLatch</span>(getMaxConnections());
+        }
+        <span style="color: #00ffff;">return</span> connectionLimitLatch;
 }
 </pre>
 </div>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-2" class="outline-4">
-<h4 id="sec-2-4-2">1: 绑定 IP 地址及端口，将 ServerSocketChannel 设置为阻塞</h4>
-<div class="outline-text-4" id="text-2-4-2">
+<div id="outline-container-org6c948e3" class="outline-4">
+<h4 id="org6c948e3">1: 绑定 IP 地址及端口，将 ServerSocketChannel 设置为阻塞</h4>
+<div class="outline-text-4" id="text-org6c948e3">
 <p>
 Tomcat 的设计初衷主要是为了操作方便。这样这里就跟 BIO 模式下一样了。只不过在 BIO 下这里返回的是 Socket，NIO 下这里返回的是 SocketChannel：
 </p>
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">bind</span>() <span style="color: #00ffff;">throws</span> <span style="color: #98fb98;">Exception</span> {
 
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    serverSock.socket().bind(addr,getBacklog());
-    serverSock.configureBlocking(<span style="color: #7fffd4;">true</span>); 
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    selectorPool.open();
+        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        serverSock.socket().bind(addr,getBacklog());
+        serverSock.configureBlocking(<span style="color: #7fffd4;">true</span>); 
+        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        selectorPool.open();
 }
 </pre>
 </div>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-3" class="outline-4">
-<h4 id="sec-2-4-3">2: 启动接收线程</h4>
-<div class="outline-text-4" id="text-2-4-3">
+<div id="outline-container-orgab4ee12" class="outline-4">
+<h4 id="orgab4ee12">2: 启动接收线程</h4>
+<div class="outline-text-4" id="text-orgab4ee12">
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">startInternal</span>() <span style="color: #00ffff;">throws</span> <span style="color: #98fb98;">Exception</span> {
-    <span style="color: #00ffff;">if</span> (!running) {
-        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-        startAcceptorThreads();
-    }
+        <span style="color: #00ffff;">if</span> (!running) {
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                startAcceptorThreads();
+        }
 }
 
 <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#36825;&#20010;&#26041;&#27861;&#23454;&#38469;&#26159;&#22312;&#23427;&#30340;&#36229;&#31867; AbstractEndpoint &#37324;&#38754;    </span>
 <span style="color: #00ffff;">protected</span> <span style="color: #00ffff;">final</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">startAcceptorThreads</span>() {
-    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">count</span> = getAcceptorThreadCount();
-    acceptors = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Acceptor</span>[count];
+        <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">count</span> = getAcceptorThreadCount();
+        acceptors = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Acceptor</span>[count];
 
-    <span style="color: #00ffff;">for</span> (<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">i</span> = 0; i &lt; <span style="color: #98fb98;">count</span>; i++) {
-        acceptors[i] = createAcceptor();
-        <span style="color: #98fb98;">Thread</span> <span style="color: #eedd82;">t</span> = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Thread</span>(acceptors[i], getName() + <span style="color: #ffa07a;">"-Acceptor-"</span> + i);
-        t.setPriority(getAcceptorThreadPriority());
-        t.setDaemon(getDaemon());
-        t.start();
-    }
-}
-</pre>
-</div>
-</div>
-</div>
-
-<div id="outline-container-sec-2-4-4" class="outline-4">
-<h4 id="sec-2-4-4">3: ServerSocketChannel.accept() 接收新连接</h4>
-<div class="outline-text-4" id="text-2-4-4">
-<div class="org-src-container">
-
-<pre class="src src-java"><span style="color: #00ffff;">protected</span> <span style="color: #00ffff;">class</span> <span style="color: #98fb98;">Acceptor</span> <span style="color: #00ffff;">extends</span> <span style="color: #7fffd4;">AbstractEndpoint</span>.<span style="color: #98fb98;">Acceptor</span> {
-    <span style="color: #7fffd4;">@Override</span>
-    <span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">run</span>() {
-        <span style="color: #00ffff;">while</span> (running) {
-            <span style="color: #00ffff;">try</span> {
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-                <span style="color: #98fb98;">SocketChannel</span> <span style="color: #eedd82;">socket</span> = <span style="color: #7fffd4;">null</span>;
-                <span style="color: #00ffff;">try</span> {                        
-                    socket = serverSock.accept();<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#25509;&#25910;&#26032;&#36830;&#25509; </span>
-                } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">IOException</span> <span style="color: #eedd82;">ioe</span>) {
-                    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-                    <span style="color: #00ffff;">throw</span> ioe;
-                }
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-                <span style="color: #00ffff;">if</span> (running &amp;&amp; !paused) {
-                    <span style="color: #00ffff;">if</span> (!setSocketOptions(socket)) {
-                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-                    }
-                } <span style="color: #00ffff;">else</span> {
-                    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-                }
-            } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">SocketTimeoutException</span> <span style="color: #eedd82;">sx</span>) {
-
-            } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">IOException</span> <span style="color: #eedd82;">x</span>) {
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-            } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">OutOfMemoryError</span> <span style="color: #eedd82;">oom</span>) {
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-            } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">Throwable</span> <span style="color: #eedd82;">t</span>) {
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-            }
+        <span style="color: #00ffff;">for</span> (<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">i</span> = 0; i &lt; count; i++) {
+                acceptors[i] = createAcceptor();
+                <span style="color: #98fb98;">Thread</span> <span style="color: #eedd82;">t</span> = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Thread</span>(acceptors[i], getName() + <span style="color: #ffa07a;">"-Acceptor-"</span> + i);
+                t.setPriority(getAcceptorThreadPriority());
+                t.setDaemon(getDaemon());
+                t.start();
         }
+} 
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orga143624" class="outline-4">
+<h4 id="orga143624">3: ServerSocketChannel.accept() 接收新连接</h4>
+<div class="outline-text-4" id="text-orga143624">
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00ffff;">protected</span> <span style="color: #00ffff;">class</span> <span style="color: #98fb98;">Acceptor</span> <span style="color: #00ffff;">extends</span> <span style="color: #7fffd4;">AbstractEndpoint</span>.<span style="color: #98fb98;">Acceptor</span> {
+        <span style="color: #7fffd4;">@Override</span>
+        <span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">run</span>() {
+                <span style="color: #00ffff;">while</span> (running) {
+                        <span style="color: #00ffff;">try</span> {
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                                <span style="color: #98fb98;">SocketChannel</span> <span style="color: #eedd82;">socket</span> = <span style="color: #7fffd4;">null</span>;
+                                <span style="color: #00ffff;">try</span> {                        
+                                        socket = serverSock.accept();<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#25509;&#25910;&#26032;&#36830;&#25509; </span>
+                                } <span style="color: #00ffff;">catch</span> (IOException ioe) {
+                                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                                        <span style="color: #00ffff;">throw</span> ioe;
+                                }
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                                <span style="color: #00ffff;">if</span> (running &amp;&amp; !paused) {
+                                        <span style="color: #00ffff;">if</span> (!setSocketOptions(socket)) {
+                                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                                        }
+                                } <span style="color: #00ffff;">else</span> {
+                                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                                }
+                        } <span style="color: #00ffff;">catch</span> (SocketTimeoutException sx) {
 
-    }
+                        } <span style="color: #00ffff;">catch</span> (IOException x) {
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        } <span style="color: #00ffff;">catch</span> (OutOfMemoryError oom) {
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        } <span style="color: #00ffff;">catch</span> (Throwable t) {
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        }
+                }
+
+        }
 }
 </pre>
 </div>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-5" class="outline-4">
-<h4 id="sec-2-4-5">4: 将接收到的链接通道设置为非阻塞</h4>
+<div id="outline-container-org0ccdade" class="outline-4">
+<h4 id="org0ccdade">4: 将接收到的链接通道设置为非阻塞</h4>
 </div>
 
-<div id="outline-container-sec-2-4-6" class="outline-4">
-<h4 id="sec-2-4-6">5: 构造 NioChannel 对象</h4>
+<div id="outline-container-orga2548a2" class="outline-4">
+<h4 id="orga2548a2">5: 构造 NioChannel 对象</h4>
 </div>
 
-<div id="outline-container-sec-2-4-7" class="outline-4">
-<h4 id="sec-2-4-7">6: register 注册到轮询线程</h4>
-<div class="outline-text-4" id="text-2-4-7">
+<div id="outline-container-orge6f7d52" class="outline-4">
+<h4 id="orge6f7d52">6: register 注册到轮询线程</h4>
+<div class="outline-text-4" id="text-orge6f7d52">
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">protected</span> <span style="color: #98fb98;">boolean</span> <span style="color: #87cefa;">setSocketOptions</span>(<span style="color: #98fb98;">SocketChannel</span> <span style="color: #eedd82;">socket</span>) {        
-    <span style="color: #00ffff;">try</span> {
-        socket.configureBlocking(<span style="color: #7fffd4;">false</span>);<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#23558;&#36830;&#25509;&#36890;&#36947;&#35774;&#32622;&#20026;&#38750;&#38459;&#22622; </span>
-        <span style="color: #98fb98;">Socket</span> <span style="color: #eedd82;">sock</span> = socket.socket();
-        socketProperties.setProperties(sock);
+        <span style="color: #00ffff;">try</span> {
+                socket.configureBlocking(<span style="color: #7fffd4;">false</span>);<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#23558;&#36830;&#25509;&#36890;&#36947;&#35774;&#32622;&#20026;&#38750;&#38459;&#22622; </span>
+                <span style="color: #98fb98;">Socket</span> <span style="color: #eedd82;">sock</span> = socket.socket();
+                socketProperties.setProperties(sock);
 
-        <span style="color: #98fb98;">NioChannel</span> <span style="color: #eedd82;">channel</span> = nioChannels.poll();<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#26500;&#36896; NioChannel &#23545;&#35937; </span>
+                <span style="color: #98fb98;">NioChannel</span> <span style="color: #eedd82;">channel</span> = nioChannels.poll();<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#26500;&#36896; NioChannel &#23545;&#35937; </span>
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                getPoller0().register(channel);<span style="color: #ff4500;">//</span><span style="color: #ff4500;">register &#27880;&#20876;&#21040;&#36718;&#35810;&#32447;&#31243; </span>
+        } <span style="color: #00ffff;">catch</span> (Throwable t) {
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        }
         <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-        getPoller0().register(channel);<span style="color: #ff4500;">//</span><span style="color: #ff4500;">register &#27880;&#20876;&#21040;&#36718;&#35810;&#32447;&#31243; </span>
-    } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">Throwable</span> <span style="color: #eedd82;">t</span>) {
-        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    }
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
 }
 </pre>
 </div>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-8" class="outline-4">
-<h4 id="sec-2-4-8">7: 构造 PollerEvent，并添加到事件队列</h4>
-<div class="outline-text-4" id="text-2-4-8">
+<div id="outline-container-orgab52848" class="outline-4">
+<h4 id="orgab52848">7: 构造 PollerEvent，并添加到事件队列</h4>
+<div class="outline-text-4" id="text-orgab52848">
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">protected</span> <span style="color: #98fb98;">ConcurrentLinkedQueue</span>&lt;<span style="color: #98fb98;">Runnable</span>&gt; <span style="color: #eedd82;">events</span> = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">ConcurrentLinkedQueue</span>&lt;<span style="color: #98fb98;">Runnable</span>&gt;();
 <span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">register</span>(<span style="color: #00ffff;">final</span> <span style="color: #98fb98;">NioChannel</span> <span style="color: #eedd82;">socket</span>) {
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    <span style="color: #98fb98;">PollerEvent</span> <span style="color: #eedd82;">r</span> = eventCache.poll();
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    addEvent(r);
+        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        <span style="color: #98fb98;">PollerEvent</span> <span style="color: #eedd82;">r</span> = eventCache.poll();
+        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        addEvent(r);
 }
 </pre>
 </div>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-9" class="outline-4">
-<h4 id="sec-2-4-9">8: 启动轮询线程</h4>
-<div class="outline-text-4" id="text-2-4-9">
+<div id="outline-container-orgd50cd19" class="outline-4">
+<h4 id="orgd50cd19">8: 启动轮询线程</h4>
+<div class="outline-text-4" id="text-orgd50cd19">
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">startInternal</span>() <span style="color: #00ffff;">throws</span> <span style="color: #98fb98;">Exception</span> {
 
-    <span style="color: #00ffff;">if</span> (!running) {
-        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Start poller threads</span>
-        pollers = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Poller</span>[getPollerThreadCount()];
-        <span style="color: #00ffff;">for</span> (<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">i</span>=0; i&lt;pollers.<span style="color: #98fb98;">length</span>; i++) {
-            pollers[i] = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Poller</span>();
-            <span style="color: #98fb98;">Thread</span> <span style="color: #eedd82;">pollerThread</span> = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Thread</span>(pollers[i], getName() + <span style="color: #ffa07a;">"-ClientPoller-"</span>+i);
-            pollerThread.setPriority(threadPriority);
-            pollerThread.setDaemon(<span style="color: #7fffd4;">true</span>);
-            pollerThread.start();
+        <span style="color: #00ffff;">if</span> (!running) {
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Start poller threads</span>
+                pollers = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Poller</span>[getPollerThreadCount()];
+                <span style="color: #00ffff;">for</span> (<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">i</span>=0; i&lt;pollers.length; i++) {
+                        pollers[i] = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Poller</span>();
+                        <span style="color: #98fb98;">Thread</span> <span style="color: #eedd82;">pollerThread</span> = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">Thread</span>(pollers[i], getName() + <span style="color: #ffa07a;">"-ClientPoller-"</span>+i);
+                        pollerThread.setPriority(threadPriority);
+                        pollerThread.setDaemon(<span style="color: #7fffd4;">true</span>);
+                        pollerThread.start();
+                }
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
         }
-        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    }
 }
 </pre>
 </div>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-10" class="outline-4">
-<h4 id="sec-2-4-10">9: 取出队列中新增的 PollerEvent 并注册到 Selector</h4>
-<div class="outline-text-4" id="text-2-4-10">
+<div id="outline-container-orga2f97cb" class="outline-4">
+<h4 id="orga2f97cb">9: 取出队列中新增的 PollerEvent 并注册到 Selector</h4>
+<div class="outline-text-4" id="text-orga2f97cb">
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #00ffff;">static</span> <span style="color: #00ffff;">class</span> <span style="color: #98fb98;">PollerEvent</span> <span style="color: #00ffff;">implements</span> <span style="color: #98fb98;">Runnable</span> {
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    <span style="color: #7fffd4;">@Override</span>
-    <span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">run</span>() {
-        <span style="color: #00ffff;">if</span> ( interestOps == OP_REGISTER ) {
-            <span style="color: #00ffff;">try</span> {
-                socket.getIOChannel().register(socket.getPoller().getSelector(), <span style="color: #7fffd4;">SelectionKey</span>.OP_READ, key);
-            } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">Exception</span> <span style="color: #eedd82;">x</span>) {
-                log.error(<span style="color: #ffa07a;">""</span>, x);
-            }
-        } <span style="color: #00ffff;">else</span> {
-            <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-        }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">end if</span>
-    }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">run</span>
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-}
-</pre>
-</div>
-</div>
-</div>
-
-<div id="outline-container-sec-2-4-11" class="outline-4">
-<h4 id="sec-2-4-11">10: Selector.select()</h4>
-<div class="outline-text-4" id="text-2-4-11">
-<div class="org-src-container">
-
-<pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">run</span>() {
-    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Loop until destroy() is called</span>
-    <span style="color: #00ffff;">while</span> (<span style="color: #7fffd4;">true</span>) {
-        <span style="color: #00ffff;">try</span> {
-            <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-            <span style="color: #00ffff;">try</span> {
-                <span style="color: #00ffff;">if</span> ( !close ) {
-                    <span style="color: #00ffff;">if</span> (wakeupCounter.getAndSet(-1) &gt; 0) {
-                        keyCount = selector.selectNow();
-                    } <span style="color: #00ffff;">else</span> {
-                        keyCount = selector.select(selectorTimeout);
-                    }
-                    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-                }
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-            } <span style="color: #00ffff;">catch</span> ( <span style="color: #98fb98;">NullPointerException</span> <span style="color: #eedd82;">x</span> ) {
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-            } <span style="color: #00ffff;">catch</span> ( <span style="color: #98fb98;">CancelledKeyException</span> <span style="color: #eedd82;">x</span> ) {
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-            } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">Throwable</span> <span style="color: #eedd82;">x</span>) {
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-            }
-            <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-
-            <span style="color: #98fb98;">Iterator</span>&lt;<span style="color: #98fb98;">SelectionKey</span>&gt; <span style="color: #eedd82;">iterator</span> =
-                keyCount &gt; 0 ? selector.selectedKeys().iterator() : <span style="color: #7fffd4;">null</span>;
-
-            <span style="color: #00ffff;">while</span> (iterator != <span style="color: #7fffd4;">null</span> &amp;&amp; iterator.hasNext()) {
-                <span style="color: #98fb98;">SelectionKey</span> <span style="color: #eedd82;">sk</span> = iterator.next();
-                <span style="color: #98fb98;">KeyAttachment</span> <span style="color: #eedd82;">attachment</span> = (<span style="color: #98fb98;">KeyAttachment</span>)sk.attachment();
-
-                <span style="color: #00ffff;">if</span> (attachment == <span style="color: #7fffd4;">null</span>) {
-                    iterator.remove();
+        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        <span style="color: #7fffd4;">@Override</span>
+        <span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">run</span>() {
+                <span style="color: #00ffff;">if</span> ( interestOps == OP_REGISTER ) {
+                        <span style="color: #00ffff;">try</span> {
+                                socket.getIOChannel().register(socket.getPoller().getSelector(), <span style="color: #7fffd4;">SelectionKey</span>.OP_READ, key);
+                        } <span style="color: #00ffff;">catch</span> (Exception x) {
+                                log.error(<span style="color: #ffa07a;">""</span>, x);
+                        }
                 } <span style="color: #00ffff;">else</span> {
-                    attachment.access();
-                    iterator.remove();
-                    processKey(sk, attachment);<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#27492;&#26041;&#27861;&#36319;&#19979;&#21435;&#23601;&#26159;&#25226; SocketProcessor &#20132;&#32473; Excutor &#21435;&#25191;&#34892; </span>
-                }
-            }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">while</span>
-
-            <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-        } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">OutOfMemoryError</span> <span style="color: #eedd82;">oom</span>) {
-            <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-        }
-    }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">while</span>
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">end if</span>
+        }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">run</span>
+        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
 }
 </pre>
 </div>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-12" class="outline-4">
-<h4 id="sec-2-4-12">11: 根据选择的 SelectionKey 构造 SocketProcessor 提交到请求处理线程</h4>
-<div class="outline-text-4" id="text-2-4-12">
+<div id="outline-container-org61f536f" class="outline-4">
+<h4 id="org61f536f">10: Selector.select()</h4>
+<div class="outline-text-4" id="text-org61f536f">
 <div class="org-src-container">
+<pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">run</span>() {
+        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Loop until destroy() is called</span>
+        <span style="color: #00ffff;">while</span> (<span style="color: #7fffd4;">true</span>) {
+                <span style="color: #00ffff;">try</span> {
+                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        <span style="color: #00ffff;">try</span> {
+                                <span style="color: #00ffff;">if</span> ( !close ) {
+                                        <span style="color: #00ffff;">if</span> (wakeupCounter.getAndSet(-1) &gt; 0) {
+                                                keyCount = selector.selectNow();
+                                        } <span style="color: #00ffff;">else</span> {
+                                                keyCount = selector.select(selectorTimeout);
+                                        }
+                                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                                }
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        } <span style="color: #00ffff;">catch</span> ( NullPointerException x ) {
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        } <span style="color: #00ffff;">catch</span> ( CancelledKeyException x ) {
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        } <span style="color: #00ffff;">catch</span> (Throwable x) {
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                        }
+                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
 
-<pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">boolean</span> <span style="color: #87cefa;">processSocket</span>(<span style="color: #98fb98;">NioChannel</span> <span style="color: #eedd82;">socket</span>, <span style="color: #98fb98;">SocketStatus</span> <span style="color: #eedd82;">status</span>, <span style="color: #98fb98;">boolean</span> <span style="color: #eedd82;">dispatch</span>) {
-    <span style="color: #00ffff;">try</span> {
+                        <span style="color: #98fb98;">Iterator</span>&lt;<span style="color: #98fb98;">SelectionKey</span>&gt; <span style="color: #eedd82;">iterator</span> =
+                                keyCount &gt; 0 ? selector.selectedKeys().iterator() : <span style="color: #7fffd4;">null</span>;
+
+                        <span style="color: #00ffff;">while</span> (iterator != <span style="color: #7fffd4;">null</span> &amp;&amp; iterator.hasNext()) {
+                                <span style="color: #98fb98;">SelectionKey</span> <span style="color: #eedd82;">sk</span> = iterator.next();
+                                <span style="color: #98fb98;">KeyAttachment</span> <span style="color: #eedd82;">attachment</span> = (<span style="color: #98fb98;">KeyAttachment</span>)sk.attachment();
+
+                                <span style="color: #00ffff;">if</span> (attachment == <span style="color: #7fffd4;">null</span>) {
+                                        iterator.remove();
+                                } <span style="color: #00ffff;">else</span> {
+                                        attachment.access();
+                                        iterator.remove();
+                                        processKey(sk, attachment);<span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#27492;&#26041;&#27861;&#36319;&#19979;&#21435;&#23601;&#26159;&#25226; SocketProcessor &#20132;&#32473; Excutor &#21435;&#25191;&#34892; </span>
+                                }
+                        }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">while</span>
+
+                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                } <span style="color: #00ffff;">catch</span> (OutOfMemoryError oom) {
+                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                }
+        }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">while</span>
         <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-        <span style="color: #98fb98;">SocketProcessor</span> <span style="color: #eedd82;">sc</span> = processorCache.poll();
-        <span style="color: #00ffff;">if</span> ( sc == <span style="color: #7fffd4;">null</span> )
-            sc = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">SocketProcessor</span>(socket,status);
-        <span style="color: #00ffff;">else</span>
-            sc.reset(socket,status);
-        <span style="color: #00ffff;">if</span> ( dispatch &amp;&amp; getExecutor()!=<span style="color: #7fffd4;">null</span> )
-            getExecutor().execute(sc);
-        <span style="color: #00ffff;">else</span>
-            sc.run();
-    } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">RejectedExecutionException</span> <span style="color: #eedd82;">rx</span>) {
-        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    } <span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">Throwable</span> <span style="color: #eedd82;">t</span>) {
-        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
-    }
-    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
 }
 </pre>
 </div>
 </div>
-
-<div id="outline-container-sec-2-4-12-1" class="outline-5">
-<h5 id="sec-2-4-12-1">NioBlockingSelector 和 BlockPoller</h5>
-<div class="outline-text-5" id="text-2-4-12-1">
+</div>
+<div id="outline-container-org3358926" class="outline-4">
+<h4 id="org3358926">11: 根据选择的 SelectionKey 构造 SocketProcessor 提交到请求处理线程</h4>
+<div class="outline-text-4" id="text-org3358926">
+<div class="org-src-container">
+<pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">boolean</span> <span style="color: #87cefa;">processSocket</span>(<span style="color: #98fb98;">NioChannel</span> <span style="color: #eedd82;">socket</span>, <span style="color: #98fb98;">SocketStatus</span> <span style="color: #eedd82;">status</span>, <span style="color: #98fb98;">boolean</span> <span style="color: #eedd82;">dispatch</span>) {
+        <span style="color: #00ffff;">try</span> {
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+                <span style="color: #98fb98;">SocketProcessor</span> <span style="color: #eedd82;">sc</span> = processorCache.poll();
+                <span style="color: #00ffff;">if</span> ( sc == <span style="color: #7fffd4;">null</span> )
+                        sc = <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">SocketProcessor</span>(socket,status);
+                <span style="color: #00ffff;">else</span>
+                        sc.reset(socket,status);
+                <span style="color: #00ffff;">if</span> ( dispatch &amp;&amp; getExecutor()!=<span style="color: #7fffd4;">null</span> )
+                        getExecutor().execute(sc);
+                <span style="color: #00ffff;">else</span>
+                        sc.run();
+        } <span style="color: #00ffff;">catch</span> (RejectedExecutionException rx) {
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        } <span style="color: #00ffff;">catch</span> (Throwable t) {
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+        }
+        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30465;&#30053;&#20195;&#30721;...</span>
+}
+</pre>
+</div>
+</div>
+<div id="outline-container-org26c76a1" class="outline-5">
+<h5 id="org26c76a1">NioBlockingSelector 和 BlockPoller</h5>
+<div class="outline-text-5" id="text-org26c76a1">
 <p>
 NioEndpoint 对象中维护了一个 NioSelecPool 对象，这个 NioSelectorPool 中又维护了一个 BlockPoller 线程，这个线程就是基于辅 Selector 进行 NIO 的逻辑：执行 servlet 后，得到 response，往 socket 中写数据为例，最终写的过程调用 NioBlockingSelector 的 write 方法。代码如下：
 </p>
 
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">int</span> <span style="color: #87cefa;">write</span>(<span style="color: #98fb98;">ByteBuffer</span> <span style="color: #eedd82;">buf</span>, <span style="color: #98fb98;">NioChannel</span> <span style="color: #eedd82;">socket</span>, <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">writeTimeout</span>,<span style="color: #98fb98;">MutableInteger</span> <span style="color: #eedd82;">lastWrite</span>) <span style="color: #00ffff;">throws</span> <span style="color: #98fb98;">IOException</span> {  
-    <span style="color: #98fb98;">SelectionKey</span> <span style="color: #eedd82;">key</span> = socket.getIOChannel().keyFor(socket.getPoller().getSelector());  
-    <span style="color: #00ffff;">if</span> ( key == <span style="color: #7fffd4;">null</span> )
-        <span style="color: #00ffff;">throw</span> <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">IOException</span>(<span style="color: #ffa07a;">"Key no longer registered"</span>);  
-    <span style="color: #98fb98;">KeyAttachment</span> <span style="color: #eedd82;">att</span> = (<span style="color: #98fb98;">KeyAttachment</span>) key.attachment();  
-    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">written</span> = 0;  
-    <span style="color: #98fb98;">boolean</span> <span style="color: #eedd82;">timedout</span> = <span style="color: #7fffd4;">false</span>;  
-    <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">keycount</span> = 1; <span style="color: #ff4500;">//</span><span style="color: #ff4500;">assume we can write  </span>
-    <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">time</span> = System.currentTimeMillis(); <span style="color: #ff4500;">//</span><span style="color: #ff4500;">start the timeout timer  </span>
-    <span style="color: #00ffff;">try</span> {  
-        <span style="color: #00ffff;">while</span> ( (!timedout) &amp;&amp; buf.hasRemaining()) {  
-            <span style="color: #00ffff;">if</span> (keycount &gt; 0) { <span style="color: #ff4500;">//</span><span style="color: #ff4500;">only write if we were registered for a write  </span>
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30452;&#25509;&#24448; socket &#20013;&#20889;&#25968;&#25454;  </span>
-                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">cnt</span> = socket.write(buf); <span style="color: #ff4500;">//</span><span style="color: #ff4500;">write the data  </span>
-                lastWrite.set(cnt);  
-                <span style="color: #00ffff;">if</span> (cnt == -1)  
-                    <span style="color: #00ffff;">throw</span> <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">EOFException</span>();  
-                written += cnt;  
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#20889;&#25968;&#25454;&#25104;&#21151;&#65292;&#30452;&#25509;&#36827;&#20837;&#19979;&#19968;&#27425;&#24490;&#29615;&#65292;&#32487;&#32493;&#20889;  </span>
-                <span style="color: #00ffff;">if</span> (cnt &gt; 0) {  
-                    time = System.currentTimeMillis(); <span style="color: #ff4500;">//</span><span style="color: #ff4500;">reset our timeout timer  </span>
-                    <span style="color: #00ffff;">continue</span>; <span style="color: #ff4500;">//</span><span style="color: #ff4500;">we successfully wrote, try again without a selector  </span>
-                }  
-            }  
-            <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#22914;&#26524;&#20889;&#25968;&#25454;&#36820;&#22238;&#20540; cnt &#31561;&#20110; 0&#65292;&#36890;&#24120;&#26159;&#32593;&#32476;&#19981;&#31283;&#23450;&#36896;&#25104;&#30340;&#20889;&#25968;&#25454;&#22833;&#36133;  </span>
-            <span style="color: #00ffff;">try</span> {  
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#24320;&#22987;&#19968;&#20010;&#20498;&#25968;&#35745;&#25968;&#22120;   </span>
-                <span style="color: #00ffff;">if</span> ( att.getWriteLatch()==<span style="color: #7fffd4;">null</span> || att.getWriteLatch().getCount()==0)
-                    att.startWriteLatch(1);  
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#23558; socket &#27880;&#20876;&#21040;&#36741; Selector&#65292;&#36825;&#37324; poller &#23601;&#26159; BlockSelector &#32447;&#31243;</span>
-                poller.add(att,<span style="color: #7fffd4;">SelectionKey</span>.OP_WRITE);  
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#38459;&#22622;&#65292;&#30452;&#33267;&#36229;&#26102;&#26102;&#38388;&#21796;&#37266;&#65292;&#25110;&#32773;&#22312;&#36824;&#27809;&#26377;&#36798;&#21040;&#36229;&#26102;&#26102;&#38388;&#65292;&#22312; BlockSelector &#20013;&#21796;&#37266;  </span>
-                att.awaitWriteLatch(writeTimeout,<span style="color: #7fffd4;">TimeUnit</span>.MILLISECONDS);  
-            }<span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">InterruptedException</span> <span style="color: #eedd82;">ignore</span>) {  
-                Thread.interrupted();  
-            }  
-            <span style="color: #00ffff;">if</span> ( att.getWriteLatch()!=<span style="color: #7fffd4;">null</span> &amp;&amp; att.getWriteLatch().getCount()&gt; 0) {  
-                keycount = 0;  
-            }<span style="color: #00ffff;">else</span> {  
-                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#36824;&#27809;&#36229;&#26102;&#23601;&#21796;&#37266;&#65292;&#35828;&#26126;&#32593;&#32476;&#29366;&#24577;&#24674;&#22797;&#65292;&#32487;&#32493;&#19979;&#19968;&#27425;&#24490;&#29615;&#65292;&#23436;&#25104;&#20889; socket  </span>
-                keycount = 1;  
-                att.resetWriteLatch();  
-            }  
+        <span style="color: #98fb98;">SelectionKey</span> <span style="color: #eedd82;">key</span> = socket.getIOChannel().keyFor(socket.getPoller().getSelector());  
+        <span style="color: #00ffff;">if</span> ( key == <span style="color: #7fffd4;">null</span> )
+                <span style="color: #00ffff;">throw</span> <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">IOException</span>(<span style="color: #ffa07a;">"Key no longer registered"</span>);  
+        <span style="color: #98fb98;">KeyAttachment</span> <span style="color: #eedd82;">att</span> = (<span style="color: #98fb98;">KeyAttachment</span>) key.attachment();  
+        <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">written</span> = 0;  
+        <span style="color: #98fb98;">boolean</span> <span style="color: #eedd82;">timedout</span> = <span style="color: #7fffd4;">false</span>;  
+        <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">keycount</span> = 1; <span style="color: #ff4500;">//</span><span style="color: #ff4500;">assume we can write  </span>
+        <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">time</span> = System.currentTimeMillis(); <span style="color: #ff4500;">//</span><span style="color: #ff4500;">start the timeout timer  </span>
+        <span style="color: #00ffff;">try</span> {  
+                <span style="color: #00ffff;">while</span> ( (!timedout) &amp;&amp; buf.hasRemaining()) {  
+                        <span style="color: #00ffff;">if</span> (keycount &gt; 0) { <span style="color: #ff4500;">//</span><span style="color: #ff4500;">only write if we were registered for a write  </span>
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#30452;&#25509;&#24448; socket &#20013;&#20889;&#25968;&#25454;  </span>
+                                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">cnt</span> = socket.write(buf); <span style="color: #ff4500;">//</span><span style="color: #ff4500;">write the data  </span>
+                                lastWrite.set(cnt);  
+                                <span style="color: #00ffff;">if</span> (cnt == -1)  
+                                        <span style="color: #00ffff;">throw</span> <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">EOFException</span>();  
+                                written += cnt;  
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#20889;&#25968;&#25454;&#25104;&#21151;&#65292;&#30452;&#25509;&#36827;&#20837;&#19979;&#19968;&#27425;&#24490;&#29615;&#65292;&#32487;&#32493;&#20889;  </span>
+                                <span style="color: #00ffff;">if</span> (cnt &gt; 0) {  
+                                        time = System.currentTimeMillis(); <span style="color: #ff4500;">//</span><span style="color: #ff4500;">reset our timeout timer  </span>
+                                        <span style="color: #00ffff;">continue</span>; <span style="color: #ff4500;">//</span><span style="color: #ff4500;">we successfully wrote, try again without a selector  </span>
+                                }  
+                        }  
+                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#22914;&#26524;&#20889;&#25968;&#25454;&#36820;&#22238;&#20540; cnt &#31561;&#20110; 0&#65292;&#36890;&#24120;&#26159;&#32593;&#32476;&#19981;&#31283;&#23450;&#36896;&#25104;&#30340;&#20889;&#25968;&#25454;&#22833;&#36133;  </span>
+                        <span style="color: #00ffff;">try</span> {  
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#24320;&#22987;&#19968;&#20010;&#20498;&#25968;&#35745;&#25968;&#22120;   </span>
+                                <span style="color: #00ffff;">if</span> ( att.getWriteLatch()==<span style="color: #7fffd4;">null</span> || att.getWriteLatch().getCount()==0)
+                                        att.startWriteLatch(1);  
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#23558; socket &#27880;&#20876;&#21040;&#36741; Selector&#65292;&#36825;&#37324; poller &#23601;&#26159; BlockSelector &#32447;&#31243;</span>
+                                poller.add(att,<span style="color: #7fffd4;">SelectionKey</span>.OP_WRITE);  
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#38459;&#22622;&#65292;&#30452;&#33267;&#36229;&#26102;&#26102;&#38388;&#21796;&#37266;&#65292;&#25110;&#32773;&#22312;&#36824;&#27809;&#26377;&#36798;&#21040;&#36229;&#26102;&#26102;&#38388;&#65292;&#22312; BlockSelector &#20013;&#21796;&#37266;  </span>
+                                att.awaitWriteLatch(writeTimeout,<span style="color: #7fffd4;">TimeUnit</span>.MILLISECONDS);  
+                        }<span style="color: #00ffff;">catch</span> (InterruptedException ignore) {  
+                                Thread.interrupted();  
+                        }  
+                        <span style="color: #00ffff;">if</span> ( att.getWriteLatch()!=<span style="color: #7fffd4;">null</span> &amp;&amp; att.getWriteLatch().getCount()&gt; 0) {  
+                                keycount = 0;  
+                        }<span style="color: #00ffff;">else</span> {  
+                                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#36824;&#27809;&#36229;&#26102;&#23601;&#21796;&#37266;&#65292;&#35828;&#26126;&#32593;&#32476;&#29366;&#24577;&#24674;&#22797;&#65292;&#32487;&#32493;&#19979;&#19968;&#27425;&#24490;&#29615;&#65292;&#23436;&#25104;&#20889; socket  </span>
+                                keycount = 1;  
+                                att.resetWriteLatch();  
+                        }  
 
-            <span style="color: #00ffff;">if</span> (writeTimeout &gt; 0 &amp;&amp; (keycount == 0))  
-                timedout = (System.currentTimeMillis() - time) &gt;= writeTimeout;  
-        } <span style="color: #ff4500;">//</span><span style="color: #ff4500;">while  </span>
-        <span style="color: #00ffff;">if</span> (timedout)   
-            <span style="color: #00ffff;">throw</span> <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">SocketTimeoutException</span>();  
-    } <span style="color: #00ffff;">finally</span> {  
-        poller.remove(att,<span style="color: #7fffd4;">SelectionKey</span>.OP_WRITE);  
-        <span style="color: #00ffff;">if</span> (timedout &amp;&amp; key != <span style="color: #7fffd4;">null</span>) {  
-            poller.cancelKey(socket, key);  
+                        <span style="color: #00ffff;">if</span> (writeTimeout &gt; 0 &amp;&amp; (keycount == 0))  
+                                timedout = (System.currentTimeMillis() - time) &gt;= writeTimeout;  
+                } <span style="color: #ff4500;">//</span><span style="color: #ff4500;">while  </span>
+                <span style="color: #00ffff;">if</span> (timedout)   
+                        <span style="color: #00ffff;">throw</span> <span style="color: #00ffff;">new</span> <span style="color: #98fb98;">SocketTimeoutException</span>();  
+        } <span style="color: #00ffff;">finally</span> {  
+                poller.remove(att,<span style="color: #7fffd4;">SelectionKey</span>.OP_WRITE);  
+                <span style="color: #00ffff;">if</span> (timedout &amp;&amp; key != <span style="color: #7fffd4;">null</span>) {  
+                        poller.cancelKey(socket, key);  
+                }  
         }  
-    }  
-    <span style="color: #00ffff;">return</span> written;  
+        <span style="color: #00ffff;">return</span> written;  
 }
 </pre>
 </div>
@@ -755,44 +761,43 @@ NioEndpoint 对象中维护了一个 NioSelecPool 对象，这个 NioSelectorPoo
 当 socket.write() 返回 0 时，说明网络状态不稳定，这时将 socket 注册 OP_WRITE 事件到辅 Selector，由 BlockPoller 线程不断轮询这个辅 Selector，直到发现这个 socket 的写状态恢复了，通过那个倒数计数器，通知 Worker 线程继续写 socket 动作。看一下 BlockSelector 线程的代码逻辑：
 </p>
 <div class="org-src-container">
-
 <pre class="src src-java"><span style="color: #00ffff;">public</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">run</span>() {  
-    <span style="color: #00ffff;">while</span> (run) {  
-        <span style="color: #00ffff;">try</span> {  
-            ......  
-
-            Iterator iterator = keyCount &gt; 0 ? selector.selectedKeys().iterator() : <span style="color: #7fffd4;">null</span>;  
-            <span style="color: #00ffff;">while</span> (run &amp;&amp; iterator != <span style="color: #7fffd4;">null</span> &amp;&amp; iterator.hasNext()) {  
-                <span style="color: #98fb98;">SelectionKey</span> <span style="color: #eedd82;">sk</span> = (<span style="color: #98fb98;">SelectionKey</span>) iterator.next();  
-                <span style="color: #98fb98;">KeyAttachment</span> <span style="color: #eedd82;">attachment</span> = (<span style="color: #98fb98;">KeyAttachment</span>)sk.attachment();  
+        <span style="color: #00ffff;">while</span> (run) {  
                 <span style="color: #00ffff;">try</span> {  
-                    attachment.access();  
-                    iterator.remove(); ;  
-                    sk.interestOps(sk.interestOps() &amp; (~sk.readyOps()));  
-                    <span style="color: #00ffff;">if</span> ( sk.isReadable() ) {  
-                        countDown(attachment.getReadLatch());  
-                    }  
-                    <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#21457;&#29616; socket &#21487;&#20889;&#29366;&#24577;&#24674;&#22797;&#65292;&#23558;&#20498;&#25968;&#35745;&#25968;&#22120;&#32622;&#20301;&#65292;&#36890;&#30693; Worker &#32447;&#31243;&#32487;&#32493;  </span>
-                    <span style="color: #00ffff;">if</span> (sk.isWritable()) {  
-                        countDown(attachment.getWriteLatch());  
-                    }  
-                }<span style="color: #00ffff;">catch</span> (<span style="color: #98fb98;">CancelledKeyException</span> <span style="color: #eedd82;">ckx</span>) {  
-                    <span style="color: #00ffff;">if</span> (sk!=<span style="color: #7fffd4;">null</span>) sk.cancel();  
-                    countDown(attachment.getReadLatch());  
-                    countDown(attachment.getWriteLatch());  
+                        ......  
+
+                        Iterator iterator = keyCount &gt; 0 ? selector.selectedKeys().iterator() : <span style="color: #7fffd4;">null</span>;  
+                        <span style="color: #00ffff;">while</span> (run &amp;&amp; iterator != <span style="color: #7fffd4;">null</span> &amp;&amp; iterator.hasNext()) {  
+                                <span style="color: #98fb98;">SelectionKey</span> <span style="color: #eedd82;">sk</span> = (<span style="color: #98fb98;">SelectionKey</span>) iterator.next();  
+                                <span style="color: #98fb98;">KeyAttachment</span> <span style="color: #eedd82;">attachment</span> = (<span style="color: #98fb98;">KeyAttachment</span>)sk.attachment();  
+                                <span style="color: #00ffff;">try</span> {  
+                                        attachment.access();  
+                                        iterator.remove(); ;  
+                                        sk.interestOps(sk.interestOps() &amp; (~sk.readyOps()));  
+                                        <span style="color: #00ffff;">if</span> ( sk.isReadable() ) {  
+                                                countDown(attachment.getReadLatch());  
+                                        }  
+                                        <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#21457;&#29616; socket &#21487;&#20889;&#29366;&#24577;&#24674;&#22797;&#65292;&#23558;&#20498;&#25968;&#35745;&#25968;&#22120;&#32622;&#20301;&#65292;&#36890;&#30693; Worker &#32447;&#31243;&#32487;&#32493;  </span>
+                                        <span style="color: #00ffff;">if</span> (sk.isWritable()) {  
+                                                countDown(attachment.getWriteLatch());  
+                                        }  
+                                }<span style="color: #00ffff;">catch</span> (CancelledKeyException ckx) {  
+                                        <span style="color: #00ffff;">if</span> (sk!=<span style="color: #7fffd4;">null</span>) sk.cancel();  
+                                        countDown(attachment.getReadLatch());  
+                                        countDown(attachment.getWriteLatch());  
+                                }  
+                        }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">while  </span>
+                }<span style="color: #00ffff;">catch</span> ( Throwable t ) {  
+                        log.error(<span style="color: #ffa07a;">""</span>,t);  
                 }  
-            }<span style="color: #ff4500;">//</span><span style="color: #ff4500;">while  </span>
-        }<span style="color: #00ffff;">catch</span> ( <span style="color: #98fb98;">Throwable</span> <span style="color: #eedd82;">t</span> ) {  
-            log.error(<span style="color: #ffa07a;">""</span>,t);  
         }  
-    }  
-    events.clear();  
-    <span style="color: #00ffff;">try</span> {  
-        selector.selectNow();<span style="color: #ff4500;">//</span><span style="color: #ff4500;">cancel all remaining keys  </span>
-    }<span style="color: #00ffff;">catch</span>( <span style="color: #98fb98;">Exception</span> <span style="color: #eedd82;">ignore</span> ) {  
-        <span style="color: #00ffff;">if</span> (log.isDebugEnabled())log.debug(<span style="color: #ffa07a;">""</span>,ignore);  
-    }  
-}
+        events.clear();  
+        <span style="color: #00ffff;">try</span> {  
+                selector.selectNow();<span style="color: #ff4500;">//</span><span style="color: #ff4500;">cancel all remaining keys  </span>
+        }<span style="color: #00ffff;">catch</span>( Exception ignore ) {  
+                <span style="color: #00ffff;">if</span> (log.isDebugEnabled())log.debug(<span style="color: #ffa07a;">""</span>,ignore);  
+        }  
+} 
 </pre>
 </div>
 <p>

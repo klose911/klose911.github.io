@@ -1,0 +1,679 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IO 多路复用</title>
+<meta name="author" content="Wu, Shanliang" />
+<meta name="generator" content="Org Mode" />
+<style type="text/css">
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: auto;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    padding: 3px;
+    color: #555;
+    background-color: #f2f2f299;
+  }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { }
+</style>
+<link rel="stylesheet" type="text/css" href="css/main.css" />
+</head>
+<body>
+<div id="content" class="content">
+<h1 class="title">IO 多路复用</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgacf9d6a">阻塞 IO</a></li>
+<li><a href="#org333d54b">非阻塞IO</a></li>
+<li><a href="#orga3e57f5">IO 多路复用</a>
+<ul>
+<li><a href="#org5701be4">select</a></li>
+<li><a href="#orgc0cedbf">poll</a></li>
+<li><a href="#org1e3616d">epoll</a></li>
+</ul>
+</li>
+<li><a href="#org6a224b0">总结</a></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgacf9d6a" class="outline-2">
+<h2 id="orgacf9d6a">阻塞 IO</h2>
+<div class="outline-text-2" id="text-orgacf9d6a">
+<p>
+服务端为了处理客户端的连接和请求的数据，写了如下代码:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">listenfd = socket();   <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25171;&#24320;&#19968;&#20010;&#32593;&#32476;&#36890;&#20449;&#31471;&#21475;</span>
+<span style="color: #87cefa;">bind</span>(listenfd);        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#32465;&#23450;</span>
+<span style="color: #87cefa;">listen</span>(listenfd);      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#30417;&#21548;</span>
+<span style="color: #00ffff;">while</span>(1) {
+  connfd = accept(listenfd);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#38459;&#22622;&#24314;&#31435;&#36830;&#25509;</span>
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">n</span> = read(connfd, buf);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#38459;&#22622;&#35835;&#25968;&#25454;</span>
+  doSomeThing(buf);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21033;&#29992;&#35835;&#21040;&#30340;&#25968;&#25454;&#20570;&#20123;&#20160;&#20040;</span>
+  close(connfd);     <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20851;&#38381;&#36830;&#25509;&#65292;&#24490;&#29615;&#31561;&#24453;&#19979;&#19968;&#20010;&#36830;&#25509;</span>
+ }
+</pre>
+</div>
+
+<p>
+这段代码会执行得磕磕绊绊，就像这样：
+</p>
+
+<video width="640" height="360" controls>
+  <source src="pic/block_io.mp4" type="video/mp4">
+</video>
+
+<p>
+可以看到，服务端的线程阻塞在了两个地方
+</p>
+<ul class="org-ul">
+<li>一个是 accept 函数</li>
+<li>一个是 read 函数</li>
+</ul>
+
+<p>
+如果再把 read 函数的细节展开，会发现其阻塞在了两个阶段。
+</p>
+
+<video width="640" height="360" controls>
+  <source src="pic/block_read.mp4" type="video/mp4">
+</video>
+
+<p>
+整体流程如下图：
+</p>
+
+
+<div id="org6618567" class="figure">
+<p><img src="pic/block-io.webp" alt="block-io.webp" width="80%" />
+</p>
+</div>
+
+<p>
+如果这个连接的客户端一直不发数据，那么服务端线程将会一直阻塞在 read 函数上不返回，也无法接受其他客户端连接
+</p>
+
+<pre class="example" id="org0cced4a">
+这就是传统的阻塞 IO
+</pre>
+</div>
+</div>
+<div id="outline-container-org333d54b" class="outline-2">
+<h2 id="org333d54b">非阻塞IO</h2>
+<div class="outline-text-2" id="text-org333d54b">
+<pre class="example" id="orgd607912">
+为了解决上面的问题，其关键在于改造这个 read 函数
+</pre>
+
+<p>
+有一种聪明的办法是，每次都 <b>创建</b> 一个新的 <span class="underline">进程</span> 或 <span class="underline">线程</span> ，去调用 read 函数，并做业务处理
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">while</span>(1) {
+  connfd = accept(listenfd);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#38459;&#22622;&#24314;&#31435;&#36830;&#25509;</span>
+  pthread_create&#65288;doWork);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21019;&#24314;&#19968;&#20010;&#26032;&#30340;&#32447;&#31243;</span>
+ }
+
+<span style="color: #98fb98;">void</span> <span style="color: #87cefa;">doWork</span>() {
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">n</span> = read(connfd, buf);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#38459;&#22622;&#35835;&#25968;&#25454;</span>
+  doSomeThing(buf);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21033;&#29992;&#35835;&#21040;&#30340;&#25968;&#25454;&#20570;&#20123;&#20160;&#20040;</span>
+  close(connfd);     <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20851;&#38381;&#36830;&#25509;&#65292;&#24490;&#29615;&#31561;&#24453;&#19979;&#19968;&#20010;&#36830;&#25509;</span>
+}
+</pre>
+</div>
+
+<p>
+这样，当给一个客户端建立好连接后，就可以立刻等待新的客户端连接，而不用阻塞在原客户端的 read 请求上
+</p>
+
+<video width="640" height="360" controls>
+  <source src="pic/new_thread_for_read.mp4" type="video/mp4">
+</video>
+
+<pre class="example" id="org8d470bc">
+不过，这不叫非阻塞 IO，只不过用了多线程的手段使得主线程没有卡在 read 函数上不往下走罢了
+
+操作系统提供的 read 函数仍然是阻塞的
+</pre>
+
+<p>
+真正的非阻塞 IO，不能是通过用户层的小把戏，而是要恳请 <b>操作系统为提供一个 <span class="underline">非阻塞的 read</span> 函数</b> 。这个 read 函数的效果是，如果没有数据到达时（到达网卡并拷贝到了内核缓冲区），立刻返回一个错误值 <b>-1</b> ，而不是阻塞地等待。操作系统提供了这样的功能，只需要在调用 read 前，将 <span class="underline">文件描述符</span> 设置为 <span class="underline">非阻塞</span> 即可
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">fcntl</span>(connfd, F_SETFL, O_NONBLOCK);
+<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">n</span> = read(connfd, buffer) != SUCCESS);
+</pre>
+</div>
+
+
+<p>
+这样，就需要用户线程循环调用 read，直到返回值不为 -1，再开始处理业务：
+</p>
+
+<video width="640" height="360" controls>
+  <source src="pic/unblock_read.mp4" type="video/mp4">
+</video>
+
+<p>
+注意：非阻塞的 read，指的是在 <b>数据到达前</b> ，即数据还未到达网卡，或者到达网卡但还没有拷贝到内核缓冲区之前，这个阶段是非阻塞的。当 <span class="underline">数据已到达内核缓冲区</span> ，此时调用 <span class="underline">read 函数</span> 仍然是 <b>阻塞的</b> ，需要等待数据从内核缓冲区拷贝到用户缓冲区，才能返回
+</p>
+
+<p>
+整体流程如下图
+</p>
+
+
+<div id="org3db5d6a" class="figure">
+<p><img src="pic/unblock-read.webp" alt="unblock-read.webp" width="80%" />
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orga3e57f5" class="outline-2">
+<h2 id="orga3e57f5">IO 多路复用</h2>
+<div class="outline-text-2" id="text-orga3e57f5">
+<p>
+为每个客户端创建一个线程，服务器端的线程资源很容易被耗光
+</p>
+
+
+<div id="org3984acc" class="figure">
+<p><img src="pic/threads.webp" alt="threads.webp" width="80%" />
+</p>
+</div>
+
+<p>
+当然还有个聪明的办法，可以每 <span class="underline">accept</span> 一个 <span class="underline">客户端连接</span> 后，将这个 <b>文件描述符</b> <span class="underline">connfd</span> 放到一个数组里
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">fdlist.add(connfd);
+</pre>
+</div>
+
+<p>
+然后弄一个新的 <span class="underline">线程</span> 去不断 <b>遍历</b> 这个数组，调用每一个元素的 <span class="underline">非阻塞 read</span>  方法
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">while</span>(1) {
+  <span style="color: #00ffff;">for</span>(fd &lt;-- fdlist) {
+    <span style="color: #00ffff;">if</span>(read(fd) != -1) {
+      doSomeThing();
+    }
+  }
+ }
+</pre>
+</div>
+
+<p>
+这样，就成功用一个线程处理了多个客户端连接
+</p>
+
+
+<div id="org66f30de" class="figure">
+<p><img src="pic/fdlist.webp" alt="fdlist.webp" width="80%" />
+</p>
+</div>
+
+<pre class="example" id="orgbfd55c1">
+是不是觉得这有些多路复用的意思？
+
+但这和用多线程去将阻塞 IO 改造成看起来是非阻塞 IO 一样，这种遍历方式也只是用户自己想出的小把戏
+</pre>
+<p>
+每次遍历遇到 read 返回 -1 时仍然是一次浪费资源的系统调用。在 while 循环里做系统调用，就好比分布式项目时在 while 里做 rpc 请求一样，是不划算的
+</p>
+
+<pre class="example" id="orgd7e23ef">
+所以，还是得恳请操作系统，提供给一个有这样效果的函数，将一批文件描述符通过一次系统调用传给内核，由内核层去遍历，才能真正解决这个问题
+</pre>
+</div>
+<div id="outline-container-org5701be4" class="outline-3">
+<h3 id="org5701be4">select</h3>
+<div class="outline-text-3" id="text-org5701be4">
+<p>
+<b>select</b> 是操作系统提供的 <span class="underline">系统调用</span> 函数，通过它，可以把一个文件描述符的数组发给操作系统，让操作系统去遍历，确定哪个文件描述符可以读写， 然后告诉调用者去处理：
+</p>
+
+<video width="640" height="360" controls>
+  <source src="pic/select.mp4" type="video/mp4">
+</video>
+
+<p>
+select系统调用定义如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">nfds:&#30417;&#25511;&#30340;&#25991;&#20214;&#25551;&#36848;&#31526;&#38598;&#37324;&#26368;&#22823;&#25991;&#20214;&#25551;&#36848;&#31526;&#21152;1</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">readfds&#65306;&#30417;&#25511;&#26377;&#35835;&#25968;&#25454;&#21040;&#36798;&#25991;&#20214;&#25551;&#36848;&#31526;&#38598;&#21512;&#65292;&#20256;&#20837;&#20256;&#20986;&#21442;&#25968;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">writefds&#65306;&#30417;&#25511;&#20889;&#25968;&#25454;&#21040;&#36798;&#25991;&#20214;&#25551;&#36848;&#31526;&#38598;&#21512;&#65292;&#20256;&#20837;&#20256;&#20986;&#21442;&#25968;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">exceptfds&#65306;&#30417;&#25511;&#24322;&#24120;&#21457;&#29983;&#36798;&#25991;&#20214;&#25551;&#36848;&#31526;&#38598;&#21512;, &#20256;&#20837;&#20256;&#20986;&#21442;&#25968;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">timeout&#65306;&#23450;&#26102;&#38459;&#22622;&#30417;&#25511;&#26102;&#38388;&#65292;3&#31181;&#24773;&#20917;</span>
+<span style="color: #ff4500;">//  </span><span style="color: #ff4500;">1.NULL&#65292;&#27704;&#36828;&#31561;&#19979;&#21435;</span>
+<span style="color: #ff4500;">//  </span><span style="color: #ff4500;">2.&#35774;&#32622;timeval&#65292;&#31561;&#24453;&#22266;&#23450;&#26102;&#38388;</span>
+<span style="color: #ff4500;">//  </span><span style="color: #ff4500;">3.&#35774;&#32622;timeval&#37324;&#26102;&#38388;&#22343;&#20026;0&#65292;&#26816;&#26597;&#25551;&#36848;&#23383;&#21518;&#31435;&#21363;&#36820;&#22238;&#65292;&#36718;&#35810;</span>
+<span style="color: #98fb98;">int</span> <span style="color: #87cefa;">select</span>(
+           <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">nfds</span>,
+           <span style="color: #98fb98;">fd_set</span> *<span style="color: #eedd82;">readfds</span>,
+           <span style="color: #98fb98;">fd_set</span> *<span style="color: #eedd82;">writefds</span>,
+           <span style="color: #98fb98;">fd_set</span> *<span style="color: #eedd82;">exceptfds</span>,
+           <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">timeval</span> *<span style="color: #eedd82;">timeout</span>);
+</pre>
+</div>
+
+<p>
+服务端代码，首先一个线程不断接受客户端连接，并把 socket 文件描述符放到一个 fdlist 里
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">while</span>(1) {
+  connfd = accept(listenfd);
+  fcntl(connfd, F_SETFL, O_NONBLOCK);
+  fdlist.add(connfd);
+ }
+</pre>
+</div>
+
+<p>
+然后，另一个线程不再自己遍历，而是调用 <span class="underline">select</span> ，将这批文件描述符 fdlist 交给操作系统去遍历 ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">while</span>(1) {
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#19968;&#22534;&#25991;&#20214;&#25551;&#36848;&#31526; list &#20256;&#32473; select &#20989;&#25968;</span>
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26377;&#24050;&#23601;&#32490;&#30340;&#25991;&#20214;&#25551;&#36848;&#31526;&#23601;&#36820;&#22238;&#65292;nready &#34920;&#31034;&#26377;&#22810;&#23569;&#20010;&#23601;&#32490;&#30340;</span>
+  nready = select(list);
+  ...
+    }
+</pre>
+</div>
+
+<p>
+当 select 函数返回后，用户依然需要遍历刚刚提交给操作系统的 fdlist。只不过，操作系统会将 <b>准备就绪</b> 的 <span class="underline">文件描述符</span> 做上 <b>标识</b> ，用户层将不会再有无意义的系统调用开销：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">while</span>(1) {
+  nready = select(list);
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29992;&#25143;&#23618;&#20381;&#28982;&#35201;&#36941;&#21382;&#65292;&#21482;&#19981;&#36807;&#23569;&#20102;&#24456;&#22810;&#26080;&#25928;&#30340;&#31995;&#32479;&#35843;&#29992;</span>
+  <span style="color: #00ffff;">for</span>(fd &lt;-- fdlist) {
+    <span style="color: #00ffff;">if</span>(fd != -1) {
+      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21482;&#35835;&#24050;&#23601;&#32490;&#30340;&#25991;&#20214;&#25551;&#36848;&#31526;</span>
+      read(fd, buf);
+      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24635;&#20849;&#21482;&#26377; nready &#20010;&#24050;&#23601;&#32490;&#25551;&#36848;&#31526;&#65292;&#19981;&#29992;&#36807;&#22810;&#36941;&#21382;</span>
+      <span style="color: #00ffff;">if</span>(--nready == 0) <span style="color: #00ffff;">break</span>;
+    }
+  }
+ }
+</pre>
+</div>
+
+<p>
+其直观效果如下：
+</p>
+
+<video width="640" height="360" controls>
+  <source src="pic/select-loop.mp4" type="video/mp4">
+</video>
+
+<p>
+几个细节：
+</p>
+<ol class="org-ol">
+<li><p>
+select 调用需要传入 fd 数组，需要拷贝一份到内核，高并发场景下这样的拷贝消耗的资源是惊人的
+</p>
+<pre class="example" id="orga820b81">
+可优化为不复制
+</pre></li>
+<li><p>
+select 在内核层仍然是通过遍历的方式检查文件描述符的就绪状态，是个同步过程，只不过无系统调用切换上下文的开销
+</p>
+<pre class="example" id="orgd2e589d">
+内核层可优化为异步事件通知
+</pre></li>
+<li><p>
+select 仅仅返回可读文件描述符的个数，具体哪个可读还是要用户自己遍历
+</p>
+<pre class="example" id="org73e7158">
+可优化为只返回给用户就绪的文件描述符，无需用户做无效的遍历
+</pre></li>
+</ol>
+
+<p>
+整个 select 的流程图如下：
+</p>
+
+<div id="orgf73da47" class="figure">
+<p><img src="pic/select.webp" alt="select.webp" width="80%" />
+</p>
+</div>
+
+<pre class="example" id="org52f3459">
+可以看到，这种方式，既做到了一个线程处理多个客户端连接（文件描述符）
+
+又减少了系统调用的开销（多个文件描述符只有一次 select 的系统调用 + n 次就绪状态的文件描述符的 read 系统调用）
+</pre>
+</div>
+</div>
+<div id="outline-container-orgc0cedbf" class="outline-3">
+<h3 id="orgc0cedbf">poll</h3>
+<div class="outline-text-3" id="text-orgc0cedbf">
+<p>
+<b>poll</b> 也是操作系统提供的 <span class="underline">系统调用</span> 函数
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">int</span> <span style="color: #87cefa;">poll</span>(<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">pollfd</span> *<span style="color: #eedd82;">fds</span>, nfds_tnfds, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">timeout</span>);
+
+<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">pollfd</span> {
+  intfd; <span style="color: #ff4500;">/*</span><span style="color: #ff4500;">&#25991;&#20214;&#25551;&#36848;&#31526;</span><span style="color: #ff4500;">*/</span>
+  shortevents; <span style="color: #ff4500;">/*</span><span style="color: #ff4500;">&#30417;&#25511;&#30340;&#20107;&#20214;</span><span style="color: #ff4500;">*/</span>
+  shortrevents; <span style="color: #ff4500;">/*</span><span style="color: #ff4500;">&#30417;&#25511;&#20107;&#20214;&#20013;&#28385;&#36275;&#26465;&#20214;&#36820;&#22238;&#30340;&#20107;&#20214;</span><span style="color: #ff4500;">*/</span>
+};
+</pre>
+</div>
+
+<p>
+它和 select 的主要区别就是，去掉了 select 只能监听 <span class="underline">1024</span> 个文件描述符的限制
+</p>
+</div>
+</div>
+<div id="outline-container-org1e3616d" class="outline-3">
+<h3 id="org1e3616d">epoll</h3>
+<div class="outline-text-3" id="text-org1e3616d">
+<pre class="example" id="org8371664">
+epoll 是最终的大 boss，它解决了 select 和 poll 的一些问题
+</pre>
+
+<p>
+<b>epoll</b> 主要就是针对这前面所描述的三个缺点进行了改进：
+</p>
+<ol class="org-ol">
+<li>内核中 <b>保存</b> 一份 <span class="underline">文件描述符集合</span> ，无需用户每次都重新传入，只需 <b>告诉</b> 内核 <span class="underline">修改的部分</span> 即可</li>
+<li>内核不再通过轮询的方式找到就绪的文件描述符，而是通过 <span class="underline">异步 IO 事件</span> <b>唤醒</b></li>
+<li>内核仅会将 <b>有 IO 事件</b> 的 <span class="underline">文件描述符</span> 返回给用户，用户也无需遍历整个文件描述符集合</li>
+</ol>
+
+<p>
+具体，操作系统提供了这三个函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31532;&#19968;&#27493;&#65292;&#21019;&#24314;&#19968;&#20010; epoll &#21477;&#26564;</span>
+<span style="color: #98fb98;">int</span> <span style="color: #87cefa;">epoll_create</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">size</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31532;&#20108;&#27493;&#65292;&#21521;&#20869;&#26680;&#28155;&#21152;&#12289;&#20462;&#25913;&#25110;&#21024;&#38500;&#35201;&#30417;&#25511;&#30340;&#25991;&#20214;&#25551;&#36848;&#31526;&#12290;</span>
+<span style="color: #98fb98;">int</span> <span style="color: #87cefa;">epoll_ctl</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">epfd</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">op</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">fd</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">epoll_event</span> *<span style="color: #eedd82;">event</span>);
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31532;&#19977;&#27493;&#65292;&#31867;&#20284;&#21457;&#36215;&#20102; select() &#35843;&#29992;</span>
+<span style="color: #98fb98;">int</span> <span style="color: #87cefa;">epoll_wait</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">epfd</span>, <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">epoll_event</span> *<span style="color: #eedd82;">events</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">max</span> events, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">timeout</span>);
+</pre>
+</div>
+
+<p>
+使用起来，其内部原理就像下图：
+</p>
+<video width="640" height="360" controls>
+  <source src="pic/epoll.mp4" type="video/mp4">
+</video>
+
+<pre class="example" id="org3b3fce0">
+如果你想继续深入了解 epoll 的底层原理，推荐阅读 https://zhuanlan.zhihu.com/p/361750240
+
+从 linux 源码级别，一行一行非常硬核地解读 epoll 的实现原理，且配有大量方便理解的图片，非常适合源码控的小伙伴阅读
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org6a224b0" class="outline-2">
+<h2 id="org6a224b0">总结</h2>
+<div class="outline-text-2" id="text-org6a224b0">
+<p>
+一切的开始，都起源于这个 read 函数是操作系统提供的，而且是阻塞的，叫它 阻塞 IO
+</p>
+
+<pre class="example" id="org5b92a5e">
+为了破这个局，程序员在用户态通过多线程来防止主线程卡死
+</pre>
+<p>
+后来操作系统发现这个需求比较大，于是在操作系统层面提供了非阻塞的 read 函数，这样程序员就可以在一个线程内完成多个文件描述符的读取，这就是 <b>非阻塞 IO</b>
+</p>
+
+<pre class="example" id="orge5d9e0e">
+但多个文件描述符的读取就需要遍历，当高并发场景越来越多时，用户态遍历的文件描述符也越来越多，相当于在 while 循环里进行了越来越多的系统调用
+</pre>
+
+<p>
+后来操作系统又发现这个场景需求量较大，于是又在操作系统层面提供了这样的遍历文件描述符的机制，这就是 <b>IO 多路复用</b> 。多路复用有三个函数：
+</p>
+<ol class="org-ol">
+<li>最开始是 <span class="underline">select</span></li>
+<li>然后出现了 <span class="underline">poll</span>  解决了 select 文件描述符的限制</li>
+<li>最后实现了 <span class="underline">epoll</span> 解决 select 的三个不足</li>
+</ol>
+
+<pre class="example" id="org8bc85f9">
+有人说多路复用之所以效率高，是因为用一个线程就可以监控多个文件描述符
+
+这显然是知其然而不知其所以然，多路复用产生的效果，完全可以由用户态去遍历文件描述符并调用其非阻塞的 read 函数实现
+
+而多路复用快的原因在于，操作系统提供了这样的系统调用，使得原来的 while 循环里多次系统调用，变成了一次系统调用 + 内核层遍历这些文件描述符
+
+就好比平时写业务代码，把原来 while 循环里调 http 接口进行批量，改成了让对方提供一个批量添加的 http 接口，然后一次 rpc 请求就完成了批量添加
+</pre>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>

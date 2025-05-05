@@ -31,7 +31,7 @@
 	;; These are image files (images, pdf, etc)
         ("nio-pic"
          :base-directory "~/Documents/programming/html/klose911.github.io/src/nio/pic" ;; Change this to your local dir
-         :base-extension "png\\|jpg\\|gif"
+         :base-extension "png\\|jpg\\|gif\\|mp4\\|webp"
          :publishing-directory "~/Documents/programming/html/klose911.github.io/html/nio/pic"
          :recursive t
          :publishing-function org-publish-attachment
