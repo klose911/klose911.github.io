@@ -88,3 +88,264 @@
 + 运行中的协程将 *占有* 当前线程的所有计算资源
 + 协程天生有栈属性，而且是 *lock free*
 
+* 线程上下文
+下图中展示了线程在运行过程 CPU 需要的一些信息（CPU Context，CPU 上下文），比如 _通用寄存器_ 、 _栈信息（EBP/ESP）_ 等
+#+ATTR_HTML: image :width 80% 
+[[file:pic/v2-7025372f13b79ea18bdd4d883ffbaa34_1440w.jpg]]
+
+
+进程/线程切换时需要保存与恢复这些信息，而进程/内核态线程切换的时候需要与OS内核进行交互，保存/读取 CPU 上下文信息 
+
+** 线程时间消耗分析
+内核态 _Kernel_ 的一些数据是共享的，读写时需要 *同步* 机制，所以操作一旦陷入内核态就会消耗更多的时间。进程需要与操作系统中所有其他进程进行资源争抢，且操作系统中资源的锁是全局的；线程之间的数据一般在进程内共享，所以线程间资源共享相比如进程而言要轻一些
+
+#+begin_example
+虽然很多操作系统（比如 Linux）进程与线程区别不是非常明显，但线程还是比进程要轻
+#+end_example
+
+线程的切换（Context Switch）相比于其他操作而言并不是非常耗时，如下图所示（2018年）：
+
+#+ATTR_HTML: image :width 80% 
+[[file:pic/v2-fa20c1bfb2db10ae8f274db7ffdf81d5_1440w.jpg]]
+
+Linux 2.6 之后 Linux 多线程的性能提高了很多，大部分场景下线程切换耗时在 *2us* 左右，下面是 Linux 下线程切换耗时统计（2013 年）：
+#+ATTR_HTML: image :width 80% 
+[[file:pic/v2-b0912a69529b64928a6f9b868583c19a_1440w.jpg]] 
+
+#+begin_example
+  正常情况下线程可用的 CPU 时间片都在数十毫秒级别，而线程切换占总耗时的千分之几以内
+
+  协程的使用可以将这个损耗进一步降低（主要是去除了其他操作，比如 futex 等）
+#+end_example
+
+** 线程内存消耗分析
+
+不是所有编程语言或者系统都支持一次创建很多线程
+
+#+begin_example
+  例如，在 x32 系统中即使使用了虚内存空间，因为进程能访问的虚内存空间大概是 3GB
+
+  所以单进程最多创建 300 多条线程（假设系统为每条线程分配 10M 栈空间）
+
+  太多线程甚至还伴随着由于线程切换而触发缺页中断的风险
+#+end_example
+
+如果创建很多线程（比如 x64 系统下创建 1 万个线程），不考虑优先级且假设 CPU 有 10 个核心，那么每个线程每秒有 1ms 的时间片，整个业务的耗时大概是：
+(n-1) * 1 + n * 0.001(n-1) * 1 + n * 0.001 秒， 其中 n 是线程在处理业务的过程中被调度的次数
+
+#+begin_example
+  如果大量线程之间存在资源竞争，那么系统行为将难以预测
+
+  所以在有限的资源下创建大量线程是极其不合理的，服务线程的个数和 CPU 核心数应该在一个合理的比例内
+#+end_example
+
+在默认情况下，Linux 系统给每条线程分配的栈空间最大是 6～8MB，这个大小是上限，也是虚内存空间，并不是每条线程真实的栈使用情况。线程真实栈内存使用会随着线程执行而变化，如果线程只使用了少量局部变量，那么真实线程栈可能只有几十个字节的大小；系统在维护线程时需要分配额外的空间，所以线程数的增加还是会提高内存资源的消耗
+
+#+begin_example
+  通过上面的分析我们可以知道：
+
+  如果业务处理时间远小于 IO 耗时，线程切换非常频繁，那么使用协程是不错的选择
+
+  并且，协程的优势并不仅仅是减少线程之间切换，从编程的角度来看，协程的引入简化了异步编程；
+
+  协程为一些异步编程提供了无锁的解决方案，即协程可以用同步编程的方式实现异步编程才能实现的功能
+#+end_example
+
+** 保存上下文
+很多地方把协程称为 Subroutine
+
+#+begin_example
+  Subroutine是什么？就是函数
+
+  上古时期的计算机科学家们早就给出了概念：Coroutine就是可以中断并恢复执行的Subroutine
+#+end_example
+
+Coroutine与Subroutine 区别仅有一个就是：Coroutine可以 *中断* 并 *恢复* ，对应的操作就是 _yield/resume_
+
+#+begin_example
+这样看来Subroutine不过是Coroutine的一个子集罢了，也就是说把协程当做一个特殊的函数调用
+#+end_example
+
+*** 中断并恢复
+#+begin_example
+既然可以把 Coroutine 当做一个特殊的函数调用，那么如何像切换函数一样去切换Coroutine呢？
+#+end_example
+难点在于：除了像函数一样切换出去，还要在 *某种条件满足的时候* 切换回来
+#+begin_example
+  通常的做法是：在协程内部存储自身的上下文，并在需要切换的时候把上下文切换
+
+  上下文其实本质上就是寄存器，所以保存上下文实际上就是把寄存器的值保存下来
+#+end_example
+
+相对应的，有下面几种方法：
++ 使用 *setjmp/longjmp*
++ 使用 _汇编_ 保存寄存器中的值
+  #+begin_example
+    libco就使用了这种方法
+  #+end_example
++ 使用 *ucontext.h* 这个封装好的库也可以完成上下文的相关工作
+
+**** 使用setjmp/longjmp
+#+begin_example
+  需要注意的是：setjmp/longjmp 一般不能作为协程实现的底层机制，因为 setjmp/longjmp 对栈信息的支持有限
+#+end_example
+
+下面代码模拟了单线程并发执行两个 while(true){...} 函数：
+
+#+begin_src c 
+  #include <cstdlib>
+  #include <cstdio>
+  #include <setjmp.h>
+
+  int max_iteration = 9;
+  int iter;
+
+  jmp_buf Main;
+  jmp_buf PointPing;
+  jmp_buf PointPong;
+
+  void Ping() {
+    if (setjmp(PointPing) == 0) longjmp(Main, 1); // 可以理解为重置，reset the world
+    while (1) {
+      printf("%3d : Ping-", iter);
+      if (setjmp(PointPing) == 0) longjmp(PointPong, 1);
+    }
+  }
+
+  void Pong() {
+    if (setjmp(PointPong) == 0) longjmp(Main, 1);
+    while (1) {
+      printf("Pong\n");
+      iter++;
+      if (iter > max_iteration) exit(0);
+      if (setjmp(PointPong) == 0) longjmp(PointPing, 1);
+    }
+  }
+
+  int main(int argc, char* argv[]) {
+    iter = 1;
+    if (setjmp(Main) == 0) Ping();
+    if (setjmp(Main) == 0) Pong();
+    longjmp(PointPing, 1);
+  }
+#+end_src
+
+1. 首先，定义了三个保存调用栈的节点：
+   + jmp_buf Main
+   + jmp_buf PointPing
+   + jmp_buf PointPong
+2. main 函数中首先创建（启动）了两个函数：Ping、Pong，在使用 longjmp(PointPing, 1); 之后，PointPing 不再是0，从而启动了 Ping 协程。此后，函数 Ping 和 函数 Pong 在 while (1) 中交替执行，而不再返回 main 函数中
+3. 最后，当 iter > max_iteration 时，调用 exit(0) 退出
+
+#+begin_src sh 
+  $ g++ -std=c++11 setjmp_demo.cc -o setjmp_demo
+
+  $ ./setjmp_demo
+
+  1 : Ping-Pong
+  2 : Ping-Pong
+  3 : Ping-Pong
+  4 : Ping-Pong
+  5 : Ping-Pong
+  6 : Ping-Pong
+  7 : Ping-Pong
+  8 : Ping-Pong
+  9 : Ping-Pong
+#+end_src
+
+#+begin_example
+  虽然上面实现了比较简单的函数切换，但是实际上无法通过 setjmp.h库获取到真正的上下文信息
+
+  如果想要真正获取到上下文信息，可以使用 ucontext.h 库
+#+end_example
+
+**** 使用ucontext
+#+begin_example
+实际上，ucontext lib 已经不推荐使用了，但依旧是不错的协程入门资料
+#+end_example
+
+其他底层协程库实现可以查看：
++ Boost.Context
++ tbox
+
+linux 系统一般都存在 *ucontext* 这个 C语言库，这个库主要用于： *操控当前线程下的 CPU 上下文* 。和 setjmp/longjmp 不同，ucontext 直接提供了设置函数运行时栈的方式（makecontext），避免不同函数栈空间的重叠
+
+#+begin_example
+  ucontext 只操作与当前线程相关的 CPU 上下文，所以下文中涉及 ucontext 的上下文均指当前线程的上下文
+
+  一般CPU 有多个核心，一个线程在某一时刻只能使用其中一个，所以 ucontext 只涉及一个与当前线程相关的 CPU 核心
+#+end_example
+
+_ucontext.h_ 头文件中定义了 *ucontext_t* 这个结构体，这个结构体中至少包含以下成员：
+
+#+begin_src c 
+  ucontext_t *uc_link     // next context
+  sigset_t    uc_sigmask  // 阻塞信号阻塞
+  stack_t     uc_stack    // 当前上下文所使用的栈
+  mcontext_t  uc_mcontext // 实际保存 CPU 上下文的变量，这个变量与平台&机器相关，最好不要访问这个变量
+#+end_src
+
+#+begin_example
+可移植的程序最好不要读取与修改 ucontext_t 中的 uc_mcontext，因为不同平台下 uc_mcontext 的实现是不同的
+#+end_example
+
+同时，ucontext.h 头文件中定义了四个函数，下面分别介绍：
+#+begin_src c 
+  int  getcontext(ucontext_t *); // 获得当前 CPU 上下文
+  int  setcontext(const ucontext_t *);// 重置当前 CPU 上下文
+  void makecontext(ucontext_t *, (void *)(), int, ...); // 修改上下文信息，比如设置栈指针
+  int  swapcontext(ucontext_t *, const ucontext_t *);
+#+end_src
+
+***** getcontext 
+#+begin_src c 
+  #include <ucontext.h>
+  int getcontext(ucontext_t *ucp);
+#+end_src
+
+getcontext 函数使用当前 CPU 上下文初始化 ucp 所指向的结构体，初始化的内容包括：
++ CPU 寄存器
++ 信号 mask
++ 当前线程所使用的栈空间 
+
+返回值： 成功返回 0，失败返回 -1
+***** setcontext
+和 getcontext 函数类似，setcontext 函数用于：设置CPU 寄存器、信号 mask 和当前线程所使用的栈空间
+#+begin_src c 
+  #include <ucontext.h>
+  int setcontext(ucontext_t *ucp);
+#+end_src
+
+需要特别注意的是：
++ 如果函数 setcontext 执行成功，那么调用 setcontext 的函数将 *不会返回* ，因为当前 CPU 的上下文已经交给其他函数或者过程了，当前函数完全放弃了 对 CPU 的“所有权”。
+
+#+begin_example
+  getcontext 和 setcontext 的应用：
+
+  当信号处理函数需要执行的时候，当前线程的上下文需要保存起来，随后进入信号处理阶段
+#+end_example
+***** makecontext
+修改由 _getcontext_ 创建的上下文 _ucp_
+#+begin_src c 
+  #include <ucontext.h>
+  void makecontext(ucontext_t *ucp, (void *func)(), int argc, ...);
+#+end_src
+
+如果 ucp 指向的上下文由 swapcontext 或 setcontext 恢复，那么当前线程将 *执行* 传递给 _makecontext_ 的函数 _func(...)_ 
++ 执行 makecontext 后需要为新上下文分配一个栈空间
+  #+begin_example
+    如果不创建，那么新函数func执行时会使用旧上下文的栈，而这个栈可能已经不存在了
+  #+end_example
++ 同时，argc 必须和 func 中整型参数的个数相等
+***** swapcontext
+swapcontext 将当前上下文信息保存到 oucp 中并使用 ucp 重置 CPU 上下文。返回值：
++ 成功则返回 0
++ 失败返回 -1 并置 errno 
+#+begin_src c 
+  #include <ucontext.h>
+  int swapcontext(ucontext_t *oucp, const ucontext_t *ucp);
+#+end_src
+
+如果 ucp 所指向的上下文没有足够的栈空间以执行余下的过程，swapcontext 将返回 -1
+***** 总结
+相比于 setjml 略微简单的功能，使用 ucontext 我们可以方便的获取当前调用函数的上下文，进而实现协程

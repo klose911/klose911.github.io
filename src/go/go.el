@@ -28,7 +28,15 @@
          :publishing-function org-publish-attachment
          )
 
-        ("go" :components ("go-notes" "go-static"))
+        ("go-pic"
+         :base-directory "~/Documents/programming/html/klose911.github.io/src/go/pic" ;; Change this to your local dir
+         :base-extension "png\\|jpg\\|gif"
+         :publishing-directory "~/Documents/programming/html/klose911.github.io/html/go/pic"
+         :recursive t
+         :publishing-function org-publish-attachment
+         )
+
+        ("go" :components ("go-notes" "go-static" "go-pic"))
         )
       )
 
