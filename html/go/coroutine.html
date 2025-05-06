@@ -226,7 +226,16 @@
 <li><a href="#orgf7d0988">对称协程与非对称协程</a></li>
 </ul>
 </li>
-<li><a href="#orgd74a73e">其他</a></li>
+<li><a href="#orgd74a73e">其他</a>
+<ul>
+<li><a href="#org731236d">N:1 &amp; N:M 协程</a></li>
+<li><a href="#org288feba">协程的组成</a></li>
+<li><a href="#orgbd36ec4">协程的调度</a></li>
+<li><a href="#org4fb95c5">协程相关工具</a></li>
+<li><a href="#org83d7eac">协程&amp;线程的对比</a></li>
+<li><a href="#org59b5aaa">协程对 CPU/IO 的影响</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -314,7 +323,7 @@
 <div id="outline-container-orgc88307c" class="outline-2">
 <h2 id="orgc88307c">协程的优点</h2>
 <div class="outline-text-2" id="text-orgc88307c">
-<pre class="example" id="orgf6e766a">
+<pre class="example" id="orga7c9d10">
 线程挺好的，为什么需要协程呢？
 
 因为有些时候我们在执行一些操作（尤其是IO操作）时，不希望去做“创建一个新的线程”这种重量级的操作来异步处理
@@ -337,7 +346,7 @@
 <li><p>
 协程可以 <b>主动让出</b> <span class="underline">CPU 时间片</span> 
 </p>
-<pre class="example" id="org856d40c">
+<pre class="example" id="org8b7af27">
 注意：不是当前线程让出 CPU 时间片，而是线程内的某个协程让出时间片供同线程内其他协程运行
 </pre></li>
 <li>协程可以 <b>恢复</b> <span class="underline">CPU 上下文</span> ，当另一个协程继续执行时，其需要恢复 CPU 上下文环境</li>
@@ -354,7 +363,7 @@
 下图中展示了线程在运行过程 CPU 需要的一些信息（CPU Context，CPU 上下文），比如 <span class="underline">通用寄存器</span> 、 <span class="underline">栈信息（EBP/ESP）</span> 等
 </p>
 
-<div id="orge9fad6b" class="figure">
+<div id="org00d0485" class="figure">
 <p><img src="pic/v2-7025372f13b79ea18bdd4d883ffbaa34_1440w.jpg" alt="v2-7025372f13b79ea18bdd4d883ffbaa34_1440w.jpg" width="80%" />
 </p>
 </div>
@@ -371,7 +380,7 @@
 内核态 <span class="underline">Kernel</span> 的一些数据是共享的，读写时需要 <b>同步</b> 机制，所以操作一旦陷入内核态就会消耗更多的时间。进程需要与操作系统中所有其他进程进行资源争抢，且操作系统中资源的锁是全局的；线程之间的数据一般在进程内共享，所以线程间资源共享相比如进程而言要轻一些
 </p>
 
-<pre class="example" id="org0b1ec02">
+<pre class="example" id="orgbc6effb">
 虽然很多操作系统（比如 Linux）进程与线程区别不是非常明显，但线程还是比进程要轻
 </pre>
 
@@ -380,7 +389,7 @@
 </p>
 
 
-<div id="org21bfb7b" class="figure">
+<div id="org89b42a9" class="figure">
 <p><img src="pic/v2-fa20c1bfb2db10ae8f274db7ffdf81d5_1440w.jpg" alt="v2-fa20c1bfb2db10ae8f274db7ffdf81d5_1440w.jpg" width="80%" />
 </p>
 </div>
@@ -389,12 +398,12 @@
 Linux 2.6 之后 Linux 多线程的性能提高了很多，大部分场景下线程切换耗时在 <b>2us</b> 左右，下面是 Linux 下线程切换耗时统计（2013 年）：
 </p>
 
-<div id="org84855a1" class="figure">
+<div id="org586a237" class="figure">
 <p><img src="pic/v2-b0912a69529b64928a6f9b868583c19a_1440w.jpg" alt="v2-b0912a69529b64928a6f9b868583c19a_1440w.jpg" width="80%" /> 
 </p>
 </div>
 
-<pre class="example" id="orgab96439">
+<pre class="example" id="org82f9507">
 正常情况下线程可用的 CPU 时间片都在数十毫秒级别，而线程切换占总耗时的千分之几以内
 
 协程的使用可以将这个损耗进一步降低（主要是去除了其他操作，比如 futex 等）
@@ -408,7 +417,7 @@ Linux 2.6 之后 Linux 多线程的性能提高了很多，大部分场景下线
 不是所有编程语言或者系统都支持一次创建很多线程
 </p>
 
-<pre class="example" id="org908394d">
+<pre class="example" id="org0140734">
 例如，在 x32 系统中即使使用了虚内存空间，因为进程能访问的虚内存空间大概是 3GB
 
 所以单进程最多创建 300 多条线程（假设系统为每条线程分配 10M 栈空间）
@@ -421,7 +430,7 @@ Linux 2.6 之后 Linux 多线程的性能提高了很多，大部分场景下线
 (n-1) * 1 + n * 0.001(n-1) * 1 + n * 0.001 秒， 其中 n 是线程在处理业务的过程中被调度的次数
 </p>
 
-<pre class="example" id="org84156f6">
+<pre class="example" id="org93bd9eb">
 如果大量线程之间存在资源竞争，那么系统行为将难以预测
 
 所以在有限的资源下创建大量线程是极其不合理的，服务线程的个数和 CPU 核心数应该在一个合理的比例内
@@ -431,7 +440,7 @@ Linux 2.6 之后 Linux 多线程的性能提高了很多，大部分场景下线
 在默认情况下，Linux 系统给每条线程分配的栈空间最大是 6～8MB，这个大小是上限，也是虚内存空间，并不是每条线程真实的栈使用情况。线程真实栈内存使用会随着线程执行而变化，如果线程只使用了少量局部变量，那么真实线程栈可能只有几十个字节的大小；系统在维护线程时需要分配额外的空间，所以线程数的增加还是会提高内存资源的消耗
 </p>
 
-<pre class="example" id="orgf292e87">
+<pre class="example" id="org255074b">
 通过上面的分析我们可以知道：
 
 如果业务处理时间远小于 IO 耗时，线程切换非常频繁，那么使用协程是不错的选择
@@ -449,7 +458,7 @@ Linux 2.6 之后 Linux 多线程的性能提高了很多，大部分场景下线
 很多地方把协程称为 Subroutine
 </p>
 
-<pre class="example" id="org9086316">
+<pre class="example" id="org648f322">
 Subroutine是什么？就是函数
 
 上古时期的计算机科学家们早就给出了概念：Coroutine就是可以中断并恢复执行的Subroutine
@@ -459,20 +468,20 @@ Subroutine是什么？就是函数
 Coroutine与Subroutine 区别仅有一个就是：Coroutine可以 <b>中断</b> 并 <b>恢复</b> ，对应的操作就是 <span class="underline">yield/resume</span>
 </p>
 
-<pre class="example" id="org36a6570">
+<pre class="example" id="org35e0c80">
 这样看来Subroutine不过是Coroutine的一个子集罢了，也就是说把协程当做一个特殊的函数调用
 </pre>
 </div>
 <div id="outline-container-orgd677b1e" class="outline-4">
 <h4 id="orgd677b1e">中断并恢复</h4>
 <div class="outline-text-4" id="text-orgd677b1e">
-<pre class="example" id="org409d14b">
+<pre class="example" id="org002eb70">
 既然可以把 Coroutine 当做一个特殊的函数调用，那么如何像切换函数一样去切换Coroutine呢？
 </pre>
 <p>
 难点在于：除了像函数一样切换出去，还要在 <b>某种条件满足的时候</b> 切换回来
 </p>
-<pre class="example" id="org19ed809">
+<pre class="example" id="org84c348f">
 通常的做法是：在协程内部存储自身的上下文，并在需要切换的时候把上下文切换
 
 上下文其实本质上就是寄存器，所以保存上下文实际上就是把寄存器的值保存下来
@@ -486,7 +495,7 @@ Coroutine与Subroutine 区别仅有一个就是：Coroutine可以 <b>中断</b> 
 <li><p>
 使用 <span class="underline">汇编</span> 保存寄存器中的值
 </p>
-<pre class="example" id="org1f51666">
+<pre class="example" id="orgb2c7d08">
 libco就使用了这种方法
 </pre></li>
 <li>使用 <b>ucontext.h</b> 这个封装好的库也可以完成上下文的相关工作</li>
@@ -495,7 +504,7 @@ libco就使用了这种方法
 <div id="outline-container-org2588225" class="outline-5">
 <h5 id="org2588225">使用setjmp/longjmp</h5>
 <div class="outline-text-5" id="text-org2588225">
-<pre class="example" id="org08ec6b1">
+<pre class="example" id="orgfe65ddf">
 需要注意的是：setjmp/longjmp 一般不能作为协程实现的底层机制，因为 setjmp/longjmp 对栈信息的支持有限
 </pre>
 
@@ -570,7 +579,7 @@ $ ./setjmp_demo
 </pre>
 </div>
 
-<pre class="example" id="orgebe377a">
+<pre class="example" id="org3eb5fe1">
 虽然上面实现了比较简单的函数切换，但是实际上无法通过 setjmp.h库获取到真正的上下文信息
 
 如果想要真正获取到上下文信息，可以使用 ucontext.h 库
@@ -580,7 +589,7 @@ $ ./setjmp_demo
 <div id="outline-container-orgb540624" class="outline-5">
 <h5 id="orgb540624">使用ucontext</h5>
 <div class="outline-text-5" id="text-orgb540624">
-<pre class="example" id="org00228c5">
+<pre class="example" id="org5c742c2">
 实际上，ucontext lib 已经不推荐使用了，但依旧是不错的协程入门资料
 </pre>
 
@@ -596,7 +605,7 @@ $ ./setjmp_demo
 linux 系统一般都存在 <b>ucontext</b> 这个 C语言库，这个库主要用于： <b>操控当前线程下的 CPU 上下文</b> 。和 setjmp/longjmp 不同，ucontext 直接提供了设置函数运行时栈的方式（makecontext），避免不同函数栈空间的重叠
 </p>
 
-<pre class="example" id="orgbfd0f49">
+<pre class="example" id="orgf559bc3">
 ucontext 只操作与当前线程相关的 CPU 上下文，所以下文中涉及 ucontext 的上下文均指当前线程的上下文
 
 一般CPU 有多个核心，一个线程在某一时刻只能使用其中一个，所以 ucontext 只涉及一个与当前线程相关的 CPU 核心
@@ -614,7 +623,7 @@ mcontext_t  uc_mcontext <span style="color: #ff4500;">// </span><span style="col
 </pre>
 </div>
 
-<pre class="example" id="org2efbb3b">
+<pre class="example" id="orgb42b895">
 可移植的程序最好不要读取与修改 ucontext_t 中的 uc_mcontext，因为不同平台下 uc_mcontext 的实现是不同的
 </pre>
 
@@ -670,7 +679,7 @@ getcontext 函数使用当前 CPU 上下文初始化 ucp 所指向的结构体�
 <li>如果函数 setcontext 执行成功，那么调用 setcontext 的函数将 <b>不会返回</b> ，因为当前 CPU 的上下文已经交给其他函数或者过程了，当前函数完全放弃了 对 CPU 的“所有权”。</li>
 </ul>
 
-<pre class="example" id="org3173b7e">
+<pre class="example" id="org3ea546d">
 getcontext 和 setcontext 的应用：
 
 当信号处理函数需要执行的时候，当前线程的上下文需要保存起来，随后进入信号处理阶段
@@ -695,7 +704,7 @@ getcontext 和 setcontext 的应用：
 <li><p>
 执行 makecontext 后需要为新上下文分配一个栈空间
 </p>
-<pre class="example" id="orged31ed7">
+<pre class="example" id="org5149035">
 如果不创建，那么新函数func执行时会使用旧上下文的栈，而这个栈可能已经不存在了
 </pre></li>
 <li>同时，argc 必须和 func 中整型参数的个数相等</li>
@@ -737,7 +746,7 @@ swapcontext 将当前上下文信息保存到 oucp 中并使用 ucp 重置 CPU �
 <div id="outline-container-orgc1bfdac" class="outline-2">
 <h2 id="orgc1bfdac">协程的类别</h2>
 <div class="outline-text-2" id="text-orgc1bfdac">
-<pre class="example" id="org4e8c779">
+<pre class="example" id="org6aa7885">
 协程的实现不只有一种，很多活跃的语言如 Python、Java、Golang等都是支持协程的
 </pre>
 <p>
@@ -747,18 +756,18 @@ swapcontext 将当前上下文信息保存到 oucp 中并使用 ucp 重置 CPU �
 <li><p>
 <b>有栈</b> <span class="underline">stackful</span> 协程，这类协程的实现类似于内核态线程的实现，不同协程间切换还是要切换对应的栈上下文，只是不用陷入内核而已
 </p>
-<pre class="example" id="org9e5fec1">
+<pre class="example" id="orge41ae20">
 例如：goroutine、libco
 </pre></li>
 <li><p>
 <b>无栈</b> <span class="underline">stackless</span> 协程，无栈协程的上下文都会放到 <b>公共内存</b> 中，在协程切换时使用 <span class="underline">状态机</span> 来切换，而不用切换对应的上下文（因为都已经在堆中了），因此相比有栈协程要轻量许多
 </p>
-<pre class="example" id="org1a2ed55">
+<pre class="example" id="orgbd0f03d">
 例如：C++20、Rust、JavaScript 中的协程
 </pre></li>
 </ul>
 
-<pre class="example" id="orgae22f26">
+<pre class="example" id="orge2e288d">
 这里所谓的有栈、无栈：并不是说这个协程运行的时候有没有栈
 
 而是说协程之间是否存在调用栈（Callback Stack）
@@ -772,7 +781,7 @@ swapcontext 将当前上下文信息保存到 oucp 中并使用 ucp 重置 CPU �
 <li><b>对称</b> 协程：协程之间无明显的调用关系</li>
 </ul>
 
-<pre class="example" id="org44e0245">
+<pre class="example" id="orgd877986">
 例如，协程 A 调用了协程 B：
 
 如果只有 B 完成之后才能调用 A，那么此时 A/B 是非对称协程
@@ -787,7 +796,7 @@ swapcontext 将当前上下文信息保存到 oucp 中并使用 ucp 重置 CPU �
 开源库 libco 就是通过 <span class="underline">汇编语言</span> 实现的有栈协程库
 </p>
 
-<pre class="example" id="org6dfe3aa">
+<pre class="example" id="org1a33f43">
 现在来看一看libco中对于32位机器的上下文切换操作是如何完成的
 </pre>
 
@@ -851,7 +860,7 @@ coctx_swap 函数便是用汇编实现的，这里只关注 x86-64 相关的部�
 </pre>
 </div>
 
-<pre class="example" id="orgf60ee89">
+<pre class="example" id="orgfb22b11">
 可以看出，coctx_swap 中并未像常规被调用函数一样创立新的栈帧
 </pre>
 
@@ -867,7 +876,7 @@ coctx_swap 函数便是用汇编实现的，这里只关注 x86-64 相关的部�
 <p>
 leaq 用于把其第一个参数的值赋值给第二个寄存器参数
 </p>
-<pre class="example" id="orgb6b26a6">
+<pre class="example" id="orgc779f59">
 注意：这里使用的并不是 8(%rsp) 指向的值，而是把 8(%rsp) 表示的地址赋值给了 %rax
 
 这一地址是父函数栈帧中除返回地址外栈帧顶的位置
@@ -886,7 +895,7 @@ leaq 用于把其第一个参数的值赋值给第二个寄存器参数
 </pre>
 </div>
 
-<pre class="example" id="orga0d134d">
+<pre class="example" id="org14cf2f1">
 因而 112(%rdi) 表示的就是第一个协程的 coctx_t 中 regs[14] 数组的下一个64位地址
 </pre>
 
@@ -915,7 +924,7 @@ leaq 用于把其第一个参数的值赋值给第二个寄存器参数
 <p>
 第一条语句 ，resg[13] 用来存储第一个协程的 %rsp 的值
 </p>
-<pre class="example" id="orga2c56f2">
+<pre class="example" id="orge5a23a0">
 由于 regs[] 中有单独的元素存储返回地址，栈中再保存返回地址是无意义的，因而把父栈帧中除返回地址外的栈帧顶作为要保存的 %rsp 值是合理的
 
 当协程恢复时，把保存的 regs[13] 的值赋值给 %rsp 即可恢复本协程 coctx_swap 父函数堆栈指针的位置
@@ -925,7 +934,7 @@ leaq 用于把其第一个参数的值赋值给第二个寄存器参数
 第一条语句之后的语句就是用 pushq 把各CPU 寄存器的值依次从 regs 尾部向前压入
 </p>
 
-<pre class="example" id="org39932f7">
+<pre class="example" id="org7c82f8b">
 即通过调整 %rsp 把 regs[14] 当作堆栈，然后利用 pushq 把寄存器的值和返回地址存储到 regs[14] 整个数组中
 </pre>
 
@@ -933,7 +942,7 @@ leaq 用于把其第一个参数的值赋值给第二个寄存器参数
 regs[14] 数组中各元素与其要存储的寄存器对应关系如下：
 </p>
 
-<pre class="example" id="orga69c78a">
+<pre class="example" id="org2a66ff8">
 //-------------
 // 64 bit
 //low | regs[0]: r15 |
@@ -974,14 +983,14 @@ regs[14] 数组中各元素与其要存储的寄存器对应关系如下：
 </pre>
 </div>
 
-<pre class="example" id="org4d68015">
+<pre class="example" id="org9e79bd4">
 这里用的方法还是通过改变 %rsp 的值，把某块内存当作栈来使用
 </pre>
 <p>
 第一句 就是让 %rsp 指向 coctx_swap 第二个参数，这一参数表示要进入的协程。而第二个参数也是coctx_t 类型的指针
 </p>
 
-<pre class="example" id="org64a3b1d">
+<pre class="example" id="orga6c2ff4">
 即执行完 movq 语句后，%rsp 指向了第二个参数 coctx_t 中 regs[0]
 </pre>
 
@@ -989,7 +998,7 @@ regs[14] 数组中各元素与其要存储的寄存器对应关系如下：
 之后的 pop 语句就是用 regs[0-13] 中的值填充 cpu 的寄存器，需要注意的是 popq 会使得 %rsp 的值增加而不是减少，这一点保证了会从 regs[0] 到 regs[13] 依次弹出到 cpu 寄存器中。在执行完最后一句 popq %rsp 后，%rsp 已经指向了新协程要恢复的栈指针（即新协程之前调用 coctx_swap 时父函数的栈帧顶指针）
 </p>
 
-<pre class="example" id="orgdfc83e9">
+<pre class="example" id="orga9255b0">
 由于每个协程都有一个自己的栈空间，可以认为这一语句使得 %rsp 指向了要进入协程的栈空间
 </pre>
 
@@ -1009,14 +1018,14 @@ coctx_swap 中最后三条语句如下：
 <li><p>
 pushq %rax 用来把 %rax 的值压入到新协程的栈中
 </p>
-<pre class="example" id="orga5cbef0">
+<pre class="example" id="org486fa00">
 这时 %rax 是要进入的目标协程的返回地址，即要恢复的执行点
 </pre></li>
 <li>用 xorl 把 %rax 低32位清0以实现 <span class="underline">地址对齐</span></li>
 <li><p>
 ret 语句用来弹出栈的内容，并跳转到弹出的内容表示的地址处
 </p>
-<pre class="example" id="org3b669f2">
+<pre class="example" id="org8f859f7">
 而弹出的内容正好是上面 pushq %rax 时压入的 %rax 的值，即之前保存的此协程的返回地址
 </pre></li>
 </ol>
@@ -1026,14 +1035,14 @@ ret 语句用来弹出栈的内容，并跳转到弹出的内容表示的地址�
 可以看出，这里通过调整 %rsp 的值来恢复新协程的栈，并利用了 ret 语句来实现修改指令寄存器 %rip 的目的，通过修改 %rip 来实现程序运行逻辑跳转
 </p>
 
-<pre class="example" id="org021e746">
+<pre class="example" id="org7e4c4b8">
 注意：%rip 的值不能直接修改，只能通过 call 或 ret 之类的指令来间接修改 
 </pre>
 
 <p>
 整体上看来，协程的切换其实就是： cpu 寄存器内容特别是 <span class="underline">%rip</span> 和 <span class="underline">%rsp</span> 的 <b>写入</b> 和 <b>恢复</b>
 </p>
-<pre class="example" id="org4b7507e">
+<pre class="example" id="org9877556">
 因为 cpu 的寄存器决定了程序从哪里执行（%rip) 和使用哪个地址作为堆栈 （%rsp） 
 </pre>
 
@@ -1042,12 +1051,12 @@ ret 语句用来弹出栈的内容，并跳转到弹出的内容表示的地址�
 </p>
 
 
-<div id="orgbd9fb89" class="figure">
+<div id="orge7bc1f8" class="figure">
 <p><img src="pic/v2-d98d66e062afe131dc9140725b3edeaa_1440w.jpg" alt="v2-d98d66e062afe131dc9140725b3edeaa_1440w.jpg" width="80%" />
 </p>
 </div>
 
-<pre class="example" id="org8f742b8">
+<pre class="example" id="orge3397ae">
 执行完上图的流程，就将之前 cpu 寄存器的值保存到了协程A 的 regs[14] 中
 
 而将协程B regs[14] 的内容写入到了寄存器中
@@ -1086,7 +1095,7 @@ ret 语句用来弹出栈的内容，并跳转到弹出的内容表示的地址�
 </pre>
 </div>
 
-<pre class="example" id="org9fe19e6">
+<pre class="example" id="org384e93a">
 libco是一个有栈协程，这段代码实际的意义就是：
 
 主协程跑一个协程去执行 test 函数，在test中需要两次从协程中切换出去，这里对应了两个 poll 操作（hook机制）
@@ -1130,7 +1139,7 @@ hook后的 poll 所做的事情就是把当前协程的CPU执行权切换到调�
 相比与有栈协程中的 test 函数，这里把整个协程抽象成一个类，以原本需要执行切换的语句处为界限，把函数划分为几个部分，并在某一个部分执行完以后进行状态转移，在下一次调用此函数的时候就会执行下一部分。这样的话我们就完全没有必要像有栈协程那样显式的执行上下文切换了，只需要一个 <b>简易的调度器</b> 来调度这些函数即可
 </p>
 
-<pre class="example" id="org0bd9556">
+<pre class="example" id="orgef03bcc">
 在 Rust 中，async 也是一个语法糖，实际上编译后就是实现了类似于上面的代码结构
 
 感兴趣的可以去看《async book》
@@ -1144,7 +1153,7 @@ hook后的 poll 所做的事情就是把当前协程的CPU执行权切换到调�
 <div id="outline-container-orgf7d0988" class="outline-3">
 <h3 id="orgf7d0988">对称协程与非对称协程</h3>
 <div class="outline-text-3" id="text-orgf7d0988">
-<pre class="example" id="org825db4f">
+<pre class="example" id="orgfc3d6ff">
 其实对于“对称”这个名词，阐述的实际是：协程之间的关系。用大白话来说就是：
 
 对称协程就是说协程之间人人平等，没有谁调用谁一说，大家都是一样的
@@ -1159,7 +1168,7 @@ hook后的 poll 所做的事情就是把当前协程的CPU执行权切换到调�
 <li><b>非对称</b> 协程 <span class="underline">Asymmetric</span> Coroutine：协程出让调度权的目标只能是它的调用者，即协程之间存在调用和被调用关系</li>
 </ul>
 
-<pre class="example" id="org3d47c56">
+<pre class="example" id="org31a3146">
 其实两者的实现我觉得其实差异不大，非对称协程其实就是拥有调用栈
 
 而非对称协程则是大家都平等，不需要调用栈，只需要一个数据结构存储所有未执行完的协程即可
@@ -1168,7 +1177,7 @@ hook后的 poll 所做的事情就是把当前协程的CPU执行权切换到调�
 至于哪种更优？这个需要分情况：如果使用协程的目的是为了优化一些 IO 密集型应用，那么协程切换出去的时候就是它等待事件到来的时候，此时就算切换过去也没有什么意义，还不如等到事件到来的时候自动切换回去。
 </p>
 
-<pre class="example" id="org8934510">
+<pre class="example" id="org94f37ee">
 其实上面说的是有一些问题，因为这个执行权的切换实际上是（调用者–被调用者）之间的切换，对称就是它们之间都是平等的
 
 假如A协程执行了B，C协程，那么B协程可以切换回A，也可以切换回C
@@ -1179,7 +1188,7 @@ hook后的 poll 所做的事情就是把当前协程的CPU执行权切换到调�
 这样看起来显然非对称协程相比之下更为符合认知，因为对称协程目前不知道如何选择一个合适的协程来获得CPU执行权，正如上面所说，此协程可能正在等待事件
 </p>
 
-<pre class="example" id="org9834b90">
+<pre class="example" id="org8929d70">
 当然如果调度算法足够优秀的话，对称协程也是可取的
 </pre>
 </div>
@@ -1187,6 +1196,179 @@ hook后的 poll 所做的事情就是把当前协程的CPU执行权切换到调�
 </div>
 <div id="outline-container-orgd74a73e" class="outline-2">
 <h2 id="orgd74a73e">其他</h2>
+<div class="outline-text-2" id="text-orgd74a73e">
+</div>
+<div id="outline-container-org731236d" class="outline-3">
+<h3 id="org731236d">N:1 &amp; N:M 协程</h3>
+<div class="outline-text-3" id="text-org731236d">
+<pre class="example" id="orgf69e5ae">
+和线程绑定的协程只有在对应线程运行的时候才有被执行的可能
+
+如果对应线程中的某一个协程完全占有了当前线程，那么当前线程中的其他所有协程都不会被执行
+</pre>
+
+<p>
+协程的所有信息都保存在 <b>上下文</b> <span class="underline">Contex</span> 对象中，将不同上下文分发给 <b>不同的</b> <span class="underline">线程</span> 就可以实现协程的跨线程执行，如此，协程被阻塞的概率将减小
+</p>
+
+<pre class="example" id="org79b686f">
+借用 BRPC 中对 N:M 协程的介绍，来解释下什么是 N:M 协程。
+
+    常说的协程通常指的是 N:1 线程库，即所有的协程运行于一个系统线程中，计算能力和各类eventloop库等价
+    
+    由于不跨线程，协程之间的切换不需要系统调用，可以非常快(100ns-200ns)，受 cache 一致性的影响也小
+
+    但代价是协程无法高效地利用多核，代码必须非阻塞，否则所有的协程都被卡住……
+</pre>
+
+<p>
+<span class="underline">bthread</span> 是一个 M:N 线程库，一个bthread被卡住不会影响其他bthread。其中的关键技术有两点：
+</p>
+<ul class="org-ul">
+<li>work stealing 调度： 让 bthread 更快地被调度到更多的核心上</li>
+<li><p>
+butex： 让 bthread 和 pthread 可以相互等待和唤醒
+</p>
+
+<pre class="example" id="org57a8a2f">
+这么看来 貌似 bthread 自己实现了 golang 的 goroutine？
+
+表面看起来的却如此：两者都实现了 M:N 用户态线程
+
+但是事实上， golang 中的 goroutine 的实现要更为复杂一些
+
+bthread 的设计比较接近 go 1.0 版本：OS 线程不会动态增加，在有大量的阻塞性 syscall 下，会有影响
+
+而 go 1.1 之后的设计就是动态增减 OS 线程，而且提供了 LockOSThread，可以让 goroutine 和 OS 线程 1:1
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org288feba" class="outline-3">
+<h3 id="org288feba">协程的组成</h3>
+<div class="outline-text-3" id="text-org288feba">
+<p>
+通过上面的描述，N:M 模式下的协程其实就是可用户确定调度顺序的用户态线程，与系统级线程对照可以将协程框架分为以下几个模块：
+</p>
+<ul class="org-ul">
+<li>协程上下文：对应操作系统中的 <b>PCB/TCB</b> <span class="underline">Process/Thread Control Block</span></li>
+<li><p>
+保存协程上下文的容器：对应操作系统中保存 <b>PCB/TCB 的容器</b> ，一般是一个列表
+</p>
+<pre class="example" id="orgaec0f83">
+在实际实现时，协程上下文容器可以使用一个也可以使用多个，比如：普通协程队列、定时的协程优先队列等
+</pre></li>
+<li>协程的执行器：
+<ul class="org-ul">
+<li>协程的调度器 对应操作系统中的 <b>进程/线程调度器</b></li>
+<li>执行协程的 worker 线程 对应实际线程/进程所使用的 <b>CPU 核心</b></li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgbd36ec4" class="outline-3">
+<h3 id="orgbd36ec4">协程的调度</h3>
+<div class="outline-text-3" id="text-orgbd36ec4">
+<p>
+协程的调度与 OS 线程调度十分相似，如下图调度示例所示：
+</p>
+
+
+<div id="org580dbc9" class="figure">
+<p><img src="pic/v2-05a8636f40227c15d18e4c6096bb4edd_1440w.jpg" alt="v2-05a8636f40227c15d18e4c6096bb4edd_1440w.jpg" width="80%" />
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org4fb95c5" class="outline-3">
+<h3 id="org4fb95c5">协程相关工具</h3>
+<div class="outline-text-3" id="text-org4fb95c5">
+<pre class="example" id="orgbe2e92e">
+系统级线程有锁（mutex）、条件变量（condition）等工具
+
+协程也有对应的工具，比如： libgo 提供了协程之间使用的锁 Co_mutex/Co_rwmutex 
+</pre>
+<p>
+线程和协程处于不同的系统层级，所以两者的同步工具不完全通用，如果在协程中使用了 <b>线程的锁</b> （例如： <span class="underline">std::mutex</span> ），则整个线程将会被阻塞，当前线程将不会再调度与执行其他协程
+</p>
+</div>
+</div>
+<div id="outline-container-org83d7eac" class="outline-3">
+<h3 id="org83d7eac">协程&amp;线程的对比</h3>
+<div class="outline-text-3" id="text-org83d7eac">
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 协程&amp;线程的对比</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">内容</td>
+<td class="org-left">线程</td>
+<td class="org-left">协程</td>
+</tr>
+
+<tr>
+<td class="org-left">调度方式</td>
+<td class="org-left">线程由系统控制，一般没有优先级</td>
+<td class="org-left">协程由编程者控制，协程之间可以有优先级</td>
+</tr>
+
+<tr>
+<td class="org-left">调度速度</td>
+<td class="org-left">相比协程，较慢</td>
+<td class="org-left">协程几乎比线程快一个数量级，协程调用由编码者控制，可以减少无效的调度</td>
+</tr>
+
+<tr>
+<td class="org-left">资源占用</td>
+<td class="org-left">线程由系统控制</td>
+<td class="org-left">协程可以控制内存占用量，灵活性更好</td>
+</tr>
+
+<tr>
+<td class="org-left">创建数量</td>
+<td class="org-left">相比于协程，占用更多内存</td>
+<td class="org-left">协程的使用更灵活（有优先级控制、资源使用可控），调度速度更快，相比于线程而言调度损耗更小，因此真实可创建且有效的协程数量可以比线程多很多，这是使用协程实现异步编程的重要基础，但是因为调度与资源的限制，有效协程的数量也是有上限的</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="outline-container-org59b5aaa" class="outline-3">
+<h3 id="org59b5aaa">协程对 CPU/IO 的影响</h3>
+<div class="outline-text-3" id="text-org59b5aaa">
+<p>
+协程的目的在于剔除线程的阻塞，尽可能提高 CPU 的利用率
+</p>
+
+<pre class="example" id="org7f1300b">
+很多服务在处理业务时需要请求第三方服务，向第三方服务发起 RPC 调用
+
+RPC 调用的网络耗时一般耗时在毫秒级别，RPC 服务的处理耗时也可能在毫秒级别
+
+如果当前服务使用同步调用，即 RPC 返回后才进行后续逻辑，那么一条线程每秒处理的业务数量是可以估算的
+
+假设每次业务处理花费在 RPC 调用上的耗时是 20ms，那么一条线程一秒最多处理 50 次请求。
+
+如果在等待 RPC 返回时当前线程没有被系统调度转换为 Ready 状态，那当前 CPU 核心就会空转，浪费了 CPU 资源
+
+通过增加线程数量提高系统吞吐量的效果非常有限，而且创建大量线程也会造成其他问题
+</pre>
+<p>
+协程虽然不一定能减少一次业务请求的耗时，但一定可以 <b>提升系统的吞吐量</b> ：
+</p>
+<ul class="org-ul">
+<li>当前业务只有一次第三方 RPC 的调用，那么协程不会减少业务处理的耗时，但可以提升 QPS</li>
+<li>当前业务需要多个第三方 RPC 调用，同时创建多个协程可以让多个 RPC 调用一起执行，则当前业务的 RPC 耗时由耗时最长的 RPC 调用决定</li>
+</ul>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
