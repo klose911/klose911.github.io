@@ -193,6 +193,38 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script>
+  window.MathJax = {
+    tex: {
+      ams: {
+        multlineWidth: '85%'
+      },
+      tags: 'ams',
+      tagSide: 'right',
+      tagIndent: '.8em'
+    },
+    chtml: {
+      scale: 1.0,
+      displayAlign: 'center',
+      displayIndent: '0em'
+    },
+    svg: {
+      scale: 1.0,
+      displayAlign: 'center',
+      displayIndent: '0em'
+    },
+    output: {
+      font: 'mathjax-modern',
+      displayOverflow: 'overflow'
+    }
+  };
+</script>
+
+<script
+  id="MathJax-script"
+  async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -206,6 +238,11 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org18da092">32 位入口点</a></li>
+<li><a href="#org63d52b4">重新加载内存段寄存器</a></li>
+<li><a href="#orgb3b66f0">栈的建立和 CPU 的确认</a></li>
+<li><a href="#org0351334">计算重定位地址</a></li>
+<li><a href="#orgb247f39">更新全局描述符表和启用PAE</a></li>
+<li><a href="#orgead01fd">长模式</a></li>
 </ul>
 </div>
 </div>
@@ -218,7 +255,7 @@
 <li>最后还将讨论如何切换到长模式</li>
 </ul>
 
-<pre class="example" id="orgde7ccc4">
+<pre class="example" id="orgd4eb9fe">
 注意：这部分将会有大量的汇编代码，如果不熟悉汇编，建议找本书参考一下
 </pre>
 
@@ -235,7 +272,7 @@
 eax 寄存器包含了 32 位入口点的地址。可以在 <a href="https://www.kernel.org/doc/Documentation/x86/boot.txt">x86 linux 内核引导协议</a> 中找到相关内容：
 </p>
 
-<pre class="example" id="org36ed4ee">
+<pre class="example" id="org6b5910d">
 When using bzImage, the protected-mode kernel was relocated to 0x100000
 
 当使用 bzImage 时，保护模式下的内核被重定位至 0x100000
@@ -245,7 +282,7 @@ When using bzImage, the protected-mode kernel was relocated to 0x100000
 检查一下 32 位入口点的寄存器值来确保这是对的：
 </p>
 
-<pre class="example" id="org2b98f5b">
+<pre class="example" id="org2f74efe">
 eax            0x100000	1048576
 ecx            0x0	    0
 edx            0x0	    0
@@ -268,11 +305,661 @@ gs             0x18	24
 在这里可以看到 cs 寄存器包含了 0x10 （代表了全局描述符表中的第二个索引项）， eip 寄存器的值是 0x100000，并且包括代码段在内的所有内存段的基地址都为0。所以可以得到物理地址： 0:0x100000 或者 0x100000，这和协议规定的一样
 </p>
 
-<pre class="example" id="org1f78051">
+<pre class="example" id="org550f694">
 现在就可以从 32 位入口点代码开始
 </pre>
 <div id="outline-container-org18da092" class="outline-2">
 <h2 id="org18da092">32 位入口点</h2>
+<div class="outline-text-2" id="text-org18da092">
+<p>
+可以在汇编源码 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">arch/x86/boot/compressed/head_64.S</a> 中找到 32 位入口点的定义
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">__HEAD</span>
+<span style="color: #00ffff;">.code32</span>
+<span style="color: #87cefa;">ENTRY</span>(startup_32)
+....
+....
+....
+<span style="color: #87cefa;">ENDPROC</span>(startup_32)
+</pre>
+</div>
+
+<p>
+首先，为什么目录名叫做 <b>被压缩的</b> <span class="underline">compressed</span> ？实际上 <span class="underline">bzimage</span> 是由 <b>vmlinux + 头文件 + 内核启动代码</b> 被 <span class="underline">gzip</span> 压缩之后获得的
+</p>
+
+<pre class="example" id="org0c51195">
+在前几个章节已经看到了启动内核的代码
+</pre>
+
+<p>
+head_64.S 的主要目的就是做好进入长模式的准备之后进入长模式，进入以后再解压内核
+</p>
+
+<pre class="example" id="org97334b8">
+接下来将会看到直到内核解压缩之前的所有步骤
+</pre>
+
+<p>
+在 arch/x86/boot/compressed 目录下有两个文件：
+</p>
+<ul class="org-ul">
+<li><a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_32.S">head_32.S</a></li>
+<li><a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">head_64.S</a></li>
+</ul>
+
+<pre class="example" id="org91526a0">
+这里只和 x86_64 有关，所以只会关注 head_64.S， head_32.S 没有被用到
+</pre>
+
+
+<p>
+先看一下 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/Makefile">arch/x86/boot/compressed/Makefile</a> 。可以看到以下目标：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">vmlinux-objs-y := $(obj)/vmlinux.lds $(obj)/head_$(BITS).o $(obj)/misc.o <span style="color: #ffa07a;">\</span>
+               $(obj)/string.o $(obj)/cmdline.o <span style="color: #ffa07a;">\</span>
+               $(obj)/piggy.o $(obj)/cpuflags.o
+</pre>
+</div>
+
+<p>
+注意 <span class="underline">\((obj)/head_\)(BITS).o</span> 。这意味着将会选择基于 <b>$(BITS)</b> 所设置的文件执行链接操作，即 head_32.o 或者 head_64.o 。$(BITS) 在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/Makefile">arch/x86/Makefile</a> 之中根据 .config 文件另外定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #87cefa;">ifeq</span> ($(CONFIG_X86_32),y)
+BITS := 32
+...
+...
+<span style="color: #00ffff;">else</span>
+    BITS := 64
+    ...
+    ...
+    endif
+</pre>
+</div>
+
+<pre class="example" id="org37d8a61">
+现在知道从哪里开始了，那就来吧
+</pre>
+</div>
+</div>
+<div id="outline-container-org63d52b4" class="outline-2">
+<h2 id="org63d52b4">重新加载内存段寄存器</h2>
+<div class="outline-text-2" id="text-org63d52b4">
+<p>
+首先看到了在 <span class="underline">startup_32</span> 之前的特殊段属性定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">__HEAD</span>
+<span style="color: #00ffff;">.code32</span>
+<span style="color: #87cefa;">ENTRY</span>(startup_32)
+</pre>
+</div>
+
+<p>
+这个 <b>__HEAD</b> 是一个定义在头文件 <a href="https://github.com/torvalds/linux/blob/v3.18/include/linux/init.h?v=3.18">include/linux/init.h</a> 中的宏，展开后就是下面这个段的定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">__HEAD</span>          .section        <span style="color: #ffa07a;">".head.text"</span>,<span style="color: #ffa07a;">"ax"</span>
+</pre>
+</div>
+
+<p>
+其拥有 <span class="underline">.head.text</span> 的命名和 <span class="underline">ax</span> 标记。这些标记说明这个段是 <a href="https://en.wikipedia.org/wiki/Executable">可执行的</a>，或者换种说法，包含了代码。可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/vmlinux.lds.S?v=3.18">arch/x86/boot/compressed/vmlinux.lds.S</a> 这个链接脚本里找到这个段的定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">SECTIONS
+{
+    . = 0;
+    .head.text : {
+        <span style="color: #eedd82;">_head</span> = . ;
+        HEAD_TEXT
+        <span style="color: #eedd82;">_ehead</span> = . ;
+    }
+</pre>
+</div>
+
+<p>
+简单来说，这个 . 符号是一个 <span class="underline">链接器</span> 的特殊变量 <b>位置计数器</b> 。其被赋值为 <span class="underline">相对于该段</span> 的 <b>偏移</b>
+</p>
+
+<pre class="example" id="org4d1f815">
+在这里，将位置计数器赋值为0，这意味着代码被链接到内存的 0 偏移处
+
+如果不熟悉 GNU LD 这个链接脚本语言的语法，可以在 https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts 中找到更多信息
+</pre>
+
+<p>
+此外，可以从注释里找到更多信息：
+</p>
+<pre class="example" id="org99c8256">
+Be careful parts of head_64.S assume startup_32 is at address 0.
+
+要小心， head_64.S 中一些部分假设 startup_32 位于地址 0
+</pre>
+
+<p>
+在 startup_32 函数的开始，可以看到 <b>cld</b> 指令将 <span class="underline">标志寄存器的 DF</span> <b>方向标志位</b> 清空。当方向标志被清空，所有的串操作指令像 <span class="underline">stos</span> ， <span class="underline">scas</span> 等等将会 <b>增加</b> 索引寄存器 <span class="underline">esi</span> 或者 <span class="underline">edi</span> 的值
+</p>
+
+<pre class="example" id="orgcdf3b37">
+需要清空方向标志是因为接下来会使用汇编的串操作指令来做为页表腾出空间等工作
+</pre>
+
+<p>
+在清空 DF 标志后，下一步就是从内核加载头中的 <span class="underline">loadflags</span> 字段来检查 <span class="underline">KEEP_SEGMENTS 标志</span>
+</p>
+
+<pre class="example" id="org3769abb">
+在本书的最初一节，其实已经看到过 loadflags
+
+在那里检查了 CAN_USE_HEAP 标记以使用堆
+</pre>
+<p>
+现在需要检查 KEEP_SEGMENTS 标记。这些标记在 linux 的 <a href="https://www.kernel.org/doc/Documentation/x86/boot.txt">引导协议</a> 文档中有描述：
+</p>
+
+<pre class="example" id="orge78beff">
+Bit 6 (write): KEEP_SEGMENTS
+  Protocol: 2.07+
+  - If 0, reload the segment registers in the 32bit entry point.
+  - If 1, do not reload the segment registers in the 32bit entry point.
+    Assume that %cs %ds %ss %es are all set to flat segments with
+	a base of 0 (or the equivalent for their environment).
+
+
+第 6 位 (写): KEEP_SEGMENTS
+  协议版本: 2.07+
+  - 为0，在32位入口点重载段寄存器
+  - 为1，不在32位入口点重载段寄存器。假设 %cs %ds %ss %es 都被设到基地址为0的普通段中（或者在他们的环境中等价的位置）
+</pre>
+
+<p>
+所以，如果 KEEP_SEGMENTS 位在 loadflags 中没有被设置，需要重置 <span class="underline">ds</span> , <span class="underline">ss</span> 和 <span class="underline">es</span> 段寄存器到一个基地址为 0 的普通段中。如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">testb</span> <span style="color: #00ffff;">$</span>(1 &lt;&lt; 6), BP_loadflags(<span style="color: #eedd82;">%esi</span>)
+<span style="color: #87cefa;">jnz</span> <span style="color: #00ffff;">1f</span>
+
+<span style="color: #87cefa;">cli</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$</span>(__BOOT_DS), <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%ds</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%es</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%ss</span>
+</pre>
+</div>
+
+<p>
+记住 <b>__BOOT_DS</b> 是 <span class="underline">0x18</span> （位于 <a href="https://en.wikipedia.org/wiki/Global_Descriptor_Table">全局描述符表</a> 中 <b>数据段</b> 的索引）。如果设置了 KEEP_SEGMENTS ，就跳转到最近的 1f 标签，或者当没有 1f 标签，则用 __BOOT_DS 更新段寄存器
+</p>
+
+<pre class="example" id="orga322023">
+这非常简单，但这是一个有趣的操作
+
+如果已经读了前一章节，或许还记得在 arch/x86/boot/pmjump.S 中切换到保护模式的时候已经更新了这些段寄存器
+
+那么为什么还要去关心这些段寄存器的值呢？
+
+答案很简单，Linux 内核也有32位的引导协议，如果一个引导程序之前使用32位协议引导内核，那么在 startup_32 之前的代码就会被忽略
+
+在这种情况下 startup_32 将会变成引导程序之后的第一个入口点，不保证段寄存器会不会处于未知状态
+</pre>
+
+<p>
+下一步就是计算代码的加载和编译运行之间的位置偏差了
+</p>
+
+<pre class="example" id="orgdcf005a">
+记住 setup.ld.S 包含了以下定义：在 .head.text 段的开始 . = 0
+
+这意味着这一段代码被编译成从 0 地址运行
+</pre>
+
+<p>
+可以在 objdump 工具的输出中看到：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">arch/x86/boot/compressed/vmlinux:     file format elf64-x86-64
+
+
+Disassembly of section .head.text:
+
+0000000000000000 &lt;startup_32&gt;:
+0:   fc                      cld
+1:   f6 86 11 02 00 00 40    testb  $<span style="color: #eedd82;">0</span>x40,0x211(%rsi)
+</pre>
+</div>
+
+<p>
+objdump 工具显示 <b>startup_32</b> 的地址是 <span class="underline">0</span>
+</p>
+
+<pre class="example" id="org5d5b5ff">
+但实际上并不是。现在需要知道实际上在哪里
+
+在长模式下，这非常简单，因为其支持 rip 相对寻址
+</pre>
+
+<p>
+但是当前处于保护模式下。将会使用一个常用的方法来确定 startup_32 的地址。需要定义一个标签并且跳转到它，然后把栈顶抛出到一个寄存器中：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">call</span> label
+<span style="color: #87cefa;">label</span>: <span style="color: #00ffff;">pop</span> <span style="color: #eedd82;">%reg</span>
+</pre>
+</div>
+
+<p>
+在这之后，那个寄存器将会包含标签的地址，Linux 内核中类似的寻找 startup_32 地址的代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">leal</span>    (BP_scratch+4)(<span style="color: #eedd82;">%esi</span>), <span style="color: #eedd82;">%esp</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; scratch &#30340;&#22320;&#22336;&#21152; 4 &#23384;&#20837; esp &#23492;&#23384;&#22120;</span>
+        <span style="color: #00ffff;">call</span>    1f <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36339;&#36716;&#21040;1f </span>
+<span style="color: #87cefa;">1</span>:  <span style="color: #00ffff;">popl</span>        <span style="color: #eedd82;">%ebp</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;1f&#26631;&#31614;&#30340;&#22320;&#22336;&#25918;&#20837;ebf </span>
+        <span style="color: #00ffff;">subl</span>    $1b, <span style="color: #eedd82;">%ebp</span> 
+</pre>
+</div>
+
+<p>
+<span class="underline">esi</span> 寄存器包含了 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/uapi/asm/bootparam.h#L113">boot_params</a> 结构的地址，这个结构在切换到保护模式之前已经被填充了。bootparams 这个结构体包含了一个特殊的字段 <b>scratch</b> ，其偏移量为 <span class="underline">0x1e4</span> 。这个 4 字节的区域将会成为 <span class="underline">call 指令</span> 的 <b>临时栈</b>
+</p>
+
+<pre class="example" id="orgc92c704">
+之所以在 BP_scratch 基础上加 4 是因为，如之前所说的，这将成为一个临时的栈
+
+而在 x86_64 架构下，栈是自顶向下生长的。所以栈指针就会指向栈顶
+</pre>
+
+<p>
+接下来就可以看到上面描述的过程。跳转到 1f 标签并且把该标签的地址放入 ebp 寄存器
+</p>
+
+<pre class="example" id="org8eb5608">
+因为在执行 call 指令之后我们把返回地址放到了栈顶
+
+那么，既然已经拥有 1f 标签的地址，也能够很容易得到 startup_32 的地址
+</pre>
+
+<p>
+只需要把 <span class="underline">从栈里得到的地址</span> 减去 <span class="underline">标签的地址</span> ：
+</p>
+
+<pre class="example" id="org97cdc01">
+startup_32 (0x0)     +-----------------------+
+                     |                       |
+                     |                       |
+                     |                       |
+                     |                       |
+                     |                       |
+                     |                       |
+                     |                       |
+                     |                       |
+1f (0x0 + 1f offset) +-----------------------+ %ebp - 实际物理地址
+                     |                       |
+                     |                       |
+                     +-----------------------+
+</pre>
+
+<p>
+startup_32 被链接为在 0x0 地址运行，这意味着 <span class="underline">1f 的地址</span> 为 <span class="underline">0x0 + 1f 的偏移量</span>  。实际上偏移量大概是 <b>0x22</b> 字节。 <span class="underline">ebp 寄存器</span> 包含了 <span class="underline">1f 标签的实际物理地址</span> 。所以如果从 ebp 中减去 1f ，就会得到 startup_32 的实际物理地址。Linux 内核的引导协议描述了保护模式下的内核基地址是 <span class="underline">0x100000</span>
+</p>
+
+<p>
+可以用 <a href="https://zh.wikipedia.org/wiki/GNU%E4%BE%A6%E9%94%99%E5%99%A8">gdb</a> 来验证。启动调试器并且在 1f 的地址 <span class="underline">0x100022</span> 添加断点。如果这是正确的，将会看到在 ebp 寄存器中值为 0x100022 ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ gdb
+(gdb)$ target remote :1234
+Remote debugging using :1234
+0x0000fff0<span style="color: #00ffff;"> in</span> ?? ()
+(gdb)$ br *0x100022
+Breakpoint 1 at 0x100022
+(gdb)$ c
+Continuing.
+
+Breakpoint 1, 0x00100022<span style="color: #00ffff;"> in</span> ?? ()
+(gdb)$ i r
+eax            0x18     0x18
+ecx            0x0      0x0
+edx            0x0      0x0
+ebx            0x0      0x0
+esp            0x144a8  0x144a8
+ebp            0x100021 0x100021
+esi            0x142c0  0x142c0
+edi            0x0      0x0
+eip            0x100022 0x100022
+eflags         0x46     [ PF ZF ]
+cs             0x10     0x10
+ss             0x18     0x18
+ds             0x18     0x18
+es             0x18     0x18
+fs             0x18     0x18
+gs             0x18     0x18
+</pre>
+</div>
+
+<p>
+如果执行下一条指令 <span class="underline">subl	$1b, %ebp</span> ，将会看到：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">nexti
+...
+ebp            0x100000 0x100000
+...
+</pre>
+</div>
+<pre class="example" id="org7989d01">
+好了，那是对的。startup_32 的地址是 0x100000
+</pre>
+
+<p>
+知道了 startup_32 的地址之后，可以开始准备切换到 <a href="https://zh.wikipedia.org/wiki/%E9%95%BF%E6%A8%A1%E5%BC%8F">长模式</a>了
+</p>
+
+<pre class="example" id="org61c2e0a">
+下一个目标是建立栈并且确认 CPU 对长模式和 SSE 的支持
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb3b66f0" class="outline-2">
+<h2 id="orgb3b66f0">栈的建立和 CPU 的确认</h2>
+<div class="outline-text-2" id="text-orgb3b66f0">
+<pre class="example" id="org6cd6612">
+如果不知道 startup_32 标签的地址，就无法建立栈
+</pre>
+
+<p>
+可以把栈看作是一个数组，并且栈指针寄存器 <span class="underline">esp</span> 必须指向 <span class="underline">数组的底部</span> 。当然可以在自己的代码里定义一个数组，但是需要知道其真实地址来正确配置栈指针。看一下代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$boot</span>_stack_end, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">eax &#23492;&#23384;&#22120;&#23558;&#21253;&#21547; boot_stack_end &#38142;&#25509;&#21518;&#30340;&#22320;&#22336; (0x0 + boot_stack_end) </span>
+<span style="color: #87cefa;">addl</span>    <span style="color: #00ffff;">%ebp</span>, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">ebp &#23492;&#23384;&#22120;&#37324;&#26159; startup_32 &#30340;&#23454;&#38469;&#29289;&#29702;&#22320;&#22336;</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%esp</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">esp &#25351;&#21521; boot_stack_end&#30340;&#23454;&#38469;&#29289;&#29702;&#22320;&#22336;</span>
+</pre>
+</div>
+
+<p>
+<b>boots_stack_end</b> 标签被定义在同一个汇编文件  <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">head_64.S</a> 中，位于 <a href="https://en.wikipedia.org/wiki/.bss">.bss</a> 段：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">.bss</span>
+        <span style="color: #00ffff;">.balign</span> 4
+<span style="color: #87cefa;">boot_heap</span>:
+        <span style="color: #00ffff;">.fill</span> BOOT_HEAP_SIZE, 1, 0
+<span style="color: #87cefa;">boot_stack</span>:
+        <span style="color: #00ffff;">.fill</span> BOOT_STACK_SIZE, 1, 0
+<span style="color: #87cefa;">boot_stack_end</span>:
+</pre>
+</div>
+
+<ol class="org-ol">
+<li>首先，把 <span class="underline">boot_stack_end</span> 放到 <span class="underline">eax 寄存器</span> 中。那么 eax 寄存器将包含 boot_stack_end 链接后的地址或者说 0x0 + boot_stack_end</li>
+<li><p>
+为了得到 boot_stack_end 的实际地址，需要加上 startup_32 的实际地址
+</p>
+<pre class="example" id="org2f62fd3">
+回忆一下，前面找到了这个地址并且把它存到了 ebp 寄存器中
+</pre></li>
+<li>最后，eax 寄存器将会包含 boot_stack_end 的实际地址，只需要将其放到栈指针上</li>
+</ol>
+
+<pre class="example" id="org678e968">
+到这里已经建立了栈
+</pre>
+
+<p>
+下一步是 CPU 的确认。既然将要切换到 <b>长模式</b> ，需要检查 CPU 是否支持 <span class="underline">长模式</span> 和 <span class="underline">SSE</span> 。跳转到 <b>verify_cpu</b> 函数之后执行：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">call</span>    <span style="color: #00ffff;">verify</span>_cpu
+<span style="color: #87cefa;">testl</span>   <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">jnz</span>     <span style="color: #00ffff;">no</span>_longmode
+</pre>
+</div>
+
+<p>
+这个函数定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/verify_cpu.S">arch/x86/kernel/verify_cpu.S</a> 中，包含了几个对 <span class="underline">cpuid</span> 指令的调用。该指令用于 <b>获取</b> <span class="underline">处理器的信息</span> 
+</p>
+
+<pre class="example" id="org6dec509">
+这里，它检查了对 长模式 和 SSE 的支持
+</pre>
+
+<p>
+通过 eax 寄存器返回 0 表示成功，1 表示 失败 
+</p>
+<ul class="org-ul">
+<li><p>
+如果 eax 的值不是 0 ，就跳转到 <b>no_longmode</b> 标签
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">no_longmode</span>:
+<span style="color: #87cefa;">1</span>:
+        <span style="color: #00ffff;">hlt</span>
+        <span style="color: #00ffff;">jmp</span>     1b
+</pre>
+</div>
+<ul class="org-ul">
+<li>用 hlt 指令停止 CPU ，期间不会发生硬件中断</li>
+</ul></li>
+<li>如果 eax 的值为0，万事大吉，可以继续</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org0351334" class="outline-2">
+<h2 id="org0351334">计算重定位地址</h2>
+<div class="outline-text-2" id="text-org0351334">
+<pre class="example" id="org0211a4d">
+下一步是在必要的时候计算解压缩之后的地址
+</pre>
+<p>
+首先，需要知道 <span class="underline">内核重定位</span> 的意义
+</p>
+
+<pre class="example" id="orgdd629e4">
+我们已经知道 Linux 内核的32位入口点地址位于 0x100000，但是那是一个32位的入口
+
+默认的内核基地址由内核配置项 CONFIG_PHYSICAL_START 的值所确定，其默认值为 0x1000000 或 16 MB
+</pre>
+
+<p>
+主要问题是如果内核崩溃了，内核开发者需要一个配置于不同地址加载的 <span class="underline">救援内核</span> 来进行 <a href="https://www.kernel.org/doc/Documentation/kdump/kdump.txt">kdump</a> 。Linux 内核提供了特殊的配置选项以解决此问题 <b>CONFIG_RELOCATABLE</b> 。可以在内核文档中找到：
+</p>
+
+<pre class="example" id="orgf8a6507">
+This builds a kernel image that retains relocation information
+so it can be loaded someplace besides the default 1MB.
+
+Note: If CONFIG_RELOCATABLE=y, then the kernel runs from the address
+it has been loaded at and the compile time physical address
+(CONFIG_PHYSICAL_START) is used as the minimum location.
+
+这建立了一个保留了重定向信息的内核镜像，这样就可以在默认的 1MB 位置之外加载了。
+
+注意：如果 CONFIG_RELOCATABLE=y， 那么 内核将会从其被加载的位置运行，编译时的物理地址 (CONFIG_PHYSICAL_START) 将会被作为最低地址位置的限制
+</pre>
+
+<p>
+简单来说，这意味着相同配置下的 Linux 内核可以从不同地址被启动。这是通过将程序以 <a href="https://zh.wikipedia.org/wiki/%E5%9C%B0%E5%9D%80%E6%97%A0%E5%85%B3%E4%BB%A3%E7%A0%81">位置无关代码</a> 的形式编译来达到的。如果参考 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/Makefile">arch/x86/Makefile</a> 将会看到解压器的确是用 <span class="underline">-fPIC</span> 标记编译的：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">KBUILD_CFLAGS</span> += -fno-strict-aliasing -fPIC
+</pre>
+</div>
+
+<p>
+当使用位置无关代码时，一段代码的地址是由一个 <span class="underline">控制地址</span> 加上 <span class="underline">程序计数器</span> 计算得到的
+</p>
+
+<pre class="example" id="orgda13b2f">
+可以从任意一个地址加载使用这种方式寻址的代码。这就是为什么我们需要获得 startup_32 的实际地址
+
+现在回到 Linux 内核代码。目前的目标是计算出内核解压的地址
+</pre>
+
+<p>
+这个地址的计算取决于内核配置项 <b>CONFIG_RELOCATABLE</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #7fffd4;">#ifdef</span> <span style="color: #eedd82;">CONFIG_RELOCATABLE</span>
+        <span style="color: #00ffff;">movl</span>    <span style="color: #eedd82;">%ebp</span>, <span style="color: #eedd82;">%ebx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">ebp &#23492;&#23384;&#22120;&#30340;&#20540;&#23601;&#26159; startup_32 &#26631;&#31614;&#30340;&#29289;&#29702;&#22320;&#22336;</span>
+        <span style="color: #00ffff;">movl</span>    BP_kernel_alignment(<span style="color: #eedd82;">%esi</span>), <span style="color: #eedd82;">%eax</span>
+        <span style="color: #00ffff;">decl</span>    <span style="color: #eedd82;">%eax</span>
+        <span style="color: #00ffff;">addl</span>    <span style="color: #eedd82;">%eax</span>, <span style="color: #eedd82;">%ebx</span>
+        <span style="color: #00ffff;">notl</span>    <span style="color: #eedd82;">%eax</span>
+        <span style="color: #00ffff;">andl</span>    <span style="color: #eedd82;">%eax</span>, <span style="color: #eedd82;">%ebx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23545;&#40784;&#21040; 2M &#30340;&#25972;&#25968;&#20493;</span>
+        <span style="color: #00ffff;">cmpl</span>    $LOAD_PHYSICAL_ADDR, <span style="color: #eedd82;">%ebx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21644; LOAD_PHYSICAL_ADDR &#30340;&#20540;</span>
+        <span style="color: #00ffff;">jge</span>     1f
+<span style="color: #7fffd4;">#endif</span>
+        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21152;&#19978;&#20559;&#31227;&#26469;&#33719;&#24471;&#35299;&#21387;&#20869;&#26680;&#38236;&#20687;&#30340;&#22320;&#22336;</span>
+        <span style="color: #00ffff;">movl</span>    $LOAD_PHYSICAL_ADDR, <span style="color: #eedd82;">%ebx</span>
+<span style="color: #87cefa;">1</span>:
+        <span style="color: #00ffff;">addl</span>    $z_extract_offset, <span style="color: #eedd82;">%ebx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#30452;&#25509;&#21152;&#19978; z_extract_offset</span>
+</pre>
+</div>
+
+
+<p>
+如果在内核配置中 CONFIG_RELOCATABLE 内核配置项开启：
+</p>
+<ol class="org-ol">
+<li>就把 ebp 寄存器放到 ebx 寄存器中</li>
+<li>对齐到 2M 的整数倍</li>
+<li>和 LOAD_PHYSICAL_ADDR 的值比较
+<ul class="org-ul">
+<li><p>
+LOAD_PHYSICAL_ADDR 宏定义在头文件 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/boot.h">arch/x86/include/asm/boot.h</a> 中：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">LOAD_PHYSICAL_ADDR</span> ((CONFIG_PHYSICAL_START \
+                                <span style="color: #00ffff;">+</span> (CONFIG_PHYSICAL_ALIGN - 1)) \
+                                <span style="color: #00ffff;">&amp;</span> ~(CONFIG_PHYSICAL_ALIGN - 1))
+</pre>
+</div>
+<pre class="example" id="orgc8e4901">
+该宏只是展开成对齐的 CONFIG_PHYSICAL_ALIGN 值，其表示了内核加载位置的物理地址
+</pre></li>
+</ul></li>
+<li>给 startup_32 加上 <span class="underline">偏移</span> 来获得 <span class="underline">解压内核镜像的地址</span> ：
+<ul class="org-ul">
+<li>如果 CONFIG_RELOCATABLE 选项在内核配置时没有开启，就直接将默认的地址加上 <b>z_extract_offset</b></li>
+</ul></li>
+</ol>
+
+<pre class="example" id="org5d8cd4f">
+在前面的操作之后，ebp 包含了加载时的地址，ebx 被设为内核解压缩的目标地址
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb247f39" class="outline-2">
+<h2 id="orgb247f39">更新全局描述符表和启用PAE</h2>
+<div class="outline-text-2" id="text-orgb247f39">
+<pre class="example" id="orgbd1375e">
+在得到了重定位内核镜像的基地址之后，开始做切换到64位模式之前的最后准备
+</pre>
+<p>
+首先，需要更新全局描述符表：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leal</span>    <span style="color: #00ffff;">gdt</span>(<span style="color: #eedd82;">%ebp</span>), <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; ebp &#23492;&#23384;&#22120;&#21152;&#19978; gdt &#30340;&#20559;&#31227;&#23384;&#21040; eax &#23492;&#23384;&#22120;</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, gdt+2(<span style="color: #eedd82;">%ebp</span>) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#36825;&#20010;&#22320;&#22336;&#25918;&#21040; ebp &#21152;&#19978; gdt+2 &#20559;&#31227;&#30340;&#20301;&#32622;&#19978;</span>
+<span style="color: #87cefa;">lgdt</span>    <span style="color: #00ffff;">gdt</span>(<span style="color: #eedd82;">%ebp</span>) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29992; lgdt &#25351;&#20196;&#36733;&#20837; &#20840;&#23616;&#25551;&#36848;&#31526;&#34920;</span>
+</pre>
+</div>
+
+<p>
+为了理解这个神奇的 gdt + 2偏移量，需要关注 <b>全局描述符表</b> 的定义。可以在同一个源文件中找到其定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">.data</span>
+<span style="color: #87cefa;">gdt</span>:
+        <span style="color: #00ffff;">.word</span>   gdt_end - gdt <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20840;&#23616;&#25551;&#36848;&#31526;&#34920;&#30340;&#22823;&#23567; (16&#20301;) </span>
+        <span style="color: #00ffff;">.long</span>   gdt <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20840;&#23616;&#25551;&#36848;&#31526;&#34920;&#30340;&#22522;&#22336; &#65288;32&#20301;&#65289;</span>
+        <span style="color: #00ffff;">.word</span>   0
+        <span style="color: #00ffff;">.quad</span>   0x0000000000000000      <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">NULL descriptor</span><span style="color: #ff4500;"> */</span>
+        <span style="color: #00ffff;">.quad</span>   0x00af9a000000ffff      <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">__KERNEL_CS</span><span style="color: #ff4500;"> */</span>
+        <span style="color: #00ffff;">.quad</span>   0x00cf92000000ffff      <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">__KERNEL_DS</span><span style="color: #ff4500;"> */</span>
+        <span style="color: #00ffff;">.quad</span>   0x0080890000000000      <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">TS descriptor</span><span style="color: #ff4500;"> */</span>
+        <span style="color: #00ffff;">.quad</span>   0x0000000000000000      <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">TS continued</span><span style="color: #ff4500;"> */</span>
+<span style="color: #87cefa;">gdt_end</span>:
+</pre>
+</div>
+
+<p>
+全局描述符表位于 <span class="underline">.data</span> 段，并且包含了5个描述符： <span class="underline">null</span> 、 <span class="underline">内核代码段</span> 、 <span class="underline">内核数据段</span> 和其他两个 <span class="underline">任务描述符</span>
+</p>
+
+<pre class="example" id="org7b77a0a">
+已经在上一章节载入了 全局描述符表 ，现在要做的也差不多
+
+需要把描述符改为 CS.L = 1, CS.D = 0 从而在 64 位模式下执行
+</pre>
+
+<p>
+而gdt 的定义：
+</p>
+<ul class="org-ul">
+<li>两个字节：gdt_end - gdt ，代表了 gdt 表的最后一个字节，或者说表的范围</li>
+<li>4个字节包含了 gdt 的基地址</li>
+</ul>
+
+<p>
+全局描述符表 保存在 48位 <b>GDTR寄存器</b> 中，由两个部分组成：
+</p>
+<ul class="org-ul">
+<li>全局描述符表的大小 (16位）</li>
+<li>全局描述符表的基址 (32位)</li>
+</ul>
+
+<p>
+所以，当把 gdt 的地址放到 eax 寄存器，然后存到 .long	gdt 和 gdt+2。最后用 <span class="underline">lgdt</span> 指令 <b>载入</b> 到GDPR寄存器 中。
+</p>
+
+<pre class="example" id="orgefa985a">
+这样全局描述符表就更新完毕了
+</pre>
+
+<p>
+接下来必须启用 <a href="https://en.wikipedia.org/wiki/Physical_Address_Extension">PAE</a> 模式。方法是将 <span class="underline">cr4 寄存器</span> 的值传入 eax ，将 <span class="underline">第5位</span> <b>置</b> <span class="underline">1</span> ，然后再 <b>写回</b> <span class="underline">cr4</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%cr4</span>, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36733;&#20837; cr4 &#23492;&#23384;&#22120;</span>
+<span style="color: #87cefa;">orl</span>     <span style="color: #00ffff;">$X86</span>_CR4_PAE, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31532;5&#20301;&#32622;&#20026;1</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%cr4</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20889;&#22238; cr4 &#23492;&#23384;&#22120;</span>
+</pre>
+</div>
+
+<pre class="example" id="org76ae5f0">
+现在已经接近完成进入64位模式前的所有准备工作了
+
+最后一步是建立页表，但是在此之前，先介绍一些关于长模式的知识
+</pre>
+</div>
+</div>
+<div id="outline-container-orgead01fd" class="outline-2">
+<h2 id="orgead01fd">长模式</h2>
 </div>
 </div>
 <div id="postamble" class="status">
