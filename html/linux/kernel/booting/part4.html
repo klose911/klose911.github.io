@@ -242,7 +242,12 @@
 <li><a href="#orgb3b66f0">栈的建立和 CPU 的确认</a></li>
 <li><a href="#org0351334">计算重定位地址</a></li>
 <li><a href="#orgb247f39">更新全局描述符表和启用PAE</a></li>
-<li><a href="#orgead01fd">长模式</a></li>
+<li><a href="#orgead01fd">长模式</a>
+<ul>
+<li><a href="#org2fed45c">页表初始化</a></li>
+<li><a href="#orged165eb">切换到长模式</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -255,7 +260,7 @@
 <li>最后还将讨论如何切换到长模式</li>
 </ul>
 
-<pre class="example" id="orgd4eb9fe">
+<pre class="example" id="org4e1533a">
 注意：这部分将会有大量的汇编代码，如果不熟悉汇编，建议找本书参考一下
 </pre>
 
@@ -272,7 +277,7 @@
 eax 寄存器包含了 32 位入口点的地址。可以在 <a href="https://www.kernel.org/doc/Documentation/x86/boot.txt">x86 linux 内核引导协议</a> 中找到相关内容：
 </p>
 
-<pre class="example" id="org6b5910d">
+<pre class="example" id="org863238e">
 When using bzImage, the protected-mode kernel was relocated to 0x100000
 
 当使用 bzImage 时，保护模式下的内核被重定位至 0x100000
@@ -282,7 +287,7 @@ When using bzImage, the protected-mode kernel was relocated to 0x100000
 检查一下 32 位入口点的寄存器值来确保这是对的：
 </p>
 
-<pre class="example" id="org2f74efe">
+<pre class="example" id="orgea0dafe">
 eax            0x100000	1048576
 ecx            0x0	    0
 edx            0x0	    0
@@ -305,7 +310,7 @@ gs             0x18	24
 在这里可以看到 cs 寄存器包含了 0x10 （代表了全局描述符表中的第二个索引项）， eip 寄存器的值是 0x100000，并且包括代码段在内的所有内存段的基地址都为0。所以可以得到物理地址： 0:0x100000 或者 0x100000，这和协议规定的一样
 </p>
 
-<pre class="example" id="org550f694">
+<pre class="example" id="org3d92d22">
 现在就可以从 32 位入口点代码开始
 </pre>
 <div id="outline-container-org18da092" class="outline-2">
@@ -330,7 +335,7 @@ gs             0x18	24
 首先，为什么目录名叫做 <b>被压缩的</b> <span class="underline">compressed</span> ？实际上 <span class="underline">bzimage</span> 是由 <b>vmlinux + 头文件 + 内核启动代码</b> 被 <span class="underline">gzip</span> 压缩之后获得的
 </p>
 
-<pre class="example" id="org0c51195">
+<pre class="example" id="org6840118">
 在前几个章节已经看到了启动内核的代码
 </pre>
 
@@ -338,7 +343,7 @@ gs             0x18	24
 head_64.S 的主要目的就是做好进入长模式的准备之后进入长模式，进入以后再解压内核
 </p>
 
-<pre class="example" id="org97334b8">
+<pre class="example" id="org44abd8c">
 接下来将会看到直到内核解压缩之前的所有步骤
 </pre>
 
@@ -350,7 +355,7 @@ head_64.S 的主要目的就是做好进入长模式的准备之后进入长模�
 <li><a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">head_64.S</a></li>
 </ul>
 
-<pre class="example" id="org91526a0">
+<pre class="example" id="orgd3ac8e7">
 这里只和 x86_64 有关，所以只会关注 head_64.S， head_32.S 没有被用到
 </pre>
 
@@ -383,7 +388,7 @@ BITS := 32
 </pre>
 </div>
 
-<pre class="example" id="org37d8a61">
+<pre class="example" id="orgd2c76c5">
 现在知道从哪里开始了，那就来吧
 </pre>
 </div>
@@ -431,7 +436,7 @@ BITS := 32
 简单来说，这个 . 符号是一个 <span class="underline">链接器</span> 的特殊变量 <b>位置计数器</b> 。其被赋值为 <span class="underline">相对于该段</span> 的 <b>偏移</b>
 </p>
 
-<pre class="example" id="org4d1f815">
+<pre class="example" id="org62b65e8">
 在这里，将位置计数器赋值为0，这意味着代码被链接到内存的 0 偏移处
 
 如果不熟悉 GNU LD 这个链接脚本语言的语法，可以在 https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts 中找到更多信息
@@ -440,7 +445,7 @@ BITS := 32
 <p>
 此外，可以从注释里找到更多信息：
 </p>
-<pre class="example" id="org99c8256">
+<pre class="example" id="org9a540d5">
 Be careful parts of head_64.S assume startup_32 is at address 0.
 
 要小心， head_64.S 中一些部分假设 startup_32 位于地址 0
@@ -450,7 +455,7 @@ Be careful parts of head_64.S assume startup_32 is at address 0.
 在 startup_32 函数的开始，可以看到 <b>cld</b> 指令将 <span class="underline">标志寄存器的 DF</span> <b>方向标志位</b> 清空。当方向标志被清空，所有的串操作指令像 <span class="underline">stos</span> ， <span class="underline">scas</span> 等等将会 <b>增加</b> 索引寄存器 <span class="underline">esi</span> 或者 <span class="underline">edi</span> 的值
 </p>
 
-<pre class="example" id="orgcdf3b37">
+<pre class="example" id="org206b33f">
 需要清空方向标志是因为接下来会使用汇编的串操作指令来做为页表腾出空间等工作
 </pre>
 
@@ -458,7 +463,7 @@ Be careful parts of head_64.S assume startup_32 is at address 0.
 在清空 DF 标志后，下一步就是从内核加载头中的 <span class="underline">loadflags</span> 字段来检查 <span class="underline">KEEP_SEGMENTS 标志</span>
 </p>
 
-<pre class="example" id="org3769abb">
+<pre class="example" id="org904ed73">
 在本书的最初一节，其实已经看到过 loadflags
 
 在那里检查了 CAN_USE_HEAP 标记以使用堆
@@ -467,7 +472,7 @@ Be careful parts of head_64.S assume startup_32 is at address 0.
 现在需要检查 KEEP_SEGMENTS 标记。这些标记在 linux 的 <a href="https://www.kernel.org/doc/Documentation/x86/boot.txt">引导协议</a> 文档中有描述：
 </p>
 
-<pre class="example" id="orge78beff">
+<pre class="example" id="org501dc3b">
 Bit 6 (write): KEEP_SEGMENTS
   Protocol: 2.07+
   - If 0, reload the segment registers in the 32bit entry point.
@@ -502,7 +507,7 @@ Bit 6 (write): KEEP_SEGMENTS
 记住 <b>__BOOT_DS</b> 是 <span class="underline">0x18</span> （位于 <a href="https://en.wikipedia.org/wiki/Global_Descriptor_Table">全局描述符表</a> 中 <b>数据段</b> 的索引）。如果设置了 KEEP_SEGMENTS ，就跳转到最近的 1f 标签，或者当没有 1f 标签，则用 __BOOT_DS 更新段寄存器
 </p>
 
-<pre class="example" id="orga322023">
+<pre class="example" id="org4759bd5">
 这非常简单，但这是一个有趣的操作
 
 如果已经读了前一章节，或许还记得在 arch/x86/boot/pmjump.S 中切换到保护模式的时候已经更新了这些段寄存器
@@ -518,7 +523,7 @@ Bit 6 (write): KEEP_SEGMENTS
 下一步就是计算代码的加载和编译运行之间的位置偏差了
 </p>
 
-<pre class="example" id="orgdcf005a">
+<pre class="example" id="orgcceface">
 记住 setup.ld.S 包含了以下定义：在 .head.text 段的开始 . = 0
 
 这意味着这一段代码被编译成从 0 地址运行
@@ -544,7 +549,7 @@ Disassembly of section .head.text:
 objdump 工具显示 <b>startup_32</b> 的地址是 <span class="underline">0</span>
 </p>
 
-<pre class="example" id="org5d5b5ff">
+<pre class="example" id="org5664ab2">
 但实际上并不是。现在需要知道实际上在哪里
 
 在长模式下，这非常简单，因为其支持 rip 相对寻址
@@ -576,7 +581,7 @@ objdump 工具显示 <b>startup_32</b> 的地址是 <span class="underline">0</s
 <span class="underline">esi</span> 寄存器包含了 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/uapi/asm/bootparam.h#L113">boot_params</a> 结构的地址，这个结构在切换到保护模式之前已经被填充了。bootparams 这个结构体包含了一个特殊的字段 <b>scratch</b> ，其偏移量为 <span class="underline">0x1e4</span> 。这个 4 字节的区域将会成为 <span class="underline">call 指令</span> 的 <b>临时栈</b>
 </p>
 
-<pre class="example" id="orgc92c704">
+<pre class="example" id="orgc9ebf67">
 之所以在 BP_scratch 基础上加 4 是因为，如之前所说的，这将成为一个临时的栈
 
 而在 x86_64 架构下，栈是自顶向下生长的。所以栈指针就会指向栈顶
@@ -586,7 +591,7 @@ objdump 工具显示 <b>startup_32</b> 的地址是 <span class="underline">0</s
 接下来就可以看到上面描述的过程。跳转到 1f 标签并且把该标签的地址放入 ebp 寄存器
 </p>
 
-<pre class="example" id="org8eb5608">
+<pre class="example" id="org47d90fa">
 因为在执行 call 指令之后我们把返回地址放到了栈顶
 
 那么，既然已经拥有 1f 标签的地址，也能够很容易得到 startup_32 的地址
@@ -596,7 +601,7 @@ objdump 工具显示 <b>startup_32</b> 的地址是 <span class="underline">0</s
 只需要把 <span class="underline">从栈里得到的地址</span> 减去 <span class="underline">标签的地址</span> ：
 </p>
 
-<pre class="example" id="org97cdc01">
+<pre class="example" id="org63627b5">
 startup_32 (0x0)     +-----------------------+
                      |                       |
                      |                       |
@@ -662,7 +667,7 @@ ebp            0x100000 0x100000
 ...
 </pre>
 </div>
-<pre class="example" id="org7989d01">
+<pre class="example" id="org40a90ae">
 好了，那是对的。startup_32 的地址是 0x100000
 </pre>
 
@@ -670,7 +675,7 @@ ebp            0x100000 0x100000
 知道了 startup_32 的地址之后，可以开始准备切换到 <a href="https://zh.wikipedia.org/wiki/%E9%95%BF%E6%A8%A1%E5%BC%8F">长模式</a>了
 </p>
 
-<pre class="example" id="org61c2e0a">
+<pre class="example" id="org72904c6">
 下一个目标是建立栈并且确认 CPU 对长模式和 SSE 的支持
 </pre>
 </div>
@@ -678,7 +683,7 @@ ebp            0x100000 0x100000
 <div id="outline-container-orgb3b66f0" class="outline-2">
 <h2 id="orgb3b66f0">栈的建立和 CPU 的确认</h2>
 <div class="outline-text-2" id="text-orgb3b66f0">
-<pre class="example" id="org6cd6612">
+<pre class="example" id="orgd0bc14f">
 如果不知道 startup_32 标签的地址，就无法建立栈
 </pre>
 
@@ -713,13 +718,13 @@ ebp            0x100000 0x100000
 <li><p>
 为了得到 boot_stack_end 的实际地址，需要加上 startup_32 的实际地址
 </p>
-<pre class="example" id="org2f62fd3">
+<pre class="example" id="orgedd2a8d">
 回忆一下，前面找到了这个地址并且把它存到了 ebp 寄存器中
 </pre></li>
 <li>最后，eax 寄存器将会包含 boot_stack_end 的实际地址，只需要将其放到栈指针上</li>
 </ol>
 
-<pre class="example" id="org678e968">
+<pre class="example" id="org62a3f8c">
 到这里已经建立了栈
 </pre>
 
@@ -738,7 +743,7 @@ ebp            0x100000 0x100000
 这个函数定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/verify_cpu.S">arch/x86/kernel/verify_cpu.S</a> 中，包含了几个对 <span class="underline">cpuid</span> 指令的调用。该指令用于 <b>获取</b> <span class="underline">处理器的信息</span> 
 </p>
 
-<pre class="example" id="org6dec509">
+<pre class="example" id="orgca50f13">
 这里，它检查了对 长模式 和 SSE 的支持
 </pre>
 
@@ -766,14 +771,14 @@ ebp            0x100000 0x100000
 <div id="outline-container-org0351334" class="outline-2">
 <h2 id="org0351334">计算重定位地址</h2>
 <div class="outline-text-2" id="text-org0351334">
-<pre class="example" id="org0211a4d">
+<pre class="example" id="org770775c">
 下一步是在必要的时候计算解压缩之后的地址
 </pre>
 <p>
 首先，需要知道 <span class="underline">内核重定位</span> 的意义
 </p>
 
-<pre class="example" id="orgdd629e4">
+<pre class="example" id="org2754b1b">
 我们已经知道 Linux 内核的32位入口点地址位于 0x100000，但是那是一个32位的入口
 
 默认的内核基地址由内核配置项 CONFIG_PHYSICAL_START 的值所确定，其默认值为 0x1000000 或 16 MB
@@ -783,7 +788,7 @@ ebp            0x100000 0x100000
 主要问题是如果内核崩溃了，内核开发者需要一个配置于不同地址加载的 <span class="underline">救援内核</span> 来进行 <a href="https://www.kernel.org/doc/Documentation/kdump/kdump.txt">kdump</a> 。Linux 内核提供了特殊的配置选项以解决此问题 <b>CONFIG_RELOCATABLE</b> 。可以在内核文档中找到：
 </p>
 
-<pre class="example" id="orgf8a6507">
+<pre class="example" id="org1a223d2">
 This builds a kernel image that retains relocation information
 so it can be loaded someplace besides the default 1MB.
 
@@ -809,7 +814,7 @@ it has been loaded at and the compile time physical address
 当使用位置无关代码时，一段代码的地址是由一个 <span class="underline">控制地址</span> 加上 <span class="underline">程序计数器</span> 计算得到的
 </p>
 
-<pre class="example" id="orgda13b2f">
+<pre class="example" id="orgbb8ec39">
 可以从任意一个地址加载使用这种方式寻址的代码。这就是为什么我们需要获得 startup_32 的实际地址
 
 现在回到 Linux 内核代码。目前的目标是计算出内核解压的地址
@@ -855,7 +860,7 @@ LOAD_PHYSICAL_ADDR 宏定义在头文件 <a href="https://github.com/torvalds/li
                                 <span style="color: #00ffff;">&amp;</span> ~(CONFIG_PHYSICAL_ALIGN - 1))
 </pre>
 </div>
-<pre class="example" id="orgc8e4901">
+<pre class="example" id="orgcf43453">
 该宏只是展开成对齐的 CONFIG_PHYSICAL_ALIGN 值，其表示了内核加载位置的物理地址
 </pre></li>
 </ul></li>
@@ -865,7 +870,7 @@ LOAD_PHYSICAL_ADDR 宏定义在头文件 <a href="https://github.com/torvalds/li
 </ul></li>
 </ol>
 
-<pre class="example" id="org5d8cd4f">
+<pre class="example" id="org7605a5a">
 在前面的操作之后，ebp 包含了加载时的地址，ebx 被设为内核解压缩的目标地址
 </pre>
 </div>
@@ -873,7 +878,7 @@ LOAD_PHYSICAL_ADDR 宏定义在头文件 <a href="https://github.com/torvalds/li
 <div id="outline-container-orgb247f39" class="outline-2">
 <h2 id="orgb247f39">更新全局描述符表和启用PAE</h2>
 <div class="outline-text-2" id="text-orgb247f39">
-<pre class="example" id="orgbd1375e">
+<pre class="example" id="org66f6e4d">
 在得到了重定位内核镜像的基地址之后，开始做切换到64位模式之前的最后准备
 </pre>
 <p>
@@ -910,7 +915,7 @@ LOAD_PHYSICAL_ADDR 宏定义在头文件 <a href="https://github.com/torvalds/li
 全局描述符表位于 <span class="underline">.data</span> 段，并且包含了5个描述符： <span class="underline">null</span> 、 <span class="underline">内核代码段</span> 、 <span class="underline">内核数据段</span> 和其他两个 <span class="underline">任务描述符</span>
 </p>
 
-<pre class="example" id="org7b77a0a">
+<pre class="example" id="orgdba7171">
 已经在上一章节载入了 全局描述符表 ，现在要做的也差不多
 
 需要把描述符改为 CS.L = 1, CS.D = 0 从而在 64 位模式下执行
@@ -936,7 +941,7 @@ LOAD_PHYSICAL_ADDR 宏定义在头文件 <a href="https://github.com/torvalds/li
 所以，当把 gdt 的地址放到 eax 寄存器，然后存到 .long	gdt 和 gdt+2。最后用 <span class="underline">lgdt</span> 指令 <b>载入</b> 到GDPR寄存器 中。
 </p>
 
-<pre class="example" id="orgefa985a">
+<pre class="example" id="org221b4c7">
 这样全局描述符表就更新完毕了
 </pre>
 
@@ -951,7 +956,7 @@ LOAD_PHYSICAL_ADDR 宏定义在头文件 <a href="https://github.com/torvalds/li
 </pre>
 </div>
 
-<pre class="example" id="org76ae5f0">
+<pre class="example" id="orgad6b93a">
 现在已经接近完成进入64位模式前的所有准备工作了
 
 最后一步是建立页表，但是在此之前，先介绍一些关于长模式的知识
@@ -960,6 +965,255 @@ LOAD_PHYSICAL_ADDR 宏定义在头文件 <a href="https://github.com/torvalds/li
 </div>
 <div id="outline-container-orgead01fd" class="outline-2">
 <h2 id="orgead01fd">长模式</h2>
+<div class="outline-text-2" id="text-orgead01fd">
+<p>
+长模式是 x86_64 系列处理器的原生模式。首先看一看 x86_64 和 x86 的一些区别，64位 模式提供了一些新特性，比如：
+</p>
+<ul class="org-ul">
+<li>从 <span class="underline">r8</span> 到 <span class="underline">r15</span> 8个新的通用寄存器，并且所有通用寄存器都是 <span class="underline">64位</span> 的</li>
+<li>64位指令指针: <span class="underline">RIP</span></li>
+<li>新的操作模式：长模式</li>
+<li>64位地址和操作数</li>
+<li>RIP 相对寻址</li>
+</ul>
+
+<p>
+长模式是一个传统保护模式的扩展，其由两个子模式构成：
+</p>
+<ol class="org-ol">
+<li>64位模式</li>
+<li>兼容模式</li>
+</ol>
+
+<p>
+为了切换到 64位 模式，需要完成以下操作：
+</p>
+<ul class="org-ul">
+<li>启用 <span class="underline">PAE</span></li>
+<li>建立 <span class="underline">页表</span> 并且将顶级页表的地址放入 <b>cr3 寄存器</b></li>
+<li>启用 <span class="underline">EFER.LME</span></li>
+<li>启用 <span class="underline">分页</span></li>
+</ul>
+</div>
+<div id="outline-container-org2fed45c" class="outline-3">
+<h3 id="org2fed45c">页表初始化</h3>
+<div class="outline-text-3" id="text-org2fed45c">
+<p>
+现在，现在来看看如何建立初始的 4G 启动页表
+</p>
+
+<pre class="example" id="org19f1187">
+注意：不会在这里解释虚拟内存的理论
+</pre>
+
+<p>
+Linux 内核使用 <b>4级</b> 页表，通常会建立 <span class="underline">6个页表</span> ：
+</p>
+<ul class="org-ul">
+<li><span class="underline">1</span> 个 <b>PML4</b> 或称为 <span class="underline">4级页映射</span> 表，包含 <span class="underline">1 个项</span></li>
+<li><span class="underline">1</span> 个 <b>PDP</b> 或称为 <span class="underline">页目录指针</span> 表，包含 <span class="underline">4 个项</span></li>
+<li><span class="underline">4</span> 个 <b>页目录表</b> ，一共包含 <span class="underline">2048 个项</span></li>
+</ul>
+
+<p>
+首先在内存中为页表清理一块缓存。每个表都是 <span class="underline">4096 字节</span> ，所以我们需要 <span class="underline">24 KB</span> 的空间
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leal</span>    <span style="color: #00ffff;">pgtable</span>(<span style="color: #eedd82;">%ebx</span>), <span style="color: #eedd82;">%edi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#21644; ebx &#30456;&#20851;&#30340; pgtable &#30340;&#22320;&#22336;&#25918;&#21040; edi &#23492;&#23384;&#22120;&#20013; </span>
+<span style="color: #87cefa;">xorl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#28165;&#31354; eax &#23492;&#23384;&#22120; </span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$</span>((4096*6)/4), <span style="color: #eedd82;">%ecx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; ecx &#36171;&#20540;&#20026; 6144</span>
+        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">rep stosl &#25351;&#20196;&#23558;&#20250;&#25226; eax &#30340;&#20540;&#20889;&#21040; edi &#25351;&#21521;&#30340;&#22320;&#22336;&#65292;&#28982;&#21518;&#32473; edi &#21152; 4 &#65292; ecx &#20943; 4</span>
+        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#37325;&#22797;&#30452;&#21040; ecx &#23567;&#20110;&#31561;&#20110; 0 </span>
+<span style="color: #87cefa;">rep</span>     <span style="color: #00ffff;">stosl</span>
+</pre>
+</div>
+
+<p>
+<b>pgtable</b> 定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">head_64.S</a> 的最后：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">.section</span> <span style="color: #ffa07a;">".pgtable"</span>,<span style="color: #ffa07a;">"a"</span>,@nobits
+        <span style="color: #00ffff;">.balign</span> 4096
+<span style="color: #87cefa;">pgtable</span>:
+        <span style="color: #00ffff;">.fill</span> 6*4096, 1, 0
+</pre>
+</div>
+
+<pre class="example" id="org80999fb">
+可以看到，其位于 .pgtable 段，大小为 24KB 
+</pre>
+
+<p>
+为 pgtable 分配了空间之后，可以开始构建顶级页表 <span class="underline">PML4</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leal</span>    <span style="color: #00ffff;">pgtable</span> + 0(<span style="color: #eedd82;">%ebx</span>), <span style="color: #eedd82;">%edi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#21644; ebx &#30456;&#20851;&#30340;&#65292;&#25110;&#32773;&#35828;&#21644; startup_32 &#30456;&#20851;&#30340; pgtable &#30340;&#22320;&#22336;&#25918;&#21040; edi &#23492;&#23384;&#22120; </span>
+<span style="color: #87cefa;">leal</span>    <span style="color: #00ffff;">0x1007</span> (<span style="color: #eedd82;">%edi</span>), <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#30456;&#23545;&#27492;&#22320;&#22336;&#20559;&#31227; 0x1007 &#30340;&#22320;&#22336;&#25918;&#21040; eax &#23492;&#23384;&#22120;&#20013;</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, 0(<span style="color: #eedd82;">%edi</span>) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#31532;&#19968;&#20010; PDP&#65288;&#39029;&#30446;&#24405;&#25351;&#38024;&#65289; &#39033;&#30340;&#22320;&#22336;&#20889;&#21040; PML4 &#20013; </span>
+</pre>
+</div>
+
+<pre class="example" id="org239f34f">
+0x1007 是 PML4 的大小 4096 加上 7
+
+7 代表了 PML4 的项标记，这些标记是 PRESENT + RW + USER 
+</pre>
+
+<p>
+接下来的一步，会在 页目录指针 <span class="underline">PDP</span> 表（3级页表）建立 4 个带有 <span class="underline">PRESENT+RW+USE</span> 标记的 <span class="underline">Page Directory</span> （2级页表） 项：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">leal</span>    pgtable + 0x1000(<span style="color: #eedd82;">%ebx</span>), <span style="color: #eedd82;">%edi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; 3 &#32423;&#39029;&#30446;&#24405;&#25351;&#38024;&#34920;&#30340;&#22522;&#22320;&#22336;&#65288;&#20174; pgtable &#34920;&#20559;&#31227; 4096 &#25110;&#32773; 0x1000 &#65289;&#25918;&#21040; edi </span>
+        <span style="color: #00ffff;">leal</span>    0x1007(<span style="color: #eedd82;">%edi</span>), <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#31532;&#19968;&#20010; 2 &#32423;&#39029;&#30446;&#24405;&#25351;&#38024;&#34920;&#30340;&#39318;&#39033;&#30340;&#22320;&#22336;&#25918;&#21040; eax &#23492;&#23384;&#22120;</span>
+        <span style="color: #00ffff;">movl</span>    $4, <span style="color: #eedd82;">%ecx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; 4 &#36171;&#20540;&#32473; ecx &#23492;&#23384;&#22120;&#65292;&#20250;&#20316;&#20026;&#25509;&#19979;&#26469;&#24490;&#29615;&#30340;&#35745;&#25968;&#22120;</span>
+<span style="color: #87cefa;">1</span>:  <span style="color: #00ffff;">movl</span>        <span style="color: #eedd82;">%eax</span>, 0x00(<span style="color: #eedd82;">%edi</span>) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#31532;&#19968;&#20010;&#39029;&#30446;&#24405;&#25351;&#38024;&#39033;&#20889;&#21040; edi &#25351;&#21521;&#30340;&#22320;&#22336;&#12290;&#22240;&#27492; edi &#23558;&#20250;&#21253;&#21547;&#24102;&#26377;&#26631;&#35760; 0x7 &#30340;&#31532;&#19968;&#20010;&#39029;&#30446;&#24405;&#25351;&#38024;&#39033;&#30340;&#22320;&#22336;</span>
+        <span style="color: #00ffff;">addl</span>    $0x00001000, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35745;&#31639;&#19979;&#19968;&#20010;&#39029;&#30446;&#24405;&#25351;&#38024;&#39033;&#30340;&#22320;&#22336;&#65292;&#25226;&#22320;&#22336;&#36171;&#20540;&#32473; eax</span>
+        <span style="color: #00ffff;">addl</span>    $8, <span style="color: #eedd82;">%edi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20889;&#20837;&#19979;&#19968;&#20010;&#39029;&#30446;&#24405;&#39033;&#30340;&#22320;&#22336;&#65292;&#22240;&#20026;&#27599;&#19968;&#39033;&#21344;&#29992;8&#23383;&#33410;&#65292;&#25152;&#20197;&#24517;&#39035;&#20889;&#20837;&#21040; edi + 8 &#22788; </span>
+        <span style="color: #00ffff;">decl</span>    <span style="color: #eedd82;">%ecx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#37325;&#22797;&#24490;&#29615; </span>
+        <span style="color: #00ffff;">jnz</span>     1b
+</pre>
+</div>
+
+<p>
+最后一步就是建立 2048 个 2MB 页的页表项：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">leal</span>    pgtable + 0x2000(<span style="color: #eedd82;">%ebx</span>), <span style="color: #eedd82;">%edi</span>
+        <span style="color: #00ffff;">movl</span>    $0x00000183, <span style="color: #eedd82;">%eax</span>
+        <span style="color: #00ffff;">movl</span>    $2048, <span style="color: #eedd82;">%ecx</span>
+<span style="color: #87cefa;">1</span>:  <span style="color: #00ffff;">movl</span>        <span style="color: #eedd82;">%eax</span>, 0(<span style="color: #eedd82;">%edi</span>)
+        <span style="color: #00ffff;">addl</span>    $0x00200000, <span style="color: #eedd82;">%eax</span>
+        <span style="color: #00ffff;">addl</span>    $8, <span style="color: #eedd82;">%edi</span>
+        <span style="color: #00ffff;">decl</span>    <span style="color: #eedd82;">%ecx</span>
+        <span style="color: #00ffff;">jnz</span>     1b
+</pre>
+</div>
+
+<p>
+所有的表项都带着标记 <b>$0x00000183</b> <span class="underline">PRESENT + WRITE + MBZ</span> 。最后将会拥有 2048 个 2MB 大的页，或者说：
+</p>
+
+<pre class="example" id="org94c7e55">
+&gt;&gt;&gt; 2048 * 0x00200000
+4294967296
+
+这是一个 4G 页表，其映射了 4G 大小的内存
+</pre>
+
+<p>
+现在可以把高级页表 PML4 的地址放到 <b>cr3 寄存器</b> 中了：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leal</span>    <span style="color: #00ffff;">pgtable</span>(<span style="color: #eedd82;">%ebx</span>), <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%cr3</span>
+</pre>
+</div>
+
+<pre class="example" id="org72edec7">
+所有的准备工作都已经完成，可以开始看如何切换到长模式了
+</pre>
+</div>
+</div>
+<div id="outline-container-orged165eb" class="outline-3">
+<h3 id="orged165eb">切换到长模式</h3>
+<div class="outline-text-3" id="text-orged165eb">
+<p>
+首先需要设置 <a href="http://en.wikipedia.org/wiki/Model-specific_register">MSR</a> 中的 <span class="underline">EFER.LME</span> 标记为 <b>0xC0000080</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$MSR</span>_EFER, <span style="color: #eedd82;">%ecx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; MSR_EFER &#26631;&#35760;&#23545;&#24212;&#30340;&#23492;&#23384;&#22120;&#25918;&#20837; ecx &#23492;&#23384;&#22120;</span>
+<span style="color: #87cefa;">rdmsr</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462; MSR &#23492;&#23384;&#22120;&#65292;&#32467;&#26524;&#35835;&#21462;&#21040; edx:eax &#65288;&#39640; 32 &#20301;&#22312; EDX&#65292;&#20302; 32 &#20301;&#22312; EAX&#65289;&#65292;&#20854;&#21462;&#20915;&#20110; ecx &#30340;&#20540;</span>
+<span style="color: #87cefa;">btsl</span>    <span style="color: #00ffff;">$</span>_EFER_LME, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26816;&#26597; EFER_LME &#20301;&#65288;&#20301;&#27979;&#35797;&#24182;&#32622;&#20301;&#65289;</span>
+<span style="color: #87cefa;">wrmsr</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; eax &#30340;&#25968;&#25454;&#20889;&#20837; MSR &#23492;&#23384;&#22120;</span>
+</pre>
+</div>
+
+<ol class="org-ol">
+<li>把 MSR_EFER 标记（在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/uapi/asm/msr-index.h#L7">arch/x86/include/uapi/asm/msr-index.h</a> 中定义）放到 ecx 寄存器中</li>
+<li>rdmsr: 读取 MSR 寄存器</li>
+<li>btsl 指令检查 EFER_LME 位</li>
+<li>通过 wrmsr 指令将 eax 的数据写入 MSR 寄存器</li>
+</ol>
+
+<p>
+下一步将内核段代码地址入栈（在 GDT 中定义了），然后将 startup_64 的地址导入 eax
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">pushl</span>   <span style="color: #00ffff;">$</span>__KERNEL_CS <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20869;&#26680;&#27573;&#20195;&#30721;&#22320;&#22336;&#20837;&#26632; </span>
+<span style="color: #87cefa;">leal</span>    <span style="color: #00ffff;">startup</span>_64(<span style="color: #eedd82;">%ebp</span>), <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; startup_64 &#30340;&#22320;&#22336;&#23548;&#20837; eax</span>
+</pre>
+</div>
+
+<p>
+把这个地址入栈然后通过设置 <b>cr0 寄存器</b> 中的 <span class="underline">PG</span> 和 <span class="underline">PE</span> 启用 <b>分页</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$</span>(X86_CR0_PG | X86_CR0_PE), <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%cr0</span> 
+</pre>
+</div>
+
+<p>
+然后执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">lret</span> 
+</pre>
+</div>
+
+<pre class="example" id="org544969b">
+前一步已经将 startup_64 函数的地址入栈
+
+在 lret 指令之后，CPU 取出了其地址跳转到那里
+</pre>
+
+
+<p>
+这样终于来到了64位模式：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">.code64</span>
+        <span style="color: #00ffff;">.org</span> 0x200
+<span style="color: #87cefa;">ENTRY</span>(startup_64)
+....
+....
+....
+</pre>
+</div>
+
+<pre class="example" id="org1dc1734">
+下一节将会看到内核解压缩流程
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="part5.html">Next：解压内核</a></td>
+<td class="org-left"><a href="part3.html">Previous: 进入保护模式</a></td>
+<td class="org-left"><a href="booting.html">Home：启动引导</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">

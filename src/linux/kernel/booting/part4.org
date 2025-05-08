@@ -546,3 +546,171 @@ startup_32 被链接为在 0x0 地址运行，这意味着 _1f 的地址_ 为 _0
   最后一步是建立页表，但是在此之前，先介绍一些关于长模式的知识
 #+end_example
 * 长模式
+长模式是 x86_64 系列处理器的原生模式。首先看一看 x86_64 和 x86 的一些区别，64位 模式提供了一些新特性，比如：
++ 从 _r8_ 到 _r15_ 8个新的通用寄存器，并且所有通用寄存器都是 _64位_ 的
++ 64位指令指针: _RIP_
++ 新的操作模式：长模式
++ 64位地址和操作数
++ RIP 相对寻址
+
+长模式是一个传统保护模式的扩展，其由两个子模式构成：
+1. 64位模式
+2. 兼容模式
+
+为了切换到 64位 模式，需要完成以下操作：
++ 启用 _PAE_ 
++ 建立 _页表_ 并且将顶级页表的地址放入 *cr3 寄存器* 
++ 启用 _EFER.LME_ 
++ 启用 _分页_  
+** 页表初始化
+现在，现在来看看如何建立初始的 4G 启动页表
+
+#+begin_example
+注意：不会在这里解释虚拟内存的理论
+#+end_example
+
+Linux 内核使用 *4级* 页表，通常会建立 _6个页表_ ：
++ _1_ 个 *PML4* 或称为 _4级页映射_ 表，包含 _1 个项_
++ _1_ 个 *PDP* 或称为 _页目录指针_ 表，包含 _4 个项_
++ _4_ 个 *页目录表* ，一共包含 _2048 个项_
+
+首先在内存中为页表清理一块缓存。每个表都是 _4096 字节_ ，所以我们需要 _24 KB_ 的空间
+
+#+begin_src asm 
+  leal	pgtable(%ebx), %edi // 把和 ebx 相关的 pgtable 的地址放到 edi 寄存器中 
+  xorl	%eax, %eax // 清空 eax 寄存器 
+  movl	$((4096*6)/4), %ecx // 将 ecx 赋值为 6144
+  	// rep stosl 指令将会把 eax 的值写到 edi 指向的地址，然后给 edi 加 4 ， ecx 减 4
+  	// 重复直到 ecx 小于等于 0 
+  rep	stosl
+#+end_src
+
+*pgtable* 定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S][head_64.S]] 的最后：
+
+#+begin_src asm 
+  	.section ".pgtable","a",@nobits
+  	.balign 4096
+  pgtable:
+  	.fill 6*4096, 1, 0
+#+end_src
+
+#+begin_example
+可以看到，其位于 .pgtable 段，大小为 24KB 
+#+end_example
+
+为 pgtable 分配了空间之后，可以开始构建顶级页表 _PML4_ ：
+
+#+begin_src asm 
+  	leal	pgtable + 0(%ebx), %edi // 把和 ebx 相关的，或者说和 startup_32 相关的 pgtable 的地址放到 edi 寄存器 
+  	leal	0x1007 (%edi), %eax // 相对此地址偏移 0x1007 的地址放到 eax 寄存器中
+  	movl	%eax, 0(%edi) // 把第一个 PDP（页目录指针） 项的地址写到 PML4 中 
+#+end_src
+
+#+begin_example
+  0x1007 是 PML4 的大小 4096 加上 7
+
+  7 代表了 PML4 的项标记，这些标记是 PRESENT + RW + USER 
+#+end_example
+
+接下来的一步，会在 页目录指针 _PDP_ 表（3级页表）建立 4 个带有 _PRESENT+RW+USE_ 标记的 _Page Directory_ （2级页表） 项：
+
+#+begin_src asm 
+  	leal	pgtable + 0x1000(%ebx), %edi // 把 3 级页目录指针表的基地址（从 pgtable 表偏移 4096 或者 0x1000 ）放到 edi 
+  	leal	0x1007(%edi), %eax // 把第一个 2 级页目录指针表的首项的地址放到 eax 寄存器
+  	movl	$4, %ecx // 把 4 赋值给 ecx 寄存器，会作为接下来循环的计数器
+  1:  movl	%eax, 0x00(%edi) // 将第一个页目录指针项写到 edi 指向的地址。因此 edi 将会包含带有标记 0x7 的第一个页目录指针项的地址
+  	addl	$0x00001000, %eax // 计算下一个页目录指针项的地址，把地址赋值给 eax
+  	addl	$8, %edi // 写入下一个页目录项的地址，因为每一项占用8字节，所以必须写入到 edi + 8 处 
+  	decl	%ecx // 重复循环 
+  	jnz	1b
+#+end_src
+
+最后一步就是建立 2048 个 2MB 页的页表项：
+#+begin_src asm 
+  	leal	pgtable + 0x2000(%ebx), %edi
+  	movl	$0x00000183, %eax
+  	movl	$2048, %ecx
+  1:  movl	%eax, 0(%edi)
+  	addl	$0x00200000, %eax
+  	addl	$8, %edi
+  	decl	%ecx
+  	jnz	1b
+#+end_src
+
+所有的表项都带着标记 *$0x00000183* _PRESENT + WRITE + MBZ_ 。最后将会拥有 2048 个 2MB 大的页，或者说：
+
+#+begin_example
+  >>> 2048 * 0x00200000
+  4294967296
+
+  这是一个 4G 页表，其映射了 4G 大小的内存
+#+end_example
+
+现在可以把高级页表 PML4 的地址放到 *cr3 寄存器* 中了：
+
+#+begin_src asm 
+  	leal	pgtable(%ebx), %eax
+  	movl	%eax, %cr3
+#+end_src
+
+#+begin_example
+所有的准备工作都已经完成，可以开始看如何切换到长模式了
+#+end_example
+** 切换到长模式
+首先需要设置 [[http://en.wikipedia.org/wiki/Model-specific_register][MSR]] 中的 _EFER.LME_ 标记为 *0xC0000080* ：
+
+#+begin_src asm 
+  	movl	$MSR_EFER, %ecx // 把 MSR_EFER 标记对应的寄存器放入 ecx 寄存器
+  	rdmsr // 读取 MSR 寄存器，结果读取到 edx:eax （高 32 位在 EDX，低 32 位在 EAX），其取决于 ecx 的值
+  	btsl	$_EFER_LME, %eax // 检查 EFER_LME 位（位测试并置位）
+  	wrmsr // 将 eax 的数据写入 MSR 寄存器
+#+end_src
+
+1. 把 MSR_EFER 标记（在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/uapi/asm/msr-index.h#L7][arch/x86/include/uapi/asm/msr-index.h]] 中定义）放到 ecx 寄存器中
+2. rdmsr: 读取 MSR 寄存器
+3. btsl 指令检查 EFER_LME 位
+4. 通过 wrmsr 指令将 eax 的数据写入 MSR 寄存器 
+
+下一步将内核段代码地址入栈（在 GDT 中定义了），然后将 startup_64 的地址导入 eax
+
+#+begin_src asm 
+  	pushl	$__KERNEL_CS // 内核段代码地址入栈 
+  	leal	startup_64(%ebp), %eax // 将 startup_64 的地址导入 eax
+#+end_src
+
+把这个地址入栈然后通过设置 *cr0 寄存器* 中的 _PG_ 和 _PE_ 启用 *分页* ：
+
+#+begin_src asm 
+  	movl	$(X86_CR0_PG | X86_CR0_PE), %eax
+  	movl	%eax, %cr0 
+#+end_src
+
+然后执行：
+#+begin_src asm 
+  	lret 
+#+end_src
+
+#+begin_example
+前一步已经将 startup_64 函数的地址入栈
+
+在 lret 指令之后，CPU 取出了其地址跳转到那里
+#+end_example
+
+
+这样终于来到了64位模式：
+
+#+begin_src asm 
+  	.code64
+  	.org 0x200
+  ENTRY(startup_64)
+  ....
+  ....
+  ....
+#+end_src
+
+#+begin_example
+下一节将会看到内核解压缩流程
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:part5.org][Next：解压内核]] | [[file:part3.org][Previous: 进入保护模式]] | [[file:booting.org][Home：启动引导]] |
