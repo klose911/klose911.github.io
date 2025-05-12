@@ -8,3 +8,161 @@
   在这一部分回看到跳进内核代码的最后步骤：内核解压前的准备、重定位和直接内核解压
 #+end_example
 * 内核解压前的准备
+
+在之前的部分，已经在startup_32里面看到了到startup_64的跳转：
+#+begin_src asm 
+  	pushl	$__KERNEL_CS
+  	leal	startup_64(%ebp), %eax
+  	...
+  	...
+  	...
+  	pushl	%eax
+  	...
+  	...
+  	...
+  	lret
+#+end_src
+
+由于加载了新的全局描述符表并且在其他模式有CPU的模式转换（在这里是64位模式），可以在startup_64的开头看到数据段的建立：
+
+#+begin_src asm 
+  	.code64
+  	.org 0x200
+  	ENTRY(startup_64)
+  	xorl	%eax, %eax
+  	movl	%eax, %ds
+  	movl	%eax, %es
+  	movl	%eax, %ss
+  	movl	%eax, %fs
+  	movl	%eax, %gs
+#+end_src
+
+#+begin_example
+除cs之外的段寄存器，在进入长模式时已经重置
+#+end_example
+
+计算 _内核编译时的位置_ 和它 _被加载的位置_ 的 *差* ：
+
+#+begin_src asm 
+  	#ifdef CONFIG_RELOCATABLE
+  	leaq	startup_32(%rip), %rbp
+  	movl	BP_kernel_alignment(%rsi), %eax
+  	decl	%eax
+  	addq	%rax, %rbp
+  	notq	%rax
+  	andq	%rax, %rbp
+  	cmpq	$LOAD_PHYSICAL_ADDR, %rbp
+  	jge	1f
+  	#endif
+  	movq	$LOAD_PHYSICAL_ADDR, %rbp
+  1:
+  	movl	BP_init_size(%rsi), %ebx
+  	subl	$_end, %ebx
+  	addq	%rbp, %rbx
+#+end_src
+
+_rbp_ 包含了解压后 _内核的起始地址_ ，在这段代码执行之后 _rbx_ 会包含用于解压的重定位内核代码的地址
+
+#+begin_example
+  前面已经在startup_32看到类似的代码（计算重定位地址），但是需要再做这个计算
+
+  因为引导加载器可以用64位引导协议，而startup_32在这种情况下不会执行
+#+end_example
+
+接下来是 _栈指针_ 的设置和 _标志寄存器_ 的重置：
+
+#+begin_src asm 
+  	leaq	boot_stack_end(%rbx), %rsp
+
+  	pushq	$0
+  	popfq
+#+end_src
+
+rbx寄存器包含了内核解压代码的起始地址，把这个地址的 *boot_stack_entry* 偏移地址相加放到表示栈顶指针的 _rsp寄存器_ 。在这一步之后，栈就是正确的。可以在汇编源码文件 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S][head_64.S]]  的末尾找到 boot_stack_end 的定义：
+
+#+begin_src asm 
+  	.bss
+  	.balign 4
+  boot_heap:
+  	.fill BOOT_HEAP_SIZE, 1, 0
+  boot_stack:
+  	.fill BOOT_STACK_SIZE, 1, 0
+  boot_stack_end:
+#+end_src
+
+#+begin_example
+  它在.bss节的末尾，就在.pgtable前面
+
+  如果查看 arch/x86/boot/compressed/vmlinux.lds.S 链接脚本，会找到.bss和.pgtable的定义
+#+end_example
+
+由于设置了栈，在计算了解压了的内核的重定位地址后，就可以复制压缩了的内核到以上地址。在查看细节之前，先看这段汇编代码：
+
+#+begin_src asm 
+  	pushq	%rsi // 为这个寄存器现在存放指向boot_params的指针
+  	leaq	(_bss-8)(%rip), %rsi //  rsi包含_bss - 8的绝对地址
+  	leaq	(_bss-8)(%rbx), %rdi // rdi包含_bss - 8的重定位的相对地址
+  	movq	$_bss, %rcx // 拷贝的大小放入rcx 
+  	shrq	$3, %rcx // 
+  	std // 设置从后向前拷贝数据
+  	rep	movsq // 开始copy
+  	cld // 清空DF标志位
+  	popq	%rsi // 在代码的结尾，会重新恢复指向boot_params的指针到rsi
+#+end_src
+
+1. 把rsi压进栈，因为这个寄存器现在存放指向boot_params的指针，这是包含引导相关数据的实模式结构体。在代码的结尾，会重新恢复指向boot_params的指针到rsi
+2. 两个leaq指令用 __bss - 8偏移_ 和 _rip_ 和 _rbx_ 计算有效地址并存放到 _rsi_ 和 _rdi_。压缩了的代码镜像存放在从startup_32到当前的代码和解压了的代码之间。可以通过查看链接脚本 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/vmlinux.lds.S][arch/x86/boot/compressed/vmlinux.lds.S]] 验证：
+   #+begin_src sh 
+     . = 0;
+     .head.text : {
+         _head = . ;
+         HEAD_TEXT
+         _ehead = . ;
+     }
+     .rodata..compressed : {
+         ,*(.rodata..compressed)
+     }
+     .text :	{
+         _text = .; 	/* Text */
+         ,*(.text)
+         ,*(.text.*)
+         _etext = . ;
+     }
+   #+end_src
+   + _.head.text_ 节包含了 _startup_32_ . 可以从之前的部分回忆起它：
+     #+begin_src sh 
+       __HEAD
+       .code32
+       ENTRY(startup_32)
+       ...
+       ...
+       ...
+     #+end_src
+   + _.text_ 节包含 *解压代码* ：
+     #+begin_src sh 
+       .text
+       relocated:
+       ...
+       ...
+       ...
+       /*
+       ,* Do the decompression, and jump to the new kernel..
+       ,*/
+       ...
+     #+end_src
+   + _.rodata..compressed_ 包含了 *压缩了的内核镜像*
+3. 把 *_bss的地址* 放到了 _rcx寄存器_ 。正如在 vmlinux.lds.S链接脚本中看到了一样，它和设置/内核代码一起在所有节的末尾
+4. 现在可以开始用 *movsq* 指令每次 _8字节_ 地从 _rsi_ 到 _rdi_ 复制代码
+5. 注意: 在数据复制前有 _std_ 指令：它设置DF标志，意味着rsi和rdi会递减
+   #+begin_example
+     换句话说，会从后往前复制这些字节
+   #+end_example
+6. 用 _cld_ 指令清除DF标志，并恢复boot_params到rsi 
+
+拷贝完成后 跳转到 .text节的重定位后的地址
+
+#+begin_src asm 
+  	leaq	relocated(%rbx), %rax
+  	jmp	*%rax
+#+end_src
+* 内核解压

@@ -209,11 +209,207 @@
 </ul>
 </div>
 </div>
-<pre class="example" id="orgd6f69b8">
+<pre class="example" id="org6c628e0">
 在这一部分回看到跳进内核代码的最后步骤：内核解压前的准备、重定位和直接内核解压
 </pre>
 <div id="outline-container-orgf427a59" class="outline-2">
 <h2 id="orgf427a59">内核解压前的准备</h2>
+<div class="outline-text-2" id="text-orgf427a59">
+<p>
+在之前的部分，已经在startup_32里面看到了到startup_64的跳转：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">pushl</span>   <span style="color: #00ffff;">$</span>__KERNEL_CS
+<span style="color: #87cefa;">leal</span>    <span style="color: #00ffff;">startup</span>_64(<span style="color: #eedd82;">%ebp</span>), <span style="color: #eedd82;">%eax</span>
+...
+...
+...
+<span style="color: #87cefa;">pushl</span>   <span style="color: #00ffff;">%eax</span>
+...
+...
+...
+<span style="color: #87cefa;">lret</span>
+</pre>
+</div>
+
+<p>
+由于加载了新的全局描述符表并且在其他模式有CPU的模式转换（在这里是64位模式），可以在startup_64的开头看到数据段的建立：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00ffff;">.code64</span>
+<span style="color: #00ffff;">.org</span> 0x200
+<span style="color: #87cefa;">ENTRY</span>(startup_64)
+<span style="color: #87cefa;">xorl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%ds</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%es</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%ss</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%fs</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%gs</span>
+</pre>
+</div>
+
+<pre class="example" id="org0fa2af4">
+除cs之外的段寄存器，在进入长模式时已经重置
+</pre>
+
+<p>
+计算 <span class="underline">内核编译时的位置</span> 和它 <span class="underline">被加载的位置</span> 的 <b>差</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        #ifdef CONFIG_RELOCATABLE
+        <span style="color: #00ffff;">leaq</span>    startup_32(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rbp</span>
+        <span style="color: #00ffff;">movl</span>    BP_kernel_alignment(<span style="color: #eedd82;">%rsi</span>), <span style="color: #eedd82;">%eax</span>
+        <span style="color: #00ffff;">decl</span>    <span style="color: #eedd82;">%eax</span>
+        <span style="color: #00ffff;">addq</span>    <span style="color: #eedd82;">%rax</span>, <span style="color: #eedd82;">%rbp</span>
+        <span style="color: #00ffff;">notq</span>    <span style="color: #eedd82;">%rax</span>
+        <span style="color: #00ffff;">andq</span>    <span style="color: #eedd82;">%rax</span>, <span style="color: #eedd82;">%rbp</span>
+        <span style="color: #00ffff;">cmpq</span>    $LOAD_PHYSICAL_ADDR, <span style="color: #eedd82;">%rbp</span>
+        <span style="color: #00ffff;">jge</span>     1f
+        #endif
+        <span style="color: #00ffff;">movq</span>    $LOAD_PHYSICAL_ADDR, <span style="color: #eedd82;">%rbp</span>
+<span style="color: #87cefa;">1</span>:
+        <span style="color: #00ffff;">movl</span>    BP_init_size(<span style="color: #eedd82;">%rsi</span>), <span style="color: #eedd82;">%ebx</span>
+        <span style="color: #00ffff;">subl</span>    $_end, <span style="color: #eedd82;">%ebx</span>
+        <span style="color: #00ffff;">addq</span>    <span style="color: #eedd82;">%rbp</span>, <span style="color: #eedd82;">%rbx</span>
+</pre>
+</div>
+
+<p>
+<span class="underline">rbp</span> 包含了解压后 <span class="underline">内核的起始地址</span> ，在这段代码执行之后 <span class="underline">rbx</span> 会包含用于解压的重定位内核代码的地址
+</p>
+
+<pre class="example" id="orgadc9e47">
+前面已经在startup_32看到类似的代码（计算重定位地址），但是需要再做这个计算
+
+因为引导加载器可以用64位引导协议，而startup_32在这种情况下不会执行
+</pre>
+
+<p>
+接下来是 <span class="underline">栈指针</span> 的设置和 <span class="underline">标志寄存器</span> 的重置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leaq</span>    <span style="color: #00ffff;">boot</span>_stack_end(<span style="color: #eedd82;">%rbx</span>), <span style="color: #eedd82;">%rsp</span>
+
+<span style="color: #87cefa;">pushq</span>   <span style="color: #00ffff;">$0</span>
+<span style="color: #87cefa;">popfq</span>
+</pre>
+</div>
+
+<p>
+rbx寄存器包含了内核解压代码的起始地址，把这个地址的 <b>boot_stack_entry</b> 偏移地址相加放到表示栈顶指针的 <span class="underline">rsp寄存器</span> 。在这一步之后，栈就是正确的。可以在汇编源码文件 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">head_64.S</a>  的末尾找到 boot_stack_end 的定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">.bss</span>
+        <span style="color: #00ffff;">.balign</span> 4
+<span style="color: #87cefa;">boot_heap</span>:
+        <span style="color: #00ffff;">.fill</span> BOOT_HEAP_SIZE, 1, 0
+<span style="color: #87cefa;">boot_stack</span>:
+        <span style="color: #00ffff;">.fill</span> BOOT_STACK_SIZE, 1, 0
+<span style="color: #87cefa;">boot_stack_end</span>:
+</pre>
+</div>
+
+<pre class="example" id="org22a9fae">
+它在.bss节的末尾，就在.pgtable前面
+
+如果查看 arch/x86/boot/compressed/vmlinux.lds.S 链接脚本，会找到.bss和.pgtable的定义
+</pre>
+
+<p>
+由于设置了栈，在计算了解压了的内核的重定位地址后，就可以复制压缩了的内核到以上地址。在查看细节之前，先看这段汇编代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">pushq</span>   <span style="color: #00ffff;">%rsi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20026;&#36825;&#20010;&#23492;&#23384;&#22120;&#29616;&#22312;&#23384;&#25918;&#25351;&#21521;boot_params&#30340;&#25351;&#38024;</span>
+<span style="color: #87cefa;">leaq</span>    (_bss-8)(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rsi</span> <span style="color: #ff4500;">//  </span><span style="color: #ff4500;">rsi&#21253;&#21547;_bss - 8&#30340;&#32477;&#23545;&#22320;&#22336;</span>
+<span style="color: #87cefa;">leaq</span>    (_bss-8)(<span style="color: #eedd82;">%rbx</span>), <span style="color: #eedd82;">%rdi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">rdi&#21253;&#21547;_bss - 8&#30340;&#37325;&#23450;&#20301;&#30340;&#30456;&#23545;&#22320;&#22336;</span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">$</span>_bss, <span style="color: #eedd82;">%rcx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25335;&#36125;&#30340;&#22823;&#23567;&#25918;&#20837;rcx </span>
+<span style="color: #87cefa;">shrq</span>    <span style="color: #00ffff;">$3</span>, <span style="color: #eedd82;">%rcx</span> <span style="color: #ff4500;">// </span>
+<span style="color: #87cefa;">std</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;&#20174;&#21518;&#21521;&#21069;&#25335;&#36125;&#25968;&#25454;</span>
+<span style="color: #87cefa;">rep</span>     <span style="color: #00ffff;">movsq</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24320;&#22987;copy</span>
+<span style="color: #87cefa;">cld</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#28165;&#31354;DF&#26631;&#24535;&#20301;</span>
+<span style="color: #87cefa;">popq</span>    <span style="color: #00ffff;">%rsi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22312;&#20195;&#30721;&#30340;&#32467;&#23614;&#65292;&#20250;&#37325;&#26032;&#24674;&#22797;&#25351;&#21521;boot_params&#30340;&#25351;&#38024;&#21040;rsi</span>
+</pre>
+</div>
+
+<ol class="org-ol">
+<li>把rsi压进栈，因为这个寄存器现在存放指向boot_params的指针，这是包含引导相关数据的实模式结构体。在代码的结尾，会重新恢复指向boot_params的指针到rsi</li>
+<li><p>
+两个leaq指令用 <span class="underline">_bss - 8偏移</span> 和 <span class="underline">rip</span> 和 <span class="underline">rbx</span> 计算有效地址并存放到 <span class="underline">rsi</span> 和 _rdi_。压缩了的代码镜像存放在从startup_32到当前的代码和解压了的代码之间。可以通过查看链接脚本 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/vmlinux.lds.S">arch/x86/boot/compressed/vmlinux.lds.S</a> 验证：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">. = 0;
+.head.text : {
+    <span style="color: #eedd82;">_head</span> = . ;
+    HEAD_TEXT
+    <span style="color: #eedd82;">_ehead</span> = . ;
+}
+.rodata..compressed : {
+    *(.rodata..compressed)
+}
+.text : {
+    <span style="color: #eedd82;">_text</span> = .;  /* Text */
+    *(.text)
+    *(.text.*)
+    <span style="color: #eedd82;">_etext</span> = . ;
+}
+</pre>
+</div>
+<ul class="org-ul">
+<li><p>
+<span class="underline">.head.text</span> 节包含了 <span class="underline">startup_32</span> . 可以从之前的部分回忆起它：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">__HEAD
+.code32
+<span style="color: #87cefa;">ENTRY</span>(startup_32)
+...
+...
+...
+</pre>
+</div></li>
+<li><p>
+<span class="underline">.text</span> 节包含 <b>解压代码</b> ：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">.text
+relocated:
+...
+...
+...
+/*
+* Do the decompression, and jump to the new kernel..
+*/
+...
+</pre>
+</div></li>
+<li><span class="underline">.rodata..compressed</span> 包含了 <b>压缩了的内核镜像</b></li>
+</ul></li>
+<li>把 <b>_bss的地址</b> 放到了 <span class="underline">rcx寄存器</span> 。正如在 vmlinux.lds.S链接脚本中看到了一样，它和设置/内核代码一起在所有节的末尾</li>
+<li>现在可以开始用 <b>movsq</b> 指令每次 <span class="underline">8字节</span> 地从 <span class="underline">rsi</span> 到 <span class="underline">rdi</span> 复制代码</li>
+<li><p>
+注意: 在数据复制前有 <span class="underline">std</span> 指令：它设置DF标志，意味着rsi和rdi会递减
+</p>
+<pre class="example" id="org7185404">
+换句话说，会从后往前复制这些字节
+</pre></li>
+<li>用 <span class="underline">cld</span> 指令清除DF标志，并恢复boot_params到rsi</li>
+</ol>
+
+<p>
+拷贝完成后 跳转到 .text节的重定位后的地址
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leaq</span>    <span style="color: #00ffff;">relocated</span>(<span style="color: #eedd82;">%rbx</span>), <span style="color: #eedd82;">%rax</span>
+<span style="color: #87cefa;">jmp</span>     *<span style="color: #eedd82;">%rax</span>
+</pre>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
