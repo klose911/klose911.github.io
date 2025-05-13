@@ -206,10 +206,18 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#orgf427a59">内核解压前的准备</a></li>
+<li><a href="#orga6a0ed1">内核解压</a>
+<ul>
+<li><a href="#org8fcbabe">调用 extract_kernel</a></li>
+<li><a href="#org11c02bb">extract_kernel</a></li>
+<li><a href="#org47e7cf4">进入内核</a></li>
+</ul>
+</li>
+<li><a href="#orgc4b47a8">内核地址随机化</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org6c628e0">
+<pre class="example" id="orgfd7665c">
 在这一部分回看到跳进内核代码的最后步骤：内核解压前的准备、重定位和直接内核解压
 </pre>
 <div id="outline-container-orgf427a59" class="outline-2">
@@ -249,7 +257,7 @@
 </pre>
 </div>
 
-<pre class="example" id="org0fa2af4">
+<pre class="example" id="org8fb0241">
 除cs之外的段寄存器，在进入长模式时已经重置
 </pre>
 
@@ -280,7 +288,7 @@
 <span class="underline">rbp</span> 包含了解压后 <span class="underline">内核的起始地址</span> ，在这段代码执行之后 <span class="underline">rbx</span> 会包含用于解压的重定位内核代码的地址
 </p>
 
-<pre class="example" id="orgadc9e47">
+<pre class="example" id="orgd50965b">
 前面已经在startup_32看到类似的代码（计算重定位地址），但是需要再做这个计算
 
 因为引导加载器可以用64位引导协议，而startup_32在这种情况下不会执行
@@ -313,7 +321,7 @@ rbx寄存器包含了内核解压代码的起始地址，把这个地址的 <b>b
 </pre>
 </div>
 
-<pre class="example" id="org22a9fae">
+<pre class="example" id="org617e8ad">
 它在.bss节的末尾，就在.pgtable前面
 
 如果查看 arch/x86/boot/compressed/vmlinux.lds.S 链接脚本，会找到.bss和.pgtable的定义
@@ -394,7 +402,7 @@ relocated:
 <li><p>
 注意: 在数据复制前有 <span class="underline">std</span> 指令：它设置DF标志，意味着rsi和rdi会递减
 </p>
-<pre class="example" id="org7185404">
+<pre class="example" id="orgf518182">
 换句话说，会从后往前复制这些字节
 </pre></li>
 <li>用 <span class="underline">cld</span> 指令清除DF标志，并恢复boot_params到rsi</li>
@@ -410,6 +418,320 @@ relocated:
 </pre>
 </div>
 </div>
+</div>
+<div id="outline-container-orga6a0ed1" class="outline-2">
+<h2 id="orga6a0ed1">内核解压</h2>
+<div class="outline-text-2" id="text-orga6a0ed1">
+</div>
+<div id="outline-container-org8fcbabe" class="outline-3">
+<h3 id="org8fcbabe">调用 extract_kernel</h3>
+<div class="outline-text-3" id="text-org8fcbabe">
+<p>
+<span class="underline">.text节</span> 从 <b>relocated</b> 标签开始。它做的第一件事是 <b>清空</b> <span class="underline">.bss节</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">xorl</span>    <span style="color: #00ffff;">%eax</span>, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#28165;&#31354; eax </span>
+<span style="color: #87cefa;">leaq</span>    _bss(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rdi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;_bss&#30340;&#22320;&#22336;&#25918;&#21040;rdi</span>
+<span style="color: #87cefa;">leaq</span>    _ebss(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rcx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;_ebss&#25918;&#21040;rcx</span>
+<span style="color: #87cefa;">subq</span>    <span style="color: #00ffff;">%rdi</span>, <span style="color: #eedd82;">%rcx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#25972;&#20010; .bss &#21306; &#22635; 0 </span>
+<span style="color: #87cefa;">shrq</span>    <span style="color: #00ffff;">$3</span>, <span style="color: #eedd82;">%rcx</span>
+<span style="color: #87cefa;">rep</span>     <span style="color: #00ffff;">stosq</span>
+</pre>
+</div>
+
+<pre class="example" id="orgdb6c9c5">
+因为很快要跳转到C代码，所以要初始化.bss节
+</pre>
+
+<p>
+最后，可以调用 <b>extract_kernel</b> 函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">pushq</span>   <span style="color: #00ffff;">%rsi</span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rsi</span>, <span style="color: #eedd82;">%rdi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">rdi: &#25351;&#21521;boot_params&#32467;&#26500;&#20307;&#30340;&#25351;&#38024; </span>
+<span style="color: #87cefa;">leaq</span>    <span style="color: #00ffff;">boot</span>_heap(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rsi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">rsi: &#25351;&#21521;&#26089;&#26399;&#21551;&#21160;&#22534;&#30340;&#36215;&#22987;&#22320;&#22336; boot_heap</span>
+<span style="color: #87cefa;">leaq</span>    <span style="color: #00ffff;">input</span>_data(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rdx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">rdx: &#25351;&#21521;&#21387;&#32553;&#30340;&#20869;&#26680;&#30340;&#22320;&#22336;</span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$z</span>_input_len, <span style="color: #eedd82;">%ecx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">ecx: &#21387;&#32553;&#30340;&#20869;&#26680;&#30340;&#22823;&#23567;</span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rbp</span>, <span style="color: #eedd82;">%r8</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">r8: &#35299;&#21387;&#21518;&#20869;&#26680;&#30340;&#36215;&#22987;&#22320;&#22336;</span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">$z</span>_output_len, <span style="color: #eedd82;">%r9</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">r9: &#35299;&#21387;&#21518;&#20869;&#26680;&#30340;&#22823;&#23567;</span>
+<span style="color: #87cefa;">call</span>    <span style="color: #00ffff;">extract</span>_kernel
+<span style="color: #87cefa;">popq</span>    <span style="color: #00ffff;">%rsi</span>
+</pre>
+</div>
+
+<ol class="org-ol">
+<li>设置 <span class="underline">rdi</span> 为指向 <span class="underline">boot_params结构体</span> 的指针并把它保存到栈中</li>
+<li>设置 <span class="underline">rsi</span> 指向用于 <span class="underline">内核解压的区域</span></li>
+<li>准备extract_kernel的参数并调用这个解压内核的函数。extract_kernel函数在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/misc.c">arch/x86/boot/compressed/misc.c</a> 源文件定义并有六个参数：
+<ul class="org-ul">
+<li><p>
+rmode: 指向 boot_params 结构体的指针
+</p>
+<pre class="example" id="orgd962cfd">
+boot_params 被引导加载器填充或在早期内核初始化时填充
+</pre></li>
+<li>heap: 指向早期启动堆的起始地址 <span class="underline">boot_heap</span> 的指针</li>
+<li>input_data: 指向压缩的内核，即 <span class="underline">arch/x86/boot/compressed/vmlinux.bin.bz2</span> 的指针</li>
+<li>input_len: 压缩的内核的大小</li>
+<li>output:解压后内核的起始地址</li>
+<li>output_len: 解压后内核的大小</li>
+</ul></li>
+</ol>
+
+<p>
+所有参数根据 <a href="https://cs61.seas.harvard.edu/site/2024/pdf/x86-64-abi-20210928.pdf">System V Application Binary Interface</a> 通过寄存器传递
+</p>
+</div>
+</div>
+<div id="outline-container-org11c02bb" class="outline-3">
+<h3 id="org11c02bb">extract_kernel</h3>
+<div class="outline-text-3" id="text-org11c02bb">
+<p>
+extract_kernel函数 从图形/控制台初始化开始
+</p>
+
+<pre class="example" id="orgc20236c">
+因为不知道是不是从实模式开始，或者是使用了引导加载器，或者引导加载器用了32位还是64位启动协议
+
+所以这里还要再做一遍某些代码
+</pre>
+
+<p>
+在最早的初始化步骤后，保存空闲内存的起始和末尾地址
+</p>
+<pre class="example" id="org6664f4b">
+free_mem_ptr     = heap;
+free_mem_end_ptr = heap + BOOT_HEAP_SIZE;
+</pre>
+
+<p>
+这里 heap 从 arch/x86/boot/compressed/head_64.S 传给 extract_kernel 函数的第二个参数：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leaq</span>    <span style="color: #00ffff;">boot</span>_heap(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rsi</span>
+</pre>
+</div>
+
+<p>
+而 boot_heap 定义为：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">boot_heap</span>:
+        <span style="color: #00ffff;">.fill</span> BOOT_HEAP_SIZE, 1, 0
+</pre>
+</div>
+
+<pre class="example" id="org74dd116">
+BOOT_HEAP_SIZE是一个展开为0x10000 (对bzip2内核是0x400000) 的宏，代表堆的大小 
+</pre>
+
+<p>
+堆指针初始化后，下一步是从 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/kaslr.c#L425">arch/x86/boot/compressed/kaslr.c</a> 调用 <b>choose_random_location</b> 函数
+</p>
+
+<pre class="example" id="orgbc10ef6">
+从函数名猜到，它选择内核镜像解压到的内存地址
+
+因为Linux内核支持kASLR，为了安全，它允许解压内核到随机的地址
+
+在这一部分，不会考虑Linux内核的加载地址的随机化，会在下一部分讨论
+</pre>
+
+<p>
+回头看  <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/misc.c">misc.c</a>. 在获得内核镜像的地址后，需要有一些检查以确保获得的随机地址是正确对齐的，并且地址没有错误：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span> ((<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)output &amp; (MIN_KERNEL_ALIGN - 1))
+                error(<span style="color: #ffa07a;">"Destination physical address inappropriately aligned"</span>);
+
+<span style="color: #00ffff;">if</span> (virt_addr &amp; (MIN_KERNEL_ALIGN - 1))
+                error(<span style="color: #ffa07a;">"Destination virtual address inappropriately aligned"</span>);
+
+<span style="color: #00ffff;">if</span> (heap &gt; 0x3fffffffffffUL)
+                error(<span style="color: #ffa07a;">"Destination address too large"</span>);
+
+<span style="color: #00ffff;">if</span> (virt_addr + max(output_len, kernel_total_size) &gt; KERNEL_IMAGE_SIZE)
+                error(<span style="color: #ffa07a;">"Destination virtual address is beyond the kernel mapping area"</span>);
+
+<span style="color: #00ffff;">if</span> ((<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)output != LOAD_PHYSICAL_ADDR)
+                error(<span style="color: #ffa07a;">"Destination address does not match LOAD_PHYSICAL_ADDR"</span>);
+
+<span style="color: #00ffff;">if</span> (virt_addr != LOAD_PHYSICAL_ADDR)
+                error(<span style="color: #ffa07a;">"Destination virtual address changed when not relocatable"</span>);
+</pre>
+</div>
+
+<p>
+通过所有这些检查后，可以看到熟悉的消息：
+</p>
+
+<pre class="example" id="orgc17c64b">
+Decompressing Linux... 
+</pre>
+
+<p>
+然后调用解压内核的 <b>__decompress</b> 函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">__decompress</span>(input_data, input_len, <span style="color: #7fffd4;">NULL</span>, <span style="color: #7fffd4;">NULL</span>, output, output_len, <span style="color: #7fffd4;">NULL</span>, error);
+</pre>
+</div>
+
+<p>
+__decompress函数的实现取决于在内核编译期间选择什么压缩算法：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">ifdef CONFIG_KERNEL_GZIP</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">include "../../../../lib/decompress_inflate.c"</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">endif</span>
+
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">ifdef CONFIG_KERNEL_BZIP2</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">include "../../../../lib/decompress_bunzip2.c"</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">endif</span>
+
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">ifdef CONFIG_KERNEL_LZMA</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">include "../../../../lib/decompress_unlzma.c"</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">endif</span>
+
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">ifdef CONFIG_KERNEL_XZ</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">include "../../../../lib/decompress_unxz.c"</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">endif</span>
+
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">ifdef CONFIG_KERNEL_LZO</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">include "../../../../lib/decompress_unlzo.c"</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">endif</span>
+
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">ifdef CONFIG_KERNEL_LZ4</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">include "../../../../lib/decompress_unlz4.c"</span>
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">endif</span>
+</pre>
+</div>
+
+<p>
+在内核解压之后，最后两个函数是 <b>parse_elf</b> 和 <b>handle_relocations</b> 。这些函数的主要用途是把解压后的内核移动到正确的位置
+</p>
+
+<pre class="example" id="org9acc9f5">
+实际上，解压过程会原地解压，还需要把内核移动到正确的地址
+
+https://en.wikipedia.org/wiki/In-place_algorithm
+</pre>
+
+<p>
+内核镜像是一个ELF可执行文件，所以parse_elf的主要目标是移动可加载的段到正确的地址。从 <span class="underline">readelf</span> 的输出看到可加载的段：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">readelf -l vmlinux
+
+Elf file type is EXEC (Executable file)
+Entry point 0x1000000
+There are 5 program headers, starting at offset 64
+
+Program Headers:
+Type           Offset             VirtAddr           PhysAddr
+FileSiz            MemSiz              Flags  Align
+LOAD           0x0000000000200000 0xffffffff81000000 0x0000000001000000
+0x0000000000893000 0x0000000000893000  R E    200000
+LOAD           0x0000000000a93000 0xffffffff81893000 0x0000000001893000
+0x000000000016d000 0x000000000016d000  RW     200000
+LOAD           0x0000000000c00000 0x0000000000000000 0x0000000001a00000
+0x00000000000152d8 0x00000000000152d8  RW     200000
+LOAD           0x0000000000c16000 0xffffffff81a16000 0x0000000001a16000
+0x0000000000138000 0x000000000029b000  RWE    200000
+</pre>
+</div>
+
+<p>
+parse_elf函数的目标是加载这些段到从 <b>choose_random_location</b> 函数得到的 <span class="underline">output地址</span> 。这个函数从检查ELF签名标志开始：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">Elf64_Ehdr</span> <span style="color: #eedd82;">ehdr</span>;
+<span style="color: #98fb98;">Elf64_Phdr</span> *<span style="color: #eedd82;">phdrs</span>, *<span style="color: #eedd82;">phdr</span>;
+
+memcpy(&amp;ehdr, output, <span style="color: #00ffff;">sizeof</span>(ehdr));
+
+<span style="color: #00ffff;">if</span> (ehdr.e_ident[EI_MAG0] != ELFMAG0 ||
+    ehdr.e_ident[EI_MAG1] != ELFMAG1 ||
+    ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
+    ehdr.e_ident[EI_MAG3] != ELFMAG3) {
+        error(<span style="color: #ffa07a;">"Kernel is not a valid ELF file"</span>);
+        <span style="color: #00ffff;">return</span>;
+}
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>如果 ELF 签名无效的，它会打印一条错误消息并停机</li>
+<li><p>
+如果得到一个有效的ELF文件，从给定的ELF文件遍历所有程序头，并用正确的地址复制所有可加载的段到输出缓冲区：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">for</span> (i = 0; i &lt; ehdr.e_phnum; i++) {
+                phdr = &amp;phdrs[i];
+
+                <span style="color: #00ffff;">switch</span> (phdr-&gt;p_type) {
+                <span style="color: #00ffff;">case</span> PT_LOAD:
+<span style="color: #7fffd4;">#ifdef</span> CONFIG_RELOCATABLE
+                                dest = output;
+                                dest += (phdr-&gt;p_paddr - LOAD_PHYSICAL_ADDR);
+<span style="color: #7fffd4;">#else</span>
+                                dest = (<span style="color: #98fb98;">void</span> *)(phdr-&gt;p_paddr);
+<span style="color: #7fffd4;">#endif</span>
+                                memmove(dest, output + phdr-&gt;p_offset, phdr-&gt;p_filesz);
+                                <span style="color: #00ffff;">break</span>;
+                <span style="color: #00ffff;">default</span>:
+                                <span style="color: #00ffff;">break</span>;
+                }
+}
+</pre>
+</div></li>
+</ul>
+
+<pre class="example" id="orgcc499fc">
+从现在开始，所有可加载的段都在正确的位置
+</pre>
+
+<p>
+在parse_elf函数之后是调用 <b>handle_relocations</b> 函数。这个函数的实现依赖于 <b>CONFIG_X86_NEED_RELOCS</b> 内核配置选项。如果它被启用，这个函数调整内核镜像的地址
+</p>
+
+<pre class="example" id="org11ef087">
+只有在内核配置时启用了CONFIG_RANDOMIZE_BASE配置选项才会调用
+</pre>
+
+<p>
+handle_relocations函数的实现足够简单。这个函数从基准内核加载地址的值减掉LOAD_PHYSICAL_ADDR的值，从而获得内核链接后要加载的地址和实际加载地址的差值。在这之后我们可以进行内核重定位，因为我们知道内核加载的实际地址、它被链接的运行的地址和内核镜像末尾的重定位表
+</p>
+</div>
+</div>
+<div id="outline-container-org47e7cf4" class="outline-3">
+<h3 id="org47e7cf4">进入内核</h3>
+<div class="outline-text-3" id="text-org47e7cf4">
+<p>
+在内核重定位后，就从 extract_kernel 返回到 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">arch/x86/boot/compressed/head_64.S</a> :
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">jmp</span>     *<span style="color: #eedd82;">%rax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20869;&#26680;&#30340;&#22320;&#22336;&#22312;rax&#23492;&#23384;&#22120;</span>
+</pre>
+</div>
+
+<pre class="example" id="org2a0f21a">
+到此为止，就正式进入内核代码里
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc4b47a8" class="outline-2">
+<h2 id="orgc4b47a8">内核地址随机化</h2>
 </div>
 </div>
 <div id="postamble" class="status">

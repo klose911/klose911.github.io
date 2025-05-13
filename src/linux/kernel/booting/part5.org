@@ -166,3 +166,242 @@ rbx寄存器包含了内核解压代码的起始地址，把这个地址的 *boo
   	jmp	*%rax
 #+end_src
 * 内核解压
+** 调用 extract_kernel 
+_.text节_ 从 *relocated* 标签开始。它做的第一件事是 *清空* _.bss节_ ：
+
+#+begin_src asm 
+  	xorl	%eax, %eax // 清空 eax 
+  	leaq    _bss(%rip), %rdi // 把_bss的地址放到rdi
+  	leaq    _ebss(%rip), %rcx // 把_ebss放到rcx
+  	subq	%rdi, %rcx // 把整个 .bss 区 填 0 
+  	shrq	$3, %rcx
+  	rep	stosq
+#+end_src
+
+#+begin_example
+  因为很快要跳转到C代码，所以要初始化.bss节
+#+end_example
+
+最后，可以调用 *extract_kernel* 函数：
+
+#+begin_src asm 
+  	pushq	%rsi
+  	movq	%rsi, %rdi // rdi: 指向boot_params结构体的指针 
+  	leaq	boot_heap(%rip), %rsi // rsi: 指向早期启动堆的起始地址 boot_heap
+  	leaq	input_data(%rip), %rdx // rdx: 指向压缩的内核的地址
+  	movl	$z_input_len, %ecx // ecx: 压缩的内核的大小
+  	movq	%rbp, %r8 // r8: 解压后内核的起始地址
+  	movq	$z_output_len, %r9 // r9: 解压后内核的大小
+  	call	extract_kernel
+  	popq	%rsi
+#+end_src
+
+1. 设置 _rdi_ 为指向 _boot_params结构体_ 的指针并把它保存到栈中
+2. 设置 _rsi_ 指向用于 _内核解压的区域_ 
+3. 准备extract_kernel的参数并调用这个解压内核的函数。extract_kernel函数在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/misc.c][arch/x86/boot/compressed/misc.c]] 源文件定义并有六个参数：
+   + rmode: 指向 boot_params 结构体的指针
+     #+begin_example
+       boot_params 被引导加载器填充或在早期内核初始化时填充
+     #+end_example
+   + heap: 指向早期启动堆的起始地址 _boot_heap_ 的指针
+   + input_data: 指向压缩的内核，即 _arch/x86/boot/compressed/vmlinux.bin.bz2_ 的指针
+   + input_len: 压缩的内核的大小
+   + output:解压后内核的起始地址
+   + output_len: 解压后内核的大小
+
+所有参数根据 [[https://cs61.seas.harvard.edu/site/2024/pdf/x86-64-abi-20210928.pdf][System V Application Binary Interface]] 通过寄存器传递
+** extract_kernel
+extract_kernel函数 从图形/控制台初始化开始
+
+#+begin_example
+  因为不知道是不是从实模式开始，或者是使用了引导加载器，或者引导加载器用了32位还是64位启动协议
+
+  所以这里还要再做一遍某些代码
+#+end_example
+
+在最早的初始化步骤后，保存空闲内存的起始和末尾地址
+#+begin_example
+free_mem_ptr     = heap;
+free_mem_end_ptr = heap + BOOT_HEAP_SIZE;
+#+end_example
+
+这里 heap 从 arch/x86/boot/compressed/head_64.S 传给 extract_kernel 函数的第二个参数：
+#+begin_src asm 
+  	leaq	boot_heap(%rip), %rsi
+#+end_src
+
+而 boot_heap 定义为：
+
+#+begin_src asm 
+  boot_heap:
+  	.fill BOOT_HEAP_SIZE, 1, 0
+#+end_src
+
+#+begin_example
+  BOOT_HEAP_SIZE是一个展开为0x10000 (对bzip2内核是0x400000) 的宏，代表堆的大小 
+#+end_example
+
+堆指针初始化后，下一步是从 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/kaslr.c#L425][arch/x86/boot/compressed/kaslr.c]] 调用 *choose_random_location* 函数
+
+#+begin_example
+  从函数名猜到，它选择内核镜像解压到的内存地址
+
+  因为Linux内核支持kASLR，为了安全，它允许解压内核到随机的地址
+
+  在这一部分，不会考虑Linux内核的加载地址的随机化，会在下一部分讨论
+#+end_example
+
+回头看  [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/misc.c][misc.c]]. 在获得内核镜像的地址后，需要有一些检查以确保获得的随机地址是正确对齐的，并且地址没有错误：
+
+#+begin_src c
+  if ((unsigned long)output & (MIN_KERNEL_ALIGN - 1))
+  		error("Destination physical address inappropriately aligned");
+
+  if (virt_addr & (MIN_KERNEL_ALIGN - 1))
+  		error("Destination virtual address inappropriately aligned");
+
+  if (heap > 0x3fffffffffffUL)
+  		error("Destination address too large");
+
+  if (virt_addr + max(output_len, kernel_total_size) > KERNEL_IMAGE_SIZE)
+  		error("Destination virtual address is beyond the kernel mapping area");
+
+  if ((unsigned long)output != LOAD_PHYSICAL_ADDR)
+  		error("Destination address does not match LOAD_PHYSICAL_ADDR");
+
+  if (virt_addr != LOAD_PHYSICAL_ADDR)
+  		error("Destination virtual address changed when not relocatable");
+#+end_src
+
+通过所有这些检查后，可以看到熟悉的消息：
+
+#+begin_example
+Decompressing Linux... 
+#+end_example
+
+然后调用解压内核的 *__decompress* 函数：
+
+#+begin_src c 
+  __decompress(input_data, input_len, NULL, NULL, output, output_len, NULL, error);
+#+end_src
+
+__decompress函数的实现取决于在内核编译期间选择什么压缩算法：
+
+#+begin_src sh 
+  #ifdef CONFIG_KERNEL_GZIP
+  #include "../../../../lib/decompress_inflate.c"
+  #endif
+
+  #ifdef CONFIG_KERNEL_BZIP2
+  #include "../../../../lib/decompress_bunzip2.c"
+  #endif
+
+  #ifdef CONFIG_KERNEL_LZMA
+  #include "../../../../lib/decompress_unlzma.c"
+  #endif
+
+  #ifdef CONFIG_KERNEL_XZ
+  #include "../../../../lib/decompress_unxz.c"
+  #endif
+
+  #ifdef CONFIG_KERNEL_LZO
+  #include "../../../../lib/decompress_unlzo.c"
+  #endif
+
+  #ifdef CONFIG_KERNEL_LZ4
+  #include "../../../../lib/decompress_unlz4.c"
+  #endif
+#+end_src
+
+在内核解压之后，最后两个函数是 *parse_elf* 和 *handle_relocations* 。这些函数的主要用途是把解压后的内核移动到正确的位置
+
+#+begin_example
+  实际上，解压过程会原地解压，还需要把内核移动到正确的地址
+
+  https://en.wikipedia.org/wiki/In-place_algorithm
+#+end_example
+
+内核镜像是一个ELF可执行文件，所以parse_elf的主要目标是移动可加载的段到正确的地址。从 _readelf_ 的输出看到可加载的段：
+
+#+begin_src sh 
+  readelf -l vmlinux
+
+  Elf file type is EXEC (Executable file)
+  Entry point 0x1000000
+  There are 5 program headers, starting at offset 64
+
+  Program Headers:
+  Type           Offset             VirtAddr           PhysAddr
+  FileSiz            MemSiz              Flags  Align
+  LOAD           0x0000000000200000 0xffffffff81000000 0x0000000001000000
+  0x0000000000893000 0x0000000000893000  R E    200000
+  LOAD           0x0000000000a93000 0xffffffff81893000 0x0000000001893000
+  0x000000000016d000 0x000000000016d000  RW     200000
+  LOAD           0x0000000000c00000 0x0000000000000000 0x0000000001a00000
+  0x00000000000152d8 0x00000000000152d8  RW     200000
+  LOAD           0x0000000000c16000 0xffffffff81a16000 0x0000000001a16000
+  0x0000000000138000 0x000000000029b000  RWE    200000
+#+end_src
+
+parse_elf函数的目标是加载这些段到从 *choose_random_location* 函数得到的 _output地址_ 。这个函数从检查ELF签名标志开始：
+
+#+begin_src c 
+  Elf64_Ehdr ehdr;
+  Elf64_Phdr *phdrs, *phdr;
+
+  memcpy(&ehdr, output, sizeof(ehdr));
+
+  if (ehdr.e_ident[EI_MAG0] != ELFMAG0 ||
+      ehdr.e_ident[EI_MAG1] != ELFMAG1 ||
+      ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
+      ehdr.e_ident[EI_MAG3] != ELFMAG3) {
+          error("Kernel is not a valid ELF file");
+          return;
+  }
+#+end_src
+
++ 如果 ELF 签名无效的，它会打印一条错误消息并停机
++ 如果得到一个有效的ELF文件，从给定的ELF文件遍历所有程序头，并用正确的地址复制所有可加载的段到输出缓冲区：
+  #+begin_src c 
+    for (i = 0; i < ehdr.e_phnum; i++) {
+    		phdr = &phdrs[i];
+
+    		switch (phdr->p_type) {
+    		case PT_LOAD:
+    #ifdef CONFIG_RELOCATABLE
+    				dest = output;
+    				dest += (phdr->p_paddr - LOAD_PHYSICAL_ADDR);
+    #else
+    				dest = (void *)(phdr->p_paddr);
+    #endif
+    				memmove(dest, output + phdr->p_offset, phdr->p_filesz);
+    				break;
+    		default:
+    				break;
+    		}
+    }
+  #+end_src
+
+#+begin_example
+从现在开始，所有可加载的段都在正确的位置
+#+end_example
+
+在parse_elf函数之后是调用 *handle_relocations* 函数。这个函数的实现依赖于 *CONFIG_X86_NEED_RELOCS* 内核配置选项。如果它被启用，这个函数调整内核镜像的地址
+
+#+begin_example
+只有在内核配置时启用了CONFIG_RANDOMIZE_BASE配置选项才会调用
+#+end_example
+
+handle_relocations函数的实现足够简单。这个函数从基准内核加载地址的值减掉LOAD_PHYSICAL_ADDR的值，从而获得内核链接后要加载的地址和实际加载地址的差值。在这之后我们可以进行内核重定位，因为我们知道内核加载的实际地址、它被链接的运行的地址和内核镜像末尾的重定位表
+
+** 进入内核
+在内核重定位后，就从 extract_kernel 返回到 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S][arch/x86/boot/compressed/head_64.S]] :
+
+#+begin_src asm 
+  	jmp	*%rax // 内核的地址在rax寄存器
+#+end_src
+
+#+begin_example
+到此为止，就正式进入内核代码里
+#+end_example
+* 内核地址随机化
