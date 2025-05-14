@@ -213,11 +213,22 @@
 <li><a href="#org47e7cf4">进入内核</a></li>
 </ul>
 </li>
-<li><a href="#orgc4b47a8">内核地址随机化</a></li>
+<li><a href="#orgc4b47a8">内核地址随机化</a>
+<ul>
+<li>
+<ul>
+<li><a href="#org8ec83bd">建立新的恒等映射内存页表</a></li>
+</ul>
+</li>
+<li><a href="#orgeff92d7">避开保留的内存范围</a></li>
+<li><a href="#org7c18643">物理地址随机化</a></li>
+<li><a href="#orgb774345">虚拟地址随机化</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
-<pre class="example" id="orgfd7665c">
+<pre class="example" id="orgf0ab94d">
 在这一部分回看到跳进内核代码的最后步骤：内核解压前的准备、重定位和直接内核解压
 </pre>
 <div id="outline-container-orgf427a59" class="outline-2">
@@ -257,7 +268,7 @@
 </pre>
 </div>
 
-<pre class="example" id="org8fb0241">
+<pre class="example" id="org0fb3462">
 除cs之外的段寄存器，在进入长模式时已经重置
 </pre>
 
@@ -288,7 +299,7 @@
 <span class="underline">rbp</span> 包含了解压后 <span class="underline">内核的起始地址</span> ，在这段代码执行之后 <span class="underline">rbx</span> 会包含用于解压的重定位内核代码的地址
 </p>
 
-<pre class="example" id="orgd50965b">
+<pre class="example" id="orgad0a9fb">
 前面已经在startup_32看到类似的代码（计算重定位地址），但是需要再做这个计算
 
 因为引导加载器可以用64位引导协议，而startup_32在这种情况下不会执行
@@ -321,7 +332,7 @@ rbx寄存器包含了内核解压代码的起始地址，把这个地址的 <b>b
 </pre>
 </div>
 
-<pre class="example" id="org617e8ad">
+<pre class="example" id="org4b1bd4a">
 它在.bss节的末尾，就在.pgtable前面
 
 如果查看 arch/x86/boot/compressed/vmlinux.lds.S 链接脚本，会找到.bss和.pgtable的定义
@@ -402,7 +413,7 @@ relocated:
 <li><p>
 注意: 在数据复制前有 <span class="underline">std</span> 指令：它设置DF标志，意味着rsi和rdi会递减
 </p>
-<pre class="example" id="orgf518182">
+<pre class="example" id="org2f98066">
 换句话说，会从后往前复制这些字节
 </pre></li>
 <li>用 <span class="underline">cld</span> 指令清除DF标志，并恢复boot_params到rsi</li>
@@ -440,7 +451,7 @@ relocated:
 </pre>
 </div>
 
-<pre class="example" id="orgdb6c9c5">
+<pre class="example" id="orgd010383">
 因为很快要跳转到C代码，所以要初始化.bss节
 </pre>
 
@@ -469,7 +480,7 @@ relocated:
 <li><p>
 rmode: 指向 boot_params 结构体的指针
 </p>
-<pre class="example" id="orgd962cfd">
+<pre class="example" id="org2c23bca">
 boot_params 被引导加载器填充或在早期内核初始化时填充
 </pre></li>
 <li>heap: 指向早期启动堆的起始地址 <span class="underline">boot_heap</span> 的指针</li>
@@ -492,7 +503,7 @@ boot_params 被引导加载器填充或在早期内核初始化时填充
 extract_kernel函数 从图形/控制台初始化开始
 </p>
 
-<pre class="example" id="orgc20236c">
+<pre class="example" id="org8058b26">
 因为不知道是不是从实模式开始，或者是使用了引导加载器，或者引导加载器用了32位还是64位启动协议
 
 所以这里还要再做一遍某些代码
@@ -501,7 +512,7 @@ extract_kernel函数 从图形/控制台初始化开始
 <p>
 在最早的初始化步骤后，保存空闲内存的起始和末尾地址
 </p>
-<pre class="example" id="org6664f4b">
+<pre class="example" id="org6a454fd">
 free_mem_ptr     = heap;
 free_mem_end_ptr = heap + BOOT_HEAP_SIZE;
 </pre>
@@ -524,7 +535,7 @@ free_mem_end_ptr = heap + BOOT_HEAP_SIZE;
 </pre>
 </div>
 
-<pre class="example" id="org74dd116">
+<pre class="example" id="orgc2b0bc1">
 BOOT_HEAP_SIZE是一个展开为0x10000 (对bzip2内核是0x400000) 的宏，代表堆的大小 
 </pre>
 
@@ -532,7 +543,7 @@ BOOT_HEAP_SIZE是一个展开为0x10000 (对bzip2内核是0x400000) 的宏，代
 堆指针初始化后，下一步是从 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/kaslr.c#L425">arch/x86/boot/compressed/kaslr.c</a> 调用 <b>choose_random_location</b> 函数
 </p>
 
-<pre class="example" id="orgbc10ef6">
+<pre class="example" id="orgee7c6b9">
 从函数名猜到，它选择内核镜像解压到的内存地址
 
 因为Linux内核支持kASLR，为了安全，它允许解压内核到随机的地址
@@ -569,7 +580,7 @@ BOOT_HEAP_SIZE是一个展开为0x10000 (对bzip2内核是0x400000) 的宏，代
 通过所有这些检查后，可以看到熟悉的消息：
 </p>
 
-<pre class="example" id="orgc17c64b">
+<pre class="example" id="org013d0cd">
 Decompressing Linux... 
 </pre>
 
@@ -617,7 +628,7 @@ __decompress函数的实现取决于在内核编译期间选择什么压缩算�
 在内核解压之后，最后两个函数是 <b>parse_elf</b> 和 <b>handle_relocations</b> 。这些函数的主要用途是把解压后的内核移动到正确的位置
 </p>
 
-<pre class="example" id="org9acc9f5">
+<pre class="example" id="org7086032">
 实际上，解压过程会原地解压，还需要把内核移动到正确的地址
 
 https://en.wikipedia.org/wiki/In-place_algorithm
@@ -695,7 +706,7 @@ memcpy(&amp;ehdr, output, <span style="color: #00ffff;">sizeof</span>(ehdr));
 </div></li>
 </ul>
 
-<pre class="example" id="orgcc499fc">
+<pre class="example" id="org6f212ad">
 从现在开始，所有可加载的段都在正确的位置
 </pre>
 
@@ -703,7 +714,7 @@ memcpy(&amp;ehdr, output, <span style="color: #00ffff;">sizeof</span>(ehdr));
 在parse_elf函数之后是调用 <b>handle_relocations</b> 函数。这个函数的实现依赖于 <b>CONFIG_X86_NEED_RELOCS</b> 内核配置选项。如果它被启用，这个函数调整内核镜像的地址
 </p>
 
-<pre class="example" id="org11ef087">
+<pre class="example" id="org0a910c9">
 只有在内核配置时启用了CONFIG_RANDOMIZE_BASE配置选项才会调用
 </pre>
 
@@ -724,7 +735,7 @@ handle_relocations函数的实现足够简单。这个函数从基准内核加�
 </pre>
 </div>
 
-<pre class="example" id="org2a0f21a">
+<pre class="example" id="org63c4fac">
 到此为止，就正式进入内核代码里
 </pre>
 </div>
@@ -732,6 +743,302 @@ handle_relocations函数的实现足够简单。这个函数从基准内核加�
 </div>
 <div id="outline-container-orgc4b47a8" class="outline-2">
 <h2 id="orgc4b47a8">内核地址随机化</h2>
+<div class="outline-text-2" id="text-orgc4b47a8">
+<p>
+Linux内核的入口点是 <a href="https://github.com/torvalds/linux/blob/v3.18/init/main.c">main.c</a> 的 <b>start_kernel</b> 函数，它在 <b>LOAD_PHYSICAL_ADDR</b> 地址开始执行。这个地址依赖于 <b>CONFIG_PHYSICAL_START</b> 内核配置选项，默认为 <span class="underline">0x1000000</span> :
+</p>
+
+<pre class="example" id="org0952dfe">
+config PHYSICAL_START
+	hex "Physical address where the kernel is loaded" if (EXPERT || CRASH_DUMP)
+	default "0x1000000"
+	---help---
+	  This gives the physical address where the kernel is loaded.
+      ...
+      ...
+      ...
+</pre>
+
+<p>
+这个选项在内核配置时可以修改，使得加载地址可以选择为一个随机值。很多时候 CONFIG_RANDOMIZE_BASE内核配置选项在内核配置时应该启用
+</p>
+
+<pre class="example" id="org61dba2b">
+在这种情况下，Linux内核镜像解压和加载的物理地址会被随机化
+
+接下来考虑 为了安全原因，内核镜像的加载地址被随机化的情况
+</pre>
+<p>
+<a href="https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt">https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt</a>** 页表的初始化
+在内核解压器要开始找随机的内核解压和加载地址之前，应该 <b>初始化恒等映射</b> （ <span class="underline">identity mapped</span> , 虚拟地址和物理地址相同）页表。如果 <a href="https://en.wikipedia.org/wiki/Booting">引导加载器</a> 使用 <a href="https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt">16位或32位引导协议</a> ，那么已经有了页表
+</p>
+
+<pre class="example" id="orgfb66a5d">
+任何情况下，如果内核解压器选择它们之外的内存区域，需要新的页。这就是为什么需要建立新的恒等映射页表
+
+在此之前，让我们回忆一下是怎么来到这里的
+</pre>
+
+<p>
+前面已经看到了到长模式的转换，并跳转到了内核解压器的入口点 extract_kernel 函数。随机化从调用这个函数开始：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span> <span style="color: #87cefa;">choose_random_location</span>(<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">input</span>,
+                            <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">input_size</span>,
+                                        <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> *<span style="color: #eedd82;">output</span>,
+                            <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">output_size</span>,
+                                        <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> *<span style="color: #eedd82;">virt_addr</span>)
+</pre>
+</div>
+
+<p>
+这个函数有五个参数：
+</p>
+<ul class="org-ul">
+<li>input</li>
+<li>input_size</li>
+<li>output</li>
+<li>output_isze</li>
+<li>virt_addr</li>
+</ul>
+
+<p>
+第一个input参数来自源文件 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/misc.c">arch/x86/boot/compressed/misc.c</a> 里的extract_kernel函数：
+</p>
+<div class="org-src-container">
+<pre class="src src-c">asmlinkage __visible <span style="color: #98fb98;">void</span> *<span style="color: #87cefa;">extract_kernel</span>(<span style="color: #98fb98;">void</span> *<span style="color: #eedd82;">rmode</span>, <span style="color: #98fb98;">memptr</span> <span style="color: #eedd82;">heap</span>,
+                                                          <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">input_data</span>,
+                                                          <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">input_len</span>,
+                                                          <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">output</span>,
+                                                          <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">output_len</span>)
+{
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+                choose_random_location((<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)input_data, input_len,
+                                                           (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> *)&amp;output,
+                                                           max(output_len, kernel_total_size),
+                                                           &amp;virt_addr);
+        <span style="color: #ff4500;">//  </span><span style="color: #ff4500;">...</span>
+}
+</pre>
+</div>
+
+<p>
+这个参数由 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">arch/x86/boot/compressed/head_64.S</a> 的汇编代码传递：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leaq</span>    <span style="color: #00ffff;">input</span>_data(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rdx</span>
+</pre>
+</div>
+
+<p>
+<b>input_data</b> 由 <span class="underline">mkpiggy</span> 程序生成。如果编译过Linux内核源码，会找到这个程序生成的文件，它应该位于 <span class="underline">linux/arch/x86/boot/compressed/piggy.S</span> 。这个文件是这样的：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00ffff;">.section</span> <span style="color: #ffa07a;">".rodata..compressed"</span>,<span style="color: #ffa07a;">"a"</span>,@progbits
+<span style="color: #00ffff;">.globl</span> z_input_len
+<span style="color: #87cefa;">z_input_len</span> = 6988196
+<span style="color: #00ffff;">.globl</span> z_output_len
+<span style="color: #87cefa;">z_output_len</span> = 29207032
+<span style="color: #00ffff;">.globl</span> input_data, input_data_end
+<span style="color: #87cefa;">input_data</span>:
+<span style="color: #00ffff;">.incbin</span> <span style="color: #ffa07a;">"arch/x86/boot/compressed/vmlinux.bin.gz"</span>
+<span style="color: #87cefa;">input_data_end</span>:
+</pre>
+</div>
+
+<p>
+它有四个全局符号：
+</p>
+<ul class="org-ul">
+<li>前两个z_input_len和z_output_len是压缩的和解压后的vmlinux.bin.gz的大小</li>
+<li>第三个是input_data，它指向二进制格式（去掉所有调试符号、注释和重定位信息）的Linux内核镜像</li>
+<li>最后的input_data_end指向压缩的Linux镜像的末尾</li>
+</ul>
+
+<pre class="example" id="org04e88e8">
+所以 choose_random_location函数的第一个参数是指向嵌入在piggy.o目标文件的压缩的内核镜像的指针
+</pre>
+
+<ul class="org-ul">
+<li>choose_random_location函数的第二个参数是 刚刚看到的 <b>z_input_len</b></li>
+<li>choose_random_location函数的第三和第四个参数分别是解压后的内核镜像的位置和长度
+<ul class="org-ul">
+<li>放置解压后内核的地址来自 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S">arch/x86/boot/compressed/head_64.S</a>，并且它是 <b>startup_32</b> 对齐到 <span class="underline">2MB</span> 边界的地址</li>
+<li>解压后的内核的大小来自同样的piggy.S，并且它是 <b>z_output_len</b></li>
+</ul></li>
+<li><p>
+choose_random_location函数的最后一个参数是内核加载地址的虚拟地址。它和默认的物理加载地址相同：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">virt_addr</span> = LOAD_PHYSICAL_ADDR;
+</pre>
+</div>
+<ul class="org-ul">
+<li><p>
+它依赖于内核配置：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">LOAD_PHYSICAL_ADDR</span> ((CONFIG_PHYSICAL_START \
+                                + (CONFIG_PHYSICAL_ALIGN - 1)) \
+                                &amp; ~(CONFIG_PHYSICAL_ALIGN - 1))
+</pre>
+</div></li>
+</ul></li>
+</ul>
+</div>
+<div id="outline-container-org8ec83bd" class="outline-4">
+<h4 id="org8ec83bd">建立新的恒等映射内存页表</h4>
+<div class="outline-text-4" id="text-org8ec83bd">
+<p>
+这个函数从检查内核命令行的 <span class="underline">nokaslr</span> 选项开始：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span> (cmdline_find_option_bool(<span style="color: #ffa07a;">"nokaslr"</span>)) {
+        warn(<span style="color: #ffa07a;">"KASLR disabled: 'nokaslr' on cmdline."</span>);
+        <span style="color: #00ffff;">return</span>;
+}
+</pre>
+</div>
+<p>
+如果有这个选项，那么就退出choose_random_location函数，并且内核的加载地址不会随机化。相关的命令行选项可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/Documentation/kernel-parameters.txt">内核文档</a>找到：
+</p>
+<pre class="example" id="orga78cc31">
+kaslr/nokaslr [X86]
+
+Enable/disable kernel and module base offset ASLR
+(Address Space Layout Randomization) if built into
+the kernel. When CONFIG_HIBERNATION is selected,
+kASLR is disabled by default. When kASLR is enabled,
+hibernation will be disabled.
+</pre>
+
+<p>
+假设没有把nokaslr传到内核命令行，并且CONFIG_RANDOMIZE_BASE启用了内核配置选项。下一步：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">initialize_identity_maps</span>();
+</pre>
+</div>
+
+<p>
+它在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/pagetable.c">arch/x86/boot/compressed/pagetable.c</a> 定义。这个函数从初始化 <b>x86_mapping_info结构体</b> 的一个实例开始：
+</p>
+<div class="org-src-container">
+<pre class="src src-c">mapping_info.alloc_pgt_page = alloc_pgt_page;
+mapping_info.context = &amp;pgt_data;
+mapping_info.page_flag = __PAGE_KERNEL_LARGE_EXEC | sev_me_mask;
+mapping_info.kernpg_flag = _KERNPG_TABLE | sev_me_mask;
+</pre>
+</div>
+
+<p>
+x86_mapping_info结构体在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/init.h">arch/x86/include/asm/init.h</a> 头文件定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">x86_mapping_info</span> {
+        <span style="color: #98fb98;">void</span> *(*<span style="color: #87cefa;">alloc_pgt_page</span>)(<span style="color: #98fb98;">void</span> *); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20026;&#19968;&#20010;&#39029;&#34920;&#39033;&#20998;&#37197;&#31354;&#38388;&#26102;&#35843;&#29992;&#30340;&#22238;&#35843;&#20989;&#25968; </span>
+        <span style="color: #98fb98;">void</span> *<span style="color: #eedd82;">context</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36319;&#36394;&#24050;&#20998;&#37197;&#39029;&#34920;&#30340;alloc_pgt_data&#32467;&#26500;&#20307;&#30340;&#23454;&#20363;</span>
+        <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">page_flag</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">PMD&#25110;PUD&#34920;&#39033;&#30340;&#26631;&#24535;</span>
+        <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">offset</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20869;&#26680;&#34394;&#25311;&#22320;&#22336;&#21040;PMD&#32423;&#29289;&#29702;&#22320;&#22336;&#30340;&#20559;&#31227;</span>
+        <span style="color: #98fb98;">bool</span> <span style="color: #eedd82;">direct_gbpages</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23545;&#22823;&#39029;&#30340;&#25903;&#25345;</span>
+        <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">kernpg_flag</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26410;&#26469;&#34987;&#35206;&#30422;&#30340;&#20869;&#26680;&#39029;&#30340;&#26631;&#24535;</span>
+};
+</pre>
+</div>
+
+<pre class="example" id="org79e495c">
+这个结构体提供了关于内存映射的信息
+
+在前面的部分，已经建立了初始的从0到4G的页表，现在可能需要访问4G以上的内存来在随机的位置加载内核
+
+所以，initialize_identity_maps函数初始化一个内存区域，它用于可能需要的新页表
+</pre>
+
+<ul class="org-ul">
+<li>alloc_pgt_page: 为一个页表项分配空间时调用的回调函数</li>
+<li>context: 用于跟踪已分配页表的alloc_pgt_data结构体的实例</li>
+<li>page_flag: PMD或PUD表项的标志</li>
+<li>kernpg_flag: 在之后被覆盖的内核页的标志</li>
+<li>direct_gbpages: 对大页的支持</li>
+<li>offset: 内核虚拟地址到PMD级物理地址的偏移</li>
+</ul>
+
+<p>
+alloc_pgt_page 函数检查有一个新页的空间，从缓冲区分配新页并返回新页的地址：
+</p>
+<div class="org-src-container">
+<pre class="src src-c">entry = pages-&gt;pgt_buf + pages-&gt;pgt_buf_offset;
+pages-&gt;pgt_buf_offset += PAGE_SIZE;
+</pre>
+</div>
+
+<p>
+缓冲区在此结构体中：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">alloc_pgt_data</span> {
+                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">pgt_buf</span>;
+                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">pgt_buf_size</span>;
+                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">pgt_buf_offset</span>;
+};
+</pre>
+</div>
+<p>
+initialize_identity_maps函数最后的目标是初始化 pgdt_buf_size 和 pgt_buf_offset. 由于只是在初始化阶段，initialize_identity_maps函数设置 pgt_buf_offset 为0:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">pgt_data.pgt_buf_offset = 0;
+</pre>
+</div>
+
+<pre class="example" id="org0991a55">
+pgt_data.pgt_buf_size会根据引导加载器所用的引导协议（64位或32位）被设置为77824或69632
+</pre>
+
+<p>
+pgt_data.pgt_buf也是一样。如果引导加载器从 <b>startup_32</b> 引导内核，pgdt_data.pgdt_buf会指向已经在 <a href="https://github.com/torvalds/linux/blob/master/v3.18/x86/boot/compressed/head_64.S">arch/x86/boot/compressed/head_64.S</a> 初始化的页表的末尾：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">pgt_data.pgt_buf = _pgtable + BOOT_INIT_PGT_SIZE;
+</pre>
+</div>
+
+<p>
+_pgtable指向这个页表 <a href="https://github.com/torvalds/linux/blob/master/v3.18/x86/boot/compressed/vmlinux.lds.S">_pgtable</a> 的开头
+</p>
+
+<p>
+另一方面，如果引导加载器用64位引导协议并在 <b>startup_64</b> 加载内核，早期页表应该由引导加载器建立，并且_pgtable会被重写：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">pgt_data.pgt_buf = _pgtable
+</pre>
+</div>
+
+<pre class="example" id="org920fb92">
+在新页表的缓冲区被初始化之下，回到 choose_random_location函数
+</pre>
+</div>
+</div>
+<div id="outline-container-orgeff92d7" class="outline-3">
+<h3 id="orgeff92d7">避开保留的内存范围</h3>
+</div>
+
+<div id="outline-container-org7c18643" class="outline-3">
+<h3 id="org7c18643">物理地址随机化</h3>
+</div>
+
+<div id="outline-container-orgb774345" class="outline-3">
+<h3 id="orgb774345">虚拟地址随机化</h3>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">

@@ -405,3 +405,218 @@ handle_relocations函数的实现足够简单。这个函数从基准内核加�
 到此为止，就正式进入内核代码里
 #+end_example
 * 内核地址随机化
+Linux内核的入口点是 [[https://github.com/torvalds/linux/blob/v3.18/init/main.c][main.c]] 的 *start_kernel* 函数，它在 *LOAD_PHYSICAL_ADDR* 地址开始执行。这个地址依赖于 *CONFIG_PHYSICAL_START* 内核配置选项，默认为 _0x1000000_ :
+
+#+begin_example
+  config PHYSICAL_START
+  	hex "Physical address where the kernel is loaded" if (EXPERT || CRASH_DUMP)
+  	default "0x1000000"
+  	---help---
+  	  This gives the physical address where the kernel is loaded.
+        ...
+        ...
+        ...
+#+end_example
+
+这个选项在内核配置时可以修改，使得加载地址可以选择为一个随机值。很多时候 CONFIG_RANDOMIZE_BASE内核配置选项在内核配置时应该启用
+
+#+begin_example
+  在这种情况下，Linux内核镜像解压和加载的物理地址会被随机化
+
+  接下来考虑 为了安全原因，内核镜像的加载地址被随机化的情况
+#+end_example
+https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt** 页表的初始化
+在内核解压器要开始找随机的内核解压和加载地址之前，应该 *初始化恒等映射* （ _identity mapped_ , 虚拟地址和物理地址相同）页表。如果 [[https://en.wikipedia.org/wiki/Booting][引导加载器]] 使用 [[https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt][16位或32位引导协议]] ，那么已经有了页表
+
+#+begin_example
+  任何情况下，如果内核解压器选择它们之外的内存区域，需要新的页。这就是为什么需要建立新的恒等映射页表
+
+  在此之前，让我们回忆一下是怎么来到这里的
+#+end_example
+
+前面已经看到了到长模式的转换，并跳转到了内核解压器的入口点 extract_kernel 函数。随机化从调用这个函数开始：
+
+#+begin_src c 
+  void choose_random_location(unsigned long input,
+                              unsigned long input_size,
+  			                unsigned long *output,
+                              unsigned long output_size,
+  			                unsigned long *virt_addr)
+#+end_src
+
+这个函数有五个参数：
++ input
++ input_size
++ output
++ output_isze
++ virt_addr
+
+第一个input参数来自源文件 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/misc.c][arch/x86/boot/compressed/misc.c]] 里的extract_kernel函数：
+#+begin_src c 
+  asmlinkage __visible void *extract_kernel(void *rmode, memptr heap,
+  				                          unsigned char *input_data,
+  				                          unsigned long input_len,
+  				                          unsigned char *output,
+  				                          unsigned long output_len)
+  {
+  		// ...
+  		choose_random_location((unsigned long)input_data, input_len,
+  							   (unsigned long *)&output,
+  							   max(output_len, kernel_total_size),
+  							   &virt_addr);
+          //  ...
+  }
+#+end_src
+
+这个参数由 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S][arch/x86/boot/compressed/head_64.S]] 的汇编代码传递：
+
+#+begin_src asm 
+  leaq	input_data(%rip), %rdx
+#+end_src
+
+*input_data* 由 _mkpiggy_ 程序生成。如果编译过Linux内核源码，会找到这个程序生成的文件，它应该位于 _linux/arch/x86/boot/compressed/piggy.S_ 。这个文件是这样的：
+#+begin_src asm 
+  .section ".rodata..compressed","a",@progbits
+  .globl z_input_len
+  z_input_len = 6988196
+  .globl z_output_len
+  z_output_len = 29207032
+  .globl input_data, input_data_end
+  input_data:
+  .incbin "arch/x86/boot/compressed/vmlinux.bin.gz"
+  input_data_end:
+#+end_src
+
+它有四个全局符号：
++ 前两个z_input_len和z_output_len是压缩的和解压后的vmlinux.bin.gz的大小
++ 第三个是input_data，它指向二进制格式（去掉所有调试符号、注释和重定位信息）的Linux内核镜像
++ 最后的input_data_end指向压缩的Linux镜像的末尾
+
+#+begin_example
+所以 choose_random_location函数的第一个参数是指向嵌入在piggy.o目标文件的压缩的内核镜像的指针
+#+end_example
+
++ choose_random_location函数的第二个参数是 刚刚看到的 *z_input_len* 
++ choose_random_location函数的第三和第四个参数分别是解压后的内核镜像的位置和长度
+  + 放置解压后内核的地址来自 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/head_64.S][arch/x86/boot/compressed/head_64.S]]，并且它是 *startup_32* 对齐到 _2MB_ 边界的地址
+  + 解压后的内核的大小来自同样的piggy.S，并且它是 *z_output_len*
++ choose_random_location函数的最后一个参数是内核加载地址的虚拟地址。它和默认的物理加载地址相同：
+  #+begin_src c 
+    unsigned long virt_addr = LOAD_PHYSICAL_ADDR;
+  #+end_src
+  + 它依赖于内核配置：
+    #+begin_src c
+      #define LOAD_PHYSICAL_ADDR ((CONFIG_PHYSICAL_START \
+      				+ (CONFIG_PHYSICAL_ALIGN - 1)) \
+      				& ~(CONFIG_PHYSICAL_ALIGN - 1))
+    #+end_src
+
+*** 建立新的恒等映射内存页表
+这个函数从检查内核命令行的 _nokaslr_ 选项开始：
+
+#+begin_src c 
+  if (cmdline_find_option_bool("nokaslr")) {
+  	warn("KASLR disabled: 'nokaslr' on cmdline.");
+  	return;
+  }
+#+end_src
+如果有这个选项，那么就退出choose_random_location函数，并且内核的加载地址不会随机化。相关的命令行选项可以在 [[https://github.com/torvalds/linux/blob/v3.18/Documentation/kernel-parameters.txt][内核文档]]找到：
+#+begin_example
+  kaslr/nokaslr [X86]
+
+  Enable/disable kernel and module base offset ASLR
+  (Address Space Layout Randomization) if built into
+  the kernel. When CONFIG_HIBERNATION is selected,
+  kASLR is disabled by default. When kASLR is enabled,
+  hibernation will be disabled.
+#+end_example
+
+假设没有把nokaslr传到内核命令行，并且CONFIG_RANDOMIZE_BASE启用了内核配置选项。下一步：
+
+#+begin_src c 
+  initialize_identity_maps();
+#+end_src
+
+它在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/boot/compressed/pagetable.c][arch/x86/boot/compressed/pagetable.c]] 定义。这个函数从初始化 *x86_mapping_info结构体* 的一个实例开始：
+#+begin_src c 
+  mapping_info.alloc_pgt_page = alloc_pgt_page;
+  mapping_info.context = &pgt_data;
+  mapping_info.page_flag = __PAGE_KERNEL_LARGE_EXEC | sev_me_mask;
+  mapping_info.kernpg_flag = _KERNPG_TABLE | sev_me_mask;
+#+end_src
+
+x86_mapping_info结构体在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/init.h][arch/x86/include/asm/init.h]] 头文件定义：
+
+#+begin_src c 
+  struct x86_mapping_info {
+  	void *(*alloc_pgt_page)(void *); // 为一个页表项分配空间时调用的回调函数 
+  	void *context; // 跟踪已分配页表的alloc_pgt_data结构体的实例
+  	unsigned long page_flag; // PMD或PUD表项的标志
+  	unsigned long offset; // 内核虚拟地址到PMD级物理地址的偏移
+  	bool direct_gbpages; // 对大页的支持
+  	unsigned long kernpg_flag; // 未来被覆盖的内核页的标志
+  };
+#+end_src
+
+#+begin_example
+  这个结构体提供了关于内存映射的信息
+
+  在前面的部分，已经建立了初始的从0到4G的页表，现在可能需要访问4G以上的内存来在随机的位置加载内核
+
+  所以，initialize_identity_maps函数初始化一个内存区域，它用于可能需要的新页表
+#+end_example
+
++ alloc_pgt_page: 为一个页表项分配空间时调用的回调函数
++ context: 用于跟踪已分配页表的alloc_pgt_data结构体的实例
++ page_flag: PMD或PUD表项的标志
++ kernpg_flag: 在之后被覆盖的内核页的标志
++ direct_gbpages: 对大页的支持
++ offset: 内核虚拟地址到PMD级物理地址的偏移 
+
+alloc_pgt_page 函数检查有一个新页的空间，从缓冲区分配新页并返回新页的地址：
+#+begin_src c 
+  entry = pages->pgt_buf + pages->pgt_buf_offset;
+  pages->pgt_buf_offset += PAGE_SIZE;
+#+end_src
+
+缓冲区在此结构体中：
+#+begin_src c 
+  struct alloc_pgt_data {
+  		unsigned char *pgt_buf;
+  		unsigned long pgt_buf_size;
+  		unsigned long pgt_buf_offset;
+  };
+#+end_src
+initialize_identity_maps函数最后的目标是初始化 pgdt_buf_size 和 pgt_buf_offset. 由于只是在初始化阶段，initialize_identity_maps函数设置 pgt_buf_offset 为0:
+
+#+begin_src c 
+  pgt_data.pgt_buf_offset = 0;
+#+end_src
+
+#+begin_example
+pgt_data.pgt_buf_size会根据引导加载器所用的引导协议（64位或32位）被设置为77824或69632
+#+end_example
+
+pgt_data.pgt_buf也是一样。如果引导加载器从 *startup_32* 引导内核，pgdt_data.pgdt_buf会指向已经在 [[https://github.com/torvalds/linux/blob/master/v3.18/x86/boot/compressed/head_64.S][arch/x86/boot/compressed/head_64.S]] 初始化的页表的末尾：
+
+#+begin_src c 
+  pgt_data.pgt_buf = _pgtable + BOOT_INIT_PGT_SIZE;
+#+end_src
+
+_pgtable指向这个页表 [[https://github.com/torvalds/linux/blob/master/v3.18/x86/boot/compressed/vmlinux.lds.S][_pgtable]] 的开头
+
+另一方面，如果引导加载器用64位引导协议并在 *startup_64* 加载内核，早期页表应该由引导加载器建立，并且_pgtable会被重写：
+
+#+begin_src c 
+  pgt_data.pgt_buf = _pgtable
+#+end_src
+
+#+begin_example
+在新页表的缓冲区被初始化之下，回到 choose_random_location函数
+#+end_example
+** 避开保留的内存范围
+
+** 物理地址随机化
+
+** 虚拟地址随机化
+
