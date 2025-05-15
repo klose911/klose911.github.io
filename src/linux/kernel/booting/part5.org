@@ -511,7 +511,7 @@ https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt** 页�
       				& ~(CONFIG_PHYSICAL_ALIGN - 1))
     #+end_src
 
-*** 建立新的恒等映射内存页表
+** 建立新的恒等映射内存页表
 这个函数从检查内核命令行的 _nokaslr_ 选项开始：
 
 #+begin_src c 
@@ -615,8 +615,184 @@ _pgtable指向这个页表 [[https://github.com/torvalds/linux/blob/master/v3.18
 在新页表的缓冲区被初始化之下，回到 choose_random_location函数
 #+end_example
 ** 避开保留的内存范围
+#+begin_example
+  在恒等映射页表相关的数据被初始化之后，可以开始选择放置解压后内核的随机位置
+
+  但是正如你猜的那样，不能选择任意地址
+
+  在内存的范围中，有一些保留的地址。这些地址被重要的东西占用，如initrd, 内核命令行等等
+#+end_example
+
+函数 *mem_avoid_init* 会做这件事。所有不安全的内存区域会收集到：
+
+#+begin_src c 
+  mem_avoid_init(input, input_size, *output);
+
+  struct mem_vector {
+  	unsigned long long start;
+  	unsigned long long size;
+  };
+
+  static struct mem_vector mem_avoid[MEM_AVOID_MAX];
+#+end_src
+
+其中 *MEM_AVOID_MAX* 来自枚举类型 *mem_avoid_index* , 定义在源文件 [[https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/kaslr.c][arch/x86/boot/compressed/kaslr.c]] 中，代表不同类型的保留内存区域：
+
+#+begin_src c 
+  enum mem_avoid_index {
+  		MEM_AVOID_ZO_RANGE = 0,
+  		MEM_AVOID_INITRD,
+  		MEM_AVOID_CMDLINE,
+  		MEM_AVOID_BOOTPARAMS,
+  		MEM_AVOID_MEMMAP_BEGIN,
+  		MEM_AVOID_MEMMAP_END = MEM_AVOID_MEMMAP_BEGIN + MAX_MEMMAP_REGIONS - 1,
+  		MEM_AVOID_MAX,
+  };
+#+end_src
+
+mem_avoid_init 主要目标是在mem_avoid数组存放关于被mem_avoid_index枚举类型描述的保留内存区域的信息，并且在新的恒等映射缓冲区为这样的区域创建新页。函数里的几个部分很相似，先看看其中一个：
+
+#+begin_src c 
+  mem_avoid[MEM_AVOID_ZO_RANGE].start = input;
+  mem_avoid[MEM_AVOID_ZO_RANGE].size = (output + init_size) - input;
+  add_identity_map(mem_avoid[MEM_AVOID_ZO_RANGE].start,
+  				 mem_avoid[MEM_AVOID_ZO_RANGE].size);
+#+end_src
+
+mem_avoid_init函数的开头尝试避免用于 *当前内核解压的内存区域*
+1. 用这个区域的 _起始地址_ 和 _大小_ 填写 *mem_avoid数组* 的一项
+2. 调用 *add_identity_map* 函数，它会为这个区域建立恒等映射页。add_identity_map函数同样在 [[https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/kaslr.c][arch/x86/boot/compressed/kaslr.c]] 定义：
+   #+begin_src c 
+     void add_identity_map(unsigned long start, unsigned long size)
+     {
+     		unsigned long end = start + size;
+
+     		start = round_down(start, PMD_SIZE);
+     		end = round_up(end, PMD_SIZE);
+     		if (start >= end)
+     				return;
+
+     		kernel_ident_mapping_init(&mapping_info, (pgd_t *)top_level_pgt,
+     								  start, end);
+     }
+   #+end_src
+   + 它对齐内存到 2MB 边界并检查给定的起始地址和终止地址
+   + 调用 *kernel_ident_mapping_init* 函数，它在源文件 [[https://github.com/torvalds/linux/blob/master/arch/x86/mm/ident_map.c][arch/x86/mm/ident_map.c]] 中，并传入 _初始化好的mapping_info实例_ 、 _顶层页表的地址_ 和建立 _新的恒等映射的内存区域的地址_
+     + 为新页设置默认的标志，如果它们没有被给出：
+       #+begin_src c 
+	 if (!info->kernpg_flag)
+	 		info->kernpg_flag = _KERNPG_TABLE;
+       #+end_src
+     + 建立新的2MB (因为mapping_info.page_flag中的PSE位) 给定地址相关的页表项（五级页表中的PGD -> P4D -> PUD -> PMD或者四级页表中的PGD -> PUD -> PMD）
+       #+begin_src c 
+	 for (; addr < end; addr = next) {
+	 		p4d_t *p4d;
+
+	 		next = (addr & PGDIR_MASK) + PGDIR_SIZE; // 找给定地址在 页全局目录 的下一项 
+	 		if (next > end) // 如果它大于给定的内存区域的末地址end，把它设为end
+	 				next = end; 
+
+	 		p4d = (p4d_t *)info->alloc_pgt_page(info->context); // 用之前看过的x86_mapping_info回调函数分配一个新页 
+	 		result = ident_p4d_init(info, p4d, addr, next); // ident_p4d_init函数做同样的事情，但是用于低层的页目录 (p4d -> pud -> pmd)
+
+	 		return result;
+	 }
+       #+end_src
+
+#+begin_example
+  这不是mem_avoid_init函数的末尾，但是其他部分类似
+
+  它建立用于 initrd、内核命令行等数据的页
+#+end_example
 
 ** 物理地址随机化
+在保留内存区域存储在mem_avoid数组并且为它们建立了恒等映射页之后，选择 *最小可用的地址* 作为解压内核的随机内存区域：
+
+#+begin_src c 
+  min_addr = min(*output, 512UL << 20);
+#+end_src
+
+#+begin_example
+它应该小于512MB. 选择这个512MB的值只是避免低内存区域中未知的东西
+#+end_example
+
+下一步是选择随机的物理和虚拟地址来加载内核。首先是物理地址：
+
+#+begin_src c 
+  random_addr = find_random_phys_addr(min_addr, output_size);
+#+end_src
+
+*find_random_phys_addr* 函数在 [[https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/kaslr.c][同一个]] 源文件中定义：
+
+#+begin_src c 
+  static unsigned long find_random_phys_addr(unsigned long minimum,
+                                             unsigned long image_size)
+  {
+  		minimum = ALIGN(minimum, CONFIG_PHYSICAL_ALIGN);
+
+  		if (process_efi_entries(minimum, image_size))
+  				return slots_fetch_random();
+
+  		process_e820_entries(minimum, image_size);
+  		return slots_fetch_random();
+  }
+#+end_src
+
+*process_efi_entries* 函数的主要目标是在整个可用的内存找到所有的合适的内存区域来加载内核。如果内核没有在支持EFI的系统中编译和运行，继续在 [[https://en.wikipedia.org/wiki/E820][e820]] 区域中找这样的内存区域。所有找到的内存区域会存储 *slot_area* 数组中：
+
+#+begin_src c 
+  struct slot_area {
+  	unsigned long addr;
+  	int num;
+  };
+
+  #define MAX_SLOT_AREA 100
+
+  static struct slot_area slot_areas[MAX_SLOT_AREA];
+#+end_src
+
+内核解压器应该选择这个数组随机的索引，并且它会是内核解压的随机位置。这个选择会被 *slots_fetch_random* 函数执行：
+
+#+begin_src c
+  // 通过kaslr_get_random_long函数从slot_areas数组选择随机的内存范围
+  slot = kaslr_get_random_long("Physical") % slot_max; 
+#+end_src
+
+kaslr_get_random_long函数在源文件 [[https://github.com/torvalds/linux/blob/master/arch/x86/lib/kaslr.c][arch/x86/lib/kaslr.c]] 中定义，它返回一个随机数
+
+#+begin_example
+  注意：这个随机数会通过不同的方式得到，取决于内核配置、系统机会（基于时间戳计数器的随机数、rdrand等等）
+#+end_example
 
 ** 虚拟地址随机化
+在内核解压器选择了随机内存区域后，新的恒等映射页会为这个区域按需建立：
+
+#+begin_src c 
+  random_addr = find_random_phys_addr(min_addr, output_size);
+
+  if (*output != random_addr) {
+  		add_identity_map(random_addr, output_size);
+  		*output = random_addr;
+  }
+#+end_src
+
+#+begin_example
+此时 output 会存放内核将被解压的一个内存区域的基地址
+#+end_example
+但是现在，只是随机化了物理地址。而在x86_64架构，虚拟地址也应该被随机化：
+
+#+begin_src c 
+  if (IS_ENABLED(CONFIG_X86_64))
+  		random_addr = find_random_virt_addr(LOAD_PHYSICAL_ADDR, output_size);
+
+  *virt_addr = random_addr;
+#+end_src
+
+*find_random_virt_addr* 函数计算可以保存内存镜像的虚拟内存范围的数量并且调用在尝试找到随机的物理地址的时候，之前已经看到的 kaslr_get_random_long函数 
+
+#+begin_example
+  对于非x86_64架构，随机化的虚拟地址和随机化的物理地址相同
+
+  到此为止同时有了用于解压内核的随机化的物理(*output)和虚拟(*virt_addr)基地址
+#+end_example
 
