@@ -206,6 +206,16 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org806db1e">内核执行的第一步</a></li>
+<li><a href="#org5a14c79">修正页表基地址</a></li>
+<li><a href="#org589cba4">Identity Map Paging</a></li>
+<li><a href="#orgb63ebd2">最后准备</a>
+<ul>
+<li><a href="#org7484cfb">设置C语言执行的栈</a></li>
+<li><a href="#org1949567">设置段内存</a></li>
+<li><a href="#orgbadeb1a">跳转到C语言</a></li>
+</ul>
+</li>
+<li><a href="#org099bd85">走进 start_kernel</a></li>
 </ul>
 </div>
 </div>
@@ -221,13 +231,828 @@
 此时 <b>rax 寄存器</b> 中保存的就是 <span class="underline">Linux 内核入口点</span> ，这个地址通过调用 <b>decompress_kernel</b> <a href="https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/misc.c">arch/x86/boot/compressed/misc.c</a>函数后获得
 </p>
 
-<pre class="example" id="org4c4cfe2">
+<pre class="example" id="orga7a136d">
 内核引导程序的最后一行代码是一句指向内核入口点的跳转指令
 
-既然已经知道了内核入口点定义在哪，就可以继续探究 Linux 内核在引导结束后做了些什么
+既然已经知道了内核入口点定义在哪，就可以继续探究 Linux 内核在引导结束后做了些什么1
 </pre>
 <div id="outline-container-org806db1e" class="outline-2">
 <h2 id="org806db1e">内核执行的第一步</h2>
+<div class="outline-text-2" id="text-org806db1e">
+<p>
+在调用了 decompress_kernel 函数后，rax 寄存器中保存了解压缩后的内核镜像的地址，并且跳转了过去。解压缩后的内核镜像的入口点定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head_64.S">arch/x86/kernel/head_64.S</a>，这个文件的开头几行如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">__HEAD</span>
+        <span style="color: #00ffff;">.code64</span>
+        <span style="color: #00ffff;">.globl</span> startup_64
+<span style="color: #87cefa;">startup_64</span>:
+        ...
+        ...
+        ...
+</pre>
+</div>
+
+<p>
+可以看到 startup_64 过程定义在了 <b>__HEAD</b> 区段下。 __HEAD 只是一个宏，它将展开为可执行的 <b>.head.text</b> 区段：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">__HEAD</span>      .section    <span style="color: #ffa07a;">".head.text"</span>,<span style="color: #ffa07a;">"ax"</span>
+</pre>
+</div>
+
+<p>
+可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/vmlinux.lds.S#L93">arch/x86/kernel/vmlinux.lds.S</a> 链接器脚本文件中看到这个区段的定义：
+</p>
+
+<pre class="example" id="org8e586b7">
+.text : AT(ADDR(.text) - LOAD_OFFSET) {
+	_text = .;
+	...
+	...
+	...
+} :text = 0x9090
+</pre>
+
+<p>
+除了对 .text 区段的定义，还能从这个脚本文件中得知内核的默认物理地址与虚拟地址。 <b>_text</b> 是一个 <span class="underline">地址计数器</span> ，对于 x86_64 来说，它定义为：
+</p>
+
+<pre class="example" id="org9ff70df">
+. = __START_KERNEL;
+</pre>
+
+<p>
+<b>__START_KERNEL</b> 宏的定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/page_types.h">arch/x86/include/asm/page_types.h</a> 头文件中，它由 <span class="underline">内核映射的虚拟基址</span> 与 <span class="underline">基物理起始点</span> 相加得到：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">_START_KERNEL</span>   (__START_KERNEL_map + __PHYSICAL_START)
+
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">__PHYSICAL_START</span>  ALIGN(CONFIG_PHYSICAL_START, CONFIG_PHYSICAL_ALIGN)
+</pre>
+</div>
+
+<p>
+换句话说：
+</p>
+<ul class="org-ul">
+<li>Linux 内核的物理基址: 0x1000000</li>
+<li>Linux 内核的虚拟基址: 0xffffffff81000000</li>
+</ul>
+
+<p>
+虽然知道了 startup_64 过程的默认物理地址与虚拟地址，但是真正的地址必须要通过下面的代码计算得到：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leaq</span>    _text(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rbp</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;RIP&#30456;&#23545;&#22320;&#22336;&#25918;&#20837;rbp </span>
+<span style="color: #87cefa;">subq</span>    <span style="color: #00ffff;">$</span>_text - __START_KERNEL_map, <span style="color: #eedd82;">%rbp</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23454;&#38469;&#21152;&#36733;&#22320;&#22336;&#19982;&#32534;&#35793;&#21518;&#30340;&#40664;&#35748;&#22320;&#22336;&#20043;&#38388;&#30340;&#24046;&#20540;</span>
+</pre>
+</div>
+
+<pre class="example" id="org3fb6a4c">
+虽然定义为 0x1000000，但是仍然有可能变化，例如启用 kASLR 的时候
+</pre>
+<p>
+所以当前的目标是计算 0x1000000 与实际加载地址的差。这里将 <b>RIP相对地址</b> <span class="underline">rip-relative</span> 放入 rbp 寄存器，并且从中减去 <span class="underline">$_text - __START_KERNEL_map</span>
+</p>
+
+<pre class="example" id="org926e67c">
+_text 在编译后的默认虚拟地址为 0xffffffff81000000， 物理地址为 0x1000000
+
+__START_KERNEL_map 宏将展开为 0xffffffff80000000
+</pre>
+
+<p>
+对于对于第二行汇编代码，将得到如下的表达式：
+</p>
+<pre class="example" id="orgf4e4690">
+rbp = 0x1000000 - (0xffffffff81000000 - 0xffffffff80000000)
+</pre>
+
+<p>
+在计算过后，rbp 的值将为 0，代表了实际加载地址与编译后的默认地址之间的差值
+</p>
+
+<pre class="example" id="orgf4599d6">
+这个例子中，0 代表了 Linux 内核被加载到了默认地址，并且没有启用 kASLR 
+</pre>
+
+<p>
+得到了 startup_64 的地址后，需要检查这个地址是否已经 <b>正确对齐</b> 。下面的代码将进行这项工作：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">testl</span>   <span style="color: #00ffff;">$</span>~PMD_PAGE_MASK, <span style="color: #eedd82;">%ebp</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; rbp &#23492;&#23384;&#22120;&#30340;&#20302;32&#20301;&#19982; *PMD_PAGE_MASK* &#36827;&#34892;&#27604;&#36739;</span>
+<span style="color: #87cefa;">jnz</span>     <span style="color: #00ffff;">bad</span>_address
+</pre>
+</div>
+
+<p>
+将 rbp 寄存器的低32位与 <b>PMD_PAGE_MASK</b> 进行比较。PMD_PAGE_MASK 代表 <b>中层页目录</b> <span class="underline">Page middle directory</span> <b>屏蔽位</b> ，它的定义如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">PMD_PAGE_MASK</span>           (~(PMD_PAGE_SIZE-1))
+
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">PMD_PAGE_SIZE</span>           (_AC(1, UL) &lt;&lt; PMD_SHIFT)
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">PMD_SHIFT</span>       21
+</pre>
+</div>
+
+<pre class="example" id="org48a5b4d">
+很容易得出 PMD_PAGE_SIZE 为 2MB 
+
+如果 text 的地址没有对齐到 2MB，则跳转到 bad_address
+</pre>
+
+<p>
+接下来通过检查 <span class="underline">高 18 位</span> 来防止这个地址 <b>过大</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leaq</span>    _text(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rax</span>
+<span style="color: #87cefa;">shrq</span>    <span style="color: #00ffff;">$MAX</span>_PHYSMEM_BITS, <span style="color: #eedd82;">%rax</span>
+<span style="color: #87cefa;">jnz</span>     <span style="color: #00ffff;">bad</span>_address
+</pre>
+</div>
+
+<p>
+这个地址必须不超过 46 个比特，即小于2的46次方：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">MAX_PHYSMEM_BITS</span>       46
+</pre>
+</div>
+
+<pre class="example" id="org1a4a573">
+至此完成了一些初步的检查，可以继续进行后续的工作了
+</pre>
+</div>
+</div>
+<div id="outline-container-org5a14c79" class="outline-2">
+<h2 id="org5a14c79">修正页表基地址</h2>
+<div class="outline-text-2" id="text-org5a14c79">
+<p>
+在开始设置 Identity 分页之前，需要首先修正下面的地址：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, early_level4_pgt + (L4_START_KERNEL*8)(<span style="color: #eedd82;">%rip</span>)
+<span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, level3_kernel_pgt + (510*8)(<span style="color: #eedd82;">%rip</span>)
+<span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, level3_kernel_pgt + (511*8)(<span style="color: #eedd82;">%rip</span>)
+<span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, level2_fixmap_pgt + (506*8)(<span style="color: #eedd82;">%rip</span>)
+</pre>
+</div>
+
+<p>
+如果 startup_64 的值不为默认的 0x1000000 的话， 则包括 <b>early_level4_pgt</b> 、*level3_kernel_pgt* 在内的很多地址都会不正确。rbp寄存器中包含的是相对地址，因此我们把它与 early_level4_pgt、level3_kernel_pgt 以及 level2_fixmap_pgt 中特定的项相加。首先来看一下它们的定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">NEXT_PAGE</span>(early_level4_pgt)
+<span style="color: #00ffff;">.fill</span>   511,8,0
+<span style="color: #00ffff;">.quad</span>   level3_kernel_pgt - __START_KERNEL_map + _PAGE_TABLE
+
+<span style="color: #87cefa;">NEXT_PAGE</span>(level3_kernel_pgt)
+<span style="color: #00ffff;">.fill</span>   L3_START_KERNEL,8,0
+<span style="color: #00ffff;">.quad</span>   level2_kernel_pgt - __START_KERNEL_map + _KERNPG_TABLE
+<span style="color: #00ffff;">.quad</span>   level2_fixmap_pgt - __START_KERNEL_map + _PAGE_TABLE
+
+<span style="color: #87cefa;">NEXT_PAGE</span>(level2_kernel_pgt)
+<span style="color: #87cefa;">PMDS</span>(0, __PAGE_KERNEL_LARGE_EXEC,
+<span style="color: #87cefa;">KERNEL_IMAGE_SIZE</span>/PMD_SIZE)
+
+<span style="color: #87cefa;">NEXT_PAGE</span>(level2_fixmap_pgt)
+<span style="color: #00ffff;">.fill</span>   506,8,0
+<span style="color: #00ffff;">.quad</span>   level1_fixmap_pgt - __START_KERNEL_map + _PAGE_TABLE
+<span style="color: #00ffff;">.fill</span>   5,8,0
+
+<span style="color: #87cefa;">NEXT_PAGE</span>(level1_fixmap_pgt)
+<span style="color: #00ffff;">.fill</span>   512,8,0
+</pre>
+</div>
+
+<p>
+首先来看一下 early_level4_pgt：
+</p>
+<ul class="org-ul">
+<li>前 (4096 - 8) 个字节全为 0，即它的前 511 个项均不使用</li>
+<li>之后的一项是 level3_kernel_pgt - __START_KERNEL_map + _PAGE_TABLE
+<ul class="org-ul">
+<li>__START_KERNEL_map 是内核的虚拟基地址，因此减去 __START_KERNEL_map 后就得到了 level3_kernel_pgt 的物理地址</li>
+<li><p>
+而 _PAGE_TABLE，它是页表项的访问权限：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">_PAGE_TABLE</span>     (_PAGE_PRESENT | _PAGE_RW | _PAGE_USER |    \
+                         _PAGE_ACCESSED | _PAGE_DIRTY)
+</pre>
+</div></li>
+</ul></li>
+</ul>
+
+<p>
+level3_kernel_pgt 中保存的两项用来映射内核空间：
+</p>
+<ul class="org-ul">
+<li>前 510（即 L3_START_KERNEL）项均为 0。这里的 L3_START_KERNEL 保存的是在上层页目录（Page Upper Directory）中包含__START_KERNEL_map 地址的那一条索引，它等于 510</li>
+<li>后面一项 level2_kernel_pgt - __START_KERNEL_map + _KERNPG_TABLE 中的
+<ul class="org-ul">
+<li><p>
+level2_kernel_pgt 比较容易理解，它是一条页表项，包含了指向中层页目录的指针，它用来映射内核空间，并且具有如下的访问权限：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">_KERNPG_TABLE</span>   (_PAGE_PRESENT | _PAGE_RW | _PAGE_ACCESSED |    \
+                         _PAGE_DIRTY)
+</pre>
+</div></li>
+<li><p>
+level2_kernel_pgt 调用了 <b>PDMS 宏</b> ，在 __START_KERNEL_map 地址处为内核的 .text 创建了 512MB 大小的空间
+</p>
+<pre class="example" id="org64ef24d">
+这 512 MB空间的后面是模块内存空间
+</pre></li>
+</ul></li>
+<li>level2_fixmap_pgt 是一系列虚拟地址，它们可以在内核空间中指向任意的物理地址
+<ul class="org-ul">
+<li>level1_fixmap_pgt作为入口点</li>
+<li>保留10MB 大小的空间用来为 vsyscalls 做映射</li>
+</ul></li>
+</ul>
+
+<pre class="example" id="org2420d6a">
+现在，在看过了这些符号的定义之后，回到本节开始时介绍的那几行代码
+
+rbp 寄存器包含了实际地址与 startup_64 地址之差，其中 startup_64 的地址是在内核链接时获得的
+</pre>
+
+<p>
+因此只需要把它与各个页表项的基地址相加，就能够得到正确的地址了。在这里这些操作如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, early_level4_pgt + (L4_START_KERNEL*8)(<span style="color: #eedd82;">%rip</span>) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">rbp &#23492;&#23384;&#22120;&#21253;&#21547;&#20102;&#23454;&#38469;&#22320;&#22336;&#19982; startup_64 &#22320;&#22336;&#20043;&#24046;</span>
+<span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, level3_kernel_pgt + (510*8)(<span style="color: #eedd82;">%rip</span>)
+<span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, level3_kernel_pgt + (511*8)(<span style="color: #eedd82;">%rip</span>)
+<span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, level2_fixmap_pgt + (506*8)(<span style="color: #eedd82;">%rip</span>)
+</pre>
+</div>
+
+<pre class="example" id="orgf866e31">
+early_level4_pgt 的最后一项就是 level3_kernel_pgt
+
+level3_kernel_pgt 的最后两项分别是 level2_kernel_pgt 和 level2_fixmap_pgt
+
+level2_fixmap_pgt 的第507项就是 level1_fixmap_pgt 页目录
+</pre>
+
+<p>
+在这之后就得到了：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">early_level4_pgt[511] -&gt; level3_kernel_pgt[0]
+level3_kernel_pgt[510] -&gt; level2_kernel_pgt[0]
+level3_kernel_pgt[511] -&gt; level2_fixmap_pgt[0]
+level2_kernel_pgt[0]   -&gt; 512 MB kernel mapping
+level2_fixmap_pgt[507] -&gt; level1_fixmap_pgt
+</pre>
+</div>
+
+<p>
+需要注意的是，并不修正 early_level4_pgt 以及其他页目录的基地址
+</p>
+
+<pre class="example" id="org27fb0c0">
+会在构造、填充这些页目录结构的时候修正
+</pre>
+</div>
+</div>
+<div id="outline-container-org589cba4" class="outline-2">
+<h2 id="org589cba4">Identity Map Paging</h2>
+<div class="outline-text-2" id="text-org589cba4">
+<pre class="example" id="org3916dd1">
+现在进入到对初期页表进行 Identity 映射的初始化过程了
+
+所谓Identity 映射分页中，虚拟地址会被映射到地址相同的物理地址上，即 1 : 1
+</pre>
+<p>
+下面来看一下细节。首先分别找到 <b>_text</b> 与 <b>_early_level4_pgt</b> 的 *RIP 相对地址*，并把他们放入 <span class="underline">rdi</span> 与 <span class="underline">rbx</span> 寄存器中：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">leaq</span>    _text(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rdi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; _text &#19982; RIP &#30340;&#30456;&#23545;&#22320;&#22336;&#25918;&#20837;rdi </span>
+<span style="color: #87cefa;">leaq</span>    <span style="color: #00ffff;">early</span>_level4_pgt(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rbx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; early_level4_pgt &#19982; RIP &#30340;&#30456;&#23545;&#22320;&#22336;&#25918;&#20837;rbx</span>
+</pre>
+</div>
+
+<p>
+在此之后使用 rax 保存 _text 的地址。同时，在全局页目录表中有一条记录中存放的是 _text 的地址。为了得到这条索引，把 _text 的地址右移 <b>PGDIR_SHIFT</b> 位:
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rdi</span>, <span style="color: #eedd82;">%rax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20351;&#29992; rax &#20445;&#23384; _text &#30340;&#22320;&#22336;</span>
+<span style="color: #87cefa;">shrq</span>    <span style="color: #00ffff;">$PGDIR</span>_SHIFT, <span style="color: #eedd82;">%rax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; _text &#30340;&#22320;&#22336;&#21491;&#31227; PGDIR_SHIFT &#20301; &#24471;&#21040;&#20840;&#23616;&#39029;&#30446;&#24405;&#34920;&#20013;&#23545;&#24212; _text &#30340;&#32034;&#24341;</span>
+
+<span style="color: #87cefa;">leaq</span>    (4096 + _KERNPG_TABLE)(<span style="color: #eedd82;">%rbx</span>), <span style="color: #eedd82;">%rdx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; level3_kernel_pgt &#30340;&#22320;&#22336;&#25918;&#36827; rdx &#20013;&#65292;&#24182;&#23558;&#23427;&#30340;&#35775;&#38382;&#26435;&#38480;&#35774;&#32622;&#20026; _KERNPG_TABLE</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; level3_kernel_pgt &#22635;&#20837; early_level4_pgt &#30340;&#20004;&#39033;</span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rdx</span>, 0(<span style="color: #eedd82;">%rbx</span>,<span style="color: #eedd82;">%rax</span>,8) 
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rdx</span>, 8(<span style="color: #eedd82;">%rbx</span>,<span style="color: #eedd82;">%rax</span>,8)
+</pre>
+</div>
+
+<pre class="example" id="org97e3480">
+其中 PGDIR_SHIFT 为 39
+</pre>
+<p>
+PGDIR_SHIFT表示的是在 <span class="underline">虚拟地址下的全局页目录位</span> 的 <b>屏蔽值</b> <span class="underline">mask</span> 。下面的宏定义了所有类型的页目录的屏蔽值：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">PGDIR_SHIFT</span>     39
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">PUD_SHIFT</span>       30
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">PMD_SHIFT</span>       21
+</pre>
+</div>
+
+<p>
+给 rdx 寄存器加上 4096（即 early_level4_pgt 的大小），并把 rdi 寄存器的值（即 _text 的物理地址）赋值给 rax 寄存器。之后把上层页目录中的两个项写入 <b>level3_kernel_pgt</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">$4096</span>, <span style="color: #eedd82;">%rdx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">4096 = early_level4_pgt &#30340;&#22823;&#23567; </span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rdi</span>, <span style="color: #eedd82;">%rax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">rax = _text &#30340;&#29289;&#29702;&#22320;&#22336;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#19978;&#23618;&#39029;&#30446;&#24405;&#20013;&#30340;&#20004;&#20010;&#39033;&#20889;&#20837; level3_kernel_pgt</span>
+<span style="color: #87cefa;">shrq</span>    <span style="color: #00ffff;">$PUD</span>_SHIFT, <span style="color: #eedd82;">%rax</span>
+<span style="color: #87cefa;">andl</span>    <span style="color: #00ffff;">$</span>(PTRS_PER_PUD-1), <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rdx</span>, 4096(<span style="color: #eedd82;">%rbx</span>,<span style="color: #eedd82;">%rax</span>,8)
+<span style="color: #87cefa;">incl</span>    <span style="color: #00ffff;">%eax</span>
+<span style="color: #87cefa;">andl</span>    <span style="color: #00ffff;">$</span>(PTRS_PER_PUD-1), <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rdx</span>, 4096(<span style="color: #eedd82;">%rbx</span>,<span style="color: #eedd82;">%rax</span>,8)
+</pre>
+</div>
+
+<p>
+下一步把中层页目录表项的地址写入 <b>level2_kernel_pgt</b> ，然后修正内核的 <b>text</b> 和 <b>data</b> 的虚拟地址：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">leaq</span>    level2_kernel_pgt(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rdi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; level2_kernel_pgt &#30340;&#22320;&#22336;&#36171;&#20540;&#32473; rdi</span>
+        <span style="color: #00ffff;">leaq</span>    4096(<span style="color: #eedd82;">%rdi</span>), <span style="color: #eedd82;">%r8</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#39029;&#34920;&#39033;&#30340;&#22320;&#22336;&#36171;&#20540;&#32473; r8 &#23492;&#23384;&#22120;</span>
+        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26816;&#26597; level2_kernel_pgt &#20013;&#30340;&#23384;&#22312;&#20301;</span>
+<span style="color: #87cefa;">1</span>:      <span style="color: #00ffff;">testq</span>   $1, 0(<span style="color: #eedd82;">%rdi</span>) 
+        <span style="color: #00ffff;">jz</span>      2f <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#20854;&#20026;0&#65292;&#36339;&#36716;&#21040;2f </span>
+        <span style="color: #00ffff;">addq</span>    <span style="color: #eedd82;">%rbp</span>, 0(<span style="color: #eedd82;">%rdi</span>)
+<span style="color: #87cefa;">2</span>:      <span style="color: #00ffff;">addq</span>    $8, <span style="color: #eedd82;">%rdi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; rdi &#21152;&#19978;8&#20197;&#20415;&#25351;&#21521;&#19979;&#19968;&#20010;&#39029;</span>
+        <span style="color: #00ffff;">cmp</span>     <span style="color: #eedd82;">%r8</span>, <span style="color: #eedd82;">%rdi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20877;&#23558;&#20854;&#19982; r8&#65288;&#21363;&#39029;&#34920;&#39033;&#30340;&#22320;&#22336;&#65289;&#20316;&#27604;&#36739;&#65292;&#19981;&#30456;&#31561;&#30340;&#35805;&#23601;&#36339;&#36716;&#22238;&#21069;&#38754;&#30340;&#26631;&#31614; 1 &#65292;&#21453;&#20043;&#21017;&#32487;&#32493;&#36816;&#34892;</span>
+        <span style="color: #00ffff;">jne</span>     1b
+</pre>
+</div>
+
+<p>
+首先把 level2_kernel_pgt 的地址赋值给 rdi，并把页表项的地址赋值给 r8 寄存器。下一步检查 level2_kernel_pgt 中的存在位，如果其为0，就把 rdi 加上8以便指向下一个页。然后再将其与 r8（即页表项的地址）作比较，不相等的话就跳转回前面的标签 1 ，反之则继续运行
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">phys_base &#19982; level2_kernel_pgt &#31532;&#19968;&#39033;&#30456;&#21516;&#65292;&#20026; 512 MB&#30340;&#20869;&#26680;&#26144;&#23556;</span>
+<span style="color: #87cefa;">addq</span>    <span style="color: #00ffff;">%rbp</span>, phys_base(<span style="color: #eedd82;">%rip</span>) 
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">$</span>(early_level4_pgt - __START_KERNEL_map), <span style="color: #eedd82;">%rax</span> 
+<span style="color: #87cefa;">jmp</span> <span style="color: #00ffff;">1f</span>
+</pre>
+</div>
+
+<p>
+使用 rbp （即 _text 的物理地址）来修正 <b>phys_base 物理地址</b> 
+</p>
+</div>
+</div>
+<div id="outline-container-orgb63ebd2" class="outline-2">
+<h2 id="orgb63ebd2">最后准备</h2>
+<div class="outline-text-2" id="text-orgb63ebd2">
+<p>
+跳转至 <span class="underline">标签1</span> 来开启 <b>PAE</b> 和 <b>PGE</b> <span class="underline">Paging Global Extension</span> ，并且将 <span class="underline">phys_base的物理地址</span> 放入 <b>rax</b> 就寄存器，同时将其放入 <b>cr3</b> 寄存器：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">1</span>:
+        <span style="color: #00ffff;">movl</span>    $(X86_CR4_PAE | X86_CR4_PGE), <span style="color: #eedd82;">%ecx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36339;&#36716;&#33267;&#26631;&#31614;1&#26469;&#24320;&#21551; PAE &#21644; PGE </span>
+        <span style="color: #00ffff;">movq</span>    <span style="color: #eedd82;">%rcx</span>, <span style="color: #eedd82;">%cr4</span> 
+
+        <span style="color: #00ffff;">addq</span>    phys_base(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rax</span>
+        <span style="color: #00ffff;">movq</span>    <span style="color: #eedd82;">%rax</span>, <span style="color: #eedd82;">%cr3</span>
+</pre>
+</div>
+
+<p>
+接下来检查CPU是否支持 <a href="https://en.wikipedia.org/wiki/NX_bit">NX</a> 位：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$0x80000001</span>, <span style="color: #eedd82;">%eax</span> 
+<span style="color: #87cefa;">cpuid</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25191;&#34892; cpuid &#25351;&#20196;&#26469;&#24471;&#21040;&#22788;&#29702;&#22120;&#20449;&#24687;&#32467;&#26524;&#20250;&#23384;&#25918;&#22312; edx &#20013; </span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">%edx</span>,<span style="color: #eedd82;">%edi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#20182;&#20877;&#25918;&#21040; edi &#37324; </span>
+</pre>
+</div>
+
+<p>
+现在把 <b>MSR_EFER</b> <span class="underline">0xc0000080</span> 放入 ecx，然后执行 <b>rdmsr</b> 指令来读取CPU中的 <span class="underline">Model Specific Register</span> <b>MSR</b>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$MSR</span>_EFER, <span style="color: #eedd82;">%ecx</span>
+<span style="color: #87cefa;">rdmsr</span> 
+</pre>
+</div>
+
+<p>
+返回结果将存放于 <span class="underline">edx:eax</span> 。下面展示了 EFER 各个位的含义：
+</p>
+
+<pre class="example" id="orgd1f9fd0">
+63                                                                              32
+ --------------------------------------------------------------------------------
+|                                                                               |
+|                                Reserved MBZ                                   |
+|                                                                               |
+ --------------------------------------------------------------------------------
+31                            16  15      14      13   12  11   10  9  8 7  1   0
+ --------------------------------------------------------------------------------
+|                              | T |       |       |    |   |   |   |   |   |   |
+| Reserved MBZ                 | C | FFXSR | LMSLE |SVME|NXE|LMA|MBZ|LME|RAZ|SCE|
+|                              | E |       |       |    |   |   |   |   |   |   |
+ --------------------------------------------------------------------------------
+</pre>
+
+<ol class="org-ol">
+<li>通过 <b>btsl</b> 来将 <b>_EFER_SCE</b> （即第 <span class="underline">0</span> 位）置1，设置 SCE 位将会启用 SYSCALL 以及 SYSRET 指令</li>
+<li>检查 edi（即 cpuid 的结果） 中的第20位。如果第 20 位（即 NX 位）置位，就只把 EFER_SCE写入MSR</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">btsl</span>    $_EFER_SCE, <span style="color: #eedd82;">%eax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622; SCE &#20301;&#23558;&#20250;&#21551;&#29992; SYSCALL &#20197;&#21450; SYSRET &#25351;&#20196;</span>
+        <span style="color: #00ffff;">btl</span>         $20,<span style="color: #eedd82;">%edi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26816;&#26597; edi&#65288;&#21363; cpuid &#30340;&#32467;&#26524;&#65289; &#20013;&#30340;&#31532;20&#20301;</span>
+        <span style="color: #00ffff;">jnc</span>     1f
+        <span style="color: #00ffff;">btsl</span>    $_EFER_NX, <span style="color: #eedd82;">%eax</span>
+        <span style="color: #00ffff;">btsq</span>    $_PAGE_BIT_NX,early_pmd_flags(<span style="color: #eedd82;">%rip</span>)
+<span style="color: #87cefa;">1</span>:      <span style="color: #00ffff;">wrmsr</span>
+</pre>
+</div>
+
+<p>
+如果支持 NX 那么就把 <b>_EFER_NX</b> 也写入MSR。在设置了 NX 后，还要对 <b>cr0</b> <span class="underline">control register</span> 中的一些位进行设置：
+</p>
+<ul class="org-ul">
+<li>X86_CR0_PE: 系统处于 <b>保护</b> 模式</li>
+<li>X86_CR0_MP: 与CR0的 <span class="underline">TS标志</span> 位一同控制 <b>WAIT/FWAIT</b> 指令的功能</li>
+<li>X86_CR0_ET: 386允许指定 <b>外部数学协处理器</b> 为 <span class="underline">80287</span> 或 <span class="underline">80387</span></li>
+<li>X86_CR0_NE: 如果置位，则启用内置的 <span class="underline">x87浮点错误报告</span> ，否则启用PC风格的 <span class="underline">x87错误检测</span></li>
+<li>X86_CR0_WP: 如果置位，则CPU在特权等级为0时无法写入 <b>只读内存页</b></li>
+<li>X86_CR0_AM: 当AM位置位、EFLGS中的AC位置位、特权等级为3时，进行对齐检查</li>
+<li>X86_CR0_PG: 启用 <b>分页</b></li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">CR0_STATE</span>       (X86_CR0_PE | X86_CR0_MP | X86_CR0_ET | \
+<span style="color: #87cefa;">X86_CR0_NE</span> | X86_CR0_WP | X86_CR0_AM | \
+<span style="color: #87cefa;">X86_CR0_PG</span>)
+
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$CR0</span>_STATE, <span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rax</span>, <span style="color: #eedd82;">%cr0</span>
+</pre>
+</div>
+</div>
+<div id="outline-container-org7484cfb" class="outline-3">
+<h3 id="org7484cfb">设置C语言执行的栈</h3>
+<div class="outline-text-3" id="text-org7484cfb">
+<p>
+为了从汇编执行C语言代码，需要建立一个栈。首先将<a href="https://en.wikipedia.org/wiki/Stack_register">栈指针</a>指向一个内存中合适的区域，然后重置<a href="https://en.wikipedia.org/wiki/FLAGS_register">FLAGS寄存器</a>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movq</span> <span style="color: #00ffff;">stack</span>_start(<span style="color: #eedd82;">%rip</span>), <span style="color: #eedd82;">%rsp</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">$0</span>
+<span style="color: #87cefa;">popfq</span>
+</pre>
+</div>
+
+<p>
+<span class="underline">stack_start</span> 也定义在当前的源文件中：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">GLOBAL</span>(stack_start)
+<span style="color: #00ffff;">.quad</span>  init_thread_union+THREAD_SIZE-8
+</pre>
+</div>
+
+<p>
+对于 GLOABL 应该很熟悉了。它在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/linkage.h">arch/x86/include/asm/linkage.h</a> 头文件中定义如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">GLOBAL</span>(<span style="color: #eedd82;">name</span>)                            \
+                .globl name;                            \
+<span style="color: #7fffd4;">name</span>:
+</pre>
+</div>
+
+<p>
+<b>THREAD_SIZE</b> 定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/page_64_types.h">arch/x86/include/asm/page_64_types.h</a>，它依赖于 <b>KASAN_STACK_ORDER</b> 的值:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">THREAD_SIZE_ORDER</span>       (2 + KASAN_STACK_ORDER)
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">THREAD_SIZE</span>  (PAGE_SIZE &lt;&lt; THREAD_SIZE_ORDER)
+</pre>
+</div>
+
+<p>
+首先当禁用了 <a href="https://www.kernel.org/doc/html/v4.14/dev-tools/kasan.html">kasan</a> 并且 PAGE_SIZE 大小为4096时的情况。此时 THREAD_SIZE 将为 16 KB，代表了一个线程的栈的大小
+</p>
+<pre class="example" id="orgbb929f6">
+每一个进程可能会有父进程和子进程
+</pre>
+
+<p>
+事实上，父进程和子进程使用不同的栈空间，每一个新进程都会拥有一个新的内核栈。在Linux内核中，这个栈由 <b>thread_info 结构</b> 中的一个union表示：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">union</span> <span style="color: #98fb98;">thread_union</span> {
+                <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">thread_info</span> <span style="color: #eedd82;">thread_info</span>;
+                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">stack</span>[THREAD_SIZE/<span style="color: #00ffff;">sizeof</span>(<span style="color: #98fb98;">long</span>)];
+};
+</pre>
+</div>
+
+<p>
+<b>init_thread_union</b> 定义如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">union</span> <span style="color: #98fb98;">thread_union</span> <span style="color: #eedd82;">init_thread_union</span> __init_task_data =
+{ INIT_THREAD_INFO(init_task) };
+</pre>
+</div>
+
+<p>
+其中 <b>INIT_THREAD_INFO</b> 接受 <b>task_struct 结构</b> 类型的 <span class="underline">参数</span> ，并进行一些初始化操作：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">INIT_THREAD_INFO</span>(<span style="color: #eedd82;">tsk</span>)                   \
+                {                                       \
+                                .task       = &amp;tsk,             \
+                                .flags      = 0,                \
+                                .cpu        = 0,                \
+                                .addr_limit = KERNEL_DS,        \
+                }
+</pre>
+</div>
+
+<p>
+<b>task_struct 结构</b> 在内核中代表了对进程的描述。因此，thread_union 包含了关于一个进程的低级信息，并且其位于进程栈底：
+</p>
+
+<pre class="example" id="org5b9ddfa">
++-----------------------+
+|                       |
+|                       |
+|                       |
+|     Kernel stack      |
+|                       |
+|                       |
+|                       |
+|-----------------------|
+|                       |
+|  struct thread_info   |
+|                       |
++-----------------------+
+</pre>
+
+<p>
+需要注意的是在栈顶保留了 <span class="underline">8</span> 个字节的空间，用来保护对下一个内存页的非法访问
+</p>
+</div>
+</div>
+<div id="outline-container-org1949567" class="outline-3">
+<h3 id="org1949567">设置段内存</h3>
+<div class="outline-text-3" id="text-org1949567">
+<p>
+在初期启动栈设置好之后，使用 <b>lgdt</b> 指令来更新 <span class="underline">全局描述符表</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">lgdt</span>    <span style="color: #00ffff;">early</span>_gdt_descr(<span style="color: #eedd82;">%rip</span>)
+</pre>
+</div>
+
+<p>
+其中 <b>early_gdt_descr</b> 定义如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">early_gdt_descr</span>:
+        <span style="color: #00ffff;">.word</span>   GDT_ENTRIES*8-1
+<span style="color: #87cefa;">early_gdt_descr_base</span>:
+        <span style="color: #00ffff;">.quad</span>   INIT_PER_CPU_VAR(gdt_page)
+</pre>
+</div>
+
+<pre class="example" id="orgfef90b1">
+需要重新加载 全局描述附表 的原因是，目前内核工作在用户空间的低地址中，但很快内核将会在它自己的内存地址空间中运行
+
+</pre>
+<p>
+下面来看一下 early_gdt_descr 的定义。全局描述符表包含了32项，用于内核代码、数据、线程局部存储段等：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">GDT_ENTRIES</span> 32
+</pre>
+</div>
+
+<p>
+再来看 <b>early_gdt_descr_base</b> :
+</p>
+<ul class="org-ul">
+<li><p>
+gdt_page 的定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/desc.h">arch/x86/include/asm/desc.h</a> 中:
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">gdt_page</span> {
+                <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">desc_struct</span> <span style="color: #eedd82;">gdt</span>[GDT_ENTRIES];
+} <span style="color: #00ffff;">__attribute__</span>((<span style="color: #98fb98;">aligned</span>(<span style="color: #eedd82;">PAGE_SIZE</span>)));
+</pre>
+</div>
+<ul class="org-ul">
+<li><p>
+它只包含了一项 <b>desc_struct 的数组</b> <span class="underline">gdt</span> 。desc_struct定义如下:
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">desc_struct</span> {
+                <span style="color: #00ffff;">union</span> {
+                                <span style="color: #00ffff;">struct</span> {
+                                                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">a</span>;
+                                                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">b</span>;
+                                };
+                                <span style="color: #00ffff;">struct</span> {
+                                                <span style="color: #98fb98;">u16</span> <span style="color: #eedd82;">limit0</span>;
+                                                <span style="color: #98fb98;">u16</span> <span style="color: #eedd82;">base0</span>;
+                                                <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">base1</span>: 8, <span style="color: #eedd82;">type</span>: 4, <span style="color: #eedd82;">s</span>: 1, <span style="color: #eedd82;">dpl</span>: 2, <span style="color: #eedd82;">p</span>: 1;
+                                                <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">limit</span>: 4, <span style="color: #eedd82;">avl</span>: 1, <span style="color: #eedd82;">l</span>: 1, <span style="color: #eedd82;">d</span>: 1, <span style="color: #eedd82;">g</span>: 1, <span style="color: #eedd82;">base2</span>: 8;
+                                };
+                };
+} <span style="color: #00ffff;">__attribute__</span>((packed));
+</pre>
+</div>
+<pre class="example" id="org6290899">
+它跟 GDT 描述符的定义很像
+
+需要注意的是，gdt_page结构是 PAGE_SIZE( 4096) 对齐的，即 gdt 将会占用一页内存
+</pre></li>
+</ul></li>
+<li><p>
+<b>INIT_PER_CPU_VAR</b> 定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/percpu.h">arch/x86/include/asm/percpu.h</a>，只是将给定的参数与 init_per_cpu__连接起来：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">INIT_PER_CPU_VAR</span>(<span style="color: #eedd82;">var</span>) init_per_cpu__##var
+</pre>
+</div>
+<pre class="example" id="org6a1133f">
+所以在宏展开之后，会得到 init_per_cpu__gdt_page
+</pre></li>
+<li><p>
+在 linker script 中可以发现:
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">INIT_PER_CPU</span>(<span style="color: #eedd82;">x</span>) init_per_cpu__##x = x + __per_cpu_load
+<span style="color: #87cefa;">INIT_PER_CPU</span>(gdt_page);
+</pre>
+</div>
+<ul class="org-ul">
+<li><b>INIT_PER_CPU</b> 扩展后也将得到 init_per_cpu__gdt_page 并将它的值设置为相对于 <b>__per_cpu_load 的偏移量</b> 。这样，就得到了新GDT的正确的基地址</li>
+</ul>
+<pre class="example" id="orgcd27c11">
+per-CPU变量是2.6内核中的特性
+
+顾名思义，当创建一个 per-CPU 变量时，每个CPU都会拥有一份它自己的拷贝，在这里创建的是 gdt_page per-CPU变量
+
+这种类型的变量有很多，比如由于每个CPU都只访问自己的变量而不需要锁等
+
+在多处理器的情况下，每一个处理器核心都将拥有一份自己的 GDT 表，其中的每一项都代表了一块内存，这块内存可以由在这个核心上运行的线程访问
+
+</pre></li>
+</ul>
+
+<p>
+在加载好了新的全局描述附表之后，跟之前一样重新加载一下各个段：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">xorl</span> <span style="color: #00ffff;">%eax</span>,<span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">movl</span> <span style="color: #00ffff;">%eax</span>,<span style="color: #eedd82;">%ds</span>
+<span style="color: #87cefa;">movl</span> <span style="color: #00ffff;">%eax</span>,<span style="color: #eedd82;">%ss</span>
+<span style="color: #87cefa;">movl</span> <span style="color: #00ffff;">%eax</span>,<span style="color: #eedd82;">%es</span>
+<span style="color: #87cefa;">movl</span> <span style="color: #00ffff;">%eax</span>,<span style="color: #eedd82;">%fs</span>
+<span style="color: #87cefa;">movl</span> <span style="color: #00ffff;">%eax</span>,<span style="color: #eedd82;">%gs</span>
+</pre>
+</div>
+
+<p>
+需要设置一下 <b>gs</b> 寄存器，令它指向一个特殊的栈 <span class="underline">irqstack</span> ，用于处理 <a href="https://en.wikipedia.org/wiki/Interrupt">中断</a>：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">$MSR</span>_GS_BASE,<span style="color: #eedd82;">%ecx</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; MSR_GS_BASE &#25918;&#20837; ecx &#23492;&#23384;&#22120; </span>
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">initial</span>_gs(<span style="color: #eedd82;">%rip</span>),<span style="color: #eedd82;">%eax</span> 
+<span style="color: #87cefa;">movl</span>    <span style="color: #00ffff;">initial</span>_gs+4(<span style="color: #eedd82;">%rip</span>),<span style="color: #eedd82;">%edx</span>
+<span style="color: #87cefa;">wrmsr</span>   
+</pre>
+</div>
+<ol class="org-ol">
+<li>把 MSR_GS_BASE 放入 ecx 寄存器</li>
+<li>利用 wrmsr 指令向 eax 和 edx 处的地址加载数据（即指向 initial_gs）</li>
+</ol>
+
+<p>
+其中， <b>MSR_GS_BASE</b> 为：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">MSR_GS_BASE</span>             0xc0000101
+</pre>
+</div>
+
+<pre class="example" id="org4ad57a4">
+cs, fs, ds 和 ss 段寄存器在64位模式下不用来寻址，但 fs 和 gs 可以使用
+
+fs 和 gs 有一个隐含的部分（与实模式下的 cs 段寄存器类似）
+
+这个隐含部分存储了一个描述符，其指向 Model Specific Registers，因此上面的 0xc0000101 是一个 gs.base MSR 地址
+
+当发生系统调用 或者 中断时，入口点处并没有内核栈，使用 MSR_GS_BASE 将会用来存放中断栈
+</pre>
+</div>
+</div>
+<div id="outline-container-orgbadeb1a" class="outline-3">
+<h3 id="orgbadeb1a">跳转到C语言</h3>
+<div class="outline-text-3" id="text-orgbadeb1a">
+<p>
+接下把实模式中的 <span class="underline">bootparam 结构的地址</span> 放入 <b>rdi</b> ，然后跳转到C语言代码：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">%rsi</span>, <span style="color: #eedd82;">%rdi</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">rsi &#20174;&#19968;&#24320;&#22987;&#23601;&#20445;&#23384;&#20102; bootparam &#32467;&#26500;&#20307;&#30340;&#25351;&#38024;</span>
+
+<span style="color: #87cefa;">movq</span>    <span style="color: #00ffff;">initial</span>_code(<span style="color: #eedd82;">%rip</span>),<span style="color: #eedd82;">%rax</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; initial_code &#25918;&#20837; rax &#20013;</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26632;&#37324;&#20998;&#21035;&#21387;&#20837;&#19968;&#20010;&#26080;&#29992;&#30340;&#22320;&#22336;&#12289;__KERNEL_CS &#21644; initial_code &#30340;&#22320;&#22336; </span>
+<span style="color: #87cefa;">pushq</span>   <span style="color: #00ffff;">$0</span>
+<span style="color: #87cefa;">pushq</span>   <span style="color: #00ffff;">$</span>__KERNEL_CS
+<span style="color: #87cefa;">pushq</span>   <span style="color: #00ffff;">%rax</span> 
+<span style="color: #87cefa;">lretq</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174;&#26632;&#19978;&#24377;&#20986;&#36820;&#22238;&#22320;&#22336;&#24182;&#36339;&#36716;  </span>
+</pre>
+</div>
+
+<p>
+<b>initial_code</b> 同样定义在这个文件里：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #00ffff;">.balign</span> 8
+<span style="color: #87cefa;">GLOBAL</span>(initial_code)
+<span style="color: #00ffff;">.quad</span>   x86_64_start_kernel
+</pre>
+</div>
+
+<p>
+initial_code 包含了 <b>x86_64_start_kernel</b> 的地址，其定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head64.c">arch/x86/kerne/head64.c</a>：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">asmlinkage __visible <span style="color: #98fb98;">void</span> <span style="color: #eedd82;">__init</span> x86_64_start_kernel(<span style="color: #98fb98;">char</span> * <span style="color: #eedd82;">real_mode_data</span>) {
+                ...
+                                ...
+                                ...
+                                }
+</pre>
+</div>
+
+<p>
+这个函数接受一个参数 <b>real_mode_data</b>
+</p>
+
+<pre class="example" id="orgb08d182">
+刚才把实模式下数据的地址保存到了 rdi 寄存器中
+
+这个函数是内核中第一个执行的C语言代码！
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org099bd85" class="outline-2">
+<h2 id="org099bd85">走进 start_kernel</h2>
 </div>
 </div>
 <div id="postamble" class="status">
