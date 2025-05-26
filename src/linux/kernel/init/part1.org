@@ -619,3 +619,78 @@ initial_code 包含了 *x86_64_start_kernel* 的地址，其定义在 [[https://
 #+end_example
 
 * 走进 start_kernel
+#+begin_example
+  在真正到达“内核入口点” init/main.c 中的 start_kernel 函数之前，还需要最后的准备工作
+#+end_example
+
+首先在  *x86_64_start_kernel* 函数中可以看到一些检查工作：
+
+#+begin_src c 
+  BUILD_BUG_ON(MODULES_VADDR < __START_KERNEL_map);
+  BUILD_BUG_ON(MODULES_VADDR - __START_KERNEL_map < KERNEL_IMAGE_SIZE);
+  BUILD_BUG_ON(MODULES_LEN + KERNEL_IMAGE_SIZE > 2*PUD_SIZE);
+  BUILD_BUG_ON((__START_KERNEL_map & ~PMD_MASK) != 0);
+  BUILD_BUG_ON((MODULES_VADDR & ~PMD_MASK) != 0);
+  BUILD_BUG_ON(!(MODULES_VADDR > __START_KERNEL));
+  BUILD_BUG_ON(!(((MODULES_END - 1) & PGDIR_MASK) == (__START_KERNEL & PGDIR_MASK)));
+  BUILD_BUG_ON(__fix_to_virt(__end_of_fixed_addresses) <= MODULES_END);
+#+end_src
+
+这些检查包括：
++ 模块的虚拟地址不能低于内核 text 段基地址 __START_KERNEL_map
++ 包含模块的内核 text 段的空间大小不能小于内核镜像大小等等
+
+而 *BUILD_BUG_ON* 宏定义如下：
+
+#+begin_src c 
+#define BUILD_BUG_ON(condition) ((void)sizeof(char[1 - 2*!!(condition)]))
+#+end_src
+
+来理解一下这些 *巧妙的* 设计是怎么工作的。以第一个条件 MODULES_VADDR < __START_KERNEL_map 为例：
+1. *!!conditions* 等价于 _condition != 0_
+   #+begin_example
+     这表示如果 MODULES_VADDR < __START_KERNEL_map 为真，则 !!(condition) 为1，否则为0
+   #+end_example
+2. 执行 *2*!!(condition)* 之后数值变为 _2_ 或 _0_ 
+
+因此，这个宏执行完后可能产生两种不同的行为：
++ 编译错误：因为尝试取获取一个字符数组索引为负数的变量的大小
++ 没有编译错误
+
+#+begin_example
+就是这么简单，通过C语言中某些常量导致编译错误的技巧实现了这一设计
+#+end_example
+
+接下来 start_kernel 调用了 *cr4_init_shadow* 函数，其中 *存储* 了 _每个CPU_ 中 _cr4 的Shadow Copy_ 
+
+#+begin_example
+上下文切换可能会修改 cr4 中的位，因此需要保存每个CPU中 cr4 的内容
+#+end_example
+
+在这之后将会调用 *reset_early_page_tables* 函数，它 *重置* 了所有的 _全局页目录项_ ，同时向 _cr3_ 中重新写入了的 _全局页目录表的地址_ ：
+
+#+begin_src c
+  for (i = 0; i < PTRS_PER_PGD-1; i++)
+  		early_level4_pgt[i].pgd = 0; // 遍历了所有的全局页目录项（其中 PTRS_PER_PGD 为 512），将其设置为0 
+
+  next_early_pgt = 0;
+
+  write_cr3(__pa_nodebug(early_level4_pgt)); // 把 early_level4_pgt 的物理地址写入 cr3
+#+end_src
+
+*__pa_nodebug* 是一个宏，将被扩展为：
+
+#+begin_src c 
+  ((unsigned long)(x) - __START_KERNEL_map + phys_base)
+#+end_src
+
+接着清空了从 __bss_stop 到 __bss_start 的 *_bss 段*
+
+#+begin_example
+  下一步是建立初期 IDT（中断描述符表） 的处理代码
+
+  内容很多，将会留到下一个部分再来探究
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:part2.org][初始化中断]] | [[file:init.org][Home：内核初始化]] |
