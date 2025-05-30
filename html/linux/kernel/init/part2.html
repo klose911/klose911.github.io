@@ -206,10 +206,11 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org2be97e5">中断</a></li>
+<li><a href="#org46ac97d">设置并加载 IDT</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org787fac1">
+<pre class="example" id="org63c3d13">
 目前已经处于解压缩后的Linux内核中了，有了用于初期启动的基本的 分页 机制
 
 目标是在内核的主体代码执行前做好准备工作
@@ -231,11 +232,387 @@
 这段代码位于 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head64.c">arch/x86/kernel/head64.c</a>
 </p>
 
-<pre class="example" id="orga0a4fd9">
+<pre class="example" id="orge34d7d3">
 在分析这段代码之前，先来了解一些关于中断和中断处理程序的知识
 </pre>
 <div id="outline-container-org2be97e5" class="outline-2">
 <h2 id="org2be97e5">中断</h2>
+<div class="outline-text-2" id="text-org2be97e5">
+<p>
+<b>中断</b> 是一种由 <span class="underline">软件</span> 或 <span class="underline">硬件</span> 产生的、向 <span class="underline">CPU</span> 发出的 <b>事件</b>
+</p>
+<pre class="example" id="org126a493">
+例如，如果用户按下了键盘上的一个按键时，就会产生中断
+</pre>
+
+<p>
+此时CPU将会暂停当前的任务，并且将控制流转到特殊的程序中 <a href="https://en.wikipedia.org/wiki/Interrupt_handler">中断处理程序</a> <span class="underline">Interrupt Handler</span> 。一个中断处理程序会对中断进行处理，然后将控制权交还给之前暂停的任务中。中断分为三类：
+</p>
+<ol class="org-ol">
+<li><p>
+软件中断：当一个软件可以向CPU发出信号，表明它需要系统内核的相关功能时产生
+</p>
+<pre class="example" id="orga48c3c1">
+这些中断通常用于系统调用
+</pre></li>
+<li><p>
+硬件中断：当一个硬件有任何事件发生时产生
+</p>
+<pre class="example" id="orgcbf9f8d">
+例如键盘的按键被按下
+</pre></li>
+<li><p>
+异常：当CPU检测到错误时产生
+</p>
+<pre class="example" id="orgd76a7f7">
+例如 发生了除零错误或者访问了一个不存在的内存页
+</pre></li>
+</ol>
+
+<p>
+每一个中断和异常都可以由一个数来表示，这个数叫做 <b>向量号</b> ，它可以取从 <span class="underline">0</span> 到 <span class="underline">255</span> 中的任何一个数
+</p>
+<pre class="example" id="org243d59a">
+通常在实践中前 32 个向量号用来表示异常，32 到 255 用来表示用户定义的中断
+</pre>
+
+<p>
+在上面的代码中， <b>NUM_EXCEPTION_VECTORS</b> 就定义为：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">NUM_EXCEPTION_VECTORS</span> 32
+</pre>
+</div>
+
+<p>
+CPU会从 <a href="http://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_Controller">APIC</a> 或者 CPU 引脚接收中断，并使用中断向量号作为 <b>中断描述符表</b> 的索引。下面的表中列出了 0-31 号异常：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 中断描述符表</caption>
+
+<colgroup>
+<col  class="org-right" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-right">Vector</th>
+<th scope="col" class="org-left">Mnemonic</th>
+<th scope="col" class="org-left">Description</th>
+<th scope="col" class="org-left">Type</th>
+<th scope="col" class="org-left">Error Code</th>
+<th scope="col" class="org-left">Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-right">0</td>
+<td class="org-left">#DE</td>
+<td class="org-left">Divide Error</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">DIV and IDIV</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">1</td>
+<td class="org-left">#DB</td>
+<td class="org-left">Reserved</td>
+<td class="org-left">F/T</td>
+<td class="org-left">NO</td>
+<td class="org-left">&#xa0;</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">2</td>
+<td class="org-left">---</td>
+<td class="org-left">NMI</td>
+<td class="org-left">INT</td>
+<td class="org-left">NO</td>
+<td class="org-left">external NMI</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">3</td>
+<td class="org-left">#BP</td>
+<td class="org-left">Breakpoint</td>
+<td class="org-left">Trap</td>
+<td class="org-left">NO</td>
+<td class="org-left">INT 3</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">4</td>
+<td class="org-left">#OF</td>
+<td class="org-left">Overflow</td>
+<td class="org-left">Trap</td>
+<td class="org-left">NO</td>
+<td class="org-left">INTO  instruction</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">5</td>
+<td class="org-left">#BR</td>
+<td class="org-left">Bound Range Exceeded</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">BOUND instruction</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">6</td>
+<td class="org-left">#UD</td>
+<td class="org-left">Invalid Opcode</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">UD2 instruction</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">7</td>
+<td class="org-left">#NM</td>
+<td class="org-left">Device Not Available</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">Floating point or [F]WAIT</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">8</td>
+<td class="org-left">#DF</td>
+<td class="org-left">Double Fault</td>
+<td class="org-left">Abort</td>
+<td class="org-left">YES</td>
+<td class="org-left">Ant instrctions which can generate NMI</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">9</td>
+<td class="org-left">---</td>
+<td class="org-left">Reserved</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">&#xa0;</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">10</td>
+<td class="org-left">#TS</td>
+<td class="org-left">Invalid TSS</td>
+<td class="org-left">Fault</td>
+<td class="org-left">YES</td>
+<td class="org-left">Task switch or TSS access</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">11</td>
+<td class="org-left">#NP</td>
+<td class="org-left">Segment Not Present</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">Accessing segment register</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">12</td>
+<td class="org-left">#SS</td>
+<td class="org-left">Stack-Segment Fault</td>
+<td class="org-left">Fault</td>
+<td class="org-left">YES</td>
+<td class="org-left">Stack operations</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">13</td>
+<td class="org-left">#GP</td>
+<td class="org-left">General Protection</td>
+<td class="org-left">Fault</td>
+<td class="org-left">YES</td>
+<td class="org-left">Memory reference</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">14</td>
+<td class="org-left">#PF</td>
+<td class="org-left">Page fault</td>
+<td class="org-left">Fault</td>
+<td class="org-left">YES</td>
+<td class="org-left">Memory reference</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">15</td>
+<td class="org-left">---</td>
+<td class="org-left">Reserved</td>
+<td class="org-left">&#xa0;</td>
+<td class="org-left">NO</td>
+<td class="org-left">&#xa0;</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">16</td>
+<td class="org-left">#MF</td>
+<td class="org-left">x87 FPU fp error</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">Floating point or [F]Wait</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">17</td>
+<td class="org-left">#AC</td>
+<td class="org-left">Alignment Check</td>
+<td class="org-left">Fault</td>
+<td class="org-left">YES</td>
+<td class="org-left">Data reference</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">18</td>
+<td class="org-left">#MC</td>
+<td class="org-left">Machine Check</td>
+<td class="org-left">Abort</td>
+<td class="org-left">NO</td>
+<td class="org-left">&#xa0;</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">19</td>
+<td class="org-left">#XM</td>
+<td class="org-left">SIMD fp exception</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">SSE[2,3] instructions</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">20</td>
+<td class="org-left">#VE</td>
+<td class="org-left">Virtualization exc.</td>
+<td class="org-left">Fault</td>
+<td class="org-left">NO</td>
+<td class="org-left">EPT violations</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-right">21-31</td>
+<td class="org-left">---</td>
+<td class="org-left">Reserved</td>
+<td class="org-left">INT</td>
+<td class="org-left">NO</td>
+<td class="org-left">External interrupts</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+为了能够对中断进行处理，CPU使用了一种特殊的结构 <b>中断描述符表</b> <span class="underline">IDT</span> 。IDT 是一个由 <b>描述符</b> 组成的数组，其中每个描述符都为 <span class="underline">8个字节</span> ，与全局描述附表一致；不过不同的是，把IDT中的每一项叫做 <b>门</b> <span class="underline">gate</span>
+</p>
+<ul class="org-ul">
+<li>为了获得某一项描述符的起始地址，CPU 会把向量号乘以8，在64位模式中则会乘以16</li>
+<li>CPU使用一个特殊的 GDTR 寄存器来存放全局描述符表的地址，中断描述符表也有一个类似的 <b>寄存器</b> <span class="underline">IDTR</span> ，同时还有用于将基地址加载入这个寄存器的指令 <b>lidt</b></li>
+</ul>
+
+<p>
+64位模式下 IDT 的每一项的结构如下：
+</p>
+<pre class="example" id="org1d629ac">
+127                                                                             96
+ --------------------------------------------------------------------------------
+|                                                                               |
+|                                Reserved                                       |
+|                                                                               |
+ --------------------------------------------------------------------------------
+95                                                                              64
+ --------------------------------------------------------------------------------
+|                                                                               |
+|                               Offset 63..32                                   |
+|                                                                               |
+ --------------------------------------------------------------------------------
+63                               48 47      46  44   42    39             34    32
+ --------------------------------------------------------------------------------
+|                                  |       |  D  |   |     |      |   |   |     |
+|       Offset 31..16              |   P   |  P  | 0 |Type |0 0 0 | 0 | 0 | IST |
+|                                  |       |  L  |   |     |      |   |   |     |
+ --------------------------------------------------------------------------------
+31                                   15 16                                      0
+ --------------------------------------------------------------------------------
+|                                      |                                        |
+|          Segment Selector            |                 Offset 15..0           |
+|                                      |                                        |
+ --------------------------------------------------------------------------------
+</pre>
+
+<p>
+其中:
+</p>
+<ul class="org-ul">
+<li>Offset: 到中断处理程序入口点的偏移</li>
+<li>DPL: 描述符特权级别</li>
+<li>P: Segment Present 标志</li>
+<li>Segment selector: 在GDT或LDT中的代码段选择子</li>
+<li>IST: 用来为中断处理提供一个新的栈</li>
+<li>Type 域描述了这一项的类型，中断处理程序共分为三种：
+<ul class="org-ul">
+<li>任务描述符</li>
+<li><p>
+中断描述符：中断和陷阱描述符包含了一个指向中断处理程序的 <b>远</b> <span class="underline">far</span> 指针。二者唯一的不同在于CPU处理 <b>IF 标志</b> 
+</p>
+<pre class="example" id="orge481da7">
+如果是由中断门进入中断处理程序的，CPU 会清除 IF 标志位
+
+这样当当前中断处理程序执行时，CPU 不会对其他的中断进行处理
+
+只有当当前的中断处理程序返回时，CPU 才在 iret 指令执行时重新设置 IF 标志位
+</pre></li>
+<li>陷阱描述符</li>
+</ul></li>
+</ul>
+
+<p>
+接下来看一下 CPU 是如何处理中断的：
+</p>
+<ul class="org-ul">
+<li>CPU 会在 <span class="underline">栈</span> 上保存 <b>标志寄存器</b> 、 <b>cs段寄存器</b> 和 <b>程序计数器IP</b></li>
+<li>如果中断是由错误码引起的（比如 #PF）， CPU会在栈上保存 <b>错误码</b></li>
+<li>在中断处理程序执行完毕后，由 <b>iret</b> 指令返回</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org46ac97d" class="outline-2">
+<h2 id="org46ac97d">设置并加载 IDT</h2>
 </div>
 </div>
 <div id="postamble" class="status">
