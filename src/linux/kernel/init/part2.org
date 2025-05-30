@@ -161,3 +161,142 @@ CPU会从 [[http://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_Control
 + 如果中断是由错误码引起的（比如 #PF）， CPU会在栈上保存 *错误码* 
 + 在中断处理程序执行完毕后，由 *iret* 指令返回
 * 设置并加载 IDT
+#+begin_src c 
+  for (i = 0; i < NUM_EXCEPTION_VECTORS; i++)
+  		set_intr_gate(i, early_idt_handler_array[i]);
+#+end_src
+
+这里循环内部调用了 *set_intr_gate* ，它接受两个参数：
+1. 中断号，即 *向量号*
+2. 中断处理程序的地址
+
+同时，这个函数还会将 _中断门_ *插入* 至 _IDT_ 表中，代码中的 *&idt_descr 数组* 即为 IDT
+
+首先来看一下 *early_idt_handler_array 数组* ，它定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/segment.h][arch/x86/include/asm/segment.h]] 头文件中，包含了前32个异常处理程序的地址：
+
+#+begin_src c 
+  #define EARLY_IDT_HANDLER_SIZE   9
+  #define NUM_EXCEPTION_VECTORS	32
+
+  extern const char early_idt_handler_array[NUM_EXCEPTION_VECTORS][EARLY_IDT_HANDLER_SIZE];
+#+end_src
+
+*early_idt_handler_array* 是一个大小为 _288 字节_ 的数组，每一项为 _9 个字节_ ，其中
++ 2个字节的备用指令：向栈中 *压入* _默认错误码_ （如果异常本身没有提供错误码的话）
++ 2个字节的指令：向栈中 *压入* _向量号_ 
++ 剩余5个字节： *跳转* 到 _异常处理程序_
+
+#+begin_example
+  在上面的代码中，通过一个循环向 IDT 中填入了前32项内容，这是因为在整个初期设置阶段，中断是禁用的
+
+  early_idt_handler_array 数组中的每一项指向的都是同一个通用中断处理程序，定义在 arch/x86/kernel/head_64.S 
+#+end_example
+
+先暂时跳过这个数组的内容，看一下 *set_intr_gate* 的定义。set_intr_gate 宏定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/desc.h][arch/x86/include/asm/desc.h]] ：
+
+#+begin_src c 
+  #define set_intr_gate(n, addr)											\
+  		do {                                                            \
+  				BUG_ON((unsigned)n > 0xFF);                             \
+  				_set_gate(n, GATE_INTERRUPT, (void *)addr, 0, 0,        \
+  						  __KERNEL_CS);                                 \
+  				_trace_set_gate(n, GATE_INTERRUPT, (void *)trace_##addr, \
+  								0, 0, __KERNEL_CS);                     \
+  		} while (0)
+#+end_src
+
+#+begin_example
+BUG_ON 宏确保了传入的中断向量号不会大于255，因为最多只有 256 个中断
+#+end_example
+
+调用了 *_set_gate* 函数，它会将中断门写入 IDT：
+#+begin_src c 
+  static inline void _set_gate(int gate, unsigned type, void *addr,
+  	                         unsigned dpl, unsigned ist, unsigned seg)
+  {
+  		gate_desc s;
+  		pack_gate(&s, type, (unsigned long)addr, dpl, ist, seg);
+  		write_idt_entry(idt_table, gate, &s);
+  		write_trace_idt_entry(gate, &s);
+  }
+#+end_src
+
+在 _set_gate 函数的开始，它调用了 *pack_gate* 函数。这个函数会使用给定的参数填充 *gate_desc 结构* ：
+
+#+begin_src c 
+  static inline void pack_gate(gate_desc *gate, unsigned type, unsigned long func,
+                               unsigned dpl, unsigned ist, unsigned seg)
+  {
+          gate->offset_low        = PTR_LOW(func);
+          gate->segment           = __KERNEL_CS;
+          gate->ist               = ist;
+          gate->p                 = 1;
+          gate->dpl               = dpl;
+          gate->zero0             = 0;
+          gate->zero1             = 0;
+          gate->type              = type;
+          gate->offset_middle     = PTR_MIDDLE(func);
+          gate->offset_high       = PTR_HIGH(func);
+  }
+#+end_src
+
+这里把从主循环中得到的中断处理程序入口点地址拆成三个部分，填入门描述符中。下面的三个宏就用来做这个拆分工作：
+
+#+begin_src c
+  #define PTR_LOW(x) ((unsigned long long)(x) & 0xFFFF) 
+  #define PTR_MIDDLE(x) (((unsigned long long)(x) >> 16) & 0xFFFF)
+  #define PTR_HIGH(x) ((unsigned long long)(x) >> 32)
+#+end_src
+
+#+begin_example
+  调用 PTR_LOW 可以得到 x 的低 2 个字节
+
+  调用 PTR_MIDDLE 可以得到 x 的中间 2 个字节
+
+  调用 PTR_HIGH 则能够得到 x 的高 4 个字节
+
+  接下来中断处理程序设置段选择子，即内核代码段 __KERNEL_CS
+
+  将 Interrupt Stack Table 和 描述符特权等级 （最高特权等级）设置为0
+
+  最后设置 GAT_INTERRUPT 类型
+#+end_example
+
+现在已经设置好了IDT中的一项，那么通过调用 *native_write_idt_entry* 函数来把复制到 IDT：
+
+#+begin_src c 
+  static inline void native_write_idt_entry(gate_desc *idt, int entry, const gate_desc *gate)
+  {
+          memcpy(&idt[entry], gate, sizeof(*gate));
+  }
+#+end_src
+
+#+begin_example
+  主循环结束后，idt_table 就已经设置完毕了
+#+end_example
+
+然后就可以通过下面的代码 *加载* _中断描述符表_ ：
+
+#+begin_src c 
+  load_idt((const struct desc_ptr *)&idt_descr);
+#+end_src
+
+*idt_descr* 为：
+#+begin_src c 
+  struct desc_ptr idt_descr = { NR_VECTORS * 16 - 1, (unsigned long) idt_table };
+#+end_src
+
+load_idt 函数只是执行了一下 *lidt* 指令：
+#+begin_src c
+  asm volatile("lidt %0"::"m" (*dtr));
+#+end_src
+
+#+begin_example
+  在代码中还有对 _trace_* 函数的调用。这些函数会用跟 _set_gate 同样的方法对 IDT 门进行设置，但仅有一处不同
+
+  这些函数并不设置 idt_table ，而是 trace_idt_table ，用于设置追踪点（tracepoint，将会在其他章节介绍这一部分）。
+
+  好了，至此已经了解到，通过设置并加载 中断描述符表 ，能够让CPU在发生中断时做出相应的动作
+
+  下面来看一下如何编写中断处理程序
+#+end_example

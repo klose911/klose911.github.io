@@ -210,7 +210,7 @@
 </ul>
 </div>
 </div>
-<pre class="example" id="org63c3d13">
+<pre class="example" id="org6c836d7">
 目前已经处于解压缩后的Linux内核中了，有了用于初期启动的基本的 分页 机制
 
 目标是在内核的主体代码执行前做好准备工作
@@ -232,7 +232,7 @@
 这段代码位于 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head64.c">arch/x86/kernel/head64.c</a>
 </p>
 
-<pre class="example" id="orge34d7d3">
+<pre class="example" id="orgd82acc5">
 在分析这段代码之前，先来了解一些关于中断和中断处理程序的知识
 </pre>
 <div id="outline-container-org2be97e5" class="outline-2">
@@ -241,7 +241,7 @@
 <p>
 <b>中断</b> 是一种由 <span class="underline">软件</span> 或 <span class="underline">硬件</span> 产生的、向 <span class="underline">CPU</span> 发出的 <b>事件</b>
 </p>
-<pre class="example" id="org126a493">
+<pre class="example" id="orgf155516">
 例如，如果用户按下了键盘上的一个按键时，就会产生中断
 </pre>
 
@@ -252,19 +252,19 @@
 <li><p>
 软件中断：当一个软件可以向CPU发出信号，表明它需要系统内核的相关功能时产生
 </p>
-<pre class="example" id="orga48c3c1">
+<pre class="example" id="org40d6a33">
 这些中断通常用于系统调用
 </pre></li>
 <li><p>
 硬件中断：当一个硬件有任何事件发生时产生
 </p>
-<pre class="example" id="orgcbf9f8d">
+<pre class="example" id="org9393058">
 例如键盘的按键被按下
 </pre></li>
 <li><p>
 异常：当CPU检测到错误时产生
 </p>
-<pre class="example" id="orgd76a7f7">
+<pre class="example" id="org6ad1687">
 例如 发生了除零错误或者访问了一个不存在的内存页
 </pre></li>
 </ol>
@@ -272,7 +272,7 @@
 <p>
 每一个中断和异常都可以由一个数来表示，这个数叫做 <b>向量号</b> ，它可以取从 <span class="underline">0</span> 到 <span class="underline">255</span> 中的任何一个数
 </p>
-<pre class="example" id="org243d59a">
+<pre class="example" id="org5c8565e">
 通常在实践中前 32 个向量号用来表示异常，32 到 255 用来表示用户定义的中断
 </pre>
 
@@ -548,7 +548,7 @@ CPU会从 <a href="http://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_
 <p>
 64位模式下 IDT 的每一项的结构如下：
 </p>
-<pre class="example" id="org1d629ac">
+<pre class="example" id="org7d06286">
 127                                                                             96
  --------------------------------------------------------------------------------
 |                                                                               |
@@ -590,7 +590,7 @@ CPU会从 <a href="http://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_
 <li><p>
 中断描述符：中断和陷阱描述符包含了一个指向中断处理程序的 <b>远</b> <span class="underline">far</span> 指针。二者唯一的不同在于CPU处理 <b>IF 标志</b> 
 </p>
-<pre class="example" id="orge481da7">
+<pre class="example" id="org7f55543">
 如果是由中断门进入中断处理程序的，CPU 会清除 IF 标志位
 
 这样当当前中断处理程序执行时，CPU 不会对其他的中断进行处理
@@ -613,6 +613,185 @@ CPU会从 <a href="http://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_
 </div>
 <div id="outline-container-org46ac97d" class="outline-2">
 <h2 id="org46ac97d">设置并加载 IDT</h2>
+<div class="outline-text-2" id="text-org46ac97d">
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">for</span> (i = 0; i &lt; NUM_EXCEPTION_VECTORS; i++)
+                <span style="color: #87cefa;">set_intr_gate</span>(i, <span style="color: #98fb98;">early_idt_handler_array</span>[i]);
+</pre>
+</div>
+
+<p>
+这里循环内部调用了 <b>set_intr_gate</b> ，它接受两个参数：
+</p>
+<ol class="org-ol">
+<li>中断号，即 <b>向量号</b></li>
+<li>中断处理程序的地址</li>
+</ol>
+
+<p>
+同时，这个函数还会将 <span class="underline">中断门</span> <b>插入</b> 至 <span class="underline">IDT</span> 表中，代码中的 <b>&amp;idt_descr 数组</b> 即为 IDT
+</p>
+
+<p>
+首先来看一下 <b>early_idt_handler_array 数组</b> ，它定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/segment.h">arch/x86/include/asm/segment.h</a> 头文件中，包含了前32个异常处理程序的地址：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">EARLY_IDT_HANDLER_SIZE</span>   9
+<span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">NUM_EXCEPTION_VECTORS</span>   32
+
+<span style="color: #00ffff;">extern</span> <span style="color: #00ffff;">const</span> <span style="color: #98fb98;">char</span> <span style="color: #eedd82;">early_idt_handler_array</span>[NUM_EXCEPTION_VECTORS][EARLY_IDT_HANDLER_SIZE];
+</pre>
+</div>
+
+<p>
+<b>early_idt_handler_array</b> 是一个大小为 <span class="underline">288 字节</span> 的数组，每一项为 <span class="underline">9 个字节</span> ，其中
+</p>
+<ul class="org-ul">
+<li>2个字节的备用指令：向栈中 <b>压入</b> <span class="underline">默认错误码</span> （如果异常本身没有提供错误码的话）</li>
+<li>2个字节的指令：向栈中 <b>压入</b> <span class="underline">向量号</span></li>
+<li>剩余5个字节：*跳转* 到 <span class="underline">异常处理程序</span></li>
+</ul>
+
+<pre class="example" id="org0871346">
+在上面的代码中，通过一个循环向 IDT 中填入了前32项内容，这是因为在整个初期设置阶段，中断是禁用的
+
+early_idt_handler_array 数组中的每一项指向的都是同一个通用中断处理程序，定义在 arch/x86/kernel/head_64.S 
+</pre>
+
+<p>
+先暂时跳过这个数组的内容，看一下 <b>set_intr_gate</b> 的定义。set_intr_gate 宏定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/desc.h">arch/x86/include/asm/desc.h</a> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">set_intr_gate</span>(<span style="color: #eedd82;">n</span>, <span style="color: #eedd82;">addr</span>)                                          \
+                <span style="color: #00ffff;">do</span> {                                                            \
+                                BUG_ON((<span style="color: #98fb98;">unsigned</span>)n &gt; 0xFF);                             \
+                                _set_gate(n, GATE_INTERRUPT, (<span style="color: #98fb98;">void</span> *)addr, 0, 0,        \
+                                                  __KERNEL_CS);                                 \
+                                _trace_set_gate(n, GATE_INTERRUPT, (<span style="color: #98fb98;">void</span> *)trace_##addr, \
+                                                                0, 0, __KERNEL_CS);                     \
+                } <span style="color: #00ffff;">while</span> (0)
+</pre>
+</div>
+
+<pre class="example" id="org7856119">
+BUG_ON 宏确保了传入的中断向量号不会大于255，因为最多只有 256 个中断
+</pre>
+
+<p>
+调用了 <b>_set_gate</b> 函数，它会将中断门写入 IDT：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">inline</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">_set_gate</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">gate</span>, <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">type</span>, <span style="color: #98fb98;">void</span> *<span style="color: #eedd82;">addr</span>,
+                                 <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">dpl</span>, <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">ist</span>, <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">seg</span>)
+{
+                <span style="color: #98fb98;">gate_desc</span> <span style="color: #eedd82;">s</span>;
+                pack_gate(&amp;s, type, (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)addr, dpl, ist, seg);
+                write_idt_entry(idt_table, gate, &amp;s);
+                write_trace_idt_entry(gate, &amp;s);
+}
+</pre>
+</div>
+
+<p>
+在 _set_gate 函数的开始，它调用了 <b>pack_gate</b> 函数。这个函数会使用给定的参数填充 <b>gate_desc 结构</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">inline</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">pack_gate</span>(<span style="color: #98fb98;">gate_desc</span> *<span style="color: #eedd82;">gate</span>, <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">type</span>, <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">func</span>,
+                             <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">dpl</span>, <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">ist</span>, <span style="color: #98fb98;">unsigned</span> <span style="color: #eedd82;">seg</span>)
+{
+        gate-&gt;offset_low        = PTR_LOW(func);
+        gate-&gt;segment           = __KERNEL_CS;
+        gate-&gt;ist               = ist;
+        gate-&gt;p                 = 1;
+        gate-&gt;dpl               = dpl;
+        gate-&gt;zero0             = 0;
+        gate-&gt;zero1             = 0;
+        gate-&gt;type              = type;
+        gate-&gt;offset_middle     = PTR_MIDDLE(func);
+        gate-&gt;offset_high       = PTR_HIGH(func);
+}
+</pre>
+</div>
+
+<p>
+这里把从主循环中得到的中断处理程序入口点地址拆成三个部分，填入门描述符中。下面的三个宏就用来做这个拆分工作：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">PTR_LOW</span>(<span style="color: #eedd82;">x</span>) ((<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">long</span>)(x) &amp; 0xFFFF) 
+<span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">PTR_MIDDLE</span>(<span style="color: #eedd82;">x</span>) (((<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">long</span>)(x) &gt;&gt; 16) &amp; 0xFFFF)
+<span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">PTR_HIGH</span>(<span style="color: #eedd82;">x</span>) ((<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #98fb98;">long</span>)(x) &gt;&gt; 32)
+</pre>
+</div>
+
+<pre class="example" id="org2234a42">
+调用 PTR_LOW 可以得到 x 的低 2 个字节
+
+调用 PTR_MIDDLE 可以得到 x 的中间 2 个字节
+
+调用 PTR_HIGH 则能够得到 x 的高 4 个字节
+
+接下来中断处理程序设置段选择子，即内核代码段 __KERNEL_CS
+
+将 Interrupt Stack Table 和 描述符特权等级 （最高特权等级）设置为0
+
+最后设置 GAT_INTERRUPT 类型
+</pre>
+
+<p>
+现在已经设置好了IDT中的一项，那么通过调用 <b>native_write_idt_entry</b> 函数来把复制到 IDT：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">inline</span> <span style="color: #98fb98;">void</span> <span style="color: #87cefa;">native_write_idt_entry</span>(<span style="color: #98fb98;">gate_desc</span> *<span style="color: #eedd82;">idt</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">entry</span>, <span style="color: #00ffff;">const</span> <span style="color: #98fb98;">gate_desc</span> *<span style="color: #eedd82;">gate</span>)
+{
+        memcpy(&amp;idt[entry], gate, <span style="color: #00ffff;">sizeof</span>(*gate));
+}
+</pre>
+</div>
+
+<pre class="example" id="orgf33a0f2">
+主循环结束后，idt_table 就已经设置完毕了
+</pre>
+
+<p>
+然后就可以通过下面的代码 <b>加载</b> <span class="underline">中断描述符表</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">load_idt</span>((<span style="color: #00ffff;">const</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">desc_ptr</span> *)&amp;idt_descr);
+</pre>
+</div>
+
+<p>
+<b>idt_descr</b> 为：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">desc_ptr</span> <span style="color: #eedd82;">idt_descr</span> = { NR_VECTORS * 16 - 1, (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>) idt_table };
+</pre>
+</div>
+
+<p>
+load_idt 函数只是执行了一下 <b>lidt</b> 指令：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">asm</span> <span style="color: #00ffff;">volatile</span>(<span style="color: #ffa07a;">"lidt %0"</span>::<span style="color: #ffa07a;">"m"</span> (*dtr));
+</pre>
+</div>
+
+<pre class="example" id="orgddb3e20">
+在代码中还有对 _trace_* 函数的调用。这些函数会用跟 _set_gate 同样的方法对 IDT 门进行设置，但仅有一处不同
+
+这些函数并不设置 idt_table ，而是 trace_idt_table ，用于设置追踪点（tracepoint，将会在其他章节介绍这一部分）。
+
+好了，至此已经了解到，通过设置并加载 中断描述符表 ，能够让CPU在发生中断时做出相应的动作
+
+下面来看一下如何编写中断处理程序
+</pre>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
