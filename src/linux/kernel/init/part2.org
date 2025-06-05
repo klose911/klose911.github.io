@@ -300,3 +300,255 @@ load_idt 函数只是执行了一下 *lidt* 指令：
 
   下面来看一下如何编写中断处理程序
 #+end_example
+* 初期中断处理程序
+在上面的代码中，用 *early_idt_handler_array* 的地址来填充了 _IDT_ ，这个 early_idt_handler_array 定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head_64.S][arch/x86/kernel/head_64.S]]：
+
+#+begin_src asm 
+  	.globl early_idt_handler_array
+  early_idt_handlers:
+  	i = 0
+  	.rept NUM_EXCEPTION_VECTORS
+  	.if (EXCEPTION_ERRCODE_MASK >> i) & 1
+  	pushq $0
+  	.endif
+  	pushq $i
+  	jmp early_idt_handler_common
+  	i = i + 1
+  	.fill early_idt_handler_array + i*EARLY_IDT_HANDLER_SIZE - ., 1, 0xcc
+  	.endr
+#+end_src
+
+这段代码自动为前 32 个异常生成了中断处理程序：
+1. 首先，为了统一栈的布局，如果一个异常没有返回错误码，那么就手动在栈中压入一个 0
+2. 再在栈中压入中断向量号
+3. 跳转至通用的中断处理程序 *early_idt_handler_common*
+
+可以通过 objdump 命令的输出一探究竟：
+#+begin_src sh 
+  $ objdump -D vmlinux
+  ...
+  ...
+  ...
+  ffffffff81fe5000 <early_idt_handler_array>:
+  ffffffff81fe5000:       6a 00                   pushq  $0x0
+  ffffffff81fe5002:       6a 00                   pushq  $0x0
+  ffffffff81fe5004:       e9 17 01 00 00          jmpq   ffffffff81fe5120 <early_idt_handler_common>
+  ffffffff81fe5009:       6a 00                   pushq  $0x0
+  ffffffff81fe500b:       6a 01                   pushq  $0x1
+  ffffffff81fe500d:       e9 0e 01 00 00          jmpq   ffffffff81fe5120 <early_idt_handler_common>
+  ffffffff81fe5012:       6a 00                   pushq  $0x0
+  ffffffff81fe5014:       6a 02                   pushq  $0x2
+  ...
+  ...
+  ...
+#+end_src
+
+由于在中断发生时，CPU 会自动在栈上压入 _标志寄存器_ 、 _CS 段寄存器_ 和 _RIP 寄存器_ 的内容。因此在 early_idt_handler 执行前，栈的布局如下：
+
+#+begin_example
+  |--------------------|
+  | %rflags            |
+  | %cs                |
+  | %rip               |
+  | rsp --> error code |
+  |--------------------|
+#+end_example
+
+下面来看一下 early_idt_handler_common 的实现。它也定义在  [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head_64.S][arch/x86/kernel/head_64.S]] 文件中。首先它会检查当前中断是否为 [[https://en.wikipedia.org/wiki/Non-maskable_interrupt][不可屏蔽中断]] _NMI_ ，如果是则简单地忽略它们：
+#+begin_src asm 
+  	cmpl $2,(%rsp)
+  	je .Lis_nmi
+#+end_src
+
+其中 *is_nmi* 为:
+
+#+begin_src asm 
+  is_nmi:
+  	addq $16,%rsp // 从栈顶弹出错误码和中断向量号
+  	INTERRUPT_RETURN // 调用 INTERRUPT_RETURN ，即 iretq 指令直接返回
+#+end_src
+
+如果当前中断不是 NMI ，则首先检查 *early_recursion_flag* 以避免在 early_idt_handler_common 程序中递归地产生中断。如果一切都没问题，就先在 _栈上_ *保存* _通用寄存器_ ，为了防止中断返回时寄存器的内容错乱：
+
+#+begin_src asm 
+  	pushq %rax
+  	pushq %rcx
+  	pushq %rdx
+  	pushq %rsi
+  	pushq %rdi
+  	pushq %r8
+  	pushq %r9
+  	pushq %r10
+  	pushq %r11
+#+end_src
+
+然后检查栈上的 _段选择子_ ：
+
+#+begin_src asm 
+  	cmpl $__KERNEL_CS,96(%rsp) // 段选择子必须为内核代码段，如果不是则跳转到标签 11 
+  	jne 11f // 输出 PANIC 信息并打印栈的内容
+#+end_src
+
+
+然后检查向量号，如果是 *#PF* 即 [[https://en.wikipedia.org/wiki/Page_fault][缺页中断]] _Page Fault_ ，那么就把 *cr2 寄存器* 中的值赋值给 *rdi* ，然后调用 *early_make_pgtable* ：
+#+begin_src asm 
+  	cmpl $14,72(%rsp)
+  	jnz 10f
+  	GET_CR2_INTO(%rdi) // 把 cr2 寄存器中的值赋值给 rdi
+  	call early_make_pgtable // 调用 early_make_pgtable
+  	andl %eax,%eax
+  	jz 20f
+#+end_src
+
+如果向量号不是 #PF ，那么就恢复通用寄存器：
+
+#+begin_src asm 
+  	popq %r11
+  	popq %r10
+  	popq %r9
+  	popq %r8
+  	popq %rdi
+  	popq %rsi
+  	popq %rdx
+  	popq %rcx
+  	popq %rax
+#+end_src
+
+并调用 *iret* 从中断处理程序返回
+
+#+begin_example
+  第一个中断处理程序到这里就结束了
+
+  由于它只是一个初期中段处理程序，因此只处理缺页中断
+
+  下面首先来看一下缺页中断处理程序，其他中断的处理程序之后再进行分析
+#+end_example
+** 缺页中断处理程序
+#+begin_example
+  前面第一次见到了初期中断处理程序，它检查了缺页中断的中断号，并调用了 early_make_pgtable 来建立新的页表
+
+  接下来需要提供 #PF 中断处理程序，以便为之后将内核加载至 4G 地址以上，并且能访问位于4G以上的 boot_params 结构体
+#+end_example
+
+early_make_pgtable 的实现在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head64.c][arch/x86/kernel/head64.c]] ，它接受一个参数： _cr2 寄存器得到的地址_ ，这个地址引发了 *内存中断* ：
+
+#+begin_src c 
+  int __init early_make_pgtable(unsigned long address)
+  {
+  		unsigned long physaddr = address - __PAGE_OFFSET;
+  		unsigned long i;
+  		pgdval_t pgd, *pgd_p;
+  		pudval_t pud, *pud_p;
+  		pmdval_t pmd, *pmd_p;
+  		// ...
+  		// ...
+  		// ...
+  }
+#+end_src
+
+首先它定义了一些 *val_t* 类型的变量。这些类型均为：
+
+#+begin_src c 
+  typedef unsigned long   pgdval_t;
+#+end_src
+
+这些类型都定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/pgtable_types.h][arch/x86/include/asm/pgtable_types.h]]，形式如下：
+#+begin_src c 
+  typedef struct { pgdval_t pgd; } pgd_t;
+#+end_src
+
+例如：
+
+#+begin_src c 
+  extern pgd_t early_level4_pgt[PTRS_PER_PGD];
+#+end_src
+
+#+begin_example
+  这里的 early_level4_pgt 代表了 初期顶层页表目录 ，它是一个 pdg_t 类型的数组，
+
+  其中的 pgd 指向了 下一级页表
+#+end_example
+
+在确认不是非法地址后，取得页表中包含引起 #PF 中断的地址的那一项，将其赋值给 pgd 变量：
+
+#+begin_src c 
+  pgd_p = &early_level4_pgt[pgd_index(address)].pgd;
+  pgd = *pgd_p;
+#+end_src
+
+接下来检查一下 pgd ，如果它包含了正确的全局页表项的话，就把这一项的物理地址处理后赋值给 pud_p ：
+
+#+begin_src c
+  // 把全局页表中这一项的物理地址处理后赋值给 pud_p
+  pud_p = (pudval_t *)((pgd & PTE_PFN_MASK) + __START_KERNEL_map - phys_base); 
+#+end_src
+
+其中 *PTE_PFN_MASK* 是一个宏：
+
+#+begin_src c 
+  #define PTE_PFN_MASK            ((pteval_t)PHYSICAL_PAGE_MASK)
+#+end_src
+
+展开后将为：
+#+begin_example
+  (~(PAGE_SIZE-1)) & ((1 << 46) - 1) = 0b1111111111111111111111111111111111111111111111
+
+  它是一个46bit大小的页帧屏蔽值
+#+end_example
+
+如果 pgd 没有包含有效的地址，就检查 *next_early_pgt* 与 *EARLY_DYNAMIC_PAGE_TABLES* (_64_)的大小。如果 next_early_pgt 比 EARLY_DYNAMIC_PAGE_TABLES 大，就用一个 _上层页目录指针_ 指向 _当前的动态页表_ ，并将它的 *物理地址* 与 *_KERNPG_TABLE 访问权限* 一起写入 _全局页目录表_ ：
+#+begin_src c 
+  if (next_early_pgt >= EARLY_DYNAMIC_PAGE_TABLES) {
+  		reset_early_page_tables();
+  		goto again;
+  }
+      	
+  pud_p = (pudval_t *)early_dynamic_pgts[next_early_pgt++]; // 用一个上层页目录指针指向当前的动态页表 
+  for (i = 0; i < PTRS_PER_PUD; i++)
+  		pud_p[i] = 0; // 初始化当前动态页表
+  ,*pgd_p = (pgdval_t)pud_p - __START_KERNEL_map + phys_base + _KERNPG_TABLE; // 将它的物理地址与 _KERPG_TABLE 访问权限一起写入全局页目录表
+#+end_src
+
+#+begin_example
+  EARLY_DYNAMIC_PAGE_TABLES 它是一个固定大小的缓冲区，用来在需要的时候建立新的页表
+#+end_example
+
+最后来修正上层页目录的地址：
+
+#+begin_src c 
+  pud_p += pud_index(address);
+  pud = *pud_p;
+#+end_src
+
+下面对 *中层页目录* 重复上面同样的操作
+
+#+begin_src c 
+  if (pud)
+    		pmd_p = (pmdval_t *)((pud & PTE_PFN_MASK) + __START_KERNEL_map - phys_base);
+  else {
+    		if (next_early_pgt >= EARLY_DYNAMIC_PAGE_TABLES) {
+    				reset_early_page_tables();
+    				goto again;
+    		}
+
+    		pmd_p = (pmdval_t *)early_dynamic_pgts[next_early_pgt++];
+    		for (i = 0; i < PTRS_PER_PMD; i++)
+    				pmd_p[i] = 0;
+    		,*pud_p = (pudval_t)pmd_p - __START_KERNEL_map + phys_base + _KERNPG_TABLE;
+  }
+
+  pmd = (physaddr & PMD_MASK) + early_pmd_flags;
+  pmd_p[pmd_index(address)] = pmd;
+#+end_src
+
+#+begin_example
+  到此缺页中断处理程序就完成了它所有的工作
+
+  此时 early_level4_pgt 就包含了指向合法地址的项
+
+  接下来将会看到进入内核入口点 start_kernel 函数之前剩下所有的准备工作
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:part3.org][Next: 进入内核入口点之前最后的准备工作]] | [[file:part1.org][Previous: 内核解压之后的首要步骤]] | [[file:init.org][Home：内核初始化]] |
+

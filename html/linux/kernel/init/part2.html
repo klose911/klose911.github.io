@@ -207,10 +207,15 @@
 <ul>
 <li><a href="#org2be97e5">中断</a></li>
 <li><a href="#org46ac97d">设置并加载 IDT</a></li>
+<li><a href="#orge5f066a">初期中断处理程序</a>
+<ul>
+<li><a href="#org7fba829">缺页中断处理程序</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org6c836d7">
+<pre class="example" id="orgac92379">
 目前已经处于解压缩后的Linux内核中了，有了用于初期启动的基本的 分页 机制
 
 目标是在内核的主体代码执行前做好准备工作
@@ -232,7 +237,7 @@
 这段代码位于 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head64.c">arch/x86/kernel/head64.c</a>
 </p>
 
-<pre class="example" id="orgd82acc5">
+<pre class="example" id="org4f87a28">
 在分析这段代码之前，先来了解一些关于中断和中断处理程序的知识
 </pre>
 <div id="outline-container-org2be97e5" class="outline-2">
@@ -241,7 +246,7 @@
 <p>
 <b>中断</b> 是一种由 <span class="underline">软件</span> 或 <span class="underline">硬件</span> 产生的、向 <span class="underline">CPU</span> 发出的 <b>事件</b>
 </p>
-<pre class="example" id="orgf155516">
+<pre class="example" id="org7562a26">
 例如，如果用户按下了键盘上的一个按键时，就会产生中断
 </pre>
 
@@ -252,19 +257,19 @@
 <li><p>
 软件中断：当一个软件可以向CPU发出信号，表明它需要系统内核的相关功能时产生
 </p>
-<pre class="example" id="org40d6a33">
+<pre class="example" id="orgfdf986d">
 这些中断通常用于系统调用
 </pre></li>
 <li><p>
 硬件中断：当一个硬件有任何事件发生时产生
 </p>
-<pre class="example" id="org9393058">
+<pre class="example" id="orga56ebd9">
 例如键盘的按键被按下
 </pre></li>
 <li><p>
 异常：当CPU检测到错误时产生
 </p>
-<pre class="example" id="org6ad1687">
+<pre class="example" id="orgbef04bf">
 例如 发生了除零错误或者访问了一个不存在的内存页
 </pre></li>
 </ol>
@@ -272,7 +277,7 @@
 <p>
 每一个中断和异常都可以由一个数来表示，这个数叫做 <b>向量号</b> ，它可以取从 <span class="underline">0</span> 到 <span class="underline">255</span> 中的任何一个数
 </p>
-<pre class="example" id="org5c8565e">
+<pre class="example" id="org176a82d">
 通常在实践中前 32 个向量号用来表示异常，32 到 255 用来表示用户定义的中断
 </pre>
 
@@ -548,7 +553,7 @@ CPU会从 <a href="http://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_
 <p>
 64位模式下 IDT 的每一项的结构如下：
 </p>
-<pre class="example" id="org7d06286">
+<pre class="example" id="org4c3118b">
 127                                                                             96
  --------------------------------------------------------------------------------
 |                                                                               |
@@ -590,7 +595,7 @@ CPU会从 <a href="http://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_
 <li><p>
 中断描述符：中断和陷阱描述符包含了一个指向中断处理程序的 <b>远</b> <span class="underline">far</span> 指针。二者唯一的不同在于CPU处理 <b>IF 标志</b> 
 </p>
-<pre class="example" id="org7f55543">
+<pre class="example" id="org70a21b1">
 如果是由中断门进入中断处理程序的，CPU 会清除 IF 标志位
 
 这样当当前中断处理程序执行时，CPU 不会对其他的中断进行处理
@@ -650,10 +655,10 @@ CPU会从 <a href="http://en.wikipedia.org/wiki/Advanced_Programmable_Interrupt_
 <ul class="org-ul">
 <li>2个字节的备用指令：向栈中 <b>压入</b> <span class="underline">默认错误码</span> （如果异常本身没有提供错误码的话）</li>
 <li>2个字节的指令：向栈中 <b>压入</b> <span class="underline">向量号</span></li>
-<li>剩余5个字节：*跳转* 到 <span class="underline">异常处理程序</span></li>
+<li>剩余5个字节： <b>跳转</b> 到 <span class="underline">异常处理程序</span></li>
 </ul>
 
-<pre class="example" id="org0871346">
+<pre class="example" id="org1edbb6b">
 在上面的代码中，通过一个循环向 IDT 中填入了前32项内容，这是因为在整个初期设置阶段，中断是禁用的
 
 early_idt_handler_array 数组中的每一项指向的都是同一个通用中断处理程序，定义在 arch/x86/kernel/head_64.S 
@@ -675,7 +680,7 @@ early_idt_handler_array 数组中的每一项指向的都是同一个通用中�
 </pre>
 </div>
 
-<pre class="example" id="org7856119">
+<pre class="example" id="org175ca26">
 BUG_ON 宏确保了传入的中断向量号不会大于255，因为最多只有 256 个中断
 </pre>
 
@@ -727,7 +732,7 @@ BUG_ON 宏确保了传入的中断向量号不会大于255，因为最多只有 
 </pre>
 </div>
 
-<pre class="example" id="org2234a42">
+<pre class="example" id="org4652492">
 调用 PTR_LOW 可以得到 x 的低 2 个字节
 
 调用 PTR_MIDDLE 可以得到 x 的中间 2 个字节
@@ -753,7 +758,7 @@ BUG_ON 宏确保了传入的中断向量号不会大于255，因为最多只有 
 </pre>
 </div>
 
-<pre class="example" id="orgf33a0f2">
+<pre class="example" id="org803b35c">
 主循环结束后，idt_table 就已经设置完毕了
 </pre>
 
@@ -782,7 +787,7 @@ load_idt 函数只是执行了一下 <b>lidt</b> 指令：
 </pre>
 </div>
 
-<pre class="example" id="orgddb3e20">
+<pre class="example" id="org2edc28f">
 在代码中还有对 _trace_* 函数的调用。这些函数会用跟 _set_gate 同样的方法对 IDT 门进行设置，但仅有一处不同
 
 这些函数并不设置 idt_table ，而是 trace_idt_table ，用于设置追踪点（tracepoint，将会在其他章节介绍这一部分）。
@@ -791,6 +796,345 @@ load_idt 函数只是执行了一下 <b>lidt</b> 指令：
 
 下面来看一下如何编写中断处理程序
 </pre>
+</div>
+</div>
+<div id="outline-container-orge5f066a" class="outline-2">
+<h2 id="orge5f066a">初期中断处理程序</h2>
+<div class="outline-text-2" id="text-orge5f066a">
+<p>
+在上面的代码中，用 <b>early_idt_handler_array</b> 的地址来填充了 <span class="underline">IDT</span> ，这个 early_idt_handler_array 定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head_64.S">arch/x86/kernel/head_64.S</a>：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">        <span style="color: #00ffff;">.globl</span> early_idt_handler_array
+<span style="color: #87cefa;">early_idt_handlers</span>:
+        <span style="color: #00ffff;">i</span> = 0
+        <span style="color: #00ffff;">.rept</span> NUM_EXCEPTION_VECTORS
+        <span style="color: #00ffff;">.if</span> (EXCEPTION_ERRCODE_MASK &gt;&gt; i) &amp; 1
+        <span style="color: #00ffff;">pushq</span> $0
+        <span style="color: #00ffff;">.endif</span>
+        <span style="color: #00ffff;">pushq</span> $i
+        <span style="color: #00ffff;">jmp</span> early_idt_handler_common
+        <span style="color: #00ffff;">i</span> = i + 1
+        <span style="color: #00ffff;">.fill</span> early_idt_handler_array + i*EARLY_IDT_HANDLER_SIZE - ., 1, 0xcc
+        <span style="color: #00ffff;">.endr</span>
+</pre>
+</div>
+
+<p>
+这段代码自动为前 32 个异常生成了中断处理程序：
+</p>
+<ol class="org-ol">
+<li>首先，为了统一栈的布局，如果一个异常没有返回错误码，那么就手动在栈中压入一个 0</li>
+<li>再在栈中压入中断向量号</li>
+<li>跳转至通用的中断处理程序 <b>early_idt_handler_common</b></li>
+</ol>
+
+<p>
+可以通过 objdump 命令的输出一探究竟：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ objdump -D vmlinux
+...
+...
+...
+ffffffff81fe5000 &lt;early_idt_handler_array&gt;:
+ffffffff81fe5000:       6a 00                   pushq  $<span style="color: #eedd82;">0</span>x0
+ffffffff81fe5002:       6a 00                   pushq  $<span style="color: #eedd82;">0</span>x0
+ffffffff81fe5004:       e9 17 01 00 00          jmpq   ffffffff81fe5120 &lt;early_idt_handler_common&gt;
+ffffffff81fe5009:       6a 00                   pushq  $<span style="color: #eedd82;">0</span>x0
+ffffffff81fe500b:       6a 01                   pushq  $<span style="color: #eedd82;">0</span>x1
+ffffffff81fe500d:       e9 0e 01 00 00          jmpq   ffffffff81fe5120 &lt;early_idt_handler_common&gt;
+ffffffff81fe5012:       6a 00                   pushq  $<span style="color: #eedd82;">0</span>x0
+ffffffff81fe5014:       6a 02                   pushq  $<span style="color: #eedd82;">0</span>x2
+...
+...
+...
+</pre>
+</div>
+
+<p>
+由于在中断发生时，CPU 会自动在栈上压入 <span class="underline">标志寄存器</span> 、 <span class="underline">CS 段寄存器</span> 和 <span class="underline">RIP 寄存器</span> 的内容。因此在 early_idt_handler 执行前，栈的布局如下：
+</p>
+
+<pre class="example" id="orgadf3ebc">
+|--------------------|
+| %rflags            |
+| %cs                |
+| %rip               |
+| rsp --&gt; error code |
+|--------------------|
+</pre>
+
+<p>
+下面来看一下 early_idt_handler_common 的实现。它也定义在  <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head_64.S">arch/x86/kernel/head_64.S</a> 文件中。首先它会检查当前中断是否为 <a href="https://en.wikipedia.org/wiki/Non-maskable_interrupt">不可屏蔽中断</a> <span class="underline">NMI</span> ，如果是则简单地忽略它们：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">cmpl</span> <span style="color: #00ffff;">$2</span>,(<span style="color: #eedd82;">%rsp</span>)
+<span style="color: #87cefa;">je</span> .Lis_nmi
+</pre>
+</div>
+
+<p>
+其中 <b>is_nmi</b> 为:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">is_nmi</span>:
+        <span style="color: #00ffff;">addq</span> $16,<span style="color: #eedd82;">%rsp</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174;&#26632;&#39030;&#24377;&#20986;&#38169;&#35823;&#30721;&#21644;&#20013;&#26029;&#21521;&#37327;&#21495;</span>
+        <span style="color: #00ffff;">INTERRUPT_RETURN</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35843;&#29992; INTERRUPT_RETURN &#65292;&#21363; iretq &#25351;&#20196;&#30452;&#25509;&#36820;&#22238;</span>
+</pre>
+</div>
+
+<p>
+如果当前中断不是 NMI ，则首先检查 <b>early_recursion_flag</b> 以避免在 early_idt_handler_common 程序中递归地产生中断。如果一切都没问题，就先在 <span class="underline">栈上</span> <b>保存</b> <span class="underline">通用寄存器</span> ，为了防止中断返回时寄存器的内容错乱：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%rax</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%rcx</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%rdx</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%rsi</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%rdi</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%r8</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%r9</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%r10</span>
+<span style="color: #87cefa;">pushq</span> <span style="color: #00ffff;">%r11</span>
+</pre>
+</div>
+
+<p>
+然后检查栈上的 <span class="underline">段选择子</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">cmpl</span> <span style="color: #00ffff;">$</span>__KERNEL_CS,96(<span style="color: #eedd82;">%rsp</span>) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#27573;&#36873;&#25321;&#23376;&#24517;&#39035;&#20026;&#20869;&#26680;&#20195;&#30721;&#27573;&#65292;&#22914;&#26524;&#19981;&#26159;&#21017;&#36339;&#36716;&#21040;&#26631;&#31614; 11 </span>
+<span style="color: #87cefa;">jne</span> <span style="color: #00ffff;">11f</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36755;&#20986; PANIC &#20449;&#24687;&#24182;&#25171;&#21360;&#26632;&#30340;&#20869;&#23481;</span>
+</pre>
+</div>
+
+
+<p>
+然后检查向量号，如果是 <b>#PF</b> 即 <a href="https://en.wikipedia.org/wiki/Page_fault">缺页中断</a> <span class="underline">Page Fault</span> ，那么就把 <b>cr2 寄存器</b> 中的值赋值给 <b>rdi</b> ，然后调用 <b>early_make_pgtable</b> ：
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">cmpl</span> <span style="color: #00ffff;">$14</span>,72(<span style="color: #eedd82;">%rsp</span>)
+<span style="color: #87cefa;">jnz</span> <span style="color: #00ffff;">10f</span>
+<span style="color: #87cefa;">GET_CR2_INTO</span>(<span style="color: #eedd82;">%rdi</span>) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; cr2 &#23492;&#23384;&#22120;&#20013;&#30340;&#20540;&#36171;&#20540;&#32473; rdi</span>
+<span style="color: #87cefa;">call</span> <span style="color: #00ffff;">early</span>_make_pgtable <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35843;&#29992; early_make_pgtable</span>
+<span style="color: #87cefa;">andl</span> <span style="color: #00ffff;">%eax</span>,<span style="color: #eedd82;">%eax</span>
+<span style="color: #87cefa;">jz</span> <span style="color: #00ffff;">20f</span>
+</pre>
+</div>
+
+<p>
+如果向量号不是 #PF ，那么就恢复通用寄存器：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%r11</span>
+<span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%r10</span>
+<span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%r9</span>
+<span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%r8</span>
+<span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%rdi</span>
+<span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%rsi</span>
+<span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%rdx</span>
+<span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%rcx</span>
+<span style="color: #87cefa;">popq</span> <span style="color: #00ffff;">%rax</span>
+</pre>
+</div>
+
+<p>
+并调用 <b>iret</b> 从中断处理程序返回
+</p>
+
+<pre class="example" id="org3819375">
+第一个中断处理程序到这里就结束了
+
+由于它只是一个初期中段处理程序，因此只处理缺页中断
+
+下面首先来看一下缺页中断处理程序，其他中断的处理程序之后再进行分析
+</pre>
+</div>
+<div id="outline-container-org7fba829" class="outline-3">
+<h3 id="org7fba829">缺页中断处理程序</h3>
+<div class="outline-text-3" id="text-org7fba829">
+<pre class="example" id="org337d961">
+前面第一次见到了初期中断处理程序，它检查了缺页中断的中断号，并调用了 early_make_pgtable 来建立新的页表
+
+接下来需要提供 #PF 中断处理程序，以便为之后将内核加载至 4G 地址以上，并且能访问位于4G以上的 boot_params 结构体
+</pre>
+
+<p>
+early_make_pgtable 的实现在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head64.c">arch/x86/kernel/head64.c</a> ，它接受一个参数： <span class="underline">cr2 寄存器得到的地址</span> ，这个地址引发了 <b>内存中断</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">int</span> <span style="color: #eedd82;">__init</span> early_make_pgtable(<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> address)
+{
+                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">physaddr</span> = address - __PAGE_OFFSET;
+                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">i</span>;
+                <span style="color: #98fb98;">pgdval_t</span> <span style="color: #eedd82;">pgd</span>, *<span style="color: #eedd82;">pgd_p</span>;
+                <span style="color: #98fb98;">pudval_t</span> <span style="color: #eedd82;">pud</span>, *<span style="color: #eedd82;">pud_p</span>;
+                <span style="color: #98fb98;">pmdval_t</span> <span style="color: #eedd82;">pmd</span>, *<span style="color: #eedd82;">pmd_p</span>;
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+}
+</pre>
+</div>
+
+<p>
+首先它定义了一些 <b>val_t</b> 类型的变量。这些类型均为：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">typedef</span> <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>   <span style="color: #98fb98;">pgdval_t</span>;
+</pre>
+</div>
+
+<p>
+这些类型都定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/pgtable_types.h">arch/x86/include/asm/pgtable_types.h</a>，形式如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> { <span style="color: #98fb98;">pgdval_t</span> <span style="color: #eedd82;">pgd</span>; } <span style="color: #98fb98;">pgd_t</span>;
+</pre>
+</div>
+
+<p>
+例如：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">extern</span> <span style="color: #98fb98;">pgd_t</span> <span style="color: #eedd82;">early_level4_pgt</span>[PTRS_PER_PGD];
+</pre>
+</div>
+
+<pre class="example" id="org8c417db">
+这里的 early_level4_pgt 代表了 初期顶层页表目录 ，它是一个 pdg_t 类型的数组，
+
+其中的 pgd 指向了 下一级页表
+</pre>
+
+<p>
+在确认不是非法地址后，取得页表中包含引起 #PF 中断的地址的那一项，将其赋值给 pgd 变量：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">pgd_p = &amp;early_level4_pgt[pgd_index(address)].pgd;
+pgd = *pgd_p;
+</pre>
+</div>
+
+<p>
+接下来检查一下 pgd ，如果它包含了正确的全局页表项的话，就把这一项的物理地址处理后赋值给 pud_p ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226;&#20840;&#23616;&#39029;&#34920;&#20013;&#36825;&#19968;&#39033;&#30340;&#29289;&#29702;&#22320;&#22336;&#22788;&#29702;&#21518;&#36171;&#20540;&#32473; pud_p</span>
+pud_p = (<span style="color: #98fb98;">pudval_t</span> *)((pgd &amp; PTE_PFN_MASK) + __START_KERNEL_map - phys_base); 
+</pre>
+</div>
+
+<p>
+其中 <b>PTE_PFN_MASK</b> 是一个宏：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">PTE_PFN_MASK</span>            ((<span style="color: #98fb98;">pteval_t</span>)PHYSICAL_PAGE_MASK)
+</pre>
+</div>
+
+<p>
+展开后将为：
+</p>
+<pre class="example" id="orgad96c4b">
+(~(PAGE_SIZE-1)) &amp; ((1 &lt;&lt; 46) - 1) = 0b1111111111111111111111111111111111111111111111
+
+它是一个46bit大小的页帧屏蔽值
+</pre>
+
+<p>
+如果 pgd 没有包含有效的地址，就检查 <b>next_early_pgt</b> 与 <b>EARLY_DYNAMIC_PAGE_TABLES</b> (<span class="underline">64</span>)的大小。如果 next_early_pgt 比 EARLY_DYNAMIC_PAGE_TABLES 大，就用一个 <span class="underline">上层页目录指针</span> 指向 <span class="underline">当前的动态页表</span> ，并将它的 <b>物理地址</b> 与 <b>_KERNPG_TABLE 访问权限</b> 一起写入 <span class="underline">全局页目录表</span> ：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span> (next_early_pgt &gt;= EARLY_DYNAMIC_PAGE_TABLES) {
+                reset_early_page_tables();
+                <span style="color: #00ffff;">goto</span> <span style="color: #7fffd4;">again</span>;
+}
+
+pud_p = (<span style="color: #98fb98;">pudval_t</span> *)<span style="color: #98fb98;">early_dynamic_pgts</span>[next_early_pgt++]; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29992;&#19968;&#20010;&#19978;&#23618;&#39029;&#30446;&#24405;&#25351;&#38024;&#25351;&#21521;&#24403;&#21069;&#30340;&#21160;&#24577;&#39029;&#34920; </span>
+<span style="color: #00ffff;">for</span> (i = 0; i &lt; PTRS_PER_PUD; i++)
+                <span style="color: #98fb98;">pud_p</span>[i] = 0; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21021;&#22987;&#21270;&#24403;&#21069;&#21160;&#24577;&#39029;&#34920;</span>
+*pgd_p = (<span style="color: #98fb98;">pgdval_t</span>)pud_p - __START_KERNEL_map + phys_base + _KERNPG_TABLE; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#23427;&#30340;&#29289;&#29702;&#22320;&#22336;&#19982; _KERPG_TABLE &#35775;&#38382;&#26435;&#38480;&#19968;&#36215;&#20889;&#20837;&#20840;&#23616;&#39029;&#30446;&#24405;&#34920;</span>
+</pre>
+</div>
+
+<pre class="example" id="org082148d">
+EARLY_DYNAMIC_PAGE_TABLES 它是一个固定大小的缓冲区，用来在需要的时候建立新的页表
+</pre>
+
+<p>
+最后来修正上层页目录的地址：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">pud_p += pud_index(address);
+pud = *pud_p;
+</pre>
+</div>
+
+<p>
+下面对 <b>中层页目录</b> 重复上面同样的操作
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span> (pud)
+                pmd_p = (<span style="color: #98fb98;">pmdval_t</span> *)((pud &amp; PTE_PFN_MASK) + __START_KERNEL_map - phys_base);
+<span style="color: #00ffff;">else</span> {
+                <span style="color: #00ffff;">if</span> (next_early_pgt &gt;= EARLY_DYNAMIC_PAGE_TABLES) {
+                                reset_early_page_tables();
+                                <span style="color: #00ffff;">goto</span> <span style="color: #7fffd4;">again</span>;
+                }
+
+                pmd_p = (<span style="color: #98fb98;">pmdval_t</span> *)early_dynamic_pgts[next_early_pgt++];
+                <span style="color: #00ffff;">for</span> (i = 0; i &lt; PTRS_PER_PMD; i++)
+                                pmd_p[i] = 0;
+                *pud_p = (<span style="color: #98fb98;">pudval_t</span>)pmd_p - __START_KERNEL_map + phys_base + _KERNPG_TABLE;
+}
+
+pmd = (physaddr &amp; PMD_MASK) + early_pmd_flags;
+<span style="color: #98fb98;">pmd_p</span>[pmd_index(address)] = pmd;
+</pre>
+</div>
+
+<pre class="example" id="org5e70844">
+到此缺页中断处理程序就完成了它所有的工作
+
+此时 early_level4_pgt 就包含了指向合法地址的项
+
+接下来将会看到进入内核入口点 start_kernel 函数之前剩下所有的准备工作
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="part3.html">Next: 进入内核入口点之前最后的准备工作</a></td>
+<td class="org-left"><a href="part1.html">Previous: 内核解压之后的首要步骤</a></td>
+<td class="org-left"><a href="init.html">Home：内核初始化</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 </div>

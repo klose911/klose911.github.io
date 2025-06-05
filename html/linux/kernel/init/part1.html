@@ -231,7 +231,7 @@
 此时 <b>rax 寄存器</b> 中保存的就是 <span class="underline">Linux 内核入口点</span> ，这个地址通过调用 <b>decompress_kernel</b> <a href="https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/misc.c">arch/x86/boot/compressed/misc.c</a>函数后获得
 </p>
 
-<pre class="example" id="orge0ec109">
+<pre class="example" id="org60b25c4">
 内核引导程序的最后一行代码是一句指向内核入口点的跳转指令
 
 既然已经知道了内核入口点定义在哪，就可以继续探究 Linux 内核在引导结束后做了些什么1
@@ -267,7 +267,7 @@
 可以在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/vmlinux.lds.S#L93">arch/x86/kernel/vmlinux.lds.S</a> 链接器脚本文件中看到这个区段的定义：
 </p>
 
-<pre class="example" id="org3755551">
+<pre class="example" id="org3ed7e64">
 .text : AT(ADDR(.text) - LOAD_OFFSET) {
 	_text = .;
 	...
@@ -280,7 +280,7 @@
 除了对 .text 区段的定义，还能从这个脚本文件中得知内核的默认物理地址与虚拟地址。 <b>_text</b> 是一个 <span class="underline">地址计数器</span> ，对于 x86_64 来说，它定义为：
 </p>
 
-<pre class="example" id="org0400f9f">
+<pre class="example" id="org2e50aaf">
 . = __START_KERNEL;
 </pre>
 
@@ -313,14 +313,14 @@
 </pre>
 </div>
 
-<pre class="example" id="org2c48b8c">
+<pre class="example" id="org044841a">
 虽然定义为 0x1000000，但是仍然有可能变化，例如启用 kASLR 的时候
 </pre>
 <p>
 所以当前的目标是计算 0x1000000 与实际加载地址的差。这里将 <b>RIP相对地址</b> <span class="underline">rip-relative</span> 放入 rbp 寄存器，并且从中减去 <span class="underline">$_text - __START_KERNEL_map</span>
 </p>
 
-<pre class="example" id="orgd3954bc">
+<pre class="example" id="org0013c77">
 _text 在编译后的默认虚拟地址为 0xffffffff81000000， 物理地址为 0x1000000
 
 __START_KERNEL_map 宏将展开为 0xffffffff80000000
@@ -329,7 +329,7 @@ __START_KERNEL_map 宏将展开为 0xffffffff80000000
 <p>
 对于对于第二行汇编代码，将得到如下的表达式：
 </p>
-<pre class="example" id="org308021f">
+<pre class="example" id="org412d2ca">
 rbp = 0x1000000 - (0xffffffff81000000 - 0xffffffff80000000)
 </pre>
 
@@ -337,7 +337,7 @@ rbp = 0x1000000 - (0xffffffff81000000 - 0xffffffff80000000)
 在计算过后，rbp 的值将为 0，代表了实际加载地址与编译后的默认地址之间的差值
 </p>
 
-<pre class="example" id="orga6071c3">
+<pre class="example" id="org640c7dd">
 这个例子中，0 代表了 Linux 内核被加载到了默认地址，并且没有启用 kASLR 
 </pre>
 
@@ -363,7 +363,7 @@ rbp = 0x1000000 - (0xffffffff81000000 - 0xffffffff80000000)
 </pre>
 </div>
 
-<pre class="example" id="org4244664">
+<pre class="example" id="org59b41b9">
 很容易得出 PMD_PAGE_SIZE 为 2MB 
 
 如果 text 的地址没有对齐到 2MB，则跳转到 bad_address
@@ -389,7 +389,7 @@ rbp = 0x1000000 - (0xffffffff81000000 - 0xffffffff80000000)
 </pre>
 </div>
 
-<pre class="example" id="org989864c">
+<pre class="example" id="org97421fb">
 至此完成了一些初步的检查，可以继续进行后续的工作了
 </pre>
 </div>
@@ -474,7 +474,7 @@ level2_kernel_pgt 比较容易理解，它是一条页表项，包含了指向�
 <li><p>
 level2_kernel_pgt 调用了 <b>PDMS 宏</b> ，在 __START_KERNEL_map 地址处为内核的 .text 创建了 512MB 大小的空间
 </p>
-<pre class="example" id="org2384fb2">
+<pre class="example" id="orga0d3f8e">
 这 512 MB空间的后面是模块内存空间
 </pre></li>
 </ul></li>
@@ -485,7 +485,7 @@ level2_kernel_pgt 调用了 <b>PDMS 宏</b> ，在 __START_KERNEL_map 地址处�
 </ul></li>
 </ul>
 
-<pre class="example" id="orgf96d76c">
+<pre class="example" id="orgce35fb6">
 现在，在看过了这些符号的定义之后，回到本节开始时介绍的那几行代码
 
 rbp 寄存器包含了实际地址与 startup_64 地址之差，其中 startup_64 的地址是在内核链接时获得的
@@ -502,7 +502,7 @@ rbp 寄存器包含了实际地址与 startup_64 地址之差，其中 startup_6
 </pre>
 </div>
 
-<pre class="example" id="org5a9e603">
+<pre class="example" id="orga923cbf">
 early_level4_pgt 的最后一项就是 level3_kernel_pgt
 
 level3_kernel_pgt 的最后两项分别是 level2_kernel_pgt 和 level2_fixmap_pgt
@@ -527,7 +527,7 @@ level2_fixmap_pgt[507] -&gt; level1_fixmap_pgt
 需要注意的是，并不修正 early_level4_pgt 以及其他页目录的基地址
 </p>
 
-<pre class="example" id="orgfd7a944">
+<pre class="example" id="org41091e4">
 会在构造、填充这些页目录结构的时候修正
 </pre>
 </div>
@@ -535,7 +535,7 @@ level2_fixmap_pgt[507] -&gt; level1_fixmap_pgt
 <div id="outline-container-org589cba4" class="outline-2">
 <h2 id="org589cba4">Identity Map Paging</h2>
 <div class="outline-text-2" id="text-org589cba4">
-<pre class="example" id="orgcbdbbd1">
+<pre class="example" id="orgad3fad1">
 现在进入到对初期页表进行 Identity 映射的初始化过程了
 
 所谓Identity 映射分页中，虚拟地址会被映射到地址相同的物理地址上，即 1 : 1
@@ -563,7 +563,7 @@ level2_fixmap_pgt[507] -&gt; level1_fixmap_pgt
 </pre>
 </div>
 
-<pre class="example" id="org0d2ab19">
+<pre class="example" id="orgee06175">
 其中 PGDIR_SHIFT 为 39
 </pre>
 <p>
@@ -670,7 +670,7 @@ PGDIR_SHIFT表示的是在 <span class="underline">虚拟地址下的全局页�
 返回结果将存放于 <span class="underline">edx:eax</span> 。下面展示了 EFER 各个位的含义：
 </p>
 
-<pre class="example" id="orgcb4cbf8">
+<pre class="example" id="org2586476">
 63                                                                              32
  --------------------------------------------------------------------------------
 |                                                                               |
@@ -771,7 +771,7 @@ PGDIR_SHIFT表示的是在 <span class="underline">虚拟地址下的全局页�
 <p>
 首先当禁用了 <a href="https://www.kernel.org/doc/html/v4.14/dev-tools/kasan.html">kasan</a> 并且 PAGE_SIZE 大小为4096时的情况。此时 THREAD_SIZE 将为 16 KB，代表了一个线程的栈的大小
 </p>
-<pre class="example" id="orgff29072">
+<pre class="example" id="org303837c">
 每一个进程可能会有父进程和子进程
 </pre>
 
@@ -816,7 +816,7 @@ PGDIR_SHIFT表示的是在 <span class="underline">虚拟地址下的全局页�
 <b>task_struct 结构</b> 在内核中代表了对进程的描述。因此，thread_union 包含了关于一个进程的低级信息，并且其位于进程栈底：
 </p>
 
-<pre class="example" id="orge764251">
+<pre class="example" id="org084f09b">
 +-----------------------+
 |                       |
 |                       |
@@ -861,7 +861,7 @@ PGDIR_SHIFT表示的是在 <span class="underline">虚拟地址下的全局页�
 </pre>
 </div>
 
-<pre class="example" id="org2c45153">
+<pre class="example" id="orgecd5f7d">
 需要重新加载 全局描述附表 的原因是，目前内核工作在用户空间的低地址中，但很快内核将会在它自己的内存地址空间中运行
 
 </pre>
@@ -908,7 +908,7 @@ gdt_page 的定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch
 } <span style="color: #00ffff;">__attribute__</span>((packed));
 </pre>
 </div>
-<pre class="example" id="org6d8ab6c">
+<pre class="example" id="org033845c">
 它跟 GDT 描述符的定义很像
 
 需要注意的是，gdt_page结构是 PAGE_SIZE( 4096) 对齐的，即 gdt 将会占用一页内存
@@ -921,7 +921,7 @@ gdt_page 的定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch
 <pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">INIT_PER_CPU_VAR</span>(<span style="color: #eedd82;">var</span>) init_per_cpu__##var
 </pre>
 </div>
-<pre class="example" id="org6c7c3cf">
+<pre class="example" id="org2dc8f5f">
 所以在宏展开之后，会得到 init_per_cpu__gdt_page
 </pre></li>
 <li><p>
@@ -935,7 +935,7 @@ gdt_page 的定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch
 <ul class="org-ul">
 <li><b>INIT_PER_CPU</b> 扩展后也将得到 init_per_cpu__gdt_page 并将它的值设置为相对于 <b>__per_cpu_load 的偏移量</b> 。这样，就得到了新GDT的正确的基地址</li>
 </ul>
-<pre class="example" id="org97e5a67">
+<pre class="example" id="org9549f9a">
 per-CPU变量是2.6内核中的特性
 
 顾名思义，当创建一个 per-CPU 变量时，每个CPU都会拥有一份它自己的拷贝，在这里创建的是 gdt_page per-CPU变量
@@ -985,7 +985,7 @@ per-CPU变量是2.6内核中的特性
 </pre>
 </div>
 
-<pre class="example" id="org0ac5f6a">
+<pre class="example" id="org45db019">
 cs, fs, ds 和 ss 段寄存器在64位模式下不用来寻址，但 fs 和 gs 可以使用
 
 fs 和 gs 有一个隐含的部分（与实模式下的 cs 段寄存器类似）
@@ -1043,7 +1043,7 @@ initial_code 包含了 <b>x86_64_start_kernel</b> 的地址，其定义在 <a hr
 这个函数接受一个参数 <b>real_mode_data</b>
 </p>
 
-<pre class="example" id="orgecc443e">
+<pre class="example" id="orgd7c846b">
 刚才把实模式下数据的地址保存到了 rdi 寄存器中
 
 这个函数是内核中第一个执行的C语言代码！
@@ -1054,7 +1054,7 @@ initial_code 包含了 <b>x86_64_start_kernel</b> 的地址，其定义在 <a hr
 <div id="outline-container-org099bd85" class="outline-2">
 <h2 id="org099bd85">走进 start_kernel</h2>
 <div class="outline-text-2" id="text-org099bd85">
-<pre class="example" id="org68daf08">
+<pre class="example" id="org8113fa6">
 在真正到达“内核入口点” init/main.c 中的 start_kernel 函数之前，还需要最后的准备工作
 </pre>
 
@@ -1098,7 +1098,7 @@ BUILD_BUG_ON(!(((MODULES_END - 1) &amp; PGDIR_MASK) == (__START_KERNEL &amp; PGD
 <li><p>
 <b>!!conditions</b> 等价于 <span class="underline">condition != 0</span>
 </p>
-<pre class="example" id="orgb013929">
+<pre class="example" id="org67bafb9">
 这表示如果 MODULES_VADDR &lt; __START_KERNEL_map 为真，则 !!(condition) 为1，否则为0
 </pre></li>
 <li>执行 <b>2</b>!!(condition)* 之后数值变为 <span class="underline">2</span> 或 <span class="underline">0</span></li>
@@ -1112,7 +1112,7 @@ BUILD_BUG_ON(!(((MODULES_END - 1) &amp; PGDIR_MASK) == (__START_KERNEL &amp; PGD
 <li>没有编译错误</li>
 </ul>
 
-<pre class="example" id="org71baeaf">
+<pre class="example" id="org5ee3f53">
 就是这么简单，通过C语言中某些常量导致编译错误的技巧实现了这一设计
 </pre>
 
@@ -1120,7 +1120,7 @@ BUILD_BUG_ON(!(((MODULES_END - 1) &amp; PGDIR_MASK) == (__START_KERNEL &amp; PGD
 接下来 start_kernel 调用了 <b>cr4_init_shadow</b> 函数，其中 <b>存储</b> 了 <span class="underline">每个CPU</span> 中 <span class="underline">cr4 的Shadow Copy</span> 
 </p>
 
-<pre class="example" id="org6b7897a">
+<pre class="example" id="orgdd88ea4">
 上下文切换可能会修改 cr4 中的位，因此需要保存每个CPU中 cr4 的内容
 </pre>
 
@@ -1151,7 +1151,7 @@ next_early_pgt = 0;
 接着清空了从 __bss_stop 到 __bss_start 的 <b>_bss 段</b>
 </p>
 
-<pre class="example" id="org6d0f2b3">
+<pre class="example" id="org7c4c0f7">
 下一步是建立初期 IDT（中断描述符表） 的处理代码
 
 内容很多，将会留到下一个部分再来探究
@@ -1167,7 +1167,7 @@ next_early_pgt = 0;
 </colgroup>
 <tbody>
 <tr>
-<td class="org-left"><a href="part2.html">初始化中断</a></td>
+<td class="org-left"><a href="part2.html">Next: 初始化中断</a></td>
 <td class="org-left"><a href="init.html">Home：内核初始化</a></td>
 </tr>
 </tbody>
