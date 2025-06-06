@@ -16,9 +16,284 @@
   不过，在调用 start_kernel 之前，有些准备必须要做，下面就来看一看
 #+end_example
 * boot_params
+#+begin_example
+在上一个部分中讲到了设置中断描述符表，并将其加载进 IDTR 寄存器
+#+end_example
 
+下一步是调用 *copy_bootdata* 函数：
+
+#+begin_src c 
+  copy_bootdata(__va(real_mode_data));
+#+end_src
+
+这个函数接受一个参数: *read_mode_data 的虚拟地址* 。 _boot_params 结构体_ 是在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/uapi/asm/bootparam.h#L114][arch/x86/include/uapi/asm/bootparam.h]] 作为第一个参数传递到 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head_64.S][arch/x86/kernel/head_64.S]] 中的 *x86_64_start_kernel* 函数的：
+
+#+begin_src asm 
+  	/* rsi is pointer to real mode structure with interesting info.
+  	pass it to C */
+  	movq	%rsi, %rdi
+#+end_src
+
+下面来看一看 __va 宏。 这个宏定义在 [[https://github.com/torvalds/linux/blob/v3.18/init/main.c][init/main.c]]：
+
+#+begin_src c 
+  #define __va(x)                 ((void *)((unsigned long)(x)+PAGE_OFFSET)) 
+#+end_src
+
+其中 *PAGE_OFFSET* 就是 *__PAGE_OFFSET* （ _0xffff880000000000_ ），也是所有对物理地址进行直接映射后的虚拟基地址。因此就得到了 boot_params 结构体的虚拟地址，并把他传入 copy_bootdata 函数中。在这个函数里把 *real_mod_data* （定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/setup.h][arch/x86/kernel/setup.h]]） 拷贝进 *boot_params* ：
+
+#+begin_src c 
+  extern struct boot_params boot_params;
+#+end_src
+** copy_bootdata
+copy_boot_data 的实现如下:
+#+begin_src c 
+  static void __init copy_bootdata(char *real_mode_data)
+  {
+  		char * command_line;
+  		unsigned long cmd_line_ptr;
+
+  		memcpy(&boot_params, real_mode_data, sizeof boot_params);
+  		sanitize_boot_params(&boot_params);
+  		cmd_line_ptr = get_cmd_line_ptr();
+  		if (cmd_line_ptr) {
+  				command_line = __va(cmd_line_ptr);
+  				memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
+  		}
+  }
+#+end_src
+首先，这个函数的声明中有一个 *__init* 前缀，这表示这个函数 *只在初始化阶段* 使用，并且它 *所使用的内存将会被释放*
+
+在这个函数中：
+1. 声明了两个用于解析内核命令行的变量
+2. 使用memcpy 函数将 real_mode_data 拷贝进 boot_params
+3. 如果系统引导工具 _bootloader_ 没能正确初始化 boot_params 中的某些成员的话，在接下来调用的 *sanitize_boot_params* 函数中将会对这些成员进行 *清零*
+   #+begin_example
+     比如 ext_ramdisk_image 等
+   #+end_example
+4. 此后通过调用 *get_cmd_line_ptr* 函数来得到命令行的地址：
+   #+begin_src c 
+     unsigned long cmd_line_ptr = boot_params.hdr.cmd_line_ptr;
+     cmd_line_ptr |= (u64)boot_params.ext_cmd_line_ptr << 32;
+     return cmd_line_ptr;
+   #+end_src
+   + get_cmd_line_ptr 函数将会从 *boot_params* 中获得命令行的64位地址并返回
+5. 最后，检查一下是否正确获得了 cmd_line_ptr，并把它的 *虚拟地址* 拷贝到一个 *字节数组 boot_command_line* 中：
+   #+begin_src c 
+     if (cmd_line_ptr) {
+     		command_line = __va(cmd_line_ptr);
+     		memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
+     }
+   #+end_src
+#+begin_example
+  这一步完成之后，就得到了内核命令行和 boot_params 结构体
+#+end_example
+
+之后，内核通过调用 *load_ucode_bsp* 函数来加载 *处理器微代码* _microcode_
+#+begin_example
+目前先暂时忽略这一步
+#+end_example
+
+微代码加载之后，内核会对 *console_loglevel* 进行检查，同时通过 *early_printk* 函数来打印出字符串 Kernel Alive
+#+begin_example
+  不过这个输出不会真的被显示出来，因为这个时候 early_printk 还没有被初始化
+
+  这是目前内核中的一个小bug，作者已经提交了补丁 commit，补丁很快就能应用在主分支中了
+
+  所以可以先跳过这段代码
+#+end_example
 * 初始化内存页 
+#+begin_example
+  至此，已经拷贝了 boot_params 结构体，接下来将对初期页表进行一些设置以便在初始化内核的过程中使用
+
+  之前已经对初始化了初期页表，以便支持换页，这在之前的部分中已经讨论过
+
+  已经通过调用 reset_early_page_tables 函数将初期页表中大部分项清零（在之前的部分也有介绍），只保留内核高地址的映射
+#+end_example
+
+现在则调用：
+#+begin_src c 
+  clear_page(init_level4_pgt);
+#+end_src
+
+*init_level4_pgt* 同样定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head_64.S][arch/x86/kernel/head_64.S]]:
+
+#+begin_src asm
+  	NEXT_PAGE(init_level4_pgt) // 映射了前 2.5G 个字节
+  	.quad   level3_ident_pgt - __START_KERNEL_map + _KERNPG_TABLE // 内核的代码段
+  	.org    init_level4_pgt + L4_PAGE_OFFSET*8, 0
+  	.quad   level3_ident_pgt - __START_KERNEL_map + _KERNPG_TABLE // 内核的数据段
+  	.org    init_level4_pgt + L4_START_KERNEL*8, 0
+  	.quad   level3_kernel_pgt - __START_KERNEL_map + _PAGE_TABLE // 内核的bss段
+#+end_src
+
+clear_page 函数定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/lib/clear_page_64.S][arch/x86/lib/clear_page_64.S]]：
+
+
+#+begin_src asm 
+  	ENTRY(clear_page)
+  	CFI_STARTPROC
+  	xorl %eax,%eax // eax 清零
+  	movl $4096/64,%ecx // ecx用做计数器，每次清除64个字节, 4k的页面总共需要4096/64 
+  	.p2align 4
+  	.Lloop: // 开始循环
+  	decl	%ecx // 计数器减1
+  	#define PUT(x) movq %rax,x*8(%rdi) 
+  	movq %rax,(%rdi) // 将 rax 中的值（目前为0）写入 rdi 指向的地址(rdi 中保存的是 init_level4_pgt 的基地址)
+  	PUT(1) 
+  	PUT(2)
+  	PUT(3)
+  	PUT(4)
+  	PUT(5)
+  	PUT(6)
+  	PUT(7)
+  	// 重复7次，总共清零64个字节
+  	leaq 64(%rdi),%rdi // rdi 中的值加上64 
+  	jnz	.Lloop // 直到 ecx 减至0，就完成了将 init_level4_pgt 填零 
+  	nop
+  	ret
+  	CFI_ENDPROC
+  	.Lclear_page_end:
+  	ENDPROC(clear_page)
+#+end_src
+#+begin_example
+顾名思义，这个函数会将页表清零
+#+end_example
+这个函数的开始和结束部分有两个宏 *CFI_STARTPROC* 和 *CFI_ENDPROC* ，他们会展开成 _GNU 汇编指令_ ，用于调试：
+
+#+begin_src asm 
+  	#define CFI_STARTPROC           .cfi_startproc
+  	#define CFI_ENDPROC             .cfi_endproc
+#+end_src
+
+在 CFI_STARTPROC 之后：
+1. 将 eax 寄存器清零
+2. 将 ecx 赋值为 64（用作计数器）
+3. .Lloop 标签开始循环
+   1. 将 ecx 减一
+   2. 将 rax 中的值（目前为0）写入 rdi 指向的地址，rdi 中保存的是 init_level4_pgt 的基地址
+   3. 接下来重复7次这个步骤，但是每次都相对 rdi 多偏移8个字节
+   4. 之后 init_level4_pgt 的前64个字节就都被填充为0了
+4. 接下来将 rdi 中的值加上64，重复这个步骤，直到 ecx 减至0，就完成了将 init_level4_pgt 填零
+
+在将 init_level4_pgt 填0之后，再把它的最后一项设置为 *内核高地址* 的 _映射_ ：
+
+#+begin_src c 
+  init_level4_pgt[511] = early_level4_pgt[511];
+#+end_src
+
+x86_64_start_kernel 函数的最后一步是调用：
+#+begin_src c
+  x86_64_start_reservations(real_mode_data);
+#+end_src
 
 * 最后一步
+x86_64_start_reservations 函数与 x86_64_start_kernel 函数定义在同一个文件中：
+#+begin_src c 
+  void __init x86_64_start_reservations(char *real_mode_data)
+  {
+  		/* version is always not zero if it is copied */
+  		if (!boot_params.hdr.version)
+  				copy_bootdata(__va(real_mode_data));
 
-* Linux内核管理框架
+  		reserve_ebda_region();
+
+  		start_kernel();
+  }
+#+end_src
+在 x86_64_start_reservations 函数中首先检查了 *boot_params.hdr.version* ：
+
+#+begin_src c 
+  if (!boot_params.hdr.version) // 如果它为NULL
+  		copy_bootdata(__va(real_mode_data)); // 再次调用 copy_bootdata，并传入 real_mode_data 的虚拟地址
+#+end_src
+
+接下来则调用了 *reserve_ebda_region* 函数，它定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/head.c][arch/x86/kernel/head.c]]。这个函数为 *EBDA* （即 _Extended BIOS Data Area_ ，扩展BIOS数据区域）预留空间。扩展BIOS预留区域位于 _常规内存_ 顶部
+#+begin_example
+  常规内存（Conventiional Memory）是指前640K字节内存，包含了端口、磁盘参数等数据
+#+end_example
+
+** reserve_ebda_region
+来看一下 reserve_ebda_region 函数。它首先会检查是否启用了半虚拟化：
+#+begin_src c
+  // 如果开启了半虚拟化，那么就退出 reserve_ebda_region 函数，因为此时没有扩展BIOS数据区域
+  if (paravirt_enabled()) 
+  		return;
+#+end_src
+
+然后得到低地址内存的末尾地址：
+#+begin_src c 
+  lowmem = *(unsigned short *)__va(BIOS_LOWMEM_KILOBYTES); // 获取BIOS地地址内存的虚拟地址，以KB为单位
+  lowmem <<= 10; // 将其左移10位（即乘以1024）转换为以字节为单位 
+#+end_src
+
+再获得扩展BIOS数据区域的地址：
+#+begin_src c 
+  ebda_addr = get_bios_ebda();
+#+end_src
+
+其中， *get_bios_ebda* 函数定义在 [[https://github.com/torvalds/linux/blob/v3.18/arch/x86/include/asm/bios_ebda.h][arch/x86/include/asm/bios_ebda.h]]：
+
+#+begin_src c 
+  static inline unsigned int get_bios_ebda(void)
+  {
+  		unsigned int address = *(unsigned short *)phys_to_virt(0x40E);
+  		address <<= 4;
+  		return address;
+  }
+#+end_src
+
+1. 将物理地址 _0x40E_ 转换为 _虚拟地址_ ，0x0040:0x000e 就是包含有扩展BIOS数据区域基地址的代码段，这里使用了 *phys_to_virt* 函数进行地址转换，而不是之前使用的 __va 宏：
+   + 不过，事实上他们两个基本上是一样的：
+     #+begin_src c 
+       static inline void *phys_to_virt(phys_addr_t address)
+       {
+       		return __va(address);
+       }
+     #+end_src
+   + 不同之处在于，phys_to_virt 函数的参数类型 *phys_addr_t* 的定义依赖于 *CONFIG_PHYS_ADDR_T_64BIT* :
+     #+begin_src c 
+       #ifdef CONFIG_PHYS_ADDR_T_64BIT // 具体的类型是由 CONFIG_PHYS_ADDR_T_64BIT 设置选项控制的
+       typedef u64 phys_addr_t;
+       #else
+       typedef u32 phys_addr_t;
+       #endif
+     #+end_src     
+2. 拿到了包含扩展BIOS数据区域虚拟基地址的段，把它左移4位后返回
+   #+begin_example
+     这样，ebda_addr 变量就包含了扩展BIOS数据区域的基地址
+   #+end_example
+
+下一步检查扩展BIOS数据区域与低地址内存的地址，看一看它们是否小于 *INSANE_CUTOFF* 宏：
+#+begin_src c 
+  if (ebda_addr < INSANE_CUTOFF)
+  		ebda_addr = LOWMEM_CAP;
+
+  if (lowmem < INSANE_CUTOFF)
+  		lowmem = LOWMEM_CAP;
+#+end_src
+
+INSANE_CUTOFF 为：
+#+begin_src c 
+  #define INSANE_CUTOFF		0x20000U // 128K 
+#+end_src
+
+最后调用 *memblock_reserve* 函数来在 _低内存地址_ 与 _1MB_ 之间为扩展BIOS数据预留内存区域：
+
+#+begin_src c 
+  lowmem = min(lowmem, ebda_addr);
+  lowmem = min(lowmem, LOWMEM_CAP);
+  memblock_reserve(lowmem, 0x100000 - lowmem);
+#+end_src
+
+memblock_reserve 函数定义在 [[https://github.com/torvalds/linux/blob/v3.18/mm/memblock.c][mm/memblock.c]]，它接受两个参数：
++ 基物理地址
++ 区域大小
+
+用来在给定的基地址处预留指定大小的内存
+#+begin_example
+  memblock_reserve 是接触到的第一个Linux内核内存管理框架中的函数
+
+  很快会详细地介绍内存管理，不过现在还是先来看一看这个函数的实现
+#+end_example
+** Linux内核内存管理框架
