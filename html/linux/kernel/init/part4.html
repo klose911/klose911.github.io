@@ -201,7 +201,26 @@
  <a accesskey="H" href="./init.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">内核入口</h1>
-<pre class="example" id="org3feed6b">
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org32af9ad">GCC <span class="underline"><span class="underline">attribute</span></span></a></li>
+<li><a href="#org7f0c4da">start_kernel 初始化</a>
+<ul>
+<li><a href="#org7bb6b46">lockdep_init</a></li>
+<li><a href="#orgaaf70ee">set_task_stack_end_magic</a></li>
+<li><a href="#org5230352">smp_setup_processor_id</a></li>
+<li><a href="#org90d2bf9">debug_object_early_init</a></li>
+<li><a href="#org4b6e8e2">boot_init_stack_canary</a></li>
+<li><a href="#orge7cc2b2">local_irq_disable</a></li>
+</ul>
+</li>
+<li><a href="#org28b49eb">激活第一个CPU</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org05688f3">
 start_kernel函数是与体系架构无关的通用处理入口函数，尽管在此初始化过程中要无数次的返回arch 文件夹
 
 如果仔细看看start_kernel函数的内容，将发现此函数涉及内容非常广泛
@@ -217,7 +236,7 @@ start_kernel函数是与体系架构无关的通用处理入口函数，尽管�
 <b>start_kernel</b> 函数的主要目的是完成内核初始化并启动 <b>始祖进程</b> <span class="underline">1号进程</span>
 </p>
 
-<pre class="example" id="org63fd287">
+<pre class="example" id="org6972a25">
 在始祖进程启动之前start_kernel函数做了很多事情：
 
 如锁验证器，根据处理器标识ID初始化处理器，开启cgroups子系统，设置每CPU区域环境
@@ -226,6 +245,311 @@ start_kernel函数是与体系架构无关的通用处理入口函数，尽管�
 
 只有经过这些步骤才看到本章最后一部分祖先进程启动的过程
 </pre>
+<div id="outline-container-org32af9ad" class="outline-2">
+<h2 id="org32af9ad">GCC <span class="underline"><span class="underline">attribute</span></span></h2>
+<div class="outline-text-2" id="text-org32af9ad">
+<p>
+start_kernel函数是定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/init/main.c">init/main.c</a> 从已知代码中能看到此函数使用了 <b>__init特性</b> 。在内核初始化阶段这个机制在所有的函数中都是有必要的：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">__init</span>      __section(.init.text) __cold notrace
+</pre>
+</div>
+
+<p>
+在初始化过程完成后，内核将通过调用 <b>free_initmem</b> 释放这些 <b>sections</b> <span class="underline">段</span> 。__init属性是通过 <b>__cold</b> 和 <b>notrace</b> 两个属性来定义的：
+</p>
+<ul class="org-ul">
+<li>cold的目的是标记此函数很少使用，所以编译器必须优化此函数的大小</li>
+<li><p>
+notrace定义如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">notrace</span> <span style="color: #00ffff;">__attribute__</span>((no_instrument_function))
+</pre>
+</div>
+<p>
+含有no_instrument_function：告诉编译器函数调用不产生环境变量(堆栈空间)
+</p></li>
+</ul>
+
+<p>
+在start_kernel函数的定义中，也可以看到 <b>__visible</b> 属性的扩展：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #eedd82;">__visible</span> <span style="color: #00ffff;">__attribute__</span>((externally_visible))
+</pre>
+</div>
+
+<p>
+含有 <b>externally_visible</b> 意思就是告诉编译器有一些过程在使用该函数或者变量。可以在此 <a href="https://github.com/torvalds/linux/blob/v3.18/include/linux/init.h">include/linux/init.h</a> 处查到这些属性表达式的含义
+</p>
+</div>
+</div>
+<div id="outline-container-org7f0c4da" class="outline-2">
+<h2 id="org7f0c4da">start_kernel 初始化</h2>
+<div class="outline-text-2" id="text-org7f0c4da">
+<p>
+在 start_kernel的初始之初可以看到这两个变量：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">command_line</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20869;&#26680;&#21629;&#20196;&#34892;&#30340;&#20840;&#23616;&#25351;&#38024;</span>
+<span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">after_dashes</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21253;&#21547;parse_args&#20989;&#25968;&#36890;&#36807;&#36755;&#20837;&#23383;&#31526;&#20018;&#20013;&#30340;&#21442;&#25968;'name=value'&#65292;&#23547;&#25214;&#29305;&#23450;&#30340;&#20851;&#38190;&#23383;&#21644;&#35843;&#29992;&#27491;&#30830;&#30340;&#22788;&#29702;&#31243;&#24207;</span>
+</pre>
+</div>
+
+<pre class="example" id="org7de71be">
+这个时候不参与这两个变量的相关细节，但是会在接下来的章节看到
+</pre>
+</div>
+<div id="outline-container-org7bb6b46" class="outline-3">
+<h3 id="org7bb6b46">lockdep_init</h3>
+<div class="outline-text-3" id="text-org7bb6b46">
+<p>
+接着往下走，下一步看到了此函数:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">lockdep_init</span>();
+</pre>
+</div>
+
+<p>
+<b>lockdep_init</b> 初始化 <a href="https://www.kernel.org/doc/Documentation/locking/lockdep-design.txt">lock validator</a> . 其实现是相当简单的，它只是初始化了两个哈希表 <a href="https://github.com/hust-open-atom-club/linux-insides-zh/blob/master/DataStructures/linux-datastructures-1.md">list_head</a> 并设置 <b>lockdep_initialized</b> 全局变量为 <span class="underline">1</span>
+</p>
+
+<pre class="example" id="org26e77d2">
+关于自旋锁 spinlock 以及 互斥锁mutex 如何获取
+
+请参考链接 https://zh.wikipedia.org/wiki/%E8%87%AA%E6%97%8B%E9%94%81
+https://zh.wikipedia.org/wiki/%E4%BA%92%E6%96%A5%E9%94%81 
+</pre>
+</div>
+</div>
+<div id="outline-container-orgaaf70ee" class="outline-3">
+<h3 id="orgaaf70ee">set_task_stack_end_magic</h3>
+<div class="outline-text-3" id="text-orgaaf70ee">
+<p>
+下一个函数是 <b>set_task_stack_end_magic</b> ，参数为 <span class="underline">init_task</span> <b>初始化进程(任务)</b> 数据结构。这个函数会为栈底设置一个魔术数字 <b>STACK_END_MAGIC</b> : <span class="underline">0x57AC6E9D</span> 来防止栈溢出攻击
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">task_struct</span> <span style="color: #eedd82;">init_task</span> = INIT_TASK(init_task);
+</pre>
+</div>
+
+<p>
+<b>task_struct</b> 存储了进程的所有相关信息，可以查看调度相关数据结构定义头文件 <a href="https://github.com/torvalds/linux/blob/v3.18/include/linux/init_task.h">include/linux/sched.h</a> 
+</p>
+
+<pre class="example" id="org3de9ab0">
+因为它很庞大，这本书并不会去介绍
+
+现在 task_struct已经包含了超过100个字段！
+
+虽然不会在这本书中看到关于task_struct的解释，但是会经常使用它
+
+因为它是介绍在Linux内核进程的基本知识，接下来将描述这个结构中字段的一些含义
+</pre>
+
+<p>
+可以查看 <b>宏INIT_TASK</b> 的初始化流程。这个宏指令来自于 <a href="https://github.com/torvalds/linux/blob/v3.18/include/linux/init_task.h">include/linux/init_task.h</a> 这里只是设置和初始化了第一个进程来(0号进程)的值。例如：
+</p>
+<ul class="org-ul">
+<li>初始化进程状态为 zero 或者 runnable. 一个可运行进程即为等待CPU去运行</li>
+<li>初始化仅存的标志位 PF_KTHREAD: 意思为 内核线程</li>
+<li>一个可运行的任务列表</li>
+<li>进程地址空间</li>
+<li>初始化进程堆栈 &amp;init_thread_info:
+<ul class="org-ul">
+<li><p>
+init_thread_union.thread_info 和 init_thread_union 使用union thread_union
+</p>
+<ul class="org-ul">
+<li>thread_union 包含了 thread_info进程信息以及进程栈：</li>
+</ul>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">union</span> <span style="color: #98fb98;">thread_union</span> {
+                <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">thread_info</span> <span style="color: #eedd82;">thread_info</span>;
+                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">stack</span>[THREAD_SIZE/<span style="color: #00ffff;">sizeof</span>(<span style="color: #98fb98;">long</span>)];
+};
+</pre>
+</div>
+<pre class="example" id="org758a50e">
+每个进程都有其自己的堆栈，x86_64架构的CPU一般支持的页表是16KB or 4个页框大小
+
+注意：stack变量被定义为数据并且类型是unsigned long
+     thread_union代表一个联合体union而不是结构体
+</pre>
+<ul class="org-ul">
+<li><p>
+thread_info 定义如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">thread_info</span> {
+        <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">task_struct</span>      *<span style="color: #eedd82;">task</span>;
+        <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">exec_domain</span>      *<span style="color: #eedd82;">exec_domain</span>;
+        <span style="color: #98fb98;">__u32</span>                   <span style="color: #eedd82;">flags</span>; 
+        <span style="color: #98fb98;">__u32</span>                   <span style="color: #eedd82;">status</span>;
+        <span style="color: #98fb98;">__u32</span>                   <span style="color: #eedd82;">cpu</span>;
+        <span style="color: #98fb98;">int</span>                     <span style="color: #eedd82;">saved_preempt_count</span>;
+        <span style="color: #98fb98;">mm_segment_t</span>            <span style="color: #eedd82;">addr_limit</span>;
+        <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">restart_block</span>    <span style="color: #eedd82;">restart_block</span>;
+        <span style="color: #98fb98;">void</span> <span style="color: #eedd82;">__user</span>             *sysenter_return;
+        <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">int</span>            <span style="color: #eedd82;">sig_on_uaccess_error</span>:1;
+        <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">int</span>            <span style="color: #eedd82;">uaccess_err</span>:1;
+};
+</pre>
+</div>
+<pre class="example" id="orga2bfd3a">
+thread_info结构包含了特定体系架构相关的线程信息，此结构占用52个字节
+
+在X86_64架构上内核栈是逆生成而thread_union.thread_info结构则是正生长
+
+进程进程栈是16KB并且thread_info是在栈底，因此可以使用的是：16KB - 52 bytes = 16332 bytes
+</pre></li>
+</ul></li>
+
+<li><p>
+用一张图来描述栈内存空间。 如下图所示:
+</p>
+<pre class="example" id="org94851e1">
+e+-----------------------+
+|                       |
+|                       |
+|        stack          |
+|                       |
+|_______________________|
+|          |            |
+|          |            |
+|          |            |
+|__________↓____________|             +--------------------+
+|                       |             |                    |
+|      thread_info      |&lt;-----------&gt;|     task_struct    |
+|                       |             |                    |
++-----------------------+             +--------------------+
+</pre></li>
+</ul></li>
+</ul>
+
+<p>
+现在回到set_task_stack_end_magic函数，这个函数被定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/kernel/fork.c#L297">kernel/fork.c</a> 功能为设置 init 进程堆栈以检测堆栈溢出 ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span> <span style="color: #87cefa;">set_task_stack_end_magic</span>(<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">task_struct</span> *<span style="color: #eedd82;">tsk</span>)
+{
+                <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> *<span style="color: #eedd82;">stackend</span>;
+                stackend = end_of_stack(tsk);
+                *stackend = STACK_END_MAGIC; <span style="color: #ff4500;">/* </span><span style="color: #ff4500;">for overflow detection</span><span style="color: #ff4500;"> */</span>
+}
+</pre>
+</div>
+
+<p>
+先通过 <b>end_of_stack</b> 函数获取堆栈并赋给 <span class="underline">task_struct</span> 。因为学习的是x86架构的初始化，堆栈是逆生成，所以堆栈底部为：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">(<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> *)(task_thread_info(p) + 1);
+</pre>
+</div>
+
+<p>
+在进程的栈底，写入STACK_END_MAGIC这个值
+</p>
+</div>
+</div>
+<div id="outline-container-org5230352" class="outline-3">
+<h3 id="org5230352">smp_setup_processor_id</h3>
+<div class="outline-text-3" id="text-org5230352">
+<p>
+下一个函数是 <b>smp_setup_processor_id</b> .此函数在x86_64架构上是空函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span> <span style="color: #eedd82;">__init</span> __weak smp_setup_processor_id(<span style="color: #98fb98;">void</span>)
+{
+}
+</pre>
+</div>
+
+<p>
+在此架构上没有实现此函数，但在别的体系架构的实现可以参考 <a href="http://en.wikipedia.org/wiki/ARM_architecture#64.2F32-bit_architecture">arm64</a>
+</p>
+</div>
+</div>
+<div id="outline-container-org90d2bf9" class="outline-3">
+<h3 id="org90d2bf9">debug_object_early_init</h3>
+<div class="outline-text-3" id="text-org90d2bf9">
+<p>
+<b>debug_object_early_init</b> 函数的执行几乎和lockdep_init是一样的，但是填充的哈希对象是调试相关
+</p>
+</div>
+</div>
+<div id="outline-container-org4b6e8e2" class="outline-3">
+<h3 id="org4b6e8e2">boot_init_stack_canary</h3>
+<div class="outline-text-3" id="text-org4b6e8e2">
+<pre class="example" id="org36b2ce4">
+task_struct-&gt;canary 的值利用了GCC特性
+
+但是此特性需要先使能内核CONFIG_CC_STACKPROTECTOR宏后才可以使用，否则什么也不做
+
+</pre>
+<p>
+boot_init_stack_canary 基于随机数和随机池产生 <a href="https://en.wikipedia.org/wiki/Time_Stamp_Counter">TSC</a> :
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">get_random_bytes(&amp;canary, <span style="color: #00ffff;">sizeof</span>(canary));
+tsc = __native_read_tsc();
+canary += tsc + (tsc &lt;&lt; 32UL);
+</pre>
+</div>
+
+<p>
+给当前字段的 stack_canary 字段赋值：
+</p>
+<div class="org-src-container">
+<pre class="src src-c">current-&gt;stack_canary = canary;
+</pre>
+</div>
+
+<p>
+然后将此值写入<a href="https://en.wikipedia.org/wiki/Interrupt_request_%28PC_architecture%29">IRQ</a> 堆栈的顶部:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">this_cpu_write</span>(irq_stack_union.stack_canary, canary);
+</pre>
+</div>
+
+<pre class="example" id="orgcf27ec3">
+关于IRQ的章节这里也不会详细剖析
+</pre>
+</div>
+</div>
+<div id="outline-container-orge7cc2b2" class="outline-3">
+<h3 id="orge7cc2b2">local_irq_disable</h3>
+<div class="outline-text-3" id="text-orge7cc2b2">
+<p>
+canary被设置后, 关闭本地中断 <span class="underline">interrupts for current CPU</span> 使用 <b>local_irq_disable</b> 函数，展开后原型为 <b>arch_local_irq_disable</b>  函数 <a href="https://github.com/torvalds/linux/blob/v3.18/include/linux/percpu-defs.h">include/linux/percpu-defs.h</a>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">inline</span> <span style="color: #98fb98;">notrace</span> <span style="color: #98fb98;">void</span> arch_local_irq_disable(<span style="color: #98fb98;">void</span>)
+{
+        native_irq_disable();
+}
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org28b49eb" class="outline-2">
+<h2 id="org28b49eb">激活第一个CPU</h2>
+</div>
 </div>
 <div id="postamble" class="status">
 

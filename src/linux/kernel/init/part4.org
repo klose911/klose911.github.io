@@ -27,5 +27,203 @@
 
   只有经过这些步骤才看到本章最后一部分祖先进程启动的过程
 #+end_example
+* GCC __attribute__
 
+start_kernel函数是定义在 [[https://github.com/torvalds/linux/blob/v3.18/init/main.c][init/main.c]] 从已知代码中能看到此函数使用了 *__init特性* 。在内核初始化阶段这个机制在所有的函数中都是有必要的：
+#+begin_src c 
+  #define __init      __section(.init.text) __cold notrace
+#+end_src
 
+在初始化过程完成后，内核将通过调用 *free_initmem* 释放这些 *sections* _段_ 。__init属性是通过 *__cold* 和 *notrace* 两个属性来定义的：
++ cold的目的是标记此函数很少使用，所以编译器必须优化此函数的大小
++ notrace定义如下：
+  #+begin_src c 
+    #define notrace __attribute__((no_instrument_function))
+  #+end_src
+  含有no_instrument_function：告诉编译器函数调用不产生环境变量(堆栈空间)
+
+在start_kernel函数的定义中，也可以看到 *__visible* 属性的扩展：
+#+begin_src c 
+  #define __visible __attribute__((externally_visible))
+#+end_src
+
+含有 *externally_visible* 意思就是告诉编译器有一些过程在使用该函数或者变量。可以在此 [[https://github.com/torvalds/linux/blob/v3.18/include/linux/init.h][include/linux/init.h]] 处查到这些属性表达式的含义
+* start_kernel 初始化
+在 start_kernel的初始之初可以看到这两个变量：
+
+#+begin_src c 
+  char *command_line; // 内核命令行的全局指针
+  char *after_dashes; // 包含parse_args函数通过输入字符串中的参数'name=value'，寻找特定的关键字和调用正确的处理程序
+#+end_src
+
+#+begin_example
+  这个时候不参与这两个变量的相关细节，但是会在接下来的章节看到
+#+end_example
+
+** lockdep_init 
+接着往下走，下一步看到了此函数:
+
+#+begin_src c 
+  lockdep_init();
+#+end_src
+
+*lockdep_init* 初始化 [[https://www.kernel.org/doc/Documentation/locking/lockdep-design.txt][lock validator]] . 其实现是相当简单的，它只是初始化了两个哈希表 [[https://github.com/hust-open-atom-club/linux-insides-zh/blob/master/DataStructures/linux-datastructures-1.md][list_head]] 并设置 *lockdep_initialized* 全局变量为 _1_
+
+#+begin_example
+  关于自旋锁 spinlock 以及 互斥锁mutex 如何获取
+
+  请参考链接 https://zh.wikipedia.org/wiki/%E8%87%AA%E6%97%8B%E9%94%81
+  https://zh.wikipedia.org/wiki/%E4%BA%92%E6%96%A5%E9%94%81 
+#+end_example
+
+** set_task_stack_end_magic 
+下一个函数是 *set_task_stack_end_magic* ，参数为 _init_task_ *初始化进程(任务)* 数据结构。这个函数会为栈底设置一个魔术数字 *STACK_END_MAGIC* : _0x57AC6E9D_ 来防止栈溢出攻击
+
+#+begin_src c 
+  struct task_struct init_task = INIT_TASK(init_task);
+#+end_src
+
+*task_struct* 存储了进程的所有相关信息，可以查看调度相关数据结构定义头文件 [[https://github.com/torvalds/linux/blob/v3.18/include/linux/init_task.h][include/linux/sched.h]] 
+
+#+begin_example
+  因为它很庞大，这本书并不会去介绍
+
+  现在 task_struct已经包含了超过100个字段！
+
+  虽然不会在这本书中看到关于task_struct的解释，但是会经常使用它
+
+  因为它是介绍在Linux内核进程的基本知识，接下来将描述这个结构中字段的一些含义
+#+end_example
+
+可以查看 *宏INIT_TASK* 的初始化流程。这个宏指令来自于 [[https://github.com/torvalds/linux/blob/v3.18/include/linux/init_task.h][include/linux/init_task.h]] 这里只是设置和初始化了第一个进程来(0号进程)的值。例如：
++ 初始化进程状态为 zero 或者 runnable. 一个可运行进程即为等待CPU去运行
++ 初始化仅存的标志位 PF_KTHREAD: 意思为 内核线程
++ 一个可运行的任务列表
++ 进程地址空间
++ 初始化进程堆栈 &init_thread_info:
+  + init_thread_union.thread_info 和 init_thread_union 使用union thread_union
+    + thread_union 包含了 thread_info进程信息以及进程栈：
+    #+begin_src c 
+      union thread_union {
+      		struct thread_info thread_info;
+      		unsigned long stack[THREAD_SIZE/sizeof(long)];
+      };
+    #+end_src
+    #+begin_example
+      每个进程都有其自己的堆栈，x86_64架构的CPU一般支持的页表是16KB or 4个页框大小
+
+      注意：stack变量被定义为数据并且类型是unsigned long
+           thread_union代表一个联合体union而不是结构体
+    #+end_example
+    + thread_info 定义如下：
+      #+begin_src c 
+	struct thread_info {
+	        struct task_struct      *task;
+	        struct exec_domain      *exec_domain;
+	        __u32                   flags; 
+	        __u32                   status;
+	        __u32                   cpu;
+	        int                     saved_preempt_count;
+	        mm_segment_t            addr_limit;
+	        struct restart_block    restart_block;
+	        void __user             *sysenter_return;
+	        unsigned int            sig_on_uaccess_error:1;
+	        unsigned int            uaccess_err:1;
+	};
+      #+end_src
+      #+begin_example
+	thread_info结构包含了特定体系架构相关的线程信息，此结构占用52个字节
+
+	在X86_64架构上内核栈是逆生成而thread_union.thread_info结构则是正生长
+
+	进程进程栈是16KB并且thread_info是在栈底，因此可以使用的是：16KB - 52 bytes = 16332 bytes
+      #+end_example
+
+  + 用一张图来描述栈内存空间。 如下图所示:
+    #+begin_example
+      e+-----------------------+
+      |                       |
+      |                       |
+      |        stack          |
+      |                       |
+      |_______________________|
+      |          |            |
+      |          |            |
+      |          |            |
+      |__________↓____________|             +--------------------+
+      |                       |             |                    |
+      |      thread_info      |<----------->|     task_struct    |
+      |                       |             |                    |
+      +-----------------------+             +--------------------+
+    #+end_example
+
+现在回到set_task_stack_end_magic函数，这个函数被定义在 [[https://github.com/torvalds/linux/blob/v3.18/kernel/fork.c#L297][kernel/fork.c]] 功能为设置 init 进程堆栈以检测堆栈溢出 ：
+
+#+begin_src c 
+  void set_task_stack_end_magic(struct task_struct *tsk)
+  {
+  		unsigned long *stackend;
+  		stackend = end_of_stack(tsk);
+  		*stackend = STACK_END_MAGIC; /* for overflow detection */
+  }
+#+end_src
+
+先通过 *end_of_stack* 函数获取堆栈并赋给 _task_struct_ 。因为学习的是x86架构的初始化，堆栈是逆生成，所以堆栈底部为：
+
+#+begin_src c 
+  (unsigned long *)(task_thread_info(p) + 1);
+#+end_src
+
+在进程的栈底，写入STACK_END_MAGIC这个值
+** smp_setup_processor_id
+
+下一个函数是 *smp_setup_processor_id* .此函数在x86_64架构上是空函数：
+
+#+begin_src c 
+  void __init __weak smp_setup_processor_id(void)
+  {
+  }
+#+end_src
+
+在此架构上没有实现此函数，但在别的体系架构的实现可以参考 [[http://en.wikipedia.org/wiki/ARM_architecture#64.2F32-bit_architecture][arm64]]
+** debug_object_early_init
+*debug_object_early_init* 函数的执行几乎和lockdep_init是一样的，但是填充的哈希对象是调试相关
+** boot_init_stack_canary
+#+begin_example
+  task_struct->canary 的值利用了GCC特性
+
+  但是此特性需要先使能内核CONFIG_CC_STACKPROTECTOR宏后才可以使用，否则什么也不做
+
+#+end_example
+boot_init_stack_canary 基于随机数和随机池产生 [[https://en.wikipedia.org/wiki/Time_Stamp_Counter][TSC]] :
+
+#+begin_src c 
+  get_random_bytes(&canary, sizeof(canary));
+  tsc = __native_read_tsc();
+  canary += tsc + (tsc << 32UL);
+#+end_src
+
+给当前字段的 stack_canary 字段赋值：
+#+begin_src c 
+current->stack_canary = canary;
+#+end_src
+
+然后将此值写入[[https://en.wikipedia.org/wiki/Interrupt_request_%28PC_architecture%29][IRQ]] 堆栈的顶部:
+
+#+begin_src c 
+  this_cpu_write(irq_stack_union.stack_canary, canary);
+#+end_src
+
+#+begin_example
+  关于IRQ的章节这里也不会详细剖析
+#+end_example
+** local_irq_disable
+canary被设置后, 关闭本地中断 _interrupts for current CPU_ 使用 *local_irq_disable* 函数，展开后原型为 *arch_local_irq_disable*  函数 [[https://github.com/torvalds/linux/blob/v3.18/include/linux/percpu-defs.h][include/linux/percpu-defs.h]]:
+
+#+begin_src c 
+  static inline notrace void arch_local_irq_disable(void)
+  {
+          native_irq_disable();
+  }
+#+end_src
+* 激活第一个CPU
