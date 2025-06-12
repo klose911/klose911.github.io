@@ -217,10 +217,16 @@
 </ul>
 </li>
 <li><a href="#org28b49eb">激活第一个CPU</a></li>
+<li><a href="#orgcd598a9">内核的第一条打印信息</a></li>
+<li><a href="#org0377263">依赖于体系结构的初始化部分</a>
+<ul>
+<li><a href="#org349b951">保留可用内存初始化initrd</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org05688f3">
+<pre class="example" id="orgfdf53f8">
 start_kernel函数是与体系架构无关的通用处理入口函数，尽管在此初始化过程中要无数次的返回arch 文件夹
 
 如果仔细看看start_kernel函数的内容，将发现此函数涉及内容非常广泛
@@ -236,7 +242,7 @@ start_kernel函数是与体系架构无关的通用处理入口函数，尽管�
 <b>start_kernel</b> 函数的主要目的是完成内核初始化并启动 <b>始祖进程</b> <span class="underline">1号进程</span>
 </p>
 
-<pre class="example" id="org6972a25">
+<pre class="example" id="org45aab18">
 在始祖进程启动之前start_kernel函数做了很多事情：
 
 如锁验证器，根据处理器标识ID初始化处理器，开启cgroups子系统，设置每CPU区域环境
@@ -299,7 +305,7 @@ notrace定义如下：
 </pre>
 </div>
 
-<pre class="example" id="org7de71be">
+<pre class="example" id="orgbb8a17f">
 这个时候不参与这两个变量的相关细节，但是会在接下来的章节看到
 </pre>
 </div>
@@ -319,7 +325,7 @@ notrace定义如下：
 <b>lockdep_init</b> 初始化 <a href="https://www.kernel.org/doc/Documentation/locking/lockdep-design.txt">lock validator</a> . 其实现是相当简单的，它只是初始化了两个哈希表 <a href="https://github.com/hust-open-atom-club/linux-insides-zh/blob/master/DataStructures/linux-datastructures-1.md">list_head</a> 并设置 <b>lockdep_initialized</b> 全局变量为 <span class="underline">1</span>
 </p>
 
-<pre class="example" id="org26e77d2">
+<pre class="example" id="org990d1a2">
 关于自旋锁 spinlock 以及 互斥锁mutex 如何获取
 
 请参考链接 https://zh.wikipedia.org/wiki/%E8%87%AA%E6%97%8B%E9%94%81
@@ -343,7 +349,7 @@ https://zh.wikipedia.org/wiki/%E4%BA%92%E6%96%A5%E9%94%81
 <b>task_struct</b> 存储了进程的所有相关信息，可以查看调度相关数据结构定义头文件 <a href="https://github.com/torvalds/linux/blob/v3.18/include/linux/init_task.h">include/linux/sched.h</a> 
 </p>
 
-<pre class="example" id="org3de9ab0">
+<pre class="example" id="org7947616">
 因为它很庞大，这本书并不会去介绍
 
 现在 task_struct已经包含了超过100个字段！
@@ -376,7 +382,7 @@ init_thread_union.thread_info 和 init_thread_union 使用union thread_union
 };
 </pre>
 </div>
-<pre class="example" id="org758a50e">
+<pre class="example" id="orga28a6b9">
 每个进程都有其自己的堆栈，x86_64架构的CPU一般支持的页表是16KB or 4个页框大小
 
 注意：stack变量被定义为数据并且类型是unsigned long
@@ -402,7 +408,7 @@ thread_info 定义如下：
 };
 </pre>
 </div>
-<pre class="example" id="orga2bfd3a">
+<pre class="example" id="org20d44fd">
 thread_info结构包含了特定体系架构相关的线程信息，此结构占用52个字节
 
 在X86_64架构上内核栈是逆生成而thread_union.thread_info结构则是正生长
@@ -414,7 +420,7 @@ thread_info结构包含了特定体系架构相关的线程信息，此结构占
 <li><p>
 用一张图来描述栈内存空间。 如下图所示:
 </p>
-<pre class="example" id="org94851e1">
+<pre class="example" id="org579bfbd">
 e+-----------------------+
 |                       |
 |                       |
@@ -491,7 +497,7 @@ e+-----------------------+
 <div id="outline-container-org4b6e8e2" class="outline-3">
 <h3 id="org4b6e8e2">boot_init_stack_canary</h3>
 <div class="outline-text-3" id="text-org4b6e8e2">
-<pre class="example" id="org36b2ce4">
+<pre class="example" id="org7b15190">
 task_struct-&gt;canary 的值利用了GCC特性
 
 但是此特性需要先使能内核CONFIG_CC_STACKPROTECTOR宏后才可以使用，否则什么也不做
@@ -525,7 +531,7 @@ canary += tsc + (tsc &lt;&lt; 32UL);
 </pre>
 </div>
 
-<pre class="example" id="orgcf27ec3">
+<pre class="example" id="org7efbce5">
 关于IRQ的章节这里也不会详细剖析
 </pre>
 </div>
@@ -549,6 +555,436 @@ canary被设置后, 关闭本地中断 <span class="underline">interrupts for cu
 </div>
 <div id="outline-container-org28b49eb" class="outline-2">
 <h2 id="org28b49eb">激活第一个CPU</h2>
+<div class="outline-text-2" id="text-org28b49eb">
+<p>
+当前已经走到start_kernel函数中的 <b>boot_cpu_init</b> 函数，此函数主要为了通过 <span class="underline">掩码</span> <b>初始化</b> 每一个 <span class="underline">CPU</span> 。首先需要获取当前处理器的ID通过下面函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">int</span> <span style="color: #eedd82;">cpu</span> = smp_processor_id();
+</pre>
+</div>
+
+<p>
+smp_processor_id 的值就来自于 <b>raw_smp_processor_id</b> 函数，原型如下:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">raw_smp_processor_id</span>() (this_cpu_read(cpu_number))
+</pre>
+</div>
+
+<p>
+this_cpu_read 函数与其它很多函数一样如(this_cpu_write, this_cpu_add 等等&#x2026;) 被定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/include/linux/percpu-defs.h">include/linux/percpu-defs.h</a> 这里函数主要为对 this_cpu 进行操作. 这些操作提供不同的对每cpuper-cpu 变量相关访问方式. 譬如来看看这个函数 this_cpu_read:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">__pcpu_size_call_return</span>(this_cpu_read_, pcp)
+</pre>
+</div>
+
+<p>
+现在看看 <b>__pcpu_size_call_return</b> 的执行：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">__pcpu_size_call_return</span>(<span style="color: #eedd82;">stem</span>, <span style="color: #eedd82;">variable</span>)                 \
+                ({                                                      \
+                                <span style="color: #00ffff;">typeof</span>(variable) <span style="color: #eedd82;">pscr_ret__</span>;                    \
+                                __verify_pcpu_ptr(&amp;(variable));                 \
+                                <span style="color: #00ffff;">switch</span>(<span style="color: #00ffff;">sizeof</span>(variable)) {                      \
+                                <span style="color: #00ffff;">case</span> 1: pscr_ret__ = stem##1(variable); <span style="color: #00ffff;">break</span>;  \
+                                <span style="color: #00ffff;">case</span> 2: pscr_ret__ = stem##2(variable); <span style="color: #00ffff;">break</span>;  \
+                                <span style="color: #00ffff;">case</span> 4: pscr_ret__ = stem##4(variable); <span style="color: #00ffff;">break</span>;  \
+                                <span style="color: #00ffff;">case</span> 8: pscr_ret__ = stem##8(variable); <span style="color: #00ffff;">break</span>;  \
+                                <span style="color: #00ffff;">default</span>:                                        \
+                                                __bad_size_call_parameter(); <span style="color: #00ffff;">break</span>;     \
+                                }                                               \
+                                pscr_ret__;                                     \
+                }) 
+</pre>
+</div>
+
+<p>
+是的，此函数虽然看起起奇怪但是它的实现是简单的：
+</p>
+<ol class="org-ol">
+<li><p>
+<b>pscr_ret__</b> 变量的定义是 <span class="underline">int类型</span> ， variable参数 是common_cpu 它声明了每cpu(per-cpu)变量:
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">DECLARE_PER_CPU_READ_MOSTLY</span>(<span style="color: #98fb98;">int</span>, cpu_number);
+</pre>
+</div></li>
+<li>调用了 <b>__verify_pcpu_ptr</b> 通过使用一个有效的 <b>per-cpu变量指针</b> 来取地址得到 <b>cpu_number</b></li>
+<li><p>
+通过pscr_ret__ 函数设置变量的大小，common_cpu变量是int，所以它的大小是4字节
+</p>
+<pre class="example" id="org67b244a">
+意思就是通过this_cpu_read4(common_cpu)获取cpu变量，其大小被pscr_ret__决定
+</pre></li>
+<li><p>
+在__pcpu_size_call_return的结束 调用了 <b>__pcpu_size_call_return</b> ：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">this_cpu_read_4</span>(<span style="color: #eedd82;">pcp</span>)       percpu_from_op(<span style="color: #ffa07a;">"mov"</span>, pcp)
+</pre>
+</div>
+<ul class="org-ul">
+<li><p>
+需要调用 <span class="underline">percpu_from_op</span> 并且通过 <b>mov</b> 指令来传递每cpu变量，percpu_from_op的内联扩展如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">asm</span>(<span style="color: #ffa07a;">"movl %%gs:%1,%0"</span> : <span style="color: #ffa07a;">"=r"</span> (pfo_ret__) : <span style="color: #ffa07a;">"m"</span> (common_cpu))
+</pre>
+</div>
+<pre class="example" id="orgdb1c2f2">
+gs段寄存器包含每个CPU区域的初始值，这里通过mov指令copy common_cpu到内存中去
+</pre></li>
+</ul></li>
+</ol>
+
+<p>
+此函数还有另外的形式：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">this_cpu_read</span>(common_cpu)
+</pre>
+</div>
+
+<p>
+等价于：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">movl</span> <span style="color: #00ffff;">%gs</span>:$common_cpu, $pfo_ret__
+</pre>
+</div>
+
+<pre class="example" id="org315ef8a">
+由于没有设置每个CPU的区域, 并且只有一个
+
+所以当前CPU的值zero 通过此函数 smp_processor_id返回
+</pre>
+
+<p>
+boot_cpu_init 函数设置了CPU的在线, 激活:
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">set_cpu_online</span>(cpu, <span style="color: #7fffd4;">true</span>);
+<span style="color: #87cefa;">set_cpu_active</span>(cpu, <span style="color: #7fffd4;">true</span>);
+<span style="color: #87cefa;">set_cpu_present</span>(cpu, <span style="color: #7fffd4;">true</span>);
+<span style="color: #87cefa;">set_cpu_possible</span>(cpu, <span style="color: #7fffd4;">true</span>);
+</pre>
+</div>
+
+<p>
+上述所有使用的这些CPU的配置称之为 <b>CPU掩码</b> <span class="underline">cpumask</span>
+</p>
+<ul class="org-ul">
+<li>cpu_possible 则是设置支持CPU热插拔时候的CPU ID</li>
+<li>cpu_present 表示当前热插拔的CPU</li>
+<li>cpu_online表示当前所有在线的CPU</li>
+<li>cpu_present 来决定被调度出去的CPU.</li>
+</ul>
+
+<pre class="example" id="org4f272b8">
+CPU热插拔的操作需要打开内核配置宏 CONFIG_HOTPLUG_CPU
+
+并且将 possible == present 以及active == online选项禁用
+
+</pre>
+<p>
+这些功能都非常相似，每个函数都需要检查第二个参数，如果设置为true，需要通过调用 <b>cpumask_set_cpu</b> 或 <b>cpumask_clear_cpu</b> 来改变状态。譬如可以通过第二个参数 true 来这么调用：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">cpumask_set_cpu</span>(cpu, <span style="color: #98fb98;">to_cpumask</span>(<span style="color: #eedd82;">cpu_possible_bits</span>));
+</pre>
+</div>
+
+<p>
+继续尝试理解 <b>to_cpumask宏</b> 指令，此宏指令转化为一个位图：通过 <b>struct cpumask</b> 指针，CPU掩码提供了位图集代表了当前系统中所有的CPU's，每CPU都占用1bit，CPU掩码相关定义通过cpu_mask结构定义:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">typedef</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">cpumask</span> { <span style="color: #87cefa;">DECLARE_BITMAP</span>(bits, NR_CPUS); } <span style="color: #98fb98;">cpumask_t</span>;
+</pre>
+</div>
+
+<p>
+下面一组函数定义了位图宏指令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">DECLARE_BITMAP</span>(<span style="color: #eedd82;">name</span>, <span style="color: #eedd82;">bits</span>) <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">name</span>[BITS_TO_LONGS(bits)]
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">static DECLARE_BITMAP(cpu_online_bits, CONFIG_NR_CPUS) __read_mostly;</span>
+</pre>
+</div>
+
+<pre class="example" id="org0badf98">
+DECLARE_BITMAP宏指令的原型是一个unsigned long的数组
+</pre>
+
+<p>
+再来查看如何执行to_cpumask:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">to_cpumask</span>(<span style="color: #eedd82;">bitmap</span>)                                              \
+        ((<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">cpumask</span> *)(1 ? (bitmap)                                \
+                            : (<span style="color: #98fb98;">void</span> *)<span style="color: #00ffff;">sizeof</span>(__check_is_bitmap(bitmap))))
+</pre>
+</div>
+
+<pre class="example" id="org32f1e5b">
+其实就是一个条件判断语句当条件为真的时候，但是为什么执行__check_is_bitmap?
+</pre>
+
+<p>
+看看 <b>__check_is_bitmap</b> 的定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">inline</span> <span style="color: #98fb98;">int</span> <span style="color: #87cefa;">__check_is_bitmap</span>(<span style="color: #00ffff;">const</span> <span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> *<span style="color: #eedd82;">bitmap</span>)
+{
+        <span style="color: #00ffff;">return</span> 1;
+}
+</pre>
+</div>
+
+<p>
+原来此函数始终返回1
+</p>
+
+<pre class="example" id="orgbf1e84f">
+事实上需要这样的函数才达到目的：
+
+它在编译时给定一个bitmap，换句话将就是检查bitmap的类型是否是unsigned long *
+
+因此通过 to_cpumask 宏指令将类型为unsigned long的数组转化为struct cpumask *
+</pre>
+
+<p>
+现在可以调用cpumask_set_cpu 函数，这个函数仅仅是一个 set_bit给CPU掩码的功能函数
+</p>
+
+<pre class="example" id="org6434e84">
+所有的这些set_cpu_*函数的原理都是一样的
+</pre>
+
+<p>
+如果还不确定set_cpu_*这些函数的操作并且不能理解 cpumask的概念，不要担心。可以通过读取这些章节 <a href="https://github.com/hust-open-atom-club/linux-insides-zh/blob/master/Concepts/linux-cpu-2.md">cpumask</a> 或者 <a href="https://www.kernel.org/doc/Documentation/cpu-hotplug.txt">cpu-hotplug</a>.来继续了解和学习这些函数的原理
+</p>
+
+<pre class="example" id="org34d5816">
+现在已经激活第一个CPU，继续接着start_kernel函数往下走
+
+下面的函数是page_address_init, 但是此函数不执行任何操作，因为只有当所有内存不能直接映射的时候才会执行
+</pre>
+</div>
+</div>
+<div id="outline-container-orgcd598a9" class="outline-2">
+<h2 id="orgcd598a9">内核的第一条打印信息</h2>
+<div class="outline-text-2" id="text-orgcd598a9">
+<p>
+下面调用了 <b>pr_notice</b> 函数：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">pr_notice</span>(<span style="color: #eedd82;">fmt</span>, ...) \
+    printk(<span style="color: #98fb98;">KERN_NOTICE</span> <span style="color: #87cefa;">pr_fmt</span>(fmt), ##__VA_ARGS__)
+</pre>
+</div>
+
+<p>
+pr_notice其实是 <b>printk</b> 的扩展，这里使用它打印了Linux 的banner：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">pr_notice(<span style="color: #ffa07a;">"%s"</span>, linux_banner);
+</pre>
+</div>
+
+<p>
+打印的是内核的版本号以及编译环境信息:
+</p>
+<div class="org-src-container">
+<pre class="src src-c">Linux version 4.0.0-rc6+ (alex@localhost) (gcc version 4.9.1 (Ubuntu 4.9.1-16ubuntu6) ) #319 SMP
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org0377263" class="outline-2">
+<h2 id="org0377263">依赖于体系结构的初始化部分</h2>
+<div class="outline-text-2" id="text-org0377263">
+<p>
+下个步骤就要进入到指定的体系架构的初始函数，Linux 内核初始化体系架构相关调用 <b>setup_arch</b> 函数
+</p>
+<pre class="example" id="orgb0dfc9f">
+这又是一个类型于start_kernel的庞大函数，这里仅仅简单描述
+
+在下一节将继续深入，指定体系架构的内容
+</pre>
+<p>
+setup_arch函数定义在 <a href="https://github.com/torvalds/linux/blob/v3.18/arch/x86/kernel/setup.c">arch/x86/kernel/setup.c</a> 文件中，此函数就一个参数：内核命令行
+</p>
+
+<p>
+这里使用 <b>memblock</b> 来解析内存块：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">memblock_reserve</span>(<span style="color: #98fb98;">__pa_symbol</span>(<span style="color: #eedd82;">_text</span>), (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)__bss_stop - (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)_text);
+</pre>
+</div>
+
+<p>
+。此函数解析 <span class="underline">内核段</span> <b>_text</b> 和 <b>_data</b> 来自于 _text符号和 _bss_stop
+</p>
+
+<pre class="example" id="orge8b010d">
+_text 和 _bss_stop 符号来自于文件arch/x86/kernel/head_64.S
+</pre>
+
+<p>
+memblock_reserve函数的两个参数：
+</p>
+<ul class="org-ul">
+<li>base physical address of a memory block</li>
+<li>size of a memory block</li>
+</ul>
+
+<p>
+关于memblock的相关内容在 <a href="https://github.com/hust-open-atom-club/linux-insides-zh/blob/master/MM/linux-mm-1.md">Linux kernel memory management Part 1</a> 
+</p>
+
+
+<p>
+通过 <b>__pa_symbol宏</b> 指令来获取符号表 <b>_text段</b> 中的 <span class="underline">物理地址</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">__pa_symbol</span>(<span style="color: #eedd82;">x</span>) \
+        __phys_addr_symbol(__phys_reloc_hide((<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)(x)))
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>调用  <b>__phys_reloc_hide 宏</b> 指令来填充参数，这个宏指令在x86_64上返回的参数是给定的</li>
+<li>宏指令 <b>__phys_addr_symbol</b> 的执行是简单的，只是减去从 “_text符号表中读到的内核的符号映射地址” 并且加上 “物理地址的基地址”</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">__phys_addr_symbol</span>(<span style="color: #eedd82;">x</span>) \
+ ((<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>)(x) - __START_KERNEL_map + phys_base)
+</pre>
+</div>
+
+<p>
+memblock_reserve函数对内存页进行分配 
+</p>
+</div>
+<div id="outline-container-org349b951" class="outline-3">
+<h3 id="org349b951">保留可用内存初始化initrd</h3>
+<div class="outline-text-3" id="text-org349b951">
+<p>
+在内核text和data段中保留内存用来初始化initrd
+</p>
+<pre class="example" id="org0ada42d">
+暂时不去了解initrd的详细信息，仅仅只需要知道根文件系统就是通过这种方式来进行初始化
+</pre>
+
+<p>
+这就是 <b>early_reserve_initrd</b> 函数的工作，此函数获取 <span class="underline">RAM DISK的基地址</span> 、 <span class="underline">RAM DISK的大小</span> 以及 <span class="underline">RAM DISK的结束地址</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">u64</span> <span style="color: #eedd82;">ramdisk_image</span> = get_ramdisk_image();
+<span style="color: #98fb98;">u64</span> <span style="color: #eedd82;">ramdisk_size</span>  = get_ramdisk_size();
+<span style="color: #98fb98;">u64</span> <span style="color: #eedd82;">ramdisk_end</span>   = PAGE_ALIGN(ramdisk_image + ramdisk_size);
+</pre>
+</div>
+
+<pre class="example" id="orgb70a66e">
+如果阅读过前面Linux启动过程 ，就知道所有的这些参数都来自于boot_params
+</pre>
+
+<p>
+boot_params在boot期间已经被赋值，包含了一下几个字段用来描述RAM DISK：
+</p>
+
+<pre class="example" id="org6aa5d56">
+Field name:	ramdisk_image
+Type:		write (obligatory)
+Offset/size:	0x218/4
+Protocol:	2.00+
+
+  The 32-bit linear address of the initial ramdisk or ramfs.  Leave at
+  zero if there is no initial ramdisk/ramfs.
+</pre>
+
+<p>
+具体查看 <b>get_ramdisk_image</b> :
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #98fb98;">u64</span> <span style="color: #eedd82;">__init</span> get_ramdisk_image(<span style="color: #98fb98;">void</span>)
+{
+        <span style="color: #98fb98;">u64</span> <span style="color: #eedd82;">ramdisk_image</span> = boot_params.hdr.ramdisk_image;
+
+        ramdisk_image |= (<span style="color: #98fb98;">u64</span>)boot_params.ext_ramdisk_image &lt;&lt; 32;
+
+        <span style="color: #00ffff;">return</span> ramdisk_image;
+}
+</pre>
+</div>
+
+<p>
+关于32位的ramdisk的地址，可以阅读此部分内容来获取<a href="https://github.com/0xAX/linux/blob/master/Documentation/x86/zero-page.txt">zero-page.txt</a>:
+</p>
+
+<pre class="example" id="org6838e6c">
+0C0/004	ALL	ext_ramdisk_image ramdisk_image high 32bits
+</pre>
+
+<p>
+获取64位的ramdisk原理一样，为此可以检查bootloader 提供的ramdisk信息：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span> (!boot_params.hdr.type_of_loader ||
+    !ramdisk_image || !ramdisk_size)
+                <span style="color: #00ffff;">return</span>;
+</pre>
+</div>
+
+<p>
+校验成功后保留内存块，并将ramdisk传输到最终的内存地址，然后进行初始化：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">memblock_reserve</span>(ramdisk_image, ramdisk_end - ramdisk_image);
+</pre>
+</div>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="part5.html">Next: 与系统架构有关的初始化</a></td>
+<td class="org-left"><a href="part3.html">Previous: 进入内核入口点之前最后的准备工作</a></td>
+<td class="org-left"><a href="init.html">Home：内核初始化</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
