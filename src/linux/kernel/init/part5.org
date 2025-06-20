@@ -525,3 +525,113 @@ iomem_resource 利用 *PCI mem* 作为 _名字_ 和 *IORESOURCE_MEM* _0x00000200
 #+end_src
 
 * 内存描述符初始化
+下一步是在初始化阶段完成内存描述符的初始化
+#+begin_example
+  每个进程都有自己的运行内存地址空间。通过调用 memory descriptor 可以看到这些特殊数据结构
+#+end_example
+
+在 linux 内核源码中内存描述符是用 *mm_struct 结构体* 表示的。mm_struct 包含许多不同的与进程地址空间有关的字段，像
++ 内核代码/数据段的起始和结束地址
++ brk 的起始和结束
++ 内存区域的数量
++ 内存区域列表等
+
+这些结构定义在 [[https://github.com/torvalds/linux/blob/16f73eb02d7e1765ccab3d2018e0bd98eb93d973/include/linux/mm_types.h][include/linux/mm_types.h]] 中。task_struct 结构的 *mm* 和 *active_mm* 字段包含了每个进程自己的内存描述符
+
+#+begin_example
+  当然第一个 init 进程也有自己的内存描述符
+#+end_example
+之前通过 *INIT_TASK 宏* 实现 task_struct 的部分初始化信息：
+
+#+begin_src c 
+  #define INIT_TASK(tsk)							\
+  		{
+  // ...
+  // ...
+  // ...
+  .mm = NULL,         \
+  		.active_mm  = &init_mm, \
+  // ...
+  		}
+#+end_src
+*mm* 指向 _进程地址空间_ ， *active_mm* 指向像内核线程这样子不存在地址空间的 _有效地址空间_ （可以在这个[[https://www.kernel.org/doc/Documentation/vm/active_mm.txt][文档]] 中了解更多内容）。 接下来在初始化阶段完成内存描述符中 _内核代码段_ ， _数据段_ 和  _brk 段_ 的初始化：
+
+#+begin_src c 
+  init_mm.start_code = (unsigned long) _text;
+  init_mm.end_code = (unsigned long) _etext;
+  init_mm.end_data = (unsigned long) _edata;
+  init_mm.brk = _brk_end;
+#+end_src
+
+*init_mm* 是初始化阶段的 _内存描述符_ 定义：
+
+#+begin_src c 
+  struct mm_struct init_mm = {
+  		.mm_rb          = RB_ROOT, // 虚拟内存区域的红黑树结构 
+  		.pgd            = swapper_pg_dir, // 全局页目录的指针 
+  		.mm_users       = ATOMIC_INIT(2), // 该内存空间的进程数目 
+  		.mm_count       = ATOMIC_INIT(1), // 主引用计数 
+  		.mmap_sem       = __RWSEM_INITIALIZER(init_mm.mmap_sem), // 内存区域信号量 
+  		.page_table_lock =  __SPIN_LOCK_UNLOCKED(init_mm.page_table_lock),
+  		.mmlist         = LIST_HEAD_INIT(init_mm.mmlist), 
+  		INIT_MM_CONTEXT(init_mm)
+  };
+#+end_src
+
+其中：
++ mm_rb: 虚拟内存区域的 _红黑树_ 结构
++ pgd: _全局页目录_ 的指针
++ mm_user 使用该内存空间的 _进程数目_
++ mm_count 是 _主引用计数_
++ mmap_sem 是内存区域 _信号量_
+
+在初始化阶段完成内存描述符的设置后。接下来是代码/数据/bss  *资源* 的初始化：
+
+#+begin_src c 
+  code_resource.start = __pa_symbol(_text);
+  code_resource.end = __pa_symbol(_etext)-1;
+  data_resource.start = __pa_symbol(_etext);
+  data_resource.end = __pa_symbol(_edata)-1;
+  bss_resource.start = __pa_symbol(__bss_start);
+  bss_resource.end = __pa_symbol(__bss_stop)-1;
+#+end_src
+在 [[https://github.com/torvalds/linux/blob/16f73eb02d7e1765ccab3d2018e0bd98eb93d973/arch/x86/kernel/setup.c][arch/x86/kernel/setup.c]] 中这些结构体的定义：
+
+#+begin_src c 
+  static struct resource code_resource = {
+  		.name	= "Kernel code",
+  		.start	= 0,
+  		.end	= 0,
+  		.flags	= IORESOURCE_BUSY | IORESOURCE_MEM
+  };
+#+end_src
+
+这里把物理地址段赋值给代码/数据/bss 段。可以在 _/proc/iomem_ 中看到：
+
+#+begin_example
+  00100000-be825fff : System RAM
+    01000000-015bb392 : Kernel code
+    015bb393-01930c3f : Kernel data
+    01a11000-01ac3fff : Kernel bss
+#+end_example
+
+** NX 配置
+*no-execute 位* 是 _页目录条目_ 的第 _63_ 比特位。它的作用是控制被映射的物理页面是否具有 *执行代码* 的能力
+
+#+begin_example
+  这个比特位只会在通过把 EFER.NXE 置为1 使能 no-execute 页保护机制的时候被使用/设置
+#+end_example
+
+在 *x86_configure_nx 函数* 中会检查 CPU 是否支持 NX-bit，以及是否被禁用。 经过检查后，会根据结果给 *_supported_pte_mask* 赋值：
+
+#+begin_src c 
+  void x86_configure_nx(void)
+  {
+          if (cpu_has_nx && !disable_nx)
+                  __supported_pte_mask |= _PAGE_NX;
+          else
+                  __supported_pte_mask &= ~_PAGE_NX;
+  }
+#+end_src
+
+* parse_early_param 函数

@@ -214,17 +214,22 @@
 <li><a href="#orgde6fe95">获取根设备的主次设备号</a></li>
 <li><a href="#org1cc7dd5">Memory Map设置</a></li>
 <li><a href="#orgd6bb984">复制 BIOS 增强磁盘设备信息</a></li>
-<li><a href="#org0e6ea38">内存描述符初始化</a></li>
+<li><a href="#org0e6ea38">内存描述符初始化</a>
+<ul>
+<li><a href="#orge444138">NX 配置</a></li>
+</ul>
+</li>
+<li><a href="#org540b72d">parse_early_param 函数</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org73688a9">
+<pre class="example" id="org398ad5c">
 在之前的章节中， 讲到了与系统架构有关的 setup_arch 函数部分，本文会继续从这里开始
 </pre>
 <div id="outline-container-org002b5c9" class="outline-2">
 <h2 id="org002b5c9">early_trap_init</h2>
 <div class="outline-text-2" id="text-org002b5c9">
-<pre class="example" id="org0ba851a">
+<pre class="example" id="org09dcfd3">
 为 initrd 预留了内存之后，下一步是执行 olpc_ofw_detect 函数检测系统是否支持 One Laptop Per Child support
 
 这里不会考虑与平台有关的东西，且会忽略与平台有关的函数。所以继续往下看
@@ -237,7 +242,7 @@
 在 x86 架构中，INT，INT0 和 INT3 是支持任务显式调用中断处理函数的特殊指令。INT3 指令调用断点（#BP）处理函数。 之前已经看到过中断和异常概念：
 </p>
 
-<pre class="example" id="org65227dd">
+<pre class="example" id="org965cd18">
 ----------------------------------------------------------------------------------------------
 |Vector|Mnemonic|Description         |Type |Error Code|Source                                |
 ----------------------------------------------------------------------------------------------
@@ -259,7 +264,7 @@
 </pre>
 </div>
 
-<pre class="example" id="orgcc6334e">
+<pre class="example" id="org291ecb5">
 之前中断相关章节中看到过 set_intr_gate 的实现
 </pre>
 <p>
@@ -273,7 +278,7 @@
 <li><p>
 IST 是 <a href="http://en.wikipedia.org/wiki/Task_state_segment">TSS</a> 的部分内容，是 x86_64 引入的新机制。 在内核态处于活跃状态的线程拥有 16kb 的内核栈空间。但是在用户空间的线程的内核栈是空的
 </p>
-<pre class="example" id="orgddd0916">
+<pre class="example" id="org9105bbf">
 除了线程栈，还有一些与每个 CPU 有关的特殊栈
 
 可以查阅 linux 内核文档 https://www.kernel.org/doc/Documentation/x86/kernel-stacks 部分了解这些栈信息
@@ -281,7 +286,7 @@ IST 是 <a href="http://en.wikipedia.org/wiki/Task_state_segment">TSS</a> 的部
 <li><p>
 x86_64 提供了像在 <span class="underline">非屏蔽中断</span> 等类似事件中 <b>切换</b> <span class="underline">新的特殊栈</span> 的特性支持。这个特性的名字是 <span class="underline">Interrupt Stack Table</span> 。 每个CPU最多可以有 7 个 IST 条目，每个条目有自己特定的栈
 </p>
-<pre class="example" id="orgf0c5db1">
+<pre class="example" id="orge704fd0">
 在这里使用的是 DEBUG_STACK
 </pre></li>
 </ul></li>
@@ -309,7 +314,7 @@ set_intr_gate_ist 和 set_system_intr_gate_ist 与 set_intr_gate 的工作原理
 当 #DB 和 #BP 门向 idt_descr 有写操作，会调用  <b>load_idt</b> 函数来执行 ldtr 指令来重新加载 IDT 表
 </p>
 
-<pre class="example" id="org3cd76c9">
+<pre class="example" id="org637ead8">
 接下来我们来了解下中断处理函数并尝试理解它的工作原理。当然，不可能在这本书中讲解所有的中断处理函数
 
 会在这里讲解 debug 处理函数的实现。请自行学习其他的中断处理函数实现
@@ -373,14 +378,14 @@ idtentry 是一个定义中断/异常指令入口点的宏。它需要五个参�
 <li><p>
 检查中断返回的错误码
 </p>
-<pre class="example" id="org50f4acf">
+<pre class="example" id="org326ba89">
 例如本案例中的 #DB 不会返回错误码
 </pre>
 <ul class="org-ul">
 <li><p>
 如果有错误码返回，它会调用 INTR_FRAME 或者 XCPT_FRAM 宏
 </p>
-<pre class="example" id="org93f74c2">
+<pre class="example" id="org7147ada">
 其实 XCPT_FRAME 和 INTR_FRAME 宏什么也不会做，只是对中断初始状态编译的时候有用
 
 它们使用 CFI 指令用来调试。可以查阅更多有关 CFI 指令的信息 https://sourceware.org/binutils/docs/as/CFI-directives.html
@@ -395,7 +400,7 @@ idtentry 是一个定义中断/异常指令入口点的宏。它需要五个参�
 <p>
 当中断发生后经过初期的中断/异常处理，栈内的格式是这样的：
 </p>
-<pre class="example" id="org8482cd9">
+<pre class="example" id="org3d5d182">
     +-----------------------+
     |                       |
 +40 |         SS            |
@@ -415,13 +420,13 @@ idtentry 实现中的另外两个宏分别是:
 <li><p>
 ASM_CLAC: 依赖于 CONFIG_X86_SMAP 这个配置项和考虑安全因素
 </p>
-<pre class="example" id="orgdebe589">
+<pre class="example" id="orgd1595bf">
 可以从 https://lwn.net/Articles/517475 了解更多内容
 </pre></li>
 <li><p>
 PARAVIRT_ADJUST_EXCEPTION_FRAME: 用来处理 Xen 类型异常
 </p>
-<pre class="example" id="org082e476">
+<pre class="example" id="org6621c68">
 这里不会考虑虚拟化的内容
 </pre></li>
 </ul>
@@ -436,7 +441,7 @@ PARAVIRT_ADJUST_EXCEPTION_FRAME: 用来处理 Xen 类型异常
 </pre>
 </div>
 
-<pre class="example" id="orgda1c520">
+<pre class="example" id="orgf55e608">
 为了保证对于所有中断的栈的一致性，会把它处理为 dummy 错误码
 </pre>
 <p>
@@ -451,7 +456,7 @@ PARAVIRT_ADJUST_EXCEPTION_FRAME: 用来处理 Xen 类型异常
 <p>
 其中，ORIG_RAX，R15 和其他宏都定义在 <a href="https://github.com/torvalds/linux/blob/16f73eb02d7e1765ccab3d2018e0bd98eb93d973/arch/x86/entry/calling.h">arch/x86/include/asm/calling.h</a> 中，ORIG_RAX-R15 是 <span class="underline">120 字节</span>
 </p>
-<pre class="example" id="orge4c6578">
+<pre class="example" id="orgee251f5">
 在中断处理过程中需要把所有的寄存器信息存储在栈中，所有通用寄存器会占用这个 120 字节
 </pre>
 
@@ -490,7 +495,7 @@ CS 寄存器包含段选择器，它的前两个比特是 RPL。所有的权限�
 接下来把 pt_regs 指针存在 rdi 中，如果存在错误码就把它存储到 rsi 中，然后调用中断处理函数
 </p>
 
-<pre class="example" id="orgba9abc2">
+<pre class="example" id="orgc7f8e2d">
 例如就像 arch/x86/kernel/trap.c中的 do_debug
 </pre>
 <p>
@@ -504,7 +509,7 @@ do_debug 像其他处理函数一样需要两个参数：
 <p>
 中断处理函数完成工作后会调用 <b>paranoid_exit</b> 还原栈区。如果中断来自用户空间则切换回用户态并调用 iret
 </p>
-<pre class="example" id="orgf46bb02">
+<pre class="example" id="org19f914b">
 这是用在 #DB 中断中的 idtentry 宏的基本介绍。所有的中断都和这个实现类似，都定义在 idtentry中
 
 以后会在不同的章节继续深入分析中断
@@ -526,13 +531,13 @@ early_trap_init 执行完后，下一个函数是 <b>early_cpu_init</b> 。 这�
 <li><p>
 I/O端口
 </p>
-<pre class="example" id="org7398829">
+<pre class="example" id="orgdc7f00e">
 在 linux 内核启动过程中见过第一种方法（通过 outb/inb 指令实现）
 </pre></li>
 <li><p>
 设备内存：把 <span class="underline">I/O 的物理地址</span> <b>映射</b> 到 <span class="underline">虚拟地址</span>
 </p>
-<pre class="example" id="org4a12dfe">
+<pre class="example" id="org04df4e9">
 当 CPU 读取一段物理地址时，它可以读取到映射了 I/O 设备的物理 RAM 区域
 </pre>
 <ul class="org-ul">
@@ -541,7 +546,7 @@ I/O端口
 </ol>
 
 
-<pre class="example" id="orga6abdcd">
+<pre class="example" id="orgc2c7d17">
 early_ioremap_init 可以在正常的像 ioremap 这样的映射函数可用之前，把 I/O 内存映射到内核地址空间以方便读取
 </pre>
 <p>
@@ -605,7 +610,7 @@ fixmap: 一段从 <b>FIXADDR_START</b> 到 <b>FIXADDR_TOP</b> 的固定虚拟地
 </div></li>
 </ol>
 
-<pre class="example" id="org2273c76">
+<pre class="example" id="orgfea82c6">
 如果仍然觉得困惑，不要担心
 
 在 内核内存管理 会有单独一部分讲解 ioremap 和 fixmaps
@@ -635,7 +640,7 @@ ioremap 初始化完成后，紧接着是执行下面的代码：
 注意 <b>old_decode_dev</b> 函数是从 <b>boot_params_structure</b> 中获取了一个参数。可以从 x86 linux 内核启动协议中查到：
 </p>
 
-<pre class="example" id="org3e0adb4">
+<pre class="example" id="orgb8d71b7">
 Field name:	root_dev
 Type:		modify (optional)
 Offset/size:	0x1fc/2
@@ -661,7 +666,7 @@ Protocol:	ALL
 其中 dev_t 是用来表示主/次设备号对的一个内核数据类型
 </p>
 
-<pre class="example" id="orgd72b51e">
+<pre class="example" id="orgfc60df2">
 但是这个奇怪的 old 前缀代表了什么呢？出于历史原因，有两种管理主次设备号的方法
 
 第一种方法主次设备号占用 2 字节，可以在以前的代码中发现：主设备号占用 8 bit，次设备号占用 8 bit
@@ -683,7 +688,7 @@ Protocol:	ALL
 </pre>
 </div>
 
-<pre class="example" id="org4aafdcb">
+<pre class="example" id="orgdc2307e">
 如果 dev 的值是 0xffffffff，经过计算可以得到用来表示主设备号的 12 位值 0xfff，表示次设备号的20位值 0xfffff
 
 因此经过 old_decode_dev 最终可以得到在 ROOT_DEV 中根设备的主次设备号
@@ -711,7 +716,7 @@ bootloader_version |= boot_params.hdr.ext_loader_ver &lt;&lt; 4;
 </pre>
 </div>
 
-<pre class="example" id="org0fd9123">
+<pre class="example" id="org629b519">
 可以从启动时候存储在 boot_params 结构中获取这些参数信息
 </pre>
 
@@ -719,7 +724,7 @@ bootloader_version |= boot_params.hdr.ext_loader_ver &lt;&lt; 4;
 之后开始设置 I/O 内存
 </p>
 
-<pre class="example" id="org3409026">
+<pre class="example" id="org45eaf9c">
 众所周知，内核主要做的工作就是资源管理，其中一个资源就是内存
 
 目前有通过 I/O 口和设备内存两种方法实现设备通信
@@ -769,20 +774,20 @@ bootloader_version |= boot_params.hdr.ext_loader_ver &lt;&lt; 4;
 <li><p>
 资源占用的从 start 到 end 的地址范围
 </p>
-<pre class="example" id="org5fd8ccf">
+<pre class="example" id="org087109a">
 resource_size_t 是 phys_addr_t 类型，在 x86_64 架构上是 u64
 </pre></li>
 <li><p>
 资源名
 </p>
-<pre class="example" id="orga67c58b">
+<pre class="example" id="orgb9e5712">
 可以在 /proc/iomem 输出中看到
 </pre></li>
 <li>资源标记，定义在 <a href="https://github.com/torvalds/linux/blob/16f73eb02d7e1765ccab3d2018e0bd98eb93d973/include/linux/ioport.h">include/linux/ioport.h</a> 文件中</li>
 <li><p>
 最后三个是资源结构体指针，如下图所示：
 </p>
-<pre class="example" id="org9ca8a03">
+<pre class="example" id="org91cabcc">
 +-------------+      +-------------+
 |             |      |             |
 |    parent   |------|    sibling  |
@@ -824,7 +829,7 @@ iomem_resource 利用 <b>PCI mem</b> 作为 <span class="underline">名字</span
 </pre>
 </div>
 
-<pre class="example" id="orgeeee2c6">
+<pre class="example" id="org6adbb2a">
 boot_cpu_data 是在执行 early_cpu_init 的时候初始化的 cpuinfo_x86 结构
 
 从字面理解，x86_phys_bits 代表系统可达到的最大内存地址时需要的比特数
@@ -873,7 +878,7 @@ boot_cpu_data 是在执行 early_cpu_init 的时候初始化的 cpuinfo_x86 结�
 这里的 memory_setup 赋值为 <b>default_machine_specific_memory_setup</b> ，它是我们在对 内核启动 过程中的所有 <a href="https://en.wikipedia.org/wiki/E820">e820</a> 条目经过整理和把内存分区填入 <b>e820map</b> 结构体中获得的。 所有收集的内存分区会用 printk 打印出来。可以通过运行 dmesg 命令找到类似于下面的信息：
 </p>
 
-<pre class="example" id="org63c5aca">
+<pre class="example" id="org5ee4e3d">
 [    0.000000] e820: BIOS-provided physical RAM map:
 [    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009d7ff] usable
 [    0.000000] BIOS-e820: [mem 0x000000000009d800-0x000000000009ffff] reserved
@@ -900,7 +905,7 @@ boot_cpu_data 是在执行 early_cpu_init 的时候初始化的 cpuinfo_x86 结�
 <p>
 下面通过 <b>parse_setup_data</b> 函数解析 setup_data，并且把 BIOS 的 <span class="underline">EDD</span> 信息复制到安全的地方。 <b>setup_data</b> 是 <span class="underline">内核启动头</span> 中包含的字段，可以在 x86 的启动协议中了解：
 </p>
-<pre class="example" id="orgd391fae">
+<pre class="example" id="orgc772d36">
 Field name:	setup_data
 Type:		write (special)
 Offset/size:	0x250/8
@@ -933,6 +938,156 @@ Protocol:	2.09+
 </div>
 <div id="outline-container-org0e6ea38" class="outline-2">
 <h2 id="org0e6ea38">内存描述符初始化</h2>
+<div class="outline-text-2" id="text-org0e6ea38">
+<p>
+下一步是在初始化阶段完成内存描述符的初始化
+</p>
+<pre class="example" id="org531b9c2">
+每个进程都有自己的运行内存地址空间。通过调用 memory descriptor 可以看到这些特殊数据结构
+</pre>
+
+<p>
+在 linux 内核源码中内存描述符是用 <b>mm_struct 结构体</b> 表示的。mm_struct 包含许多不同的与进程地址空间有关的字段，像
+</p>
+<ul class="org-ul">
+<li>内核代码/数据段的起始和结束地址</li>
+<li>brk 的起始和结束</li>
+<li>内存区域的数量</li>
+<li>内存区域列表等</li>
+</ul>
+
+<p>
+这些结构定义在 <a href="https://github.com/torvalds/linux/blob/16f73eb02d7e1765ccab3d2018e0bd98eb93d973/include/linux/mm_types.h">include/linux/mm_types.h</a> 中。task_struct 结构的 <b>mm</b> 和 <b>active_mm</b> 字段包含了每个进程自己的内存描述符
+</p>
+
+<pre class="example" id="orge180c68">
+当然第一个 init 进程也有自己的内存描述符
+</pre>
+<p>
+之前通过 <b>INIT_TASK 宏</b> 实现 task_struct 的部分初始化信息：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;">#define</span> <span style="color: #87cefa;">INIT_TASK</span>(<span style="color: #eedd82;">tsk</span>)                          \
+                {
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+.mm = <span style="color: #7fffd4;">NULL</span>,         \
+                .active_mm  = &amp;init_mm, \
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">...</span>
+                }
+</pre>
+</div>
+<p>
+<b>mm</b> 指向 <span class="underline">进程地址空间</span> ， <b>active_mm</b> 指向像内核线程这样子不存在地址空间的 <span class="underline">有效地址空间</span> （可以在这个<a href="https://www.kernel.org/doc/Documentation/vm/active_mm.txt">文档</a> 中了解更多内容）。 接下来在初始化阶段完成内存描述符中 <span class="underline">内核代码段</span> ， <span class="underline">数据段</span> 和  <span class="underline">brk 段</span> 的初始化：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">init_mm.start_code = (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>) _text;
+init_mm.end_code = (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>) _etext;
+init_mm.end_data = (<span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span>) _edata;
+init_mm.brk = _brk_end;
+</pre>
+</div>
+
+<p>
+<b>init_mm</b> 是初始化阶段的 <span class="underline">内存描述符</span> 定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">mm_struct</span> <span style="color: #eedd82;">init_mm</span> = {
+                .mm_rb          = RB_ROOT, <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#34394;&#25311;&#20869;&#23384;&#21306;&#22495;&#30340;&#32418;&#40657;&#26641;&#32467;&#26500; </span>
+                .pgd            = swapper_pg_dir, <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20840;&#23616;&#39029;&#30446;&#24405;&#30340;&#25351;&#38024; </span>
+                .mm_users       = ATOMIC_INIT(2), <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35813;&#20869;&#23384;&#31354;&#38388;&#30340;&#36827;&#31243;&#25968;&#30446; </span>
+                .mm_count       = ATOMIC_INIT(1), <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20027;&#24341;&#29992;&#35745;&#25968; </span>
+                .mmap_sem       = __RWSEM_INITIALIZER(init_mm.mmap_sem), <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20869;&#23384;&#21306;&#22495;&#20449;&#21495;&#37327; </span>
+                .page_table_lock =  __SPIN_LOCK_UNLOCKED(init_mm.page_table_lock),
+                .mmlist         = LIST_HEAD_INIT(init_mm.mmlist), 
+                INIT_MM_CONTEXT(init_mm)
+};
+</pre>
+</div>
+
+<p>
+其中：
+</p>
+<ul class="org-ul">
+<li>mm_rb: 虚拟内存区域的 <span class="underline">红黑树</span> 结构</li>
+<li>pgd: <span class="underline">全局页目录</span> 的指针</li>
+<li>mm_user 使用该内存空间的 <span class="underline">进程数目</span></li>
+<li>mm_count 是 <span class="underline">主引用计数</span></li>
+<li>mmap_sem 是内存区域 <span class="underline">信号量</span></li>
+</ul>
+
+<p>
+在初始化阶段完成内存描述符的设置后。接下来是代码/数据/bss  <b>资源</b> 的初始化：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">code_resource.start = __pa_symbol(_text);
+code_resource.end = __pa_symbol(_etext)-1;
+data_resource.start = __pa_symbol(_etext);
+data_resource.end = __pa_symbol(_edata)-1;
+bss_resource.start = __pa_symbol(__bss_start);
+bss_resource.end = __pa_symbol(__bss_stop)-1;
+</pre>
+</div>
+<p>
+在 <a href="https://github.com/torvalds/linux/blob/16f73eb02d7e1765ccab3d2018e0bd98eb93d973/arch/x86/kernel/setup.c">arch/x86/kernel/setup.c</a> 中这些结构体的定义：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">static</span> <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">resource</span> <span style="color: #eedd82;">code_resource</span> = {
+                .name   = <span style="color: #ffa07a;">"Kernel code"</span>,
+                .start  = 0,
+                .end    = 0,
+                .flags  = IORESOURCE_BUSY | IORESOURCE_MEM
+};
+</pre>
+</div>
+
+<p>
+这里把物理地址段赋值给代码/数据/bss 段。可以在 <span class="underline">/proc/iomem</span> 中看到：
+</p>
+
+<pre class="example" id="orga1bdb1c">
+00100000-be825fff : System RAM
+  01000000-015bb392 : Kernel code
+  015bb393-01930c3f : Kernel data
+  01a11000-01ac3fff : Kernel bss
+</pre>
+</div>
+<div id="outline-container-orge444138" class="outline-3">
+<h3 id="orge444138">NX 配置</h3>
+<div class="outline-text-3" id="text-orge444138">
+<p>
+<b>no-execute 位</b> 是 <span class="underline">页目录条目</span> 的第 <span class="underline">63</span> 比特位。它的作用是控制被映射的物理页面是否具有 <b>执行代码</b> 的能力
+</p>
+
+<pre class="example" id="orgffc9ebd">
+这个比特位只会在通过把 EFER.NXE 置为1 使能 no-execute 页保护机制的时候被使用/设置
+</pre>
+
+<p>
+在 <b>x86_configure_nx 函数</b> 中会检查 CPU 是否支持 NX-bit，以及是否被禁用。 经过检查后，会根据结果给 <b>_supported_pte_mask</b> 赋值：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span> <span style="color: #87cefa;">x86_configure_nx</span>(<span style="color: #98fb98;">void</span>)
+{
+        <span style="color: #00ffff;">if</span> (cpu_has_nx &amp;&amp; !disable_nx)
+                __supported_pte_mask |= _PAGE_NX;
+        <span style="color: #00ffff;">else</span>
+                __supported_pte_mask &amp;= ~_PAGE_NX;
+}
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org540b72d" class="outline-2">
+<h2 id="org540b72d">parse_early_param 函数</h2>
 </div>
 </div>
 <div id="postamble" class="status">
