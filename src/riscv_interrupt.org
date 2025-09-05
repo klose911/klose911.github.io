@@ -265,13 +265,121 @@ satp 比较特殊，在 M-mode 没有对应的寄存器，因为 M-mode 没有�
 * 特权级转换
 
 ** U 与 S 间的切换
+在这里只介绍了 U 和 S 之间的切换
+
+#+begin_example
+  其实 S 和 M 之间的切换过程也是一样的，只不过使用到的寄存器不一样了而已
+
+  比如说保存 pc 的寄存，S 保存 U 的 pc 值使用的是 sepc，M 保存 S 的 pc 使用的是 mepc
+
+  此外，U 切换到 S 时一般需要切换页表，而从 S 切换到 M 时不需要切换页表
+
+  因为 M 没有实现分页，也没有 matp 寄存器（页表根地址存储在 satp 寄存器中，所以这里胡诌了个 matp）
+#+end_example
 
 *** U 切换到 S
+当执行一个 trap 时，除了 timer interrupt，所有的过程都是相同的，硬件会自动完成下述过程：
++ 如果该 trap 是一个 _设备中断_ 并且 _sstatus_ 的 _SIE bit_ 为 0，那么不再执行下述过程
++ 开始执行下面过程：
+  1. 通过 置零 SIE 禁用中断
+     #+begin_src c 
+       SIE = 0
+     #+end_src
+  2. 将 pc 拷贝到 sepc
+     #+begin_src
+       sepc = pc 
+     #+end_src
+  3. 保存当前的特权级到 sstatus 的 SPP 字段
+     #+begin_src c 
+       sstaus.SPP = U
+     #+end_src
+  4. 将 scause 设置成 trap 的原因
+     #+begin_src c
+       scause = trap.reason 
+     #+end_src
+  5. 设置当前特权级为 supervisor
+  6. 拷贝 stvec（中断服务程序的首地址）到 pc
+     #+begin_src c 
+       pc = stvec 
+     #+end_src
+  7. 开始执行中断服务程序
 
+CPU 不会自动切换到内核的页表，也不会切换到内核栈，也不会保存除了 pc 之外的寄存器的值，内核需要自行完成
+#+begin_example
+  对于Linux而言，内核空间与用户态空间是使用的同一套页表，不需要切换页表
+
+  内核空间一般位于进程的高虚拟地址空间
+#+end_example
+
+如果启用了分页，当陷入到 S 模式时，CPU 没有切换页表（换出进程的页表，换入内核页表），内核需要自行切换页表。其实切换页表的过程也很简单，只需要将内核的页表地址写入 satp 寄存器即可
+
+在执行中断服务例程时还需要首先判断 sstatus 的 SPP 字段是不是 0
++ 如果是 0 表示之前是 U 模式，否则表示 S 模式
++ 如果 SPP 是 1 那就出现了严重错误
+
+  #+begin_example
+    因为既然是从 U 切换到 S 的过程，怎么可以 SPP 是 S 模式呢？
+
+    当然，如果是内核执行时发生了中断 SPP 是 1 那自然是对的
+
+    内核执行时发生中断时如果检查 SPP 是 0 那也是严重的错误
+  #+end_example
 *** S 切换到 U
+在从 S 切换到 U 时，要 *手动*
+1. 清除 sstatus 的 SPP 字段，将其置为零
+2. 将 sstatus 的 SPIE 字段置为 1，启用用户中断
+3. 设置 sepc 为用户进程的 PC 值
+   #+begin_example
+     可能疑惑在 U 转换到 S 时不是已经将用户进程的保存在了 sepc 了吗?
+
+     因为在 S-mode 也会发生中断呀，那么 sepc 就会被用来保存发生中断位置时的 PC 了
+   #+end_example
+4. 如果启用了页表，就需要还原用户进程的页表，即将用户进程的页表地址写入 satp
+5. 之后恢复上下文
+6. 最后 sret 指令，硬件会自动完成以下操作：
+   + 从 sepc 寄存器中取出要恢复的下一条指令地址，将其复制到程序计数器 pc 中，以恢复现场
+   + 从 sstatus 寄存器中取出用户模式的相关状态，包括中断使能位、虚拟存储模式等，以恢复用户模式的状态
+   + 将当前特权模式设置为用户模式，即取消特权模式，回到用户模式
 
 ** S 与 M 间的切换
 
 *** S 切换到 M
 
-* 
+#+begin_example
+切换到 M 与从 U 切换到 M 类似，都是从低特权级到高特权级的切换
+#+end_example
+在 S 运行的代码，也可以通过 *ecall* 指令陷入到 M 中：
+1. S-mode 的代码执行一个指令触发了异常或陷阱
+   #+begin_example
+     例如调用（ECALL）指令
+   #+end_example
+2. 处理器将当前的 S-mode 上下文的状态保存下来，包括 *程序计数器* _PC_ 、 *S-mode 特权级别* 和其他相关寄存器，保存在 _当前特权级别堆栈中的 S-MODE 陷阱帧_ （trap frame，其实就是一个页面）中
+3. 处理器通过将 mstatus 寄存器中的 MPP 字段设置为 0b11（表示先前的模式是 S 模式）, 将特权级别设置为 M-mode
+4. 处理器将程序计数器设置为在 M-mode 中的陷阱处理程序例程的地址
+5. 处理器还在 mstatus 寄存器中设置 M-mode 中断使能位 (MIE) 为 0，以在陷阱处理程序中禁用中断
+* 系统调用的实现
+
+系统调用是利用异常机制实现的。在 mcause 中看到有 Environment call from U-mode 和 Environment call from S-mode 两个异常类型
+
+#+begin_example
+  那么如何触发这两个异常呢？
+
+  分别在 U-mode 和 S-mode 执行 ecall 指令就能触发这两个异常了
+#+end_example
+
+执行 ecall 后，CPU 进行如下操作：
+1. 记录异常原因
+   + 把异常类型写入 mcause/scause 寄存器（在用户态发起时通常是 scause = 8，表示 "Environment call from U-mode"）
+2. 保存异常现场
+   + 把触发 ecall 的 PC 保存到 sepc
+   + 修改 sstatus，进入 S-mode
+3. 跳转到异常处理入口
+   + stvec 寄存器保存了陷入入口地址，CPU跳转到该地址执行内核 trap handler
+
+内核 trap handler（位于 S-mode）做的事情是：
+1. 检查 scause，确认是 ecall from U-mode
+2. 读取用户寄存器里的系统调用号和参数（从 trap frame 里取出 a7, a0–a5）
+3. 根据系统调用号，跳转到相应的内核服务例程
+4. 把返回值写回 a0
+5. 调用 sret 指令恢复到 sepc，返回用户态继续执行
+* 地址空间布局
