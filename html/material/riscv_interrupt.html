@@ -238,7 +238,29 @@
 </ul>
 </li>
 <li><a href="#org39a9b30">系统调用的实现</a></li>
-<li><a href="#org8213206">地址空间布局</a></li>
+<li><a href="#org8213206">地址空间布局</a>
+<ul>
+<li><a href="#orgd1d35c9">跳板页</a></li>
+<li><a href="#org00e4749">Page Fault</a></li>
+</ul>
+</li>
+<li><a href="#orgf43e042">如何设置 stvec 的</a>
+<ul>
+<li><a href="#org18353c7">第一次的 stvec 是如何设置的</a></li>
+</ul>
+</li>
+<li><a href="#orgac17f69">与中断有关的硬件单元</a>
+<ul>
+<li><a href="#org4f50753">PLIC</a>
+<ul>
+<li><a href="#orgc16c997">寄存器与内存映射</a></li>
+<li><a href="#org071b894">工作流程与时序要点</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org83ac224">时钟中断</a></li>
+<li><a href="#orgf99cd2e">软件中断</a></li>
 </ul>
 </div>
 </div>
@@ -259,7 +281,7 @@
 <li>NMI 都是硬件中断，只有在发生严重错误时才会触发这种类型的中断</li>
 </ul>
 
-<pre class="example" id="orgc3cfd78">
+<pre class="example" id="org2052b37">
 你可能接触过 Linux 中的软中断，即 softirq
 
 但是请注意 software interrupt 与 softirq 是完完全全不一样的
@@ -297,7 +319,7 @@
 <h4 id="org101b591">mcause</h4>
 <div class="outline-text-4" id="text-org101b591">
 
-<div id="orgd58baa9" class="figure">
+<div id="orgaf8ee88" class="figure">
 <p><img src="pic/1653979-20230712210012313-359133103.png" alt="1653979-20230712210012313-359133103.png" width="100%" />
 </p>
 </div>
@@ -472,7 +494,7 @@ RISC-V 定义 mcause 的高位和低位分别表示不同的信息：
 <h4 id="orgb707c4d">mstatus</h4>
 <div class="outline-text-4" id="text-orgb707c4d">
 
-<div id="org938d53f" class="figure">
+<div id="org251630f" class="figure">
 <p><img src="pic/1653979-20230712210012932-1184025042.png" alt="1653979-20230712210012932-1184025042.png" width="100%" /> 
 </p>
 </div>
@@ -519,7 +541,7 @@ RISC-V 定义 mcause 的高位和低位分别表示不同的信息：
 <h4 id="org42e0677">mtvec</h4>
 <div class="outline-text-4" id="text-org42e0677">
 
-<div id="orgf9d1535" class="figure">
+<div id="org57a776e" class="figure">
 <p><img src="pic/1653979-20230712210013404-19738400.png" alt="1653979-20230712210013404-19738400.png" width="100%" />
 </p>
 </div>
@@ -535,14 +557,14 @@ RISC-V 定义 mcause 的高位和低位分别表示不同的信息：
 <li><p>
 否则的话异常处理的入口地址是 BASE+4*CAUSE
 </p>
-<pre class="example" id="orgc73b8c8">
+<pre class="example" id="org0f44955">
 cause 记录在 xcause 中
 </pre></li>
 </ul></li>
 </ul>
 
 
-<div id="org7982fd0" class="figure">
+<div id="orgedab3fa" class="figure">
 <p><img src="pic/1653979-20230712210013684-694188924.png" alt="1653979-20230712210013684-694188924.png" width="100%" />
 </p>
 </div>
@@ -551,7 +573,7 @@ cause 记录在 xcause 中
 <div id="outline-container-org0c11215" class="outline-4">
 <h4 id="org0c11215">medeleg 与 mideleg</h4>
 <div class="outline-text-4" id="text-org0c11215">
-<pre class="example" id="orgefe7053">
+<pre class="example" id="orgdbaab8d">
 默认情况下，各个特权级的陷阱都是被捕捉到了 M-mode
 
 可以通过代码实现将 trap 转发到其它特权级进行处理
@@ -580,7 +602,7 @@ cause 记录在 xcause 中
 <p>
 被委托的中断会导致该中断在委托者所在的特权级 <b>屏蔽</b>
 </p>
-<pre class="example" id="orgce024d2">
+<pre class="example" id="orgda05e81">
 比如说 M-mode 将一些中断委托给了 S-mode，那么 M-mode 就无法捕捉到这些中断了
 </pre>
 </div>
@@ -592,7 +614,7 @@ cause 记录在 xcause 中
 <b>mip</b> 与 <b>mie</b> 是分别用于保存 <span class="underline">pending interrupt</span> 和 <span class="underline">pending interrupt enable bits</span>
 </p>
 
-<pre class="example" id="orgf8bb436">
+<pre class="example" id="org7798fb6">
 每个中断都有中断号 i（定义在 mcause 表中）
 
 每个中断号如果被 pending 了，那么对应的第 i 位就会被置为 1
@@ -603,12 +625,12 @@ cause 记录在 xcause 中
 如下图所示是低 16bit 的 mip 与 mie 寄存器
 </p>
 
-<div id="org2a5d960" class="figure">
+<div id="org58716a1" class="figure">
 <p><img src="pic/1653979-20230712210014053-1431446270.png" alt="1653979-20230712210014053-1431446270.png" width="100%" /> 
 </p>
 </div>
 
-<pre class="example" id="orgab28a5a">
+<pre class="example" id="org7aa9f39">
 只需要知道 mcause 中的中断源即可
 
 例如 SSIP 就是 supervisor software interrupt pending
@@ -689,7 +711,7 @@ SSIE 就是 supervisor software interrupt enable
 </tbody>
 </table>
 
-<pre class="example" id="org86463f8">
+<pre class="example" id="org4f0fd2e">
 如果要允许 “机器定时器中断” ，就需要把 mie.MTIE 位置 1
 </pre>
 
@@ -766,7 +788,7 @@ SSIE 就是 supervisor software interrupt enable
 </tbody>
 </table>
 
-<pre class="example" id="org71220df">
+<pre class="example" id="org1d4e885">
 当定时器溢出时，硬件会把 mip.MTIP 置 1，表示有一个 M 模式定时器中断等待处理
 </pre>
 
@@ -782,7 +804,7 @@ mie 和 mip 的关系
 CPU 是否真正响应中断取决于：
 </p>
 
-<pre class="example" id="orgf52a814">
+<pre class="example" id="org3d572bd">
 if (mstatus.MIE == 1) and (mip &amp; mie 有重叠的位) → 触发中断
 </pre>
 <p>
@@ -794,7 +816,7 @@ if (mstatus.MIE == 1) and (mip &amp; mie 有重叠的位) → 触发中断
 <li>必须 mip 里对应的中断源正在挂起</li>
 </ol>
 
-<pre class="example" id="org2a8a986">
+<pre class="example" id="org58bdd69">
 举个例子：机器定时器中断
 
 1. 硬件定时器达到设定值 → mip.MTIP = 1
@@ -835,7 +857,7 @@ if (mstatus.MIE == 1) and (mip &amp; mie 有重叠的位) → 触发中断
 <h4 id="orgd1485a6">sstatus</h4>
 <div class="outline-text-4" id="text-orgd1485a6">
 
-<div id="org43aa8e9" class="figure">
+<div id="org8c8abc7" class="figure">
 <p><img src="pic/1653979-20230712210014505-699545048.png" alt="1653979-20230712210014505-699545048.png" width="100%" /> 
 </p>
 </div>
@@ -884,7 +906,7 @@ SPIE = 1;
 <div id="outline-container-org6caa02f" class="outline-4">
 <h4 id="org6caa02f">其它 s 特权级寄存器</h4>
 <div class="outline-text-4" id="text-org6caa02f">
-<pre class="example" id="org194c776">
+<pre class="example" id="org68bb932">
 stvec, sip, sie,sepc, scause, stval 与 m-mode 的相应寄存器区别不大
 
 可自行参阅 RISC v 的 spec
@@ -894,7 +916,7 @@ stvec, sip, sie,sepc, scause, stval 与 m-mode 的相应寄存器区别不大
 satp 比较特殊，在 M-mode 没有对应的寄存器，因为 M-mode 没有分页，satp 记录的是 <b>根页表物理地址的页帧号</b> 
 </p>
 
-<pre class="example" id="org24eb322">
+<pre class="example" id="orge374391">
 在从 U 切换到 S 时，需要切换页表，也即是切换 satp 的根页表物理地址的页帧号
 </pre>
 </div>
@@ -912,7 +934,7 @@ satp 比较特殊，在 M-mode 没有对应的寄存器，因为 M-mode 没有�
 在这里只介绍了 U 和 S 之间的切换
 </p>
 
-<pre class="example" id="orgcb0f8c8">
+<pre class="example" id="orga146058">
 其实 S 和 M 之间的切换过程也是一样的，只不过使用到的寄存器不一样了而已
 
 比如说保存 pc 的寄存，S 保存 U 的 pc 值使用的是 sepc，M 保存 S 的 pc 使用的是 mepc
@@ -975,7 +997,7 @@ satp 比较特殊，在 M-mode 没有对应的寄存器，因为 M-mode 没有�
 <p>
 CPU 不会自动切换到内核的页表，也不会切换到内核栈，也不会保存除了 pc 之外的寄存器的值，内核需要自行完成
 </p>
-<pre class="example" id="org2097860">
+<pre class="example" id="orgfd25685">
 对于Linux而言，内核空间与用户态空间是使用的同一套页表，不需要切换页表
 
 内核空间一般位于进程的高虚拟地址空间
@@ -994,7 +1016,7 @@ CPU 不会自动切换到内核的页表，也不会切换到内核栈，也不�
 如果 SPP 是 1 那就出现了严重错误
 </p>
 
-<pre class="example" id="org5ded567">
+<pre class="example" id="org82f1fcb">
 因为既然是从 U 切换到 S 的过程，怎么可以 SPP 是 S 模式呢？
 
 当然，如果是内核执行时发生了中断 SPP 是 1 那自然是对的
@@ -1016,7 +1038,7 @@ CPU 不会自动切换到内核的页表，也不会切换到内核栈，也不�
 <li><p>
 设置 sepc 为用户进程的 PC 值
 </p>
-<pre class="example" id="org7b577a1">
+<pre class="example" id="org15543d7">
 可能疑惑在 U 转换到 S 时不是已经将用户进程的保存在了 sepc 了吗?
 
 因为在 S-mode 也会发生中断呀，那么 sepc 就会被用来保存发生中断位置时的 PC 了
@@ -1040,7 +1062,7 @@ CPU 不会自动切换到内核的页表，也不会切换到内核栈，也不�
 <div id="outline-container-orgb4e16c8" class="outline-4">
 <h4 id="orgb4e16c8">S 切换到 M</h4>
 <div class="outline-text-4" id="text-orgb4e16c8">
-<pre class="example" id="orge483809">
+<pre class="example" id="org4e359b1">
 切换到 M 与从 U 切换到 M 类似，都是从低特权级到高特权级的切换
 </pre>
 <p>
@@ -1050,7 +1072,7 @@ CPU 不会自动切换到内核的页表，也不会切换到内核栈，也不�
 <li><p>
 S-mode 的代码执行一个指令触发了异常或陷阱
 </p>
-<pre class="example" id="org9dbf5b9">
+<pre class="example" id="org58cedc9">
 例如调用（ECALL）指令
 </pre></li>
 <li>处理器将当前的 S-mode 上下文的状态保存下来，包括 <b>程序计数器</b> <span class="underline">PC</span> 、 <b>S-mode 特权级别</b> 和其他相关寄存器，保存在 <span class="underline">当前特权级别堆栈中的 S-MODE 陷阱帧</span> （trap frame，其实就是一个页面）中</li>
@@ -1069,7 +1091,7 @@ S-mode 的代码执行一个指令触发了异常或陷阱
 系统调用是利用异常机制实现的。在 mcause 中看到有 Environment call from U-mode 和 Environment call from S-mode 两个异常类型
 </p>
 
-<pre class="example" id="org40310ed">
+<pre class="example" id="org6754ac1">
 那么如何触发这两个异常呢？
 
 分别在 U-mode 和 S-mode 执行 ecall 指令就能触发这两个异常了
@@ -1108,6 +1130,285 @@ S-mode 的代码执行一个指令触发了异常或陷阱
 </div>
 <div id="outline-container-org8213206" class="outline-2">
 <h2 id="org8213206">地址空间布局</h2>
+<div class="outline-text-2" id="text-org8213206">
+<p>
+启用分页模式下，内核代码的访存地址也会被视为一个虚拟地址并需要经过 <span class="underline">MMU</span> 的地址转换，因此也需要为内核对应构造一个地址空间，除了仍然需要允许内核的各数据段能够被正常访问之后，还需要包含所有应用的内核栈以及一个 <b>跳板</b> <span class="underline">Trampoline</span>
+</p>
+
+<pre class="example" id="org5c734af">
+值得注意的是，下面是是 rCore 的内核地址空间分布，不同的 OS 设计不同
+</pre>
+
+<p>
+高 256GB 内核地址空间：
+</p>
+
+
+<div id="org6c369ab" class="figure">
+<p><img src="pic/1653979-20230712210014907-59405883.png" alt="1653979-20230712210014907-59405883.png" width="100%" />
+</p>
+</div>
+
+<p>
+低 256GB 内核地址空间
+</p>
+
+
+<div id="orgc9684a4" class="figure">
+<p><img src="pic/1653979-20230712210015309-973629164.png" alt="1653979-20230712210015309-973629164.png" width="100%" />
+</p>
+</div>
+
+<p>
+应用程序高 256GB 地址空间
+</p>
+
+<div id="org4baf81a" class="figure">
+<p><img src="pic/1653979-20230712210015683-979795453.png" alt="1653979-20230712210015683-979795453.png" width="100%" />
+</p>
+</div>
+
+<p>
+应用程序低 256GB 地址空间
+</p>
+
+<div id="org06fa9eb" class="figure">
+<p><img src="pic/1653979-20230712210016165-419532978.png" alt="1653979-20230712210016165-419532978.png" width="100%" /> 
+</p>
+</div>
+</div>
+<div id="outline-container-orgd1d35c9" class="outline-3">
+<h3 id="orgd1d35c9">跳板页</h3>
+<div class="outline-text-3" id="text-orgd1d35c9">
+<p>
+使能了分页机制之后，必须在 trap 过程中同时完成地址空间的切换。具体来说：
+</p>
+<ul class="org-ul">
+<li>当 <span class="underline">_alltraps 保存 Trap 上下文的时候，必须通过修改 _satp</span> 从应用地址空间切换到内核地址空间，因为 trap handler 只有在内核地址空间中才能访问</li>
+<li>同理，在 __restore 恢复 Trap 上下文的时候，也必须从内核地址空间切换回应用地址空间，因为应用的代码和数据只能在它自己的地址空间中才能访问，应用是看不到内核地址空间的</li>
+</ul>
+
+
+<pre class="example" id="orga2d1f6b">
+为何将应用的 Trap 上下文放到应用地址空间的次高页面而不是内核地址空间中的内核栈中呢？
+</pre>
+
+<p>
+原因在于，在保存 Trap 上下文到内核栈中之前，必须完成两项工作：
+</p>
+<ol class="org-ol">
+<li>先切换到内核地址空间，这就需要将 <span class="underline">内核地址空间的页表地址</span> 写入 satp 寄存器</li>
+<li>还需要保存 <span class="underline">应用的内核栈栈顶的位置</span> ，这样才能以它为基址保存 Trap 上下文</li>
+</ol>
+
+<p>
+这两步需要用寄存器作为临时周转，然而无法在不破坏任何一个通用寄存器的情况下做到这一点
+</p>
+
+<pre class="example" id="org3babf30">
+因为事实上需要用到内核的两条信息：内核地址空间的页表地址，以及应用的内核栈栈顶的位置
+
+RISC-V 却只提供一个 sscratch 寄存器可用来进行周转
+
+所以，不得不将 Trap 上下文保存在应用地址空间的一个虚拟页面中，而不是切换到内核地址空间去保存
+</pre>
+</div>
+</div>
+<div id="outline-container-org00e4749" class="outline-3">
+<h3 id="org00e4749">Page Fault</h3>
+<div class="outline-text-3" id="text-org00e4749">
+<p>
+当 CPU 无法将虚拟地址转换为物理地址时，CPU 会生成页面错误异常。RISC-V 有三种不同类型的页面错误：
+</p>
+<ol class="org-ol">
+<li>加载页面错误(当加载指令无法转换其虚拟地址时)</li>
+<li>存储页面错误(当存储指令无法转换其虚拟地址时)</li>
+<li>指令页面错误(当指令的地址不转换时)</li>
+</ol>
+
+<pre class="example" id="orga5f64fe">
+Cow(copy on write) Fork 中的基本方案是：
+
+让父子进程在最开始时共享所有物理页面，但将它们映射为只读
+
+因此，当子进程或父进程执行存储指令时，RISC-V CPU 会引发页面错误异常
+
+作为对此异常的响应，内核会复制包含错误地址的页面
+
+它将一个副本映射到子进程的地址空间中，并将另一个副本映射到父进程的地址空间中
+
+在更新页表之后，内核在导致错误的指令处恢复出错进程
+
+因为内核已经更新了相关的 PTE 以允许写入，所以出错指令现在将正常执行
+</pre>
+
+<p>
+scause 寄存器中的值指示页面错误的类型，而 stval 寄存器中包含无法转换的地址
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgf43e042" class="outline-2">
+<h2 id="orgf43e042">如何设置 stvec 的</h2>
+<div class="outline-text-2" id="text-orgf43e042">
+<pre class="example" id="org4643d6a">
+stvec 寄存器保存的是中断服务程序的首地址
+
+在 U 模式下，stvec 必须指向的是 uservec，在 S 模式下，stvec 必须指向的是 kernelvec
+
+这样做的原因是需要在 uservec 切换页表，那么 xv6 是如何设置 stvec 的呢？
+</pre>
+
+<p>
+uservec 例程中除了执行保存上下文、切换页表等操作之外，还会在 usertrap 中将 stvec 指向 kernelvec
+</p>
+
+<pre class="example" id="org34ce592">
+
+</pre>
+
+<p>
+当需要返回 usertrap 时，usertrap 会调用 usertrapret，usertrapret 会重新设置 stvec 的值使其指向 uservec，之后跳转到 userret，恢复上下文和切换页表。
+</p>
+</div>
+<div id="outline-container-org18353c7" class="outline-3">
+<h3 id="org18353c7">第一次的 stvec 是如何设置的</h3>
+<div class="outline-text-3" id="text-org18353c7">
+<p>
+在 main 中：
+</p>
+<ol class="org-ol">
+<li>cpu0 调用了 userinit() 创建了第一个用户进程，并在 scheduler 中会切换到该进程
+<ul class="org-ul">
+<li>该进程的上下文中的 ra(返回地址)被设置成了 forkret()</li>
+</ul></li>
+<li>当 scheduler 执行 swtch 函数时，会将进程上下文中的 ra 写入到 ra 寄存器中</li>
+<li>这样当要从 swtch() 中返回时，就会返回到了 forkret()
+<ul class="org-ul">
+<li>在 forkret() 中会直接调用 usertrapret 以实现 stvec 的设置和页表的切换</li>
+</ul></li>
+</ol>
+</div>
+</div>
+</div>
+<div id="outline-container-orgac17f69" class="outline-2">
+<h2 id="orgac17f69">与中断有关的硬件单元</h2>
+<div class="outline-text-2" id="text-orgac17f69">
+<p>
+在 RISC v 中，与中断有关的硬件单元主要有 <span class="underline">ACLINT</span> 、 <span class="underline">CLINT</span> 、 <span class="underline">PLIC</span> 、 <span class="underline">CLIC</span> 
+</p>
+<ul class="org-ul">
+<li>CLINT 的全称是 Core Local Interrupt</li>
+<li>ACLINT 的全称是 Advanced Core Local Interrupt,</li>
+<li>CLIC 的全称是 Core-Local Interrupt Controller</li>
+<li>PLIC 的全称 Platform-Level Interrupt Controller</li>
+</ul>
+
+<pre class="example" id="orgb5af72c">
+尽管 CLIC 与 PLIC 名称相似，但是 CLIC 其实是为取代 CLINT 而设计的，而ACLINT 是为了取代 SiFive CLINT 而设计的
+
+本质上讲，ACLINT 相比于 CLINT 的优势就在于进行了模块化设计，将定时器和 IPI 功能分开了，同时能够支持 NUMA 系统
+
+但是 ACLINT 和 CLINT 都还是 RISC-V basic local Interrupts 的范畴
+</pre>
+<p>
+PLIC 和 CLIC 的区别在于，前者负责的是整体的外部中断，CLIC 负责的是每个 HART 的本地中断
+</p>
+</div>
+<div id="outline-container-org4f50753" class="outline-3">
+<h3 id="org4f50753">PLIC</h3>
+<div class="outline-text-3" id="text-org4f50753">
+<p>
+它把 <span class="underline">全局外设中断</span> 按优先级分发到各个 hart 的特权上下文（M/S 模式）的控制器，提供 <span class="underline">优先级</span> 、 <span class="underline">屏蔽</span> 、 <span class="underline">仲裁</span> 和 <span class="underline">索取/完成</span> （claim/complete）流程
+</p>
+
+<p>
+PLC 的组成：
+</p>
+<ul class="org-ul">
+<li>中断源（source）：来自 外设 或 MSI 的全局中断，编号从 1 开始
+<ul class="org-ul">
+<li>ID=0 表示“无中断”
+同优先级下用 更小的 ID 抢占
+单个源在 PLIC 内 同时最多挂起 1 个请求</li>
+</ul></li>
+<li><p>
+目标/上下文（target/context）：通常是“某个 hart 的某个特权级”
+</p>
+<pre class="example" id="org8ce2a0c">
+是否给 S 模式提供目标由实现与委派决定
+</pre></li>
+<li>网关（gateway）：把外设的电平/边沿信号或 MSI 转成 PLIC 能理解的请求，并控制同一中断源的流量</li>
+</ul>
+</div>
+<div id="outline-container-orgc16c997" class="outline-4">
+<h4 id="orgc16c997">寄存器与内存映射</h4>
+<div class="outline-text-4" id="text-orgc16c997">
+<p>
+PLIC 规定了统一的 操作参数块，但 <span class="underline">基地址</span> 由平台决定：
+</p>
+<ul class="org-ul">
+<li>Priority：每个中断源一个 32-bit 优先级寄存器；0=永不触发；最大优先级级数由实现给出</li>
+<li>Pending（IP）：挂起位数组，表示哪些源在等服务</li>
+<li>Enable（IE）：对每个 上下文 的允许位数组；一个源可被多个上下文使能</li>
+<li>Threshold：每个上下文一个阈值寄存器；仅当“最高优先级挂起源的优先级 &gt; 阈值”才会给该上下文发通知</li>
+<li>Claim/Complete：同一个地址既可读（claim）也可写（complete），按上下文 4 KB 对齐+4 偏移布置。</li>
+</ul>
+
+<p>
+规范给出从 priority → pending → enable → threshold/claim 的 标准偏移布局
+</p>
+</div>
+</div>
+<div id="outline-container-org071b894" class="outline-4">
+<h4 id="org071b894">工作流程与时序要点</h4>
+<div class="outline-text-4" id="text-org071b894">
+<ol class="org-ol">
+<li>通知：当某上下文存在“已使能且优先级高于阈值”的挂起源时，PLIC 在该上下文的 xEIP（meip/seip） 上置位，通知 hart
+<ul class="org-ul">
+<li>PLIC 天然做“多播”：所有被使能且满足条件的上下文都会收到通知，谁先 claim 到就算谁</li>
+</ul></li>
+<li>索取（claim）：读取 claim 寄存器得到“该上下文可见的最高优先级挂起源 ID”（无则返回 0），并原子地清除此源的挂起位。之后更低优先级的挂起源才会“浮现”
+<ul class="org-ul">
+<li>claim 不受阈值影响，允许用于“轮询”</li>
+</ul></li>
+<li>完成（complete）：中断服务完毕后，把 刚得到的 ID 写回同一寄存器，PLIC 会把“完成消息”转交对应 网关，随后该源才允许进入下一次请求
+<ul class="org-ul">
+<li>写一个未使能/无效的 ID 会被静默忽略</li>
+</ul></li>
+</ol>
+
+<p>
+电平 vs. 边沿（在网关侧）
+</p>
+<ul class="org-ul">
+<li>电平触发：
+<ul class="org-ul">
+<li>第一次置位会形成一次请求</li>
+<li>在收到 完成 之前即使电平一直保持也不会再转发第二个请求</li>
+<li>若完成时电平仍为高，立即转发新的请求（等价“再挂起一次”）</li>
+</ul></li>
+<li>边沿触发/MSI：
+<ul class="org-ul">
+<li>第一次边沿形成请求</li>
+<li>在“请求→完成”间，网关可选择忽略掉后续边沿或做计数</li>
+<li>只有完成后才把下一次请求送入 PLIC</li>
+</ul></li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org83ac224" class="outline-2">
+<h2 id="org83ac224">时钟中断</h2>
+<div class="outline-text-2" id="text-org83ac224">
+<p width="100%">
+<a href="pic/" width="100%">pic/</a>
+</p>
+</div>
+</div>
+<div id="outline-container-orgf99cd2e" class="outline-2">
+<h2 id="orgf99cd2e">软件中断</h2>
 </div>
 </div>
 <div id="postamble" class="status">

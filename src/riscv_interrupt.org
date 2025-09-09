@@ -383,3 +383,166 @@ CPU 不会自动切换到内核的页表，也不会切换到内核栈，也不�
 4. 把返回值写回 a0
 5. 调用 sret 指令恢复到 sepc，返回用户态继续执行
 * 地址空间布局
+启用分页模式下，内核代码的访存地址也会被视为一个虚拟地址并需要经过 _MMU_ 的地址转换，因此也需要为内核对应构造一个地址空间，除了仍然需要允许内核的各数据段能够被正常访问之后，还需要包含所有应用的内核栈以及一个 *跳板* _Trampoline_
+
+#+begin_example
+  值得注意的是，下面是是 rCore 的内核地址空间分布，不同的 OS 设计不同
+#+end_example
+
+高 256GB 内核地址空间：
+
+#+ATTR_HTML: image :width 100%
+[[file:pic/1653979-20230712210014907-59405883.png]]
+
+低 256GB 内核地址空间
+
+#+ATTR_HTML: image :width 100%
+[[file:pic/1653979-20230712210015309-973629164.png]]
+
+应用程序高 256GB 地址空间
+#+ATTR_HTML: image :width 100%
+[[file:pic/1653979-20230712210015683-979795453.png]]
+
+应用程序低 256GB 地址空间
+#+ATTR_HTML: image :width 100%
+[[file:pic/1653979-20230712210016165-419532978.png]] 
+
+** 跳板页
+使能了分页机制之后，必须在 trap 过程中同时完成地址空间的切换。具体来说：
++ 当 __alltraps 保存 Trap 上下文的时候，必须通过修改 _satp_ 从应用地址空间切换到内核地址空间，因为 trap handler 只有在内核地址空间中才能访问
++ 同理，在 __restore 恢复 Trap 上下文的时候，也必须从内核地址空间切换回应用地址空间，因为应用的代码和数据只能在它自己的地址空间中才能访问，应用是看不到内核地址空间的
+
+
+#+begin_example
+  为何将应用的 Trap 上下文放到应用地址空间的次高页面而不是内核地址空间中的内核栈中呢？
+#+end_example
+
+原因在于，在保存 Trap 上下文到内核栈中之前，必须完成两项工作：
+1. 先切换到内核地址空间，这就需要将 _内核地址空间的页表地址_ 写入 satp 寄存器
+2. 还需要保存 _应用的内核栈栈顶的位置_ ，这样才能以它为基址保存 Trap 上下文
+
+这两步需要用寄存器作为临时周转，然而无法在不破坏任何一个通用寄存器的情况下做到这一点
+
+#+begin_example
+  因为事实上需要用到内核的两条信息：内核地址空间的页表地址，以及应用的内核栈栈顶的位置
+
+  RISC-V 却只提供一个 sscratch 寄存器可用来进行周转
+
+  所以，不得不将 Trap 上下文保存在应用地址空间的一个虚拟页面中，而不是切换到内核地址空间去保存
+#+end_example
+
+** Page Fault
+当 CPU 无法将虚拟地址转换为物理地址时，CPU 会生成页面错误异常。RISC-V 有三种不同类型的页面错误：
+1. 加载页面错误(当加载指令无法转换其虚拟地址时)
+2. 存储页面错误(当存储指令无法转换其虚拟地址时)
+3. 指令页面错误(当指令的地址不转换时)
+
+#+begin_example
+  Cow(copy on write) Fork 中的基本方案是：
+
+  让父子进程在最开始时共享所有物理页面，但将它们映射为只读
+
+  因此，当子进程或父进程执行存储指令时，RISC-V CPU 会引发页面错误异常
+
+  作为对此异常的响应，内核会复制包含错误地址的页面
+
+  它将一个副本映射到子进程的地址空间中，并将另一个副本映射到父进程的地址空间中
+
+  在更新页表之后，内核在导致错误的指令处恢复出错进程
+
+  因为内核已经更新了相关的 PTE 以允许写入，所以出错指令现在将正常执行
+#+end_example
+
+scause 寄存器中的值指示页面错误的类型，而 stval 寄存器中包含无法转换的地址
+
+* 如何设置 stvec 的
+#+begin_example
+  stvec 寄存器保存的是中断服务程序的首地址
+
+  在 U 模式下，stvec 必须指向的是 uservec，在 S 模式下，stvec 必须指向的是 kernelvec
+
+  这样做的原因是需要在 uservec 切换页表，那么 xv6 是如何设置 stvec 的呢？
+#+end_example
+
+uservec 例程中除了执行保存上下文、切换页表等操作之外，还会在 usertrap 中将 stvec 指向 kernelvec
+
+#+begin_example
+
+#+end_example
+
+当需要返回 usertrap 时，usertrap 会调用 usertrapret，usertrapret 会重新设置 stvec 的值使其指向 uservec，之后跳转到 userret，恢复上下文和切换页表。
+
+** 第一次的 stvec 是如何设置的
+在 main 中：
+1. cpu0 调用了 userinit() 创建了第一个用户进程，并在 scheduler 中会切换到该进程
+   + 该进程的上下文中的 ra(返回地址)被设置成了 forkret()
+2. 当 scheduler 执行 swtch 函数时，会将进程上下文中的 ra 写入到 ra 寄存器中
+3. 这样当要从 swtch() 中返回时，就会返回到了 forkret()
+   + 在 forkret() 中会直接调用 usertrapret 以实现 stvec 的设置和页表的切换
+
+* 与中断有关的硬件单元
+在 RISC v 中，与中断有关的硬件单元主要有 _ACLINT_ 、 _CLINT_ 、 _PLIC_ 、 _CLIC_ 
++ CLINT 的全称是 Core Local Interrupt
++ ACLINT 的全称是 Advanced Core Local Interrupt,
++ CLIC 的全称是 Core-Local Interrupt Controller
++ PLIC 的全称 Platform-Level Interrupt Controller
+
+#+begin_example
+  尽管 CLIC 与 PLIC 名称相似，但是 CLIC 其实是为取代 CLINT 而设计的，而ACLINT 是为了取代 SiFive CLINT 而设计的
+
+  本质上讲，ACLINT 相比于 CLINT 的优势就在于进行了模块化设计，将定时器和 IPI 功能分开了，同时能够支持 NUMA 系统
+
+  但是 ACLINT 和 CLINT 都还是 RISC-V basic local Interrupts 的范畴
+#+end_example
+PLIC 和 CLIC 的区别在于，前者负责的是整体的外部中断，CLIC 负责的是每个 HART 的本地中断
+
+** PLIC
+它把 _全局外设中断_ 按优先级分发到各个 hart 的特权上下文（M/S 模式）的控制器，提供 _优先级_ 、 _屏蔽_ 、 _仲裁_ 和 _索取/完成_ （claim/complete）流程
+
+PLC 的组成：
++ 中断源（source）：来自 外设 或 MSI 的全局中断，编号从 1 开始
+  + ID=0 表示“无中断”
+    同优先级下用 更小的 ID 抢占
+    单个源在 PLIC 内 同时最多挂起 1 个请求
++ 目标/上下文（target/context）：通常是“某个 hart 的某个特权级”
+  #+begin_example
+    是否给 S 模式提供目标由实现与委派决定
+  #+end_example
++ 网关（gateway）：把外设的电平/边沿信号或 MSI 转成 PLIC 能理解的请求，并控制同一中断源的流量
+
+*** 寄存器与内存映射
+PLIC 规定了统一的 操作参数块，但 _基地址_ 由平台决定：
++ Priority：每个中断源一个 32-bit 优先级寄存器；0=永不触发；最大优先级级数由实现给出
++ Pending（IP）：挂起位数组，表示哪些源在等服务
++ Enable（IE）：对每个 上下文 的允许位数组；一个源可被多个上下文使能
++ Threshold：每个上下文一个阈值寄存器；仅当“最高优先级挂起源的优先级 > 阈值”才会给该上下文发通知
++ Claim/Complete：同一个地址既可读（claim）也可写（complete），按上下文 4 KB 对齐+4 偏移布置。
+
+规范给出从 priority → pending → enable → threshold/claim 的 标准偏移布局
+
+*** 工作流程与时序要点
+1. 通知：当某上下文存在“已使能且优先级高于阈值”的挂起源时，PLIC 在该上下文的 xEIP（meip/seip） 上置位，通知 hart
+   + PLIC 天然做“多播”：所有被使能且满足条件的上下文都会收到通知，谁先 claim 到就算谁
+2. 索取（claim）：读取 claim 寄存器得到“该上下文可见的最高优先级挂起源 ID”（无则返回 0），并原子地清除此源的挂起位。之后更低优先级的挂起源才会“浮现”
+   + claim 不受阈值影响，允许用于“轮询”
+3. 完成（complete）：中断服务完毕后，把 刚得到的 ID 写回同一寄存器，PLIC 会把“完成消息”转交对应 网关，随后该源才允许进入下一次请求
+   + 写一个未使能/无效的 ID 会被静默忽略
+
+电平 vs. 边沿（在网关侧）
++ 电平触发：
+  + 第一次置位会形成一次请求
+  + 在收到 完成 之前即使电平一直保持也不会再转发第二个请求
+  + 若完成时电平仍为高，立即转发新的请求（等价“再挂起一次”）
++ 边沿触发/MSI：
+  + 第一次边沿形成请求
+  + 在“请求→完成”间，网关可选择忽略掉后续边沿或做计数
+  + 只有完成后才把下一次请求送入 PLIC
+
+* 时钟中断
+
+
+#+ATTR_HTML: image :width 100%
+[[file:pic/]]
+
+
+* 软件中断
