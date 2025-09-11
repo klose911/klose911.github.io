@@ -539,10 +539,139 @@ PLIC 规定了统一的 操作参数块，但 _基地址_ 由平台决定：
   + 只有完成后才把下一次请求送入 PLIC
 
 * 时钟中断
+*定时器中断* 是由一个独立的计时器电路发出的信号，表示预定的时间间隔已经结束。计时器子系统将中断当前正在执行的代码
++ 定时器中断可以由操作系统处理，用于实现时间片多线程
++ 但是对于 MTIME 和 MTIMECMP 的读写只能由 M-mode 的代码实现
+  #+begin_example
+    因此内核需要调用 SBI 的服务
+  #+end_example
 
+** 时钟中断相关的寄存器
+mtime 需要以固定的频率递增，并在发生溢出时回绕
++ 当 mtime 大于或等于 mtimecmp 时，由核内中断控制器 (CLINT, Core-Local Interrupt Controller) 产生 timer 中断
+  + 中断的使能由 mie 寄存器中的 MTIE 和 STIE 位控制，mip 中的 MPIE 和 SPIE 则指示了 timer 中断是否处于 pending
+  + 读取 mtimecmp 结果为低 32 位， mtimecmp 的高 32 位需要 mtimecmph 得到
+    
+由于 mtimecmp 只能在 M 模式下访问，对于 S/HS 模式下的内核和 VU/VS 模式下的虚拟机需要通过 SBI 才能访问，会造成较大的中断延迟和性能开销
+#+begin_example
+为了解决这一问题，RISC-V 新增了 Sstc 拓展支持
+#+end_example
+Sstc 扩展为 HS 模式和 VS 模式分别新增了 _stimecmp_ 和 _vstimecmp_ 寄存器，当 time>=stimecmp 或者 time+htimedelta>=vstimecmp 会产生 timer 中断，不再需要通过 SBI 陷入到其它模式
 
+** 时钟中断的基本处理过程
+下图所示是时钟中断的基本过程(xv6 的处理过程)：
 #+ATTR_HTML: image :width 100%
-[[file:pic/]]
+[[file:pic/1653979-20230712210016664-572388837.png]]
+
+#+begin_example
+回顾一下有关 timer 的寄存器
+#+end_example
+
+首先要明确的是，timer 的寄存器在 timer 设备里，不在 CPU 中，是通过 _MMIO_ 的方式 *映射* 到内存中的：
++ mtime 寄存器是一个同步计数器。它从处理器上电开始运行，并以 tick 单位提供当前的实时时间
++ mtimecmp 寄存器用于存储定时器中断应该发生的时间间隔，mtimecmp 的值与 mtime 寄存器进行比较
+  + 当 mtime 值变得大于 mtimecmp 时，就会产生一个定时器中断
+  + mtime 和 mtimecmp 寄存器都是 64 位内存映射寄存器，因此可以直接按照内存读写的方式修改这两个寄存器的值
 
 
+** xv6 实现
+xv6 对于时钟中断的处理方式是这样的：
++ 在 M-mode 设置好时钟中断的处理函数
++ 当发生时钟中断：
+  1. 由 M-mode 的代码读写 mtime 和 mtimecmp
+  2. 激活 sip：SSIP 以软件中断的形式通知内核
+  3. 内核在收到软件中断之后会递增 ticks 变量，并调用 wakeup 函数唤醒沉睡的进程。内核本身也会收到时钟中断：
+     + 此时内核会判断当前运行的是不是进程号为 0 的进程，如果不是就会调用 yield() 函数使当前进程放弃 CPU 并调度下一个进程
+     + 如果使进程号为 0 的进程，那就不做处理
+
+*** timer_init 
+#+begin_src c 
+  // core local interruptor (CLINT), which contains the timer.
+  #define CLINT 0x2000000L
+  #define CLINT_MTIMECMP(hartid) (CLINT + 0x4000 + 8*(hartid))
+  #define CLINT_MTIME (CLINT + 0xBFF8) // cycles since boot.
+
+  void
+  timerinit()
+  {
+  		// each CPU has a separate source of timer interrupts.
+  		int id = r_mhartid();
+
+  		// ask the CLINT for a timer interrupt.
+  		int interval = 1000000; // cycles; about 1/10th second in qemu.
+    
+  		// 我已经提过，mtimecmp 是映射到了物理地址中的，因此可以直接按照内存读写的方式
+  		// 修改寄存器的值
+  		// MTIME 寄存器映射到了 0x2000_BFF8
+  		// 一块CPU有一个MTIME，所有的hart都共用这一个 MTIME
+  		// MTIMECMP 的内存基地址是 0x2000000L
+  		// 每个寄存器占 8个字节，每个hart都有一个MTIMECMP寄存器
+  		// 因此呢，第id个（从0开始计数）的hart对应的 MTIMECMP 的寄存器的物理地址就是
+  		// 0x2000000L + 8 * id
+  		// 因此呢就容易理解下面的操作了，实际上就是根据 MTIME 初始化 MTIMECMP
+  		,*(uint64*)CLINT_MTIMECMP(id) = *(uint64*)CLINT_MTIME + interval;
+
+  		// prepare information in scratch[] for timervec.
+  		// scratch[0..2] : space for timervec to save registers.
+  		// scratch[3] : address of CLINT MTIMECMP register.
+  		// scratch[4] : desired interval (in cycles) between timer interrupts.
+  		uint64 *scratch = &timer_scratch[id][0];
+  		scratch[3] = CLINT_MTIMECMP(id);//记录当前hart对应的 MTIMECMP 寄存器映射到的物理地址
+  		scratch[4] = interval;
+  		w_mscratch((uint64)scratch);//将数组指针写入mscratch
+
+  		// set the machine-mode trap handler.
+  		w_mtvec((uint64)timervec);
+
+  		// enable machine-mode interrupts.
+  		w_mstatus(r_mstatus() | MSTATUS_MIE);
+
+  		// enable machine-mode timer interrupts.
+  		w_mie(r_mie() | MIE_MTIE);
+  }
+#+end_src
+
+*** 时钟中断处理函数
+将 mscratch 与 a0 寄存器交换了值，此时 a0 保存的值就是个数组指针(这一点在前面的 timer_init 中已经分析了)
+
+#+begin_src asm
+  timervec:
+          # start.c has set up the memory that mscratch points to:
+          # scratch[0,8,16] : register save area.
+          # scratch[24] : address of CLINT's MTIMECMP register.
+          # scratch[32] : desired interval between interrupts.
+          
+          csrrw a0, mscratch, a0
+          
+          # 保存寄存器的上下文
+          sd a1, 0(a0)
+          sd a2, 8(a0)
+          sd a3, 16(a0)
+
+          # schedule the next timer interrupt
+          # by adding interval to mtimecmp.
+          # 实际上执行的就是 MTIMECMP = MTIME + INTERVAL
+          ld a1, 24(a0) # CLINT_MTIMECMP(hart)
+          ld a2, 32(a0) # interval
+          ld a3, 0(a1)
+          add a3, a3, a2
+          sd a3, 0(a1)
+
+          # arrange for a supervisor software interrupt
+          # after this handler returns.
+          # 通过supervisor software 中断的方式通知 S-mode 的内核处理时钟中断
+          # 实际上呢，时钟中断已经在M-mode被处理掉了
+          # 之所以还要通知S-mode的内核是因为内核的进程调度器依赖于对时间的掌握
+          # S-mode只是根据时钟变化去做进程调度器相关的处理
+          li a1, 2
+          csrw sip, a1
+
+          # 恢复上下文
+          ld a3, 16(a0)
+          ld a2, 8(a0)
+          ld a1, 0(a0)
+          csrrw a0, mscratch, a0
+
+          mret
+#+end_src
 * 软件中断
