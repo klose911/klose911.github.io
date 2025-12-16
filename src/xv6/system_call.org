@@ -24,4 +24,378 @@
   应用程序可以逐渐扩展自己的内存，但是应用程序并没有直接访问物理内存的权限
 #+end_example
 
-* 
+* 操作系统的防御性
+操作系统需要确保所有的组件都能工作，所以它需要做好准备抵御来自应用程序的攻击。如果说应用程序无意或者恶意的向系统调用传入一些错误的参数就会导致操作系统崩溃，那就太糟糕了
+
+这种防御主要是靠应用程序不能够打破对它的隔离。应用程序非常有可能是恶意的，它或许是由攻击者写出来的，攻击者或许想要打破对应用程序的隔离，进而控制内核
+
+通常来说，需要通过硬件来实现这的强隔离性。这里的硬件支持包括了两部分：
+1. user/ *kernel mode* ，kernel mode在RISC-V中被称为 _supervisor mode_ 
+2. page table或者 *虚拟内存* _Virtual Memory_ 
+
+** user/kernel mode
+当运行在kernel mode时，CPU可以运行特定权限的指令 _privileged instructions_
+#+begin_example
+比如设置page table寄存器、关闭时钟中断
+#+end_example
+
+当运行在user mode时，CPU只能运行普通权限的指令 _unprivileged instructions_
+#+begin_example
+比如两个寄存器相加的指令ADD、将两个寄存器相减的指令SUB、跳转指令JRC
+#+end_example
+当应用程序想执行特定权限指令时，必须要通过 *系统调用* 转换到kernel mode中，然后kernel 会对这个申请进行判断并阻止不合法的请求
+
+** 虚拟内存
+每一个进程都会有自己独立的page table和虚拟内存，这样的话，每一个进程只能访问出现在自己page table中的物理内存
+
+操作系统会设置 *page table* ，使得每一个进程都有不重合的物理内存，这样一个进程就不能访问其他进程的物理内存，因为其他进程的物理内存都不在它的page table中
+
+一个进程甚至都不能随意编造一个内存地址，然后通过这个内存地址来访问其他进程的物理内存。这样就给了内存的 *强隔离性*
+
+
+** user mode 到 kernel mode的切换
+在RISC-V中，有一个专门的指令用来实现这个功能，叫做 *ecall* 。 ecall接受一个 _数字_ 参数，代表具体的 _系统调用方法_
+
+#+begin_example
+  举个例子，假设现在要执行另一个系统调用write。但write系统调用不能直接调用内核中的write代码
+
+  而是由封装好的系统调用函数执行ecall指令，指令的参数是代表了write系统调用的数字
+
+  之后控制权到了syscall函数，syscall会实际调用write系统调用
+#+end_example
+
+* xv6启动
+
+** kernel/entry.S
+当 xv6 的系统启动的时候，首先会 *启动* 一个 _引导加载程序_ （存在 ROM 里面），之后 *装载* 内核程序进内存
++ 注意：由于只有一个内核栈，内核栈部分的地址空间可以是固定，因此 xv6 启动的时候并 *没有开启* 硬件支持的 _paging_ 策略。也就是说，对于 *内核栈而言，它的物理地址和虚拟地址是一样的*
+
+引导加载程序把内核代码加载到物理地址为 _0x8000000_ 的地方
+
+#+begin_example
+0x0 - 0x80000000 之间有 I/O 设备
+#+end_example
+
+在机器模式下，CPU 从 _entry 处开始执行操作系统的代码
+#+begin_src asm 
+  _entry:
+  	# 设置一个内核栈
+  	# stack0 在 start.c 中声明, 每个内核栈的大小为 4096 byte
+  	# 以下的代码表示将 sp 指向某个 CPU 对应的内核栈的起始地址
+  	# 也就是说, 进行如下设置: sp = stack0 + (hartid + 1) * 4096
+  	la sp, stack0           # sp = stack0
+  	li a0, 1024*4           # a0 = 4096
+  	csrr a1, mhartid        # 从寄存器 mhartid 中读取出当前对应的 CPU 号
+          # a1 = hartid
+  	addi a1, a1, 1          # 地址空间向下增长, 因此将起始地址设置为最大
+  	mul a0, a0, a1          # a0 = 4096 * (hartid + 1)
+  	add sp, sp, a0          # sp = stack0 + (hartid + 1) * 4096
+
+  	# 跳转到 kernel/start.c 执行内核代码
+  	call start
+#+end_src
+
+首先需要给内核开辟一个内核栈，从而可以执行 C 代码：
++ 每一个 CPU 都应该有自己的内核栈（xv6 最多支持 8 个 CPU），开始每个内核栈的大小为 4096 byte，地址空间向下增长
+
+** kernel/start.c
+设置CPU的特权级为 supervisor mode 
+#+begin_src c 
+  // set M Previous Privilege mode to Supervisor, for mret.
+
+  // 清除 mstatus 中的 MPP 位，并设置为 SPP（Supervisor Previous Privilege）
+  unsigned long x = r_mstatus(); // 读取当前的 mstatus 寄存器值
+    
+  // 通过 ~MSTATUS_MPP_MASK 取反后，只有 MPP 字段对应的位为 0，其他位为 1。把 MPP 字段清零，而不影响其他位
+  // 这一步通常是为了后续设置新的特权级别做准备，确保不会保留之前的 MPP 状态。 
+  x &= ~MSTATUS_MPP_MASK; 
+  x |= MSTATUS_MPP_S; // 设置 MPP 字段为 SPP（Supervisor Previous Privilege），表示上一次的特权级别是监督者模式
+  w_mstatus(x); // 将修改后的值写回 mstatus 寄存器，更新 CPU 的特权级别状态 
+#+end_src
+
+确保 xv6 在启动过程中能够在正确的执行环境下运行
+1. 通过设置 _mepc_ ，确保操作系统在 _机器模式的异常返回_ 时跳转到正确的位置
+2. 通过设置 _satp_ 为 0，确保操作系统在还 _没有准备_ 好分页机制时运行在物理地址模式
+
+#+begin_src c 
+  // set M Exception Program Counter to main, for mret. requires gcc -mcmodel=medany 
+  // 确保生成的代码可以正确处理任意地址范围的函数指针（如 main 的地址），避免因地址超出默认范围而导致的跳转错误
+  // 这在操作系统或裸机开发中非常重要，因为内核代码可能被加载到高地址空间
+    
+  // 设置 mepc（Machine Exception Program Counter）寄存器为 main 函数的地址，
+  // 这样当发生异常或中断时，CPU 可以从这里继续执行
+  w_mepc((uint64)main); 
+
+  // disable paging for now.
+  w_satp(0); // 暂时禁用分页机制
+#+end_src
+
+配置 RISC-V CPU，使得大部分异常和中断不是在机器模式中处理，而是在 supervisor 模式中处理，并确保在 supervisor 模式下特定的中断是启用的
+#+begin_src c 
+  // delegate all interrupts and exceptions to supervisor mode.
+  w_medeleg(0xffff); // 将所有的机器异常委托给监督者模式处理，0xffff 表示将所有异常都委托给监督者模式
+  w_mideleg(0xffff); // 将所有的机器中断委托给监督者模式处理，0xffff 表示将所有中断都委托给监督者模式
+
+  // 设置 SIE（Supervisor Interrupt Enable）寄存器，允许监督者模式下的设备中断
+  // SIE_SEIE（Supervisor External Interrupt Enable）允许监督者模式下的外部中断
+  // SIE_STIE（Supervisor Timer Interrupt Enable）允许监督者模式 下的定时器中断
+  // SIE_SSIE（Supervisor Software Interrupt Enable）允许监督者模式下的软件中断
+  w_sie(r_sie() | SIE_SEIE | SIE_STIE | SIE_SSIE); 
+#+end_src
+
+#+begin_example
+这样的配置在操作系统中很常见，尤其是那些希望将大部分的异常和中断处理逻辑放在一个更高层次（但非最高特权）的模式中的系统
+#+end_example
+
+允许 supervisor mode 访问所有物理内存：
+#+begin_src c 
+  // configure Physical Memory Protection to give supervisor mode
+  // access to all of physical memory.
+  // 将 0x3fffffffffffffull 这个较大的地址写入 PMP 地址寄存器 0（pmpaddr0）
+  // 这个值通常表示允许访问的物理地址范围的上限，几乎覆盖了整个物理地址空间 
+  w_pmpaddr0(0x3fffffffffffffull); 
+
+  // 将 pmpcfg0 寄存器配置为 0xf，这通常表示允许监督者模式访问所有物理内存
+  // 0xf 是一个二进制数，表示所有的四个 PMP 配置位都被设置为 1，
+  // 这意味着监督者模式可以访问所有物理内存区域
+  // 在 RISC-V 架构中，PMP（Physical Memory Protection）用于配置内存访问权限，
+  // 通过设置 pmpcfg0 寄存器，可以控制监督者模式对物理内存的访问权限
+  // 0xf 的二进制为 1111，通常表示该 PMP 区域允许读、写、执行权限
+  // 并采用 NAPOT（Naturally Aligned Power-Of-Two）地址匹配模式
+  w_pmpcfg0(0xf); 
+#+end_src
+
+初始化时钟中断和每个CPU的hartid（硬件线程ID），最后通过 *mret* 指令 切换到 supervisor 模式，并跳转到 _main_ 函数开始执行
+#+begin_src c 
+  // ask for clock interrupts.
+  timerinit(); // 初始化定时器中断，设置定时器中断使能和相关配置
+
+  // keep each CPU's hartid in its tp register, for cpuid().
+  int id = r_mhartid(); // 获得当前允许cpu id
+  w_tp(id); // 将当前 CPU 的 hartid（硬件线程编号）写入 tp（线程指针）寄存器，
+  // 这样可以在多核环境下区分和管理不同的 CPU 核心，实现高效的调度和资源分配
+
+  // switch to supervisor mode and jump to main().
+  asm volatile("mret"); // 执行 mret 指令，切换到监督者模式，并跳转到 main 函数开始执行
+#+end_src
+
+** kernel/main.c
+main() 函数中首先进行很多初始化，然后通过 _usetinit()_ 创建第一个进程
+
+对任意一个 CPU，都需要对它进行配置：
+#+begin_src c 
+  // kernel/main.c
+
+  // 1. 打开硬件支持的 paging 策略
+  // 但是对于内核而言, 使用的策略是虚拟地址直接映射到相同的物理地址
+  // 通过 w_satp(MAKE_SATP(kernel_pagetable))
+  kvminithart();
+  // 2. 装载中断处理函数指针, 内核态的中断处理程序设置为 kernelvec
+  trapinithart();
+  // 3. 打开对外部中断的响应
+  plicinithart();
+#+end_src
+
+对于 0 号 CPU，因为这是第一个启动的 CPU，需要进行一些特殊的初始化配置（当然也包括上面的配置）
+
+#+begin_src c 
+  consoleinit(); // 初始化串口终端
+  printfinit(); // 初始化打印
+  printf("\n");
+  printf("xv6 kernel is booting\n");
+  printf("\n");
+  kinit();         // physical page allocator 初始化物理内存分页
+  kvminit();       // create kernel page table 创建内核分页表
+  kvminithart();   // turn on paging 开启分页
+  procinit();      // process table 进程表
+  trapinit();      // trap vectors 内核级中断向量
+  trapinithart();  // install kernel trap vector 设置内核中断处理向量
+  plicinit();      // set up interrupt controller 设置中断控制器
+  plicinithart();  // ask PLIC for device interrupts 启用 PLIC 设备中断
+  binit();         // buffer cache 缓冲区缓存
+  iinit();         // inode table 索引节点表
+  fileinit();      // file table 文件表
+  virtio_disk_init(); // emulated hard disk 虚拟硬盘
+  userinit();      // first user process 第一个用户进程
+  __sync_synchronize(); // 设置内存屏障
+  started = 1;
+#+end_src
+
+** kernel/proc.c
+
+#+begin_src c 
+  // Set up first user process.
+  void
+  userinit(void)
+  {
+  		struct proc *p;
+
+  		p = allocproc(); // 创建第一个进程
+  		initproc = p;
+    
+  		// allocate one user page and copy initcode's instructions
+  		// and data into it.
+  		// 分配一页用户内存，并将 initcode 的指令和数据复制到这页内存中
+  		uvmfirst(p->pagetable, initcode, sizeof(initcode));
+  		p->sz = PGSIZE; // 设置进程的内存大小为一页（PGSIZE）
+
+  		// prepare for the very first "return" from kernel to user.
+  		// 为进程的第一次从内核态“返回”到用户态做准备
+
+  		// 设置用户程序计数器（epc）为 0，表示用户程序将从虚拟地址 0 开始执行
+  		// 对于初始进程，这通常对应 initcode 的入口地址。
+  		p->trapframe->epc = 0;      // user program counter
+  		// 设置用户栈指针（sp）为一页的顶部（PGSIZE），即用户栈从虚拟地址 0 到 PGSIZE，栈顶在 PGSIZE 处
+  		p->trapframe->sp = PGSIZE;  // user stack pointer
+
+  		// 将字符串 "initcode" 安全地复制到进程结构体 p 的 name 字段中，最多复制 sizeof(p->name) 个字节
+  		safestrcpy(p->name, "initcode", sizeof(p->name)); 
+  		p->cwd = namei("/"); // 进程 p 设置当前工作目录（cwd）为根目录
+
+  		p->state = RUNNABLE; // 设置初始进程为可执行
+
+  		release(&p->lock); // 释放初始进程的锁
+  }
+#+end_src
+
+userinit() 函数执行的逻辑如下：
+1. 调用 _allocproc()_ 从进程表中找到一个状态为 _UNUSED_ 的进程
+   + 找到之后，进行一些初始化配置
+   + 找不到： 返回 0，说明已经达到系统内置的最大进程数量
+2. 计算 _pid_ 
+3. state 设置为  _USED_ 
+4. 调用 _kalloc()_ 分配一个 *trapframe*
+   + trapframe 的作用是在用户态进入内核态的时候保存其所有的寄存器
+   + 如果没有分配到 trapframe，那么调用 _freeproc()_ 退出
+     + freeproc()：进程状态修改为空闲、清空内存区域
+5. 调用 _proc_pagetable()_ 分配一个 *用户态的页表* 
+   + 同时进行 _页表项_ 的配置等
+   + 如果没有分配到页表，那么调用 freeproc() 退出
+6. 设置 *context 寄存器* _ra_ 、_sp_ （进程切换）
+   + ra：用户态应该执行的代码地址
+   + sp：栈指针
+7. 把初始化代码放入进程的页表中
+   + 一段机器代码，是一个 *系统调用* _exec("/init")_
+   + 会执行代码 _user/initcode.S_ ，开始运行 shell
+     + 只是加载，没有运行
+8. 设置 *trapframe 中的寄存器* _epc_ （异常中断返回用户态） 、 _sp_
+   + epc：用户态的 PC
+   + sp：用户态得到栈指针
+9. 设置 *进程名称* 为 _initcode_ ， *进程工作目录* 为 _/_
+10. 设置 *进程状态* 为 _RUNNABLE_
+
+userinit 执行完毕后返回 _kernel/main.c_ 中执行 *进程调度* 程序 _scheduler()_ , 调度之后才开始运行前面加载的机器代码
+
+#+begin_src asm 
+  # Initial process that execs /init.
+  # This code runs in user space.
+
+  #include "syscall.h"
+
+  # exec(init, argv)
+  .globl start
+  start:
+          la a0, init
+          la a1, argv
+          li a7, SYS_exec
+          ecall
+
+  # for(;;) exit();
+  exit:
+          li a7, SYS_exit
+          ecall
+          jal exit
+
+  # char init[] = "/init\0";
+  init:
+    .string "/init\0"
+
+  # char *argv[] = { init, 0 };
+  .p2align 2
+  argv:
+    .quad init
+    .quad 0
+#+end_src
+
+上述代码就是执行exec ，然后去调用 init
+
+
+** user/init.c
+它做的事情很直观，开启一个sh shell，等待命令行输入：
+#+begin_src c 
+  // init: The initial user-level program
+
+  #include "kernel/types.h"
+  #include "kernel/stat.h"
+  #include "kernel/spinlock.h"
+  #include "kernel/sleeplock.h"
+  #include "kernel/fs.h"
+  #include "kernel/file.h"
+  #include "user/user.h"
+  #include "kernel/fcntl.h"
+
+  char *argv[] = { "sh", 0 };
+
+  int
+  main(void)
+  {
+    int pid, wpid;
+
+    if(open("console", O_RDWR) < 0){
+      mknod("console", CONSOLE, 0);
+      open("console", O_RDWR);
+    }
+    dup(0);  // stdout
+    dup(0);  // stderr
+
+    for(;;){
+      printf("init: starting sh\n");
+      pid = fork();
+      if(pid < 0){
+        printf("init: fork failed\n");
+        exit(1);
+      }
+      if(pid == 0){
+        exec("sh", argv);
+        printf("init: exec sh failed\n");
+        exit(1);
+      }
+
+      for(;;){
+        // this call to wait() returns if the shell exits,
+        // or if a parentless process exits.
+        wpid = wait((int *) 0);
+        if(wpid == pid){
+          // the shell exited; restart it.
+          break;
+        } else if(wpid < 0){
+          printf("init: wait returned an error\n");
+          exit(1);
+        } else {
+          // it was a parentless process; do nothing.
+        }
+      }
+    }
+  }
+#+end_src
+
+** 总结
+
+XV6的启动过程，可以总结为：
+1. entry.S 给内核开辟一个内核栈，从而可以执行 C 代码
+2. start.c 配置 RISC-V CPU，使得:
+   + 大部分异常和中断不是在机器模式中处理，而是在 supervisor 模式中处理
+   + 确保在 supervisor 模式下特定的中断是启用的
+   + 通过mret 去到之前配置好的异常捕获起始点w_mepc((uint64)main)
+3. main.c 首先进行很多初始化，然后通过 userinit() 创建第一个进程
+4. proc.c
+   + 初始化代码通过 _uvmfirst_ 把user/initcode.S放入进程的页表中并且是地址为0处
+   + 通过allocproc 获取第一个用户进程
+   + 用p->context.ra = (uint64)forkret; 指定返回时，应该去forkret
+   + forkret时进入用户态， 并在最后则调用mret 回到之前设置的异常捕获点地址为 0
+     + p->trapframe->epc = 0 : 执行initcode.S的代码
+5. initcode.S 主要就是执行用户态的init指令。代码在user/init.c
+6. init.c 中，通过fork和exec, 执行sh命令，启动shell完成
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:page_table.org][Next: 虚拟内存]] | [[file:os.org][Previous: 操作系统]] | [[file:xv6.org][Home: xv6 解析]] |

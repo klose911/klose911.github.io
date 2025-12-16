@@ -206,7 +206,23 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#orga0ba4b5">操作系统的隔离性</a></li>
-<li><a href="#orgf430da3"></a></li>
+<li><a href="#org55d0e91">操作系统的防御性</a>
+<ul>
+<li><a href="#org8996057">user/kernel mode</a></li>
+<li><a href="#org9b9c613">虚拟内存</a></li>
+<li><a href="#org806798a">user mode 到 kernel mode的切换</a></li>
+</ul>
+</li>
+<li><a href="#org49dc643">xv6启动</a>
+<ul>
+<li><a href="#orgef1f7f7">kernel/entry.S</a></li>
+<li><a href="#orgdb5adbb">kernel/start.c</a></li>
+<li><a href="#orgf3df171">kernel/main.c</a></li>
+<li><a href="#orgfe45c9e">kernel/proc.c</a></li>
+<li><a href="#org77dc4f6">user/init.c</a></li>
+<li><a href="#org746faff">总结</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -216,7 +232,7 @@
 <p>
 如果没有操作系统，应用程序会直接与硬件交互
 </p>
-<pre class="example" id="orgd275905">
+<pre class="example" id="org2d81149">
 比如，应用程序可以直接看到CPU的多个核，看到磁盘，内存
 </pre>
 
@@ -232,7 +248,7 @@
 使用操作系统的一个原因，甚至可以说是主要原因就是为了实现 <b>multiplexing</b> 和 <b>内存隔离</b> 。操作系统通过 <b>进程</b> 的概念抽象出给每个应用不同的内存空间和CPU的使用
 </p>
 
-<pre class="example" id="orgb29de47">
+<pre class="example" id="orge8d6763">
 比如， 应用程序不能直接与CPU交互，只能与进程交互
 
 操作系统内核会完成不同进程在CPU上的切换
@@ -241,8 +257,525 @@
 </pre>
 </div>
 </div>
-<div id="outline-container-orgf430da3" class="outline-2">
-<h2 id="orgf430da3"></h2>
+<div id="outline-container-org55d0e91" class="outline-2">
+<h2 id="org55d0e91">操作系统的防御性</h2>
+<div class="outline-text-2" id="text-org55d0e91">
+<p>
+操作系统需要确保所有的组件都能工作，所以它需要做好准备抵御来自应用程序的攻击。如果说应用程序无意或者恶意的向系统调用传入一些错误的参数就会导致操作系统崩溃，那就太糟糕了
+</p>
+
+<p>
+这种防御主要是靠应用程序不能够打破对它的隔离。应用程序非常有可能是恶意的，它或许是由攻击者写出来的，攻击者或许想要打破对应用程序的隔离，进而控制内核
+</p>
+
+<p>
+通常来说，需要通过硬件来实现这的强隔离性。这里的硬件支持包括了两部分：
+</p>
+<ol class="org-ol">
+<li>user/ <b>kernel mode</b> ，kernel mode在RISC-V中被称为 <span class="underline">supervisor mode</span></li>
+<li>page table或者 <b>虚拟内存</b> <span class="underline">Virtual Memory</span></li>
+</ol>
+</div>
+<div id="outline-container-org8996057" class="outline-3">
+<h3 id="org8996057">user/kernel mode</h3>
+<div class="outline-text-3" id="text-org8996057">
+<p>
+当运行在kernel mode时，CPU可以运行特定权限的指令 <span class="underline">privileged instructions</span>
+</p>
+<pre class="example" id="org28daecc">
+比如设置page table寄存器、关闭时钟中断
+</pre>
+
+<p>
+当运行在user mode时，CPU只能运行普通权限的指令 <span class="underline">unprivileged instructions</span>
+</p>
+<pre class="example" id="org98aa042">
+比如两个寄存器相加的指令ADD、将两个寄存器相减的指令SUB、跳转指令JRC
+</pre>
+<p>
+当应用程序想执行特定权限指令时，必须要通过 <b>系统调用</b> 转换到kernel mode中，然后kernel 会对这个申请进行判断并阻止不合法的请求
+</p>
+</div>
+</div>
+<div id="outline-container-org9b9c613" class="outline-3">
+<h3 id="org9b9c613">虚拟内存</h3>
+<div class="outline-text-3" id="text-org9b9c613">
+<p>
+每一个进程都会有自己独立的page table和虚拟内存，这样的话，每一个进程只能访问出现在自己page table中的物理内存
+</p>
+
+<p>
+操作系统会设置 <b>page table</b> ，使得每一个进程都有不重合的物理内存，这样一个进程就不能访问其他进程的物理内存，因为其他进程的物理内存都不在它的page table中
+</p>
+
+<p>
+一个进程甚至都不能随意编造一个内存地址，然后通过这个内存地址来访问其他进程的物理内存。这样就给了内存的 <b>强隔离性</b>
+</p>
+</div>
+</div>
+<div id="outline-container-org806798a" class="outline-3">
+<h3 id="org806798a">user mode 到 kernel mode的切换</h3>
+<div class="outline-text-3" id="text-org806798a">
+<p>
+在RISC-V中，有一个专门的指令用来实现这个功能，叫做 <b>ecall</b> 。 ecall接受一个 <span class="underline">数字</span> 参数，代表具体的 <span class="underline">系统调用方法</span>
+</p>
+
+<pre class="example" id="org25e6ec7">
+举个例子，假设现在要执行另一个系统调用write。但write系统调用不能直接调用内核中的write代码
+
+而是由封装好的系统调用函数执行ecall指令，指令的参数是代表了write系统调用的数字
+
+之后控制权到了syscall函数，syscall会实际调用write系统调用
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org49dc643" class="outline-2">
+<h2 id="org49dc643">xv6启动</h2>
+<div class="outline-text-2" id="text-org49dc643">
+</div>
+<div id="outline-container-orgef1f7f7" class="outline-3">
+<h3 id="orgef1f7f7">kernel/entry.S</h3>
+<div class="outline-text-3" id="text-orgef1f7f7">
+<p>
+当 xv6 的系统启动的时候，首先会 <b>启动</b> 一个 <span class="underline">引导加载程序</span> （存在 ROM 里面），之后 <b>装载</b> 内核程序进内存
+</p>
+<ul class="org-ul">
+<li>注意：由于只有一个内核栈，内核栈部分的地址空间可以是固定，因此 xv6 启动的时候并 <b>没有开启</b> 硬件支持的 <span class="underline">paging</span> 策略。也就是说，对于 <b>内核栈而言，它的物理地址和虚拟地址是一样的</b></li>
+</ul>
+
+<p>
+引导加载程序把内核代码加载到物理地址为 <span class="underline">0x8000000</span> 的地方
+</p>
+
+<pre class="example" id="org21de540">
+0x0 - 0x80000000 之间有 I/O 设备
+</pre>
+
+<p>
+在机器模式下，CPU 从 _entry 处开始执行操作系统的代码
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">_entry</span>:
+        # &#35774;&#32622;&#19968;&#20010;&#20869;&#26680;&#26632;
+        # stack0 &#22312; start.c &#20013;&#22768;&#26126;, &#27599;&#20010;&#20869;&#26680;&#26632;&#30340;&#22823;&#23567;&#20026; 4096 byte
+        # &#20197;&#19979;&#30340;&#20195;&#30721;&#34920;&#31034;&#23558; sp &#25351;&#21521;&#26576;&#20010; CPU &#23545;&#24212;&#30340;&#20869;&#26680;&#26632;&#30340;&#36215;&#22987;&#22320;&#22336;
+        # &#20063;&#23601;&#26159;&#35828;, &#36827;&#34892;&#22914;&#19979;&#35774;&#32622;: sp = stack0 + (hartid + 1) * 4096
+        <span style="color: #00ffff;">la</span> sp, stack0           # sp = stack0
+        <span style="color: #00ffff;">li</span> a0, 1024*4           # a0 = 4096
+        <span style="color: #00ffff;">csrr</span> a1, mhartid        # &#20174;&#23492;&#23384;&#22120; mhartid &#20013;&#35835;&#21462;&#20986;&#24403;&#21069;&#23545;&#24212;&#30340; CPU &#21495;
+        # a1 = hartid
+        <span style="color: #00ffff;">addi</span> a1, a1, 1          # &#22320;&#22336;&#31354;&#38388;&#21521;&#19979;&#22686;&#38271;, &#22240;&#27492;&#23558;&#36215;&#22987;&#22320;&#22336;&#35774;&#32622;&#20026;&#26368;&#22823;
+        <span style="color: #00ffff;">mul</span> a0, a0, a1          # a0 = 4096 * (hartid + 1)
+        <span style="color: #00ffff;">add</span> sp, sp, a0          # sp = stack0 + (hartid + 1) * 4096
+
+        # &#36339;&#36716;&#21040; kernel/start.c &#25191;&#34892;&#20869;&#26680;&#20195;&#30721;
+        <span style="color: #00ffff;">call</span> start
+</pre>
+</div>
+
+<p>
+首先需要给内核开辟一个内核栈，从而可以执行 C 代码：
+</p>
+<ul class="org-ul">
+<li>每一个 CPU 都应该有自己的内核栈（xv6 最多支持 8 个 CPU），开始每个内核栈的大小为 4096 byte，地址空间向下增长</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgdb5adbb" class="outline-3">
+<h3 id="orgdb5adbb">kernel/start.c</h3>
+<div class="outline-text-3" id="text-orgdb5adbb">
+<p>
+设置CPU的特权级为 supervisor mode 
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">set M Previous Privilege mode to Supervisor, for mret.
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#28165;&#38500; mstatus &#20013;&#30340; MPP &#20301;&#65292;&#24182;&#35774;&#32622;&#20026; SPP&#65288;Supervisor Previous Privilege&#65289;
+</span><span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">x</span> = r_mstatus(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462;&#24403;&#21069;&#30340; mstatus &#23492;&#23384;&#22120;&#20540;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36890;&#36807; ~MSTATUS_MPP_MASK &#21462;&#21453;&#21518;&#65292;&#21482;&#26377; MPP &#23383;&#27573;&#23545;&#24212;&#30340;&#20301;&#20026; 0&#65292;&#20854;&#20182;&#20301;&#20026; 1&#12290;&#25226; MPP &#23383;&#27573;&#28165;&#38646;&#65292;&#32780;&#19981;&#24433;&#21709;&#20854;&#20182;&#20301;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#19968;&#27493;&#36890;&#24120;&#26159;&#20026;&#20102;&#21518;&#32493;&#35774;&#32622;&#26032;&#30340;&#29305;&#26435;&#32423;&#21035;&#20570;&#20934;&#22791;&#65292;&#30830;&#20445;&#19981;&#20250;&#20445;&#30041;&#20043;&#21069;&#30340; MPP &#29366;&#24577;&#12290; 
+</span>x &amp;= ~MSTATUS_MPP_MASK; 
+x |= MSTATUS_MPP_S; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622; MPP &#23383;&#27573;&#20026; SPP&#65288;Supervisor Previous Privilege&#65289;&#65292;&#34920;&#31034;&#19978;&#19968;&#27425;&#30340;&#29305;&#26435;&#32423;&#21035;&#26159;&#30417;&#30563;&#32773;&#27169;&#24335;
+</span><span style="color: #87cefa;">w_mstatus</span>(x); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#20462;&#25913;&#21518;&#30340;&#20540;&#20889;&#22238; mstatus &#23492;&#23384;&#22120;&#65292;&#26356;&#26032; CPU &#30340;&#29305;&#26435;&#32423;&#21035;&#29366;&#24577; </span>
+</pre>
+</div>
+
+<p>
+确保 xv6 在启动过程中能够在正确的执行环境下运行
+</p>
+<ol class="org-ol">
+<li>通过设置 <span class="underline">mepc</span> ，确保操作系统在 <span class="underline">机器模式的异常返回</span> 时跳转到正确的位置</li>
+<li>通过设置 <span class="underline">satp</span> 为 0，确保操作系统在还 <span class="underline">没有准备</span> 好分页机制时运行在物理地址模式</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">set M Exception Program Counter to main, for mret. requires gcc -mcmodel=medany 
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#30830;&#20445;&#29983;&#25104;&#30340;&#20195;&#30721;&#21487;&#20197;&#27491;&#30830;&#22788;&#29702;&#20219;&#24847;&#22320;&#22336;&#33539;&#22260;&#30340;&#20989;&#25968;&#25351;&#38024;&#65288;&#22914; main &#30340;&#22320;&#22336;&#65289;&#65292;&#36991;&#20813;&#22240;&#22320;&#22336;&#36229;&#20986;&#40664;&#35748;&#33539;&#22260;&#32780;&#23548;&#33268;&#30340;&#36339;&#36716;&#38169;&#35823;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#22312;&#25805;&#20316;&#31995;&#32479;&#25110;&#35064;&#26426;&#24320;&#21457;&#20013;&#38750;&#24120;&#37325;&#35201;&#65292;&#22240;&#20026;&#20869;&#26680;&#20195;&#30721;&#21487;&#33021;&#34987;&#21152;&#36733;&#21040;&#39640;&#22320;&#22336;&#31354;&#38388;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622; mepc&#65288;Machine Exception Program Counter&#65289;&#23492;&#23384;&#22120;&#20026; main &#20989;&#25968;&#30340;&#22320;&#22336;&#65292;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#26679;&#24403;&#21457;&#29983;&#24322;&#24120;&#25110;&#20013;&#26029;&#26102;&#65292;CPU &#21487;&#20197;&#20174;&#36825;&#37324;&#32487;&#32493;&#25191;&#34892;
+</span><span style="color: #87cefa;">w_mepc</span>((<span style="color: #98fb98;">uint64</span>)main); 
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">disable paging for now.
+</span>w_satp(0); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26242;&#26102;&#31105;&#29992;&#20998;&#39029;&#26426;&#21046;</span>
+</pre>
+</div>
+
+<p>
+配置 RISC-V CPU，使得大部分异常和中断不是在机器模式中处理，而是在 supervisor 模式中处理，并确保在 supervisor 模式下特定的中断是启用的
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">delegate all interrupts and exceptions to supervisor mode.
+</span>w_medeleg(0xffff); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#25152;&#26377;&#30340;&#26426;&#22120;&#24322;&#24120;&#22996;&#25176;&#32473;&#30417;&#30563;&#32773;&#27169;&#24335;&#22788;&#29702;&#65292;0xffff &#34920;&#31034;&#23558;&#25152;&#26377;&#24322;&#24120;&#37117;&#22996;&#25176;&#32473;&#30417;&#30563;&#32773;&#27169;&#24335;
+</span>w_mideleg(0xffff); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#25152;&#26377;&#30340;&#26426;&#22120;&#20013;&#26029;&#22996;&#25176;&#32473;&#30417;&#30563;&#32773;&#27169;&#24335;&#22788;&#29702;&#65292;0xffff &#34920;&#31034;&#23558;&#25152;&#26377;&#20013;&#26029;&#37117;&#22996;&#25176;&#32473;&#30417;&#30563;&#32773;&#27169;&#24335;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622; SIE&#65288;Supervisor Interrupt Enable&#65289;&#23492;&#23384;&#22120;&#65292;&#20801;&#35768;&#30417;&#30563;&#32773;&#27169;&#24335;&#19979;&#30340;&#35774;&#22791;&#20013;&#26029;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">SIE_SEIE&#65288;Supervisor External Interrupt Enable&#65289;&#20801;&#35768;&#30417;&#30563;&#32773;&#27169;&#24335;&#19979;&#30340;&#22806;&#37096;&#20013;&#26029;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">SIE_STIE&#65288;Supervisor Timer Interrupt Enable&#65289;&#20801;&#35768;&#30417;&#30563;&#32773;&#27169;&#24335; &#19979;&#30340;&#23450;&#26102;&#22120;&#20013;&#26029;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">SIE_SSIE&#65288;Supervisor Software Interrupt Enable&#65289;&#20801;&#35768;&#30417;&#30563;&#32773;&#27169;&#24335;&#19979;&#30340;&#36719;&#20214;&#20013;&#26029;
+</span><span style="color: #87cefa;">w_sie</span>(<span style="color: #98fb98;">r_sie</span>() | SIE_SEIE | SIE_STIE | SIE_SSIE); 
+</pre>
+</div>
+
+<pre class="example" id="org4b8deee">
+这样的配置在操作系统中很常见，尤其是那些希望将大部分的异常和中断处理逻辑放在一个更高层次（但非最高特权）的模式中的系统
+</pre>
+
+<p>
+允许 supervisor mode 访问所有物理内存：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">configure Physical Memory Protection to give supervisor mode
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">access to all of physical memory.
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; 0x3fffffffffffffull &#36825;&#20010;&#36739;&#22823;&#30340;&#22320;&#22336;&#20889;&#20837; PMP &#22320;&#22336;&#23492;&#23384;&#22120; 0&#65288;pmpaddr0&#65289;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#20010;&#20540;&#36890;&#24120;&#34920;&#31034;&#20801;&#35768;&#35775;&#38382;&#30340;&#29289;&#29702;&#22320;&#22336;&#33539;&#22260;&#30340;&#19978;&#38480;&#65292;&#20960;&#20046;&#35206;&#30422;&#20102;&#25972;&#20010;&#29289;&#29702;&#22320;&#22336;&#31354;&#38388; 
+</span>w_pmpaddr0(0x3fffffffffffffull); 
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558; pmpcfg0 &#23492;&#23384;&#22120;&#37197;&#32622;&#20026; 0xf&#65292;&#36825;&#36890;&#24120;&#34920;&#31034;&#20801;&#35768;&#30417;&#30563;&#32773;&#27169;&#24335;&#35775;&#38382;&#25152;&#26377;&#29289;&#29702;&#20869;&#23384;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">0xf &#26159;&#19968;&#20010;&#20108;&#36827;&#21046;&#25968;&#65292;&#34920;&#31034;&#25152;&#26377;&#30340;&#22235;&#20010; PMP &#37197;&#32622;&#20301;&#37117;&#34987;&#35774;&#32622;&#20026; 1&#65292;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#24847;&#21619;&#30528;&#30417;&#30563;&#32773;&#27169;&#24335;&#21487;&#20197;&#35775;&#38382;&#25152;&#26377;&#29289;&#29702;&#20869;&#23384;&#21306;&#22495;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22312; RISC-V &#26550;&#26500;&#20013;&#65292;PMP&#65288;Physical Memory Protection&#65289;&#29992;&#20110;&#37197;&#32622;&#20869;&#23384;&#35775;&#38382;&#26435;&#38480;&#65292;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36890;&#36807;&#35774;&#32622; pmpcfg0 &#23492;&#23384;&#22120;&#65292;&#21487;&#20197;&#25511;&#21046;&#30417;&#30563;&#32773;&#27169;&#24335;&#23545;&#29289;&#29702;&#20869;&#23384;&#30340;&#35775;&#38382;&#26435;&#38480;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">0xf &#30340;&#20108;&#36827;&#21046;&#20026; 1111&#65292;&#36890;&#24120;&#34920;&#31034;&#35813; PMP &#21306;&#22495;&#20801;&#35768;&#35835;&#12289;&#20889;&#12289;&#25191;&#34892;&#26435;&#38480;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24182;&#37319;&#29992; NAPOT&#65288;Naturally Aligned Power-Of-Two&#65289;&#22320;&#22336;&#21305;&#37197;&#27169;&#24335;
+</span>w_pmpcfg0(0xf); 
+</pre>
+</div>
+
+<p>
+初始化时钟中断和每个CPU的hartid（硬件线程ID），最后通过 <b>mret</b> 指令 切换到 supervisor 模式，并跳转到 <span class="underline">main</span> 函数开始执行
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">ask for clock interrupts.
+</span><span style="color: #87cefa;">timerinit</span>(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21021;&#22987;&#21270;&#23450;&#26102;&#22120;&#20013;&#26029;&#65292;&#35774;&#32622;&#23450;&#26102;&#22120;&#20013;&#26029;&#20351;&#33021;&#21644;&#30456;&#20851;&#37197;&#32622;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">keep each CPU's hartid in its tp register, for cpuid().
+</span><span style="color: #98fb98;">int</span> <span style="color: #eedd82;">id</span> = r_mhartid(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#33719;&#24471;&#24403;&#21069;&#20801;&#35768;cpu id
+</span><span style="color: #87cefa;">w_tp</span>(id); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#24403;&#21069; CPU &#30340; hartid&#65288;&#30828;&#20214;&#32447;&#31243;&#32534;&#21495;&#65289;&#20889;&#20837; tp&#65288;&#32447;&#31243;&#25351;&#38024;&#65289;&#23492;&#23384;&#22120;&#65292;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#26679;&#21487;&#20197;&#22312;&#22810;&#26680;&#29615;&#22659;&#19979;&#21306;&#20998;&#21644;&#31649;&#29702;&#19981;&#21516;&#30340; CPU &#26680;&#24515;&#65292;&#23454;&#29616;&#39640;&#25928;&#30340;&#35843;&#24230;&#21644;&#36164;&#28304;&#20998;&#37197;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">switch to supervisor mode and jump to main().
+</span><span style="color: #00ffff;">asm</span> <span style="color: #00ffff;">volatile</span>(<span style="color: #ffa07a;">"mret"</span>); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25191;&#34892; mret &#25351;&#20196;&#65292;&#20999;&#25442;&#21040;&#30417;&#30563;&#32773;&#27169;&#24335;&#65292;&#24182;&#36339;&#36716;&#21040; main &#20989;&#25968;&#24320;&#22987;&#25191;&#34892;</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgf3df171" class="outline-3">
+<h3 id="orgf3df171">kernel/main.c</h3>
+<div class="outline-text-3" id="text-orgf3df171">
+<p>
+main() 函数中首先进行很多初始化，然后通过 <span class="underline">usetinit()</span> 创建第一个进程
+</p>
+
+<p>
+对任意一个 CPU，都需要对它进行配置：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">kernel/main.c
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">1. &#25171;&#24320;&#30828;&#20214;&#25903;&#25345;&#30340; paging &#31574;&#30053;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20294;&#26159;&#23545;&#20110;&#20869;&#26680;&#32780;&#35328;, &#20351;&#29992;&#30340;&#31574;&#30053;&#26159;&#34394;&#25311;&#22320;&#22336;&#30452;&#25509;&#26144;&#23556;&#21040;&#30456;&#21516;&#30340;&#29289;&#29702;&#22320;&#22336;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36890;&#36807; w_satp(MAKE_SATP(kernel_pagetable))
+</span><span style="color: #87cefa;">kvminithart</span>();
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">2. &#35013;&#36733;&#20013;&#26029;&#22788;&#29702;&#20989;&#25968;&#25351;&#38024;, &#20869;&#26680;&#24577;&#30340;&#20013;&#26029;&#22788;&#29702;&#31243;&#24207;&#35774;&#32622;&#20026; kernelvec
+</span><span style="color: #87cefa;">trapinithart</span>();
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">3. &#25171;&#24320;&#23545;&#22806;&#37096;&#20013;&#26029;&#30340;&#21709;&#24212;
+</span><span style="color: #87cefa;">plicinithart</span>();
+</pre>
+</div>
+
+<p>
+对于 0 号 CPU，因为这是第一个启动的 CPU，需要进行一些特殊的初始化配置（当然也包括上面的配置）
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">consoleinit</span>(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21021;&#22987;&#21270;&#20018;&#21475;&#32456;&#31471;
+</span><span style="color: #87cefa;">printfinit</span>(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21021;&#22987;&#21270;&#25171;&#21360;
+</span>printf(<span style="color: #ffa07a;">"\n"</span>);
+printf(<span style="color: #ffa07a;">"xv6 kernel is booting\n"</span>);
+printf(<span style="color: #ffa07a;">"\n"</span>);
+<span style="color: #87cefa;">kinit</span>();         <span style="color: #ff4500;">// </span><span style="color: #ff4500;">physical page allocator &#21021;&#22987;&#21270;&#29289;&#29702;&#20869;&#23384;&#20998;&#39029;
+</span><span style="color: #87cefa;">kvminit</span>();       <span style="color: #ff4500;">// </span><span style="color: #ff4500;">create kernel page table &#21019;&#24314;&#20869;&#26680;&#20998;&#39029;&#34920;
+</span><span style="color: #87cefa;">kvminithart</span>();   <span style="color: #ff4500;">// </span><span style="color: #ff4500;">turn on paging &#24320;&#21551;&#20998;&#39029;
+</span><span style="color: #87cefa;">procinit</span>();      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">process table &#36827;&#31243;&#34920;
+</span><span style="color: #87cefa;">trapinit</span>();      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">trap vectors &#20869;&#26680;&#32423;&#20013;&#26029;&#21521;&#37327;
+</span><span style="color: #87cefa;">trapinithart</span>();  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">install kernel trap vector &#35774;&#32622;&#20869;&#26680;&#20013;&#26029;&#22788;&#29702;&#21521;&#37327;
+</span><span style="color: #87cefa;">plicinit</span>();      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">set up interrupt controller &#35774;&#32622;&#20013;&#26029;&#25511;&#21046;&#22120;
+</span><span style="color: #87cefa;">plicinithart</span>();  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">ask PLIC for device interrupts &#21551;&#29992; PLIC &#35774;&#22791;&#20013;&#26029;
+</span><span style="color: #87cefa;">binit</span>();         <span style="color: #ff4500;">// </span><span style="color: #ff4500;">buffer cache &#32531;&#20914;&#21306;&#32531;&#23384;
+</span><span style="color: #87cefa;">iinit</span>();         <span style="color: #ff4500;">// </span><span style="color: #ff4500;">inode table &#32034;&#24341;&#33410;&#28857;&#34920;
+</span><span style="color: #87cefa;">fileinit</span>();      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">file table &#25991;&#20214;&#34920;
+</span><span style="color: #87cefa;">virtio_disk_init</span>(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">emulated hard disk &#34394;&#25311;&#30828;&#30424;
+</span><span style="color: #87cefa;">userinit</span>();      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">first user process &#31532;&#19968;&#20010;&#29992;&#25143;&#36827;&#31243;
+</span><span style="color: #87cefa;">__sync_synchronize</span>(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;&#20869;&#23384;&#23631;&#38556;
+</span>started = 1;
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgfe45c9e" class="outline-3">
+<h3 id="orgfe45c9e">kernel/proc.c</h3>
+<div class="outline-text-3" id="text-orgfe45c9e">
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">Set up first user process.
+</span><span style="color: #98fb98;">void</span>
+<span style="color: #87cefa;">userinit</span>(<span style="color: #98fb98;">void</span>)
+{
+                <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">proc</span> *<span style="color: #eedd82;">p</span>;
+
+                p = allocproc(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21019;&#24314;&#31532;&#19968;&#20010;&#36827;&#31243;
+</span>                initproc = p;
+
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">allocate one user page and copy initcode's instructions
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">and data into it.
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20998;&#37197;&#19968;&#39029;&#29992;&#25143;&#20869;&#23384;&#65292;&#24182;&#23558; initcode &#30340;&#25351;&#20196;&#21644;&#25968;&#25454;&#22797;&#21046;&#21040;&#36825;&#39029;&#20869;&#23384;&#20013;
+</span>                uvmfirst(p-&gt;pagetable, initcode, <span style="color: #00ffff;">sizeof</span>(initcode));
+                p-&gt;sz = PGSIZE; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;&#36827;&#31243;&#30340;&#20869;&#23384;&#22823;&#23567;&#20026;&#19968;&#39029;&#65288;PGSIZE&#65289;
+</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">prepare for the very first "return" from kernel to user.
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20026;&#36827;&#31243;&#30340;&#31532;&#19968;&#27425;&#20174;&#20869;&#26680;&#24577;&#8220;&#36820;&#22238;&#8221;&#21040;&#29992;&#25143;&#24577;&#20570;&#20934;&#22791;
+</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;&#29992;&#25143;&#31243;&#24207;&#35745;&#25968;&#22120;&#65288;epc&#65289;&#20026; 0&#65292;&#34920;&#31034;&#29992;&#25143;&#31243;&#24207;&#23558;&#20174;&#34394;&#25311;&#22320;&#22336; 0 &#24320;&#22987;&#25191;&#34892;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23545;&#20110;&#21021;&#22987;&#36827;&#31243;&#65292;&#36825;&#36890;&#24120;&#23545;&#24212; initcode &#30340;&#20837;&#21475;&#22320;&#22336;&#12290;
+</span>                p-&gt;trapframe-&gt;epc = 0;      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">user program counter
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;&#29992;&#25143;&#26632;&#25351;&#38024;&#65288;sp&#65289;&#20026;&#19968;&#39029;&#30340;&#39030;&#37096;&#65288;PGSIZE&#65289;&#65292;&#21363;&#29992;&#25143;&#26632;&#20174;&#34394;&#25311;&#22320;&#22336; 0 &#21040; PGSIZE&#65292;&#26632;&#39030;&#22312; PGSIZE &#22788;
+</span>                p-&gt;trapframe-&gt;sp = PGSIZE;  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">user stack pointer
+</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#23383;&#31526;&#20018; "initcode" &#23433;&#20840;&#22320;&#22797;&#21046;&#21040;&#36827;&#31243;&#32467;&#26500;&#20307; p &#30340; name &#23383;&#27573;&#20013;&#65292;&#26368;&#22810;&#22797;&#21046; sizeof(p-&gt;name) &#20010;&#23383;&#33410;
+</span>                safestrcpy(p-&gt;name, <span style="color: #ffa07a;">"initcode"</span>, <span style="color: #00ffff;">sizeof</span>(p-&gt;name)); 
+                p-&gt;cwd = namei(<span style="color: #ffa07a;">"/"</span>); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36827;&#31243; p &#35774;&#32622;&#24403;&#21069;&#24037;&#20316;&#30446;&#24405;&#65288;cwd&#65289;&#20026;&#26681;&#30446;&#24405;
+</span>
+                p-&gt;state = RUNNABLE; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;&#21021;&#22987;&#36827;&#31243;&#20026;&#21487;&#25191;&#34892;
+</span>
+                release(&amp;p-&gt;lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#37322;&#25918;&#21021;&#22987;&#36827;&#31243;&#30340;&#38145;
+</span>}
+</pre>
+</div>
+
+<p>
+userinit() 函数执行的逻辑如下：
+</p>
+<ol class="org-ol">
+<li>调用 <span class="underline">allocproc()</span> 从进程表中找到一个状态为 <span class="underline">UNUSED</span> 的进程
+<ul class="org-ul">
+<li>找到之后，进行一些初始化配置</li>
+<li>找不到： 返回 0，说明已经达到系统内置的最大进程数量</li>
+</ul></li>
+<li>计算 <span class="underline">pid</span></li>
+<li>state 设置为  <span class="underline">USED</span></li>
+<li>调用 <span class="underline">kalloc()</span> 分配一个 <b>trapframe</b>
+<ul class="org-ul">
+<li>trapframe 的作用是在用户态进入内核态的时候保存其所有的寄存器</li>
+<li>如果没有分配到 trapframe，那么调用 <span class="underline">freeproc()</span> 退出
+<ul class="org-ul">
+<li>freeproc()：进程状态修改为空闲、清空内存区域</li>
+</ul></li>
+</ul></li>
+<li>调用 <span class="underline">proc_pagetable()</span> 分配一个 <b>用户态的页表</b> 
+<ul class="org-ul">
+<li>同时进行 <span class="underline">页表项</span> 的配置等</li>
+<li>如果没有分配到页表，那么调用 freeproc() 退出</li>
+</ul></li>
+<li>设置 <b>context 寄存器</b> <span class="underline">ra</span> 、_sp_ （进程切换）
+<ul class="org-ul">
+<li>ra：用户态应该执行的代码地址</li>
+<li>sp：栈指针</li>
+</ul></li>
+<li>把初始化代码放入进程的页表中
+<ul class="org-ul">
+<li>一段机器代码，是一个 <b>系统调用</b> <span class="underline">exec("/init")</span></li>
+<li>会执行代码 <span class="underline">user/initcode.S</span> ，开始运行 shell
+<ul class="org-ul">
+<li>只是加载，没有运行</li>
+</ul></li>
+</ul></li>
+<li>设置 <b>trapframe 中的寄存器</b> <span class="underline">epc</span> （异常中断返回用户态） 、 <span class="underline">sp</span>
+<ul class="org-ul">
+<li>epc：用户态的 PC</li>
+<li>sp：用户态得到栈指针</li>
+</ul></li>
+<li>设置 <b>进程名称</b> 为 <span class="underline">initcode</span> ， <b>进程工作目录</b> 为 <span class="underline">/</span></li>
+<li>设置 <b>进程状态</b> 为 <span class="underline">RUNNABLE</span></li>
+</ol>
+
+<p>
+userinit 执行完毕后返回 <span class="underline">kernel/main.c</span> 中执行 <b>进程调度</b> 程序 <span class="underline">scheduler()</span> , 调度之后才开始运行前面加载的机器代码
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"># Initial process that execs /init.
+# This code runs in user space.
+
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"syscall.h"</span>
+
+# exec(init, argv)
+<span style="color: #00ffff;">.globl</span> start
+<span style="color: #87cefa;">start</span>:
+        <span style="color: #00ffff;">la</span> a0, init
+        <span style="color: #00ffff;">la</span> a1, argv
+        <span style="color: #00ffff;">li</span> a7, SYS_exec
+        <span style="color: #00ffff;">ecall</span>
+
+# for(<span style="color: #ff4500;">;;</span><span style="color: #ff4500;">) exit();
+</span><span style="color: #87cefa;">exit</span>:
+        <span style="color: #00ffff;">li</span> a7, SYS_exit
+        <span style="color: #00ffff;">ecall</span>
+        <span style="color: #00ffff;">jal</span> exit
+
+# char init[] = <span style="color: #ffa07a;">"/init\0"</span><span style="color: #ff4500;">;</span><span style="color: #ff4500;">
+</span><span style="color: #87cefa;">init</span>:
+  <span style="color: #00ffff;">.string</span> <span style="color: #ffa07a;">"/init\0"</span>
+
+# char *argv[] = { init, 0 }<span style="color: #ff4500;">;</span><span style="color: #ff4500;">
+</span><span style="color: #00ffff;">.p2align</span> 2
+<span style="color: #87cefa;">argv</span>:
+  <span style="color: #00ffff;">.quad</span> init
+  <span style="color: #00ffff;">.quad</span> 0
+</pre>
+</div>
+
+<p>
+上述代码就是执行exec ，然后去调用 init
+</p>
+</div>
+</div>
+<div id="outline-container-org77dc4f6" class="outline-3">
+<h3 id="org77dc4f6">user/init.c</h3>
+<div class="outline-text-3" id="text-org77dc4f6">
+<p>
+它做的事情很直观，开启一个sh shell，等待命令行输入：
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">init: The initial user-level program
+</span>
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"kernel/types.h"</span>
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"kernel/stat.h"</span>
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"kernel/spinlock.h"</span>
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"kernel/sleeplock.h"</span>
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"kernel/fs.h"</span>
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"kernel/file.h"</span>
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"user/user.h"</span>
+<span style="color: #7fffd4;">#include</span> <span style="color: #ffa07a;">"kernel/fcntl.h"</span>
+
+<span style="color: #98fb98;">char</span> *<span style="color: #eedd82;">argv</span>[] = { <span style="color: #ffa07a;">"sh"</span>, 0 };
+
+<span style="color: #98fb98;">int</span>
+<span style="color: #87cefa;">main</span>(<span style="color: #98fb98;">void</span>)
+{
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">pid</span>, <span style="color: #eedd82;">wpid</span>;
+
+  <span style="color: #00ffff;">if</span>(open(<span style="color: #ffa07a;">"console"</span>, O_RDWR) &lt; 0){
+    mknod(<span style="color: #ffa07a;">"console"</span>, CONSOLE, 0);
+    open(<span style="color: #ffa07a;">"console"</span>, O_RDWR);
+  }
+  dup(0);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">stdout
+</span>  dup(0);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">stderr
+</span>
+  <span style="color: #00ffff;">for</span>(;;){
+    printf(<span style="color: #ffa07a;">"init: starting sh\n"</span>);
+    pid = fork();
+    <span style="color: #00ffff;">if</span>(pid &lt; 0){
+      printf(<span style="color: #ffa07a;">"init: fork failed\n"</span>);
+      exit(1);
+    }
+    <span style="color: #00ffff;">if</span>(pid == 0){
+      exec(<span style="color: #ffa07a;">"sh"</span>, argv);
+      printf(<span style="color: #ffa07a;">"init: exec sh failed\n"</span>);
+      exit(1);
+    }
+
+    <span style="color: #00ffff;">for</span>(;;){
+      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">this call to wait() returns if the shell exits,
+</span>      <span style="color: #ff4500;">// </span><span style="color: #ff4500;">or if a parentless process exits.
+</span>      wpid = wait((<span style="color: #98fb98;">int</span> *) 0);
+      <span style="color: #00ffff;">if</span>(wpid == pid){
+        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">the shell exited; restart it.
+</span>        <span style="color: #00ffff;">break</span>;
+      } <span style="color: #00ffff;">else</span> <span style="color: #00ffff;">if</span>(wpid &lt; 0){
+        printf(<span style="color: #ffa07a;">"init: wait returned an error\n"</span>);
+        exit(1);
+      } <span style="color: #00ffff;">else</span> {
+        <span style="color: #ff4500;">// </span><span style="color: #ff4500;">it was a parentless process; do nothing.
+</span>      }
+    }
+  }
+}
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org746faff" class="outline-3">
+<h3 id="org746faff">总结</h3>
+<div class="outline-text-3" id="text-org746faff">
+<p>
+XV6的启动过程，可以总结为：
+</p>
+<ol class="org-ol">
+<li>entry.S 给内核开辟一个内核栈，从而可以执行 C 代码</li>
+<li>start.c 配置 RISC-V CPU，使得:
+<ul class="org-ul">
+<li>大部分异常和中断不是在机器模式中处理，而是在 supervisor 模式中处理</li>
+<li>确保在 supervisor 模式下特定的中断是启用的</li>
+<li>通过mret 去到之前配置好的异常捕获起始点w_mepc((uint64)main)</li>
+</ul></li>
+<li>main.c 首先进行很多初始化，然后通过 userinit() 创建第一个进程</li>
+<li>proc.c
+<ul class="org-ul">
+<li>初始化代码通过 <span class="underline">uvmfirst</span> 把user/initcode.S放入进程的页表中并且是地址为0处</li>
+<li>通过allocproc 获取第一个用户进程</li>
+<li>用p-&gt;context.ra = (uint64)forkret; 指定返回时，应该去forkret</li>
+<li>forkret时进入用户态， 并在最后则调用mret 回到之前设置的异常捕获点地址为 0
+<ul class="org-ul">
+<li>p-&gt;trapframe-&gt;epc = 0 : 执行initcode.S的代码</li>
+</ul></li>
+</ul></li>
+<li>initcode.S 主要就是执行用户态的init指令。代码在user/init.c</li>
+<li>init.c 中，通过fork和exec, 执行sh命令，启动shell完成</li>
+</ol>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="page_table.html">Next: 虚拟内存</a></td>
+<td class="org-left"><a href="os.html">Previous: 操作系统</a></td>
+<td class="org-left"><a href="xv6.html">Home: xv6 解析</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
