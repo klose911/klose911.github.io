@@ -201,6 +201,693 @@
  <a accesskey="H" href="xv6.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">中断陷阱</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orge6764f1">系统调用的执行流程</a>
+<ul>
+<li><a href="#org6b0446e">ecall 指令</a></li>
+<li><a href="#orgb10fc46">uservec</a></li>
+<li><a href="#org67cd0c0">usertrap</a></li>
+<li><a href="#orgca45bbd">usertrapret</a></li>
+<li><a href="#orgb625eb8">userret</a></li>
+</ul>
+</li>
+<li><a href="#org7f4e03f">kernel trap</a></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orge6764f1" class="outline-2">
+<h2 id="orge6764f1">系统调用的执行流程</h2>
+<div class="outline-text-2" id="text-orge6764f1">
+<ol class="org-ol">
+<li>系统调用通过 <b>ecall</b> 指令会切换到具有 <span class="underline">supervisor mode</span> 的内核中</li>
+<li>内核中执行的第一个指令是一个由汇编语言写的函数，叫做 <span class="underline">uservec</span></li>
+<li>在这个汇编函数中，代码执行跳转到了由C语言实现的函数 <span class="underline">usertrap</span> 中，这个函数在 <span class="underline">trap.c</span> 中</li>
+<li>在usertrap这个C函数中，执行了一个叫做 <span class="underline">syscall</span> 的函数</li>
+<li>syscall函数会在一个 <span class="underline">表</span> 中，根据传入的代表 <span class="underline">系统调用的数字</span> 进行查找，并在内核中 <b>执行</b> 具体实现了系统调用功能的函数</li>
+<li>sys_write会将显示数据输出到console上，当它完成了之后，它会返回给syscall函数,再返回给usertrap函数</li>
+<li>usertrap()会调用一个函数叫做 <span class="underline">usertrapret</span> ，它也位于trap.c中，这个函数完成了部分方便在C代码中实现的 <b>返回</b> 到 <span class="underline">用户空间</span> 的 准备工作</li>
+<li>汇编函数中会调用机器指令返回到用户空间，并且恢复ecall之后的用户程序的执行</li>
+</ol>
+</div>
+<div id="outline-container-org6b0446e" class="outline-3">
+<h3 id="org6b0446e">ecall 指令</h3>
+<div class="outline-text-3" id="text-org6b0446e">
+<p>
+通过ecall走到trampoline page的，而ecall实际上只会改变三件事情：
+</p>
+<ol class="org-ol">
+<li>ecall将代码从 <span class="underline">user mode</span> 改到 <span class="underline">supervisor mode</span></li>
+<li><p>
+ecall将 <span class="underline">程序计数器</span> 的值 <b>保存</b> 在了 <span class="underline">sepc寄存器</span>
+</p>
+<pre class="example" id="orgc2b970f">
+可以通过打印程序计数器看到这里的效果
+</pre></li>
+<li><p>
+ecall会 <b>跳转</b> 到 <span class="underline">stvec寄存器</span> 指向的指令
+</p>
+<pre class="example" id="orgff7d9e9">
+这个指令实际上指向 trampoline.S/uservec 函数，代码位于tramploine page
+
+因此这个内存地址，用户态和内核态，都可以通过虚拟内存获取到
+</pre></li>
+</ol>
+
+<p>
+接下来：
+</p>
+<ul class="org-ul">
+<li>需要 <b>保存</b> <span class="underline">32个用户寄存器</span> 的内容，这样当想要恢复用户代码执行时，才能恢复这些寄存器的内容</li>
+<li>因为现在还在user page table，需要 <b>切换</b> 到 <span class="underline">kernel page table</span></li>
+<li>需要 <b>创建或者找到</b> 一个 <span class="underline">kernel stack</span> ，并将 <span class="underline">sp寄存器</span> 的内容 <b>指向</b> 那个kernel stack。这样才能给C代码提供栈</li>
+<li>还需要跳转到内核中C代码的某些合理的位置（特定系统调用的处理代码）</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgb10fc46" class="outline-3">
+<h3 id="orgb10fc46">uservec</h3>
+<div class="outline-text-3" id="text-orgb10fc46">
+<p>
+为了能执行更新page table的指令，需要一些空闲的寄存器，这样才能先将page table的地址存在这些寄存器中，然后再执行修改SATP寄存器的指令
+</p>
+
+<p>
+对于保存用户寄存器，XV6在RISC-V上的实现包括了两个部分：
+</p>
+<ol class="org-ol">
+<li>XV6在每个 <span class="underline">user page table</span> <b>映射</b> 了 <span class="underline">trapframe page</span> ，这样每个进程都有自己的trapframe page
+<ul class="org-ul">
+<li>trapframe page <span class="underline">第一个字段</span> <b>保存</b> 了 <span class="underline">kernel page table地址</span> ，这将会是trap处理代码将要 <b>加载</b> 到 <span class="underline">satp寄存器</span> 的数值</li>
+</ul></li>
+<li>把 <span class="underline">trapframe page的地址</span> <b>加载</b> 到 <span class="underline">a0</span> ，也就是 <span class="underline">0x3fffffe000</span> ， 这是个常量。而原来 <span class="underline">用户空间的a0</span> 会被 <b>临时保存在</b> <span class="underline">sscratch这个寄存器</span> 中</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">uservec</span>:    
+        #
+        # trap.c sets stvec to point here, so
+        # traps from user space start here,
+        # in supervisor mode, but with a
+        # user page table.
+
+        # trap.c &#20250;&#23558; stvec &#23492;&#23384;&#22120;&#35774;&#32622;&#20026;&#35813;&#22320;&#22336;
+        # &#20351;&#24471;&#29992;&#25143;&#24577;&#38519;&#20837;&#65288;&#22914;&#31995;&#32479;&#35843;&#29992;&#25110;&#24322;&#24120;&#65289;&#26102;&#65292;CPU &#33021;&#36339;&#36716;&#21040;&#36825;&#37324;&#25191;&#34892;&#38519;&#20837;&#22788;&#29702;&#27969;&#31243;
+
+        # save user a0 in sscratch so
+        # a0 can be used to get at TRAPFRAME.
+
+        # csrw &#26159; &#8220;Control and Status Register Write&#8221; &#30340;&#32553;&#20889;&#65292;&#29992;&#20110;&#23558;&#19968;&#20010;&#36890;&#29992;&#23492;&#23384;&#22120;&#30340;&#20540;&#20889;&#20837;&#25351;&#23450;&#30340; CSR
+        # sscratch &#26159; supervisor &#27169;&#24335;&#19979;&#30340;&#20020;&#26102;&#23492;&#23384;&#22120;
+        # &#24120;&#29992;&#20110;&#38519;&#20837;&#65288;trap&#65289;&#22788;&#29702;&#36807;&#31243;&#20013;&#20445;&#23384;&#21644;&#20256;&#36882;&#20851;&#38190;&#25968;&#25454;&#65292;&#27604;&#22914;&#20869;&#26680;&#26632;&#25351;&#38024;&#25110;&#36827;&#31243;&#25511;&#21046;&#22359;&#25351;&#38024;
+        # a0 &#26159;&#19968;&#20010;&#36890;&#29992;&#23492;&#23384;&#22120;&#65292;&#36890;&#24120;&#22312;&#38519;&#20837;&#20999;&#25442;&#25110;&#19978;&#19979;&#25991;&#20999;&#25442;&#26102;&#65292;
+        # &#20869;&#26680;&#20250;&#25226;&#38656;&#35201;&#21518;&#32493; trap handler &#20351;&#29992;&#30340;&#25968;&#25454;&#65288;&#22914;&#20869;&#26680;&#26632;&#22320;&#22336;&#65289;&#20889;&#20837; sscratch&#65292;&#26041;&#20415; trap handler &#30452;&#25509;&#35835;&#21462;
+        <span style="color: #00ffff;">csrw</span> sscratch, a0 # &#23558;&#29992;&#25143;&#24577;&#30340; a0 &#23492;&#23384;&#22120;&#20540;&#20445;&#23384;&#21040; sscratch &#23492;&#23384;&#22120;&#20013;
+                          # &#20197;&#20415;&#21518;&#32493;&#20195;&#30721;&#21487;&#20197;&#20351;&#29992; a0 &#23492;&#23384;&#22120;&#26469;&#35775;&#38382; TRAPFRAME
+
+        # each process has a separate p-&gt;trapframe memory area,
+        # but it's mapped to the same virtual address
+        # (TRAPFRAME) in every process's user page table.
+
+        # &#27599;&#20010;&#36827;&#31243;&#37117;&#26377;&#29420;&#31435;&#30340; p-&gt;trapframe &#20869;&#23384;&#21306;&#22495;&#65288;&#29992;&#20110;&#20445;&#23384;&#35813;&#36827;&#31243;&#30340;&#29992;&#25143;&#24577;&#23492;&#23384;&#22120;&#31561;&#38519;&#20837;&#19978;&#19979;&#25991;&#65289;
+        # &#20294;&#22312;&#27599;&#20010;&#36827;&#31243;&#30340;&#29992;&#25143;&#39029;&#34920;&#20013;&#65292;&#36825;&#22359;&#29289;&#29702;&#20869;&#23384;&#37117;&#34987;&#26144;&#23556;&#21040;&#30456;&#21516;&#30340;&#34394;&#25311;&#22320;&#22336; TRAPFRAME
+        <span style="color: #00ffff;">li</span> a0, TRAPFRAME # &#23558; TRAPFRAME &#30340;&#22320;&#22336;&#21152;&#36733;&#21040; a0 &#23492;&#23384;&#22120;&#20013;
+                          # &#20197;&#20415;&#21518;&#32493;&#20195;&#30721;&#21487;&#20197;&#36890;&#36807; a0 &#35775;&#38382;&#24403;&#21069;&#36827;&#31243;&#30340;&#38519;&#20837;&#19978;&#19979;&#25991;
+</pre>
+</div>
+<p>
+所以，下面执行 <span class="underline">sd</span> <b>存储</b> <span class="underline">用户空间寄存器</span> 的时候，是让每个寄存器被保存在了 <span class="underline">偏移量+a0</span> 的位置 （也就是相对于 trapframe 页的偏移）
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"># save the user registers in TRAPFRAME
+# &#25226;&#36827;&#31243;&#30456;&#20851;&#30340;&#29992;&#25143;&#24577;&#23492;&#23384;&#22120;&#20445;&#23384;&#21040; TRAPFRAME &#20013; 
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">ra</span>, 40(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">sp</span>, 48(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">gp</span>, 56(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">tp</span>, 64(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">t0</span>, 72(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">t1</span>, 80(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">t2</span>, 88(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s0</span>, 96(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s1</span>, 104(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">a1</span>, 120(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">a2</span>, 128(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">a3</span>, 136(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">a4</span>, 144(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">a5</span>, 152(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">a6</span>, 160(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">a7</span>, 168(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s2</span>, 176(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s3</span>, 184(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s4</span>, 192(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s5</span>, 200(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s6</span>, 208(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s7</span>, 216(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s8</span>, 224(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s9</span>, 232(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s10</span>, 240(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">s11</span>, 248(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">t3</span>, 256(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">t4</span>, 264(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">t5</span>, 272(a0)
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">t6</span>, 280(a0)
+</pre>
+</div>
+
+<p>
+注意：最后才把把用户态原来a0寄存器的值 从临时存放的寄存器 sscartch，存到p-&gt;trapframe-&gt;a0中
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"># save the user a0 in p-&gt;trapframe-&gt;a0
+
+# &#21363;&#25226;&#29992;&#25143;&#24577; a0 &#30340;&#20540;&#20445;&#23384;&#21040; p-&gt;trapframe-&gt;a0
+# &#22312; xv6 &#30340; trap &#22788;&#29702;&#27969;&#31243;&#20013;&#65292;sscratch &#36890;&#24120;&#20445;&#23384;&#20102;&#29992;&#25143;&#24577; a0 &#30340;&#20540;
+<span style="color: #87cefa;">csrr</span> <span style="color: #00ffff;">t0</span>, sscratch # &#20174; sscratch &#23492;&#23384;&#22120;&#20013;&#35835;&#21462;&#29992;&#25143;&#24577;&#30340; a0 &#20540;&#21040; t0 &#23492;&#23384;&#22120;
+<span style="color: #87cefa;">sd</span> <span style="color: #00ffff;">t0</span>, 112(a0) # &#23558;&#29992;&#25143;&#24577;&#30340; a0 &#20540;&#20445;&#23384;&#21040; TRAPFRAME &#20013;&#30340; a0 &#23383;&#27573;
+</pre>
+</div>
+
+<p>
+将a0指向的内存地址往后数的第8个字节开始的数据加载到Stack Pointer寄存器。第8个字节开始的数据是内核的Stack Pointer（kernel_sp）
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"># initialize kernel stack pointer, from p-&gt;trapframe-&gt;kernel_sp
+  # &#20174;&#24403;&#21069;&#36827;&#31243;&#30340; trapframe &#32467;&#26500;&#20307;&#20013;&#30340; kernel_sp &#23383;&#27573;&#21152;&#36733;&#20869;&#26680;&#26632;&#25351;&#38024;
+  # &#20559;&#31227; 8 &#23383;&#33410;&#27491;&#22909;&#26159; kernel_sp &#23383;&#27573;&#30340;&#20301;&#32622;
+  <span style="color: #00ffff;">ld</span> sp, 8(a0) # &#20174;&#20197; a0 &#20026;&#22522;&#22336;&#12289;&#20559;&#31227; 8 &#23383;&#33410;&#30340;&#20301;&#32622;&#35835;&#21462; 64 &#20301;&#25968;&#25454;&#65292;&#24182;&#23558;&#20854;&#21152;&#36733;&#21040; sp&#65288;&#26632;&#25351;&#38024;&#23492;&#23384;&#22120;&#65289;&#20013;
+</pre>
+</div>
+
+<pre class="example" id="org343f813">
+trapframe中的kernel_sp是由kernel在进入用户空间之前就设置好的，它的值是这个进程的kernel stack
+
+在xv6中，用户进程数量是固定的，在初始化进程表的时候就为每个进程分配了自己的内核进程栈
+</pre>
+
+<p>
+接下来将CPU核的编号也就是 <span class="underline">hartid</span> 保存在 <span class="underline">tp寄存器</span> , 这个寄存器表明当前运行在多核处理器的哪个核上
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"># make tp hold the current hartid, from p-&gt;trapframe-&gt;kernel_hartid
+# &#20559;&#31227; 32 &#23383;&#33410;&#27491;&#22909;&#26159; kernel_hartid &#23383;&#27573;&#30340;&#20301;&#32622;
+<span style="color: #87cefa;">ld</span> <span style="color: #00ffff;">tp</span>, 32(a0) # &#20174;&#20197; a0 &#20026;&#22522;&#22336;&#12289;&#20559;&#31227; 32 &#23383;&#33410;&#30340;&#20301;&#32622;&#35835;&#21462; 64 &#20301;&#25968;&#25454;&#65292;&#24182;&#23558;&#20854;&#21152;&#36733;&#21040; tp&#65288;&#32447;&#31243;&#25351;&#38024;&#23492;&#23384;&#22120;&#65289;&#20013;
+</pre>
+</div>
+
+<p>
+把 <span class="underline">usertrap</span> 函数的地址载入到 <span class="underline">t0寄存器</span>
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"># load the address of usertrap(), from p-&gt;trapframe-&gt;kernel_trap
+# &#20559;&#31227; 16 &#23383;&#33410;&#27491;&#22909;&#26159; kernel_trap &#23383;&#27573;&#30340;&#20301;&#32622;
+<span style="color: #87cefa;">ld</span> <span style="color: #00ffff;">t0</span>, 16(a0) # &#20174;&#20197; a0 &#20026;&#22522;&#22336;&#12289;&#20559;&#31227; 16 &#23383;&#33410;&#30340;&#20301;&#32622;&#35835;&#21462; 64 &#20301;&#25968;&#25454;&#65292;&#24182;&#23558;&#20854;&#21152;&#36733;&#21040; t0 &#23492;&#23384;&#22120;&#20013;
+                  # t0 &#29616;&#22312;&#20445;&#23384;&#20102; usertrap() &#20989;&#25968;&#30340;&#22320;&#22336;&#65292;&#21518;&#32493;&#20250;&#36339;&#36716;&#21040;&#35813;&#22320;&#22336;&#25191;&#34892;
+</pre>
+</div>
+
+<p>
+从用户进程的页表切换到内核的页表
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"># fetch the kernel page table address, from p-&gt;trapframe-&gt;kernel_satp.
+# &#20559;&#31227; 24 &#23383;&#33410;&#27491;&#22909;&#26159; kernel_satp &#23383;&#27573;&#30340;&#20301;&#32622;
+<span style="color: #87cefa;">ld</span> <span style="color: #00ffff;">t1</span>, 0(a0) # &#20174;&#20197; a0 &#20026;&#22522;&#22336;&#12289;&#20559;&#31227; 0 &#23383;&#33410;&#30340;&#20301;&#32622;&#35835;&#21462; 64 &#20301;&#25968;&#25454;&#65292;&#24182;&#23558;&#20854;&#21152;&#36733;&#21040; t1 &#23492;&#23384;&#22120;&#20013;
+# t1 &#29616;&#22312;&#20445;&#23384;&#20102;&#20869;&#26680;&#39029;&#34920;&#30340; satp &#20540;&#65292;&#21518;&#32493;&#20250;&#29992;&#23427;&#26469;&#20999;&#25442;&#21040;&#20869;&#26680;&#39029;&#34920;
+
+# wait for any previous memory operations to complete, so that
+# they use the user page table.
+
+# &#30830;&#20445;&#20043;&#21069;&#30340;&#20869;&#23384;&#25805;&#20316;&#65288;&#22914;&#20445;&#23384;&#23492;&#23384;&#22120;&#21040; TRAPFRAME&#65289;&#37117;&#23436;&#25104;
+# &#20197;&#38450;&#27490;&#20869;&#23384;&#25805;&#20316;&#20351;&#29992;&#38169;&#35823;&#30340;&#39029;&#34920;
+<span style="color: #87cefa;">sfence</span>.vma zero, zero # sfence.vma &#26159; RISC-V &#25351;&#20196;&#65292;&#29992;&#20110;&#21047;&#26032;&#34394;&#25311;&#20869;&#23384;&#30340;&#22320;&#22336;&#36716;&#25442;&#32531;&#23384;&#65288;TLB&#65289;
+
+# install the kernel page table.
+<span style="color: #87cefa;">csrw</span> <span style="color: #00ffff;">satp</span>, t1 # &#23558;&#20869;&#26680;&#39029;&#34920;&#30340; satp &#20540;&#20889;&#20837; satp &#23492;&#23384;&#22120;&#65292;&#20999;&#25442;&#21040;&#20869;&#26680;&#39029;&#34920;
+
+# flush now-stale user entries from the TLB.
+<span style="color: #87cefa;">sfence</span>.vma zero, zero # &#20877;&#27425;&#21047;&#26032; TLB&#65292;&#30830;&#20445;&#20999;&#25442;&#39029;&#34920;&#21518;&#19981;&#20250;&#20351;&#29992;&#36807;&#26102;&#30340;&#29992;&#25143;&#39029;&#34920;&#26465;&#30446;
+</pre>
+</div>
+
+<pre class="example" id="orgfcb9923">
+之前的汇编代码里并没有保存用户进程的页表地址，而是直接覆盖了satp寄存器，那在中断返回的时候如何恢复呢？
+
+答案：用户进程的页表地址在初始化的时候就会被保存在 proc-&gt;pagetable 字段内，返回的时候只需要用它来覆盖satp寄存器即可
+</pre>
+
+<p>
+最后一条指令是jr t0, 从 trampoline.S 跳到内核的C代码中。这条指令的作用是跳转到t0指向的函数 <span class="underline">usertrap</span> 中
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"># jump to usertrap(), which does not return
+# usertrap() &#22788;&#29702;&#23436;&#38519;&#20837;&#21518;&#19981;&#20250;&#36820;&#22238;&#21040;&#36825;&#37324;
+<span style="color: #87cefa;">jr</span> <span style="color: #00ffff;">t0</span> # &#36339;&#36716;&#21040; usertrap() &#20989;&#25968;&#22320;&#22336;&#65292;&#24320;&#22987;&#25191;&#34892;&#38519;&#20837;&#22788;&#29702;&#27969;&#31243;
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org67cd0c0" class="outline-3">
+<h3 id="org67cd0c0">usertrap</h3>
+<div class="outline-text-3" id="text-org67cd0c0">
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">send interrupts and exceptions to kerneltrap(),
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">since we're now in the kernel.
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#30001;&#20110;&#24403;&#21069;&#24050;&#32463;&#22788;&#20110;&#20869;&#26680;&#24577;&#65292;&#25509;&#19979;&#26469;&#25152;&#26377;&#30340;&#20013;&#26029;&#21644;&#24322;&#24120;&#37117;&#24212;&#35813;&#20132;&#30001; kerneltrap() &#22788;&#29702; 
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;&#38519;&#20837;&#21521;&#37327;&#23492;&#23384;&#22120;&#65288;stvec&#65289;
+</span><span style="color: #87cefa;">w_stvec</span>((<span style="color: #98fb98;">uint64</span>)kernelvec); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21518;&#32493;&#30340;&#20013;&#26029;&#21644;&#24322;&#24120;&#37117;&#36339;&#36716;&#21040; kerneltrap() &#36827;&#34892;&#22788;&#29702;
+</span>
+<span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">proc</span> *<span style="color: #eedd82;">p</span> = myproc(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#33719;&#21462;&#24403;&#21069;&#36816;&#34892;&#30340;&#65288;&#29992;&#25143;&#24577;&#65289;&#36827;&#31243;&#32467;&#26500;&#20307;&#25351;&#38024;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">save user program counter.
+</span>p-&gt;trapframe-&gt;epc = r_sepc(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20445;&#23384;&#29992;&#25143;&#31243;&#24207;&#35745;&#25968;&#22120;&#65288;sepc&#65289;&#21040;&#36827;&#31243;&#30340; trapframe &#20013;</span>
+</pre>
+</div>
+
+<ol class="org-ol">
+<li><p>
+在内核中执行任何操作之前，usertrap中先将 <span class="underline">stvec</span> 指向了 <span class="underline">kernelvec</span> 函数，这是内核空间trap处理代码的位置，而不是用户空间trap处理代码的位置
+</p>
+<pre class="example" id="org2d19011">
+这是因为在执行中断处理的时候，仍然可能产生其他中断，如果需要立刻执行，那必须切换到kernelvec函数 
+</pre></li>
+<li><p>
+通过调用myproc函数来得到当前运行的是什么进程
+</p>
+<pre class="example" id="org00b9614">
+myproc函数实际上会查找一个根据当前CPU核的编号索引的数组，CPU核的编号是hartid
+
+如果还记得，之前在uservec函数中将它存在了tp寄存器
+
+这是因为必须考虑到用户进程和内核代码可能执行在不同的cpu上
+</pre></li>
+<li>要把sepc寄存器中的用户程序计数器保存到进程的 trapframe 数据结构中</li>
+</ol>
+
+<p>
+接下来需要找出现在会在usertrap函数的原因。根据触发trap的原因，RISC-V的 <span class="underline">scause寄存器</span> 会有不同的数字：
+</p>
+<ul class="org-ul">
+<li>如果是系统调用：
+<ul class="org-ul">
+<li><p>
+存储在sepc寄存器中的程序计数器，是用户程序中触发trap的指令的地址。但是当恢复用户程序时，希望在下一条指令恢复，也就是ecall之后的一条指令
+</p>
+<pre class="example" id="org5766192">
+所以对于系统调用，需要保存的用户程序计数器加4，这样会在ecall的下一条指令恢复
+</pre></li>
+<li>重新打开中断，因为调用syscall的时候，依旧允许其他比如时钟中断</li>
+<li>执行sycall函数，处理系统调用</li>
+</ul></li>
+<li>硬件中断：在 devintr函数里执行</li>
+</ul>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span>(r_scause() == 8){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31995;&#32479;&#35843;&#29992;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">system call
+</span>
+                <span style="color: #00ffff;">if</span>(killed(p)) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36827;&#31243;&#24050;&#32463;&#20572;&#27490;&#65292;&#30452;&#25509;&#36864;&#20986;
+</span>                                exit(-1); 
+
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">sepc points to the ecall instruction,
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">but we want to return to the next instruction.
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">sepc&#65288;Supervisor Exception Program Counter&#65289;&#23492;&#23384;&#22120;&#27492;&#26102;&#25351;&#21521;&#35302;&#21457;&#31995;&#32479;&#35843;&#29992;&#30340; ecall &#25351;&#20196;&#26412;&#36523;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20026;&#20102;&#35753;&#29992;&#25143;&#31243;&#24207;&#22312;&#31995;&#32479;&#35843;&#29992;&#36820;&#22238;&#21518;&#33021;&#32487;&#32493;&#25191;&#34892;&#19979;&#19968;&#26465;&#25351;&#20196;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#38656;&#35201;&#23558; sepc &#22686;&#21152; 4&#65288;RISC-V &#25351;&#20196;&#38271;&#24230;&#20026; 4 &#23383;&#33410;&#65289;
+</span>                p-&gt;trapframe-&gt;epc += 4;
+
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">an interrupt will change sepc, scause, and sstatus,
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">so enable only now that we're done with those registers.
+</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20013;&#26029;&#21457;&#29983;&#26102;&#20250;&#25913;&#21464; sepc&#12289;scause &#21644; sstatus &#36825;&#20960;&#20010;&#20851;&#38190;&#23492;&#23384;&#22120;&#30340;&#20540;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21482;&#26377;&#22312;&#36825;&#20123;&#23492;&#23384;&#22120;&#30456;&#20851;&#30340;&#25805;&#20316;&#20840;&#37096;&#23436;&#25104;&#21518;&#65292;&#25165;&#35843;&#29992; intr_on() &#37325;&#26032;&#24320;&#21551;&#20013;&#26029;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36991;&#20813;&#22312;&#22788;&#29702;&#20013;&#26029;&#25110;&#24322;&#24120;&#20449;&#24687;&#26102;&#34987;&#26032;&#30340;&#20013;&#26029;&#25171;&#26029;&#65292;&#23548;&#33268;&#25968;&#25454;&#19981;&#19968;&#33268;&#25110;&#22788;&#29702;&#27969;&#31243;&#28151;&#20081;&#12290;
+</span>                intr_on(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#37325;&#26032;&#24320;&#21551;&#20013;&#26029;&#65292;&#20801;&#35768;&#22788;&#29702;&#20854;&#20182;&#20013;&#26029;
+</span>
+                syscall(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35843;&#29992;&#31995;&#32479;&#35843;&#29992;&#22788;&#29702;&#20989;&#25968;&#65292;&#26681;&#25454;&#31995;&#32479;&#35843;&#29992;&#21495;&#25191;&#34892;&#30456;&#24212;&#30340;&#20869;&#26680;&#21151;&#33021;
+</span>} <span style="color: #00ffff;">else</span> <span style="color: #00ffff;">if</span>((which_dev = devintr()) != 0){ 
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">ok
+</span>} <span style="color: #00ffff;">else</span> { <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20854;&#20182;&#24322;&#24120; &#25110;&#26080;&#27861;&#35782;&#21035;&#30340;&#20013;&#26029; &#25171;&#21360;&#20986;&#38169;&#20449;&#24687;&#65292;&#24182;&#20572;&#27490;&#36827;&#31243;
+</span>                printf(<span style="color: #ffa07a;">"usertrap(): unexpected scause 0x%lx pid=%d\n"</span>, r_scause(), p-&gt;pid);
+                printf(<span style="color: #ffa07a;">"            sepc=0x%lx stval=0x%lx\n"</span>, r_sepc(), r_stval());
+                setkilled(p); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26631;&#35760;&#36827;&#31243;&#20026;&#24050;&#32456;&#27490;&#29366;&#24577;
+</span>}
+</pre>
+</div>
+
+
+<p>
+最后会调用 usertrapret 恢复用户进程：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #87cefa;">usertrapret</span>(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36820;&#22238;&#29992;&#25143;&#24577;</span>
+</pre>
+</div>
+
+<pre class="example" id="org8de07d3">
+这里忽略了部分和进程休眠，关闭相关的代码逻辑，未来在讲时钟中断时候再详细描述
+</pre>
+</div>
+</div>
+<div id="outline-container-orgca45bbd" class="outline-3">
+<h3 id="orgca45bbd">usertrapret</h3>
+<div class="outline-text-3" id="text-orgca45bbd">
+<p>
+它首先 <b>关闭</b> 了 <span class="underline">中断</span> 。之前在系统调用的过程中是打开了中断的，这里关闭中断是我们将要更新 <span class="underline">stvec寄存器</span> 指向 <span class="underline">用户空间的trap入口</span> (trampoline.S/uservec) ，而之前在内核中的时候，指向的是内核空间的trap代码 kernelvec
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">proc</span> *<span style="color: #eedd82;">p</span> = myproc(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#33719;&#21462;&#24403;&#21069;&#65288;&#29992;&#25143;&#24577;&#65289;&#36827;&#31243;&#32467;&#26500;&#20307;&#25351;&#38024;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">we're about to switch the destination of traps from
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">kerneltrap() to usertrap(), so turn off interrupts until
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">we're back in user space, where usertrap() is correct. 
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24403;&#21069;&#21363;&#23558;&#25226;&#38519;&#20837;&#22788;&#29702;&#30340;&#20837;&#21475;&#20174; kerneltrap() &#20999;&#25442;&#20026; usertrap()
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22312;&#20869;&#26680;&#24577;&#26102;&#65292;&#38519;&#20837;&#24212;&#35813;&#30001; kerneltrap() &#22788;&#29702;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#32780;&#22238;&#21040;&#29992;&#25143;&#31354;&#38388;&#21518;&#65292;&#38519;&#20837;&#25165;&#24212;&#35813;&#30001; usertrap() &#22788;&#29702; 
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21482;&#26377;&#31561;&#22238;&#21040;&#29992;&#25143;&#31354;&#38388;&#21518;&#65292;&#25165;&#37325;&#26032;&#20801;&#35768;&#20013;&#26029;&#65292;&#27492;&#26102;&#38519;&#20837;&#30446;&#26631;&#24050;&#32463;&#27491;&#30830;&#35774;&#32622;&#20026; usertrap()
+</span><span style="color: #87cefa;">intr_off</span>(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20851;&#38381;&#20013;&#26029;&#65292;&#38450;&#27490;&#22312;&#20869;&#26680;&#24577;&#26102;&#34987;&#26032;&#30340;&#20013;&#26029;&#25171;&#26029;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">send syscalls, interrupts, and exceptions to uservec in trampoline.S
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#27573;&#20195;&#30721;&#30340;&#20316;&#29992;&#26159;&#35774;&#32622;&#38519;&#20837;&#21521;&#37327;&#23492;&#23384;&#22120;&#65288;stvec&#65289;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35753;&#21518;&#32493;&#30340;&#29992;&#25143;&#24577;&#30340;&#31995;&#32479;&#35843;&#29992;&#12289;&#20013;&#26029;&#21644;&#24322;&#24120;&#37117;&#36339;&#36716;&#21040; trampoline.S &#25991;&#20214;&#20013;&#30340; uservec &#20837;&#21475;&#36827;&#34892;&#22788;&#29702;
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">TRAMPOLINE &#26159; trampoline &#20195;&#30721;&#27573;&#22312;&#34394;&#25311;&#22320;&#22336;&#31354;&#38388;&#20013;&#30340;&#22522;&#22320;&#22336;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">uservec &#21644; trampoline &#37117;&#26159;&#22806;&#37096;&#31526;&#21495;&#65292;&#20998;&#21035;&#34920;&#31034; trampoline &#20195;&#30721;&#27573;&#20013; uservec &#21644; trampoline &#26631;&#31614;&#30340;&#22320;&#22336;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">uservec - trampoline &#35745;&#31639;&#20986; uservec &#30456;&#23545;&#20110; trampoline &#27573;&#36215;&#22987;&#30340;&#20559;&#31227;
+</span><span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">trampoline_uservec</span> = TRAMPOLINE + (uservec - trampoline); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">uservec &#22312;&#34394;&#25311;&#22320;&#22336;&#31354;&#38388;&#20013;&#30340;&#23454;&#38469;&#20837;&#21475;&#22320;&#22336;
+</span><span style="color: #87cefa;">w_stvec</span>(trampoline_uservec); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;&#38519;&#20837;&#21521;&#37327;&#23492;&#23384;&#22120; stvec&#65292;&#25351;&#21521; uservec &#20837;&#21475;</span>
+</pre>
+</div>
+
+<p>
+下面把kernal要用到的一些变量写进trapframe。因为当用户态再次执行ecall或中断时，还需要用这里的值
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">set up trapframe values that uservec will need when
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">the process next traps into the kernel.
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24403;&#21069;&#36827;&#31243;&#30340; trapframe&#65288;&#38519;&#20837;&#24103;&#65289;&#32467;&#26500;&#20307;&#35774;&#32622;&#19968;&#32452;&#20851;&#38190;&#23383;&#27573;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#20123;&#23383;&#27573;&#20250;&#22312;&#19979;&#27425;&#36827;&#31243;&#20174;&#29992;&#25143;&#24577;&#38519;&#20837;&#20869;&#26680;&#24577;&#26102;&#65292;&#34987; uservec &#20351;&#29992;
+</span>p-&gt;trapframe-&gt;kernel_satp = r_satp();         <span style="color: #ff4500;">// </span><span style="color: #ff4500;">kernel page table &#20869;&#26680;&#39029;&#34920;
+</span>p-&gt;trapframe-&gt;kernel_sp = p-&gt;kstack + PGSIZE; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">process's kernel stack &#20869;&#26680;&#26632;&#39030;
+</span>p-&gt;trapframe-&gt;kernel_trap = (<span style="color: #98fb98;">uint64</span>)usertrap;  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">usertrap() &#20989;&#25968;&#22320;&#22336;
+</span>p-&gt;trapframe-&gt;kernel_hartid = r_tp();         <span style="color: #ff4500;">// </span><span style="color: #ff4500;">hartid for cpuid() &#20869;&#26680;&#32447;&#31243;&#25351;&#38024;&#65288;tp&#65289;</span>
+</pre>
+</div>
+
+<p>
+接下来要设置 <span class="underline">sstatus寄存器</span> ，这是一个 *控制寄存器*：
+</p>
+<ul class="org-ul">
+<li>这个寄存器的 <span class="underline">SPP bit位</span> 控制了 <span class="underline">sret指令的行为</span> ：该bit为 <span class="underline">0</span> 表示下次执行 <span class="underline">sret</span> 的时候，想要返回 <span class="underline">user mode</span> 而不是supervisor mode</li>
+<li>这个寄存器的 <span class="underline">SPIE bit位</span> 控制了 <b>在执行完sret之后</b> ，是否打开中断。因为在返回到用户空间之后，的确希望打开中断，所以这里将SPIE bit位设置为 <span class="underline">1</span></li>
+</ul>
+
+<p>
+修改完这些bit位之后，会把新的值写回到sstatus寄存器
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">set S Previous Privilege mode to User.
+</span><span style="color: #98fb98;">unsigned</span> <span style="color: #98fb98;">long</span> <span style="color: #eedd82;">x</span> = r_sstatus(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462;&#24403;&#21069;&#30340; sstatus &#23492;&#23384;&#22120;&#20540;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#28165;&#38500; SPP &#20301;&#65292;&#35774;&#32622;&#20026; 0&#65292;&#34920;&#31034;&#36820;&#22238;&#29992;&#25143;&#24577;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">SPP &#20301;&#34920;&#31034;&#38519;&#20837;&#21457;&#29983;&#26102; CPU &#30340;&#21069;&#19968;&#20010;&#29305;&#26435;&#32423;
+</span>x &amp;= ~SSTATUS_SPP; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">clear SPP to 0 for user mode 
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29992;&#25143;&#24577;&#20801;&#35768;&#20013;&#26029;
+</span>x |= SSTATUS_SPIE; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">enable interrupts in user mode
+</span><span style="color: #87cefa;">w_sstatus</span>(x); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#20462;&#25913;&#21518;&#30340;&#20540;&#20889;&#22238; sstatus &#23492;&#23384;&#22120;</span>
+</pre>
+</div>
+
+<p>
+现在将 <span class="underline">sepc寄存器</span> 的值设置成 <span class="underline">之前保存的用户程序计数器</span> 的值，这样将来在trampoline.S/userret 函数最后执行了sret指令时候会将程序计数器设置成sepc寄存器的值
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">set S Exception Program Counter to the saved user pc.
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">sepc &#23492;&#23384;&#22120;&#20445;&#23384;&#20102;&#29992;&#25143;&#31243;&#24207;&#35745;&#25968;&#22120;&#65288;pc&#65289;&#65292;&#21363;&#29992;&#25143;&#31243;&#24207;&#21457;&#29983;&#38519;&#20837;&#26102;&#30340;&#25351;&#20196;&#22320;&#22336;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35813;&#22320;&#22336;&#20250;&#22312;&#20174;&#20869;&#26680;&#24577;&#36820;&#22238;&#29992;&#25143;&#24577;&#26102;&#65292;&#25191;&#34892;sret&#21629;&#20196;&#21518;&#37325;&#26032;&#21152;&#36733;&#21040; pc &#20013;
+</span><span style="color: #87cefa;">w_sepc</span>(p-&gt;trapframe-&gt;epc); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#20445;&#23384;&#30340;&#29992;&#25143;&#36827;&#31243;&#30340; pc &#20889;&#22238; sepc &#23492;&#23384;&#22120;</span>
+</pre>
+</div>
+
+<p>
+根据user page table地址计算相应的 <span class="underline">satp值</span> ，这样在返回到用户空间的时候才能完成page table的切换。需要吧它当作 <span class="underline">userret函数</span> 的 <b>第一个参数</b> (放入 <span class="underline">a0寄存器</span> ) 传给接下来的汇编代码
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">tell trampoline.S the user page table to switch to.
+</span><span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">satp</span> = MAKE_SATP(p-&gt;pagetable); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35745;&#31639;&#29992;&#25143;&#36827;&#31243;&#23545;&#24212;&#30340;&#20869;&#23384;&#39029;&#34920;&#30340; satp &#20540;</span>
+</pre>
+</div>
+
+<pre class="example" id="org4b10490">
+但是现在还没有在trampoline代码中，现在还在一个普通的C函数中，所以这里只是将 user page table地址准备好
+
+这里的计算也只是一个位移操作， 需要把 proc-&gt;pagetable 左移动12位
+</pre>
+
+<p>
+计算出将要跳转到汇编代码的地址。也就是tampoline.S中的userret函数，这个函数包含了所有能带回到用户空间的指令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">jump to userret in trampoline.S at the top of memory, which 
+</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">switches to the user page table, restores user registers,
+</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">and switches to user mode with sret.
+</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#36339;&#36716;&#21040; trampoline.S &#27719;&#32534;&#25991;&#20214;&#20013;&#30340; userret &#20837;&#21475;
+</span> <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35813;&#20837;&#21475;&#36127;&#36131;&#20999;&#25442;&#21040;&#29992;&#25143;&#39029;&#34920;&#12289;&#24674;&#22797;&#29992;&#25143;&#23492;&#23384;&#22120;&#65292;&#24182;&#36890;&#36807; sret &#25351;&#20196;&#20999;&#25442;&#22238;&#29992;&#25143;&#27169;&#24335;
+</span> <span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">trampoline_userret</span> = TRAMPOLINE + (userret - trampoline); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35745;&#31639; userret &#22312;&#34394;&#25311;&#22320;&#22336;&#31354;&#38388;&#20013;&#30340;&#23454;&#38469;&#20837;&#21475;&#22320;&#22336;</span>
+</pre>
+</div>
+
+<p>
+将trampoline_userret指针作为一个函数指针，执行相应的函数（也就是userret函数）并传入参数，参数存储在a0寄存器中, 也就是user page table指针：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#35813;&#22320;&#22336;&#24378;&#21046;&#36716;&#25442;&#20026;&#19968;&#20010;&#25509;&#21463; uint64 &#21442;&#25968;&#30340;&#20989;&#25968;&#25351;&#38024;&#65292;&#24182;&#35843;&#29992;&#23427;&#65292;&#21516;&#26102;&#20256;&#20837; satp&#65288;&#29992;&#25143;&#39029;&#34920;&#30340;&#23492;&#23384;&#22120;&#20540;&#65289;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#26679; trampoline &#20195;&#30721;&#23601;&#33021;&#20999;&#25442;&#21040;&#29992;&#25143;&#39029;&#34920;&#65292;&#24182;&#23436;&#25104;&#29992;&#25143;&#24577;&#30340;&#24674;&#22797;&#21644;&#36339;&#36716;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">(void (*)(uint64) &#34920;&#31034;&#19968;&#20010;&#20989;&#25968;&#25351;&#38024;&#65292;&#25351;&#21521;&#19968;&#20010;&#25509;&#21463; uint64 &#21442;&#25968;&#19988;&#26080;&#36820;&#22238;&#20540;&#30340;&#20989;&#25968;
+</span>((<span style="color: #98fb98;">void</span> (*)(uint64))trampoline_userret)(satp); 
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgb625eb8" class="outline-3">
+<h3 id="orgb625eb8">userret</h3>
+<div class="outline-text-3" id="text-orgb625eb8">
+<pre class="example" id="orgea11504">
+userret 函数做的事情几乎就是 uservec函数的 逆向操作
+</pre>
+<p>
+首先把之前 <span class="underline">a0寄存器</span> <b>传递</b> 过来的 <span class="underline">user pagetable指针</span> 放到 <span class="underline">satp寄存器</span> 中
+</p>
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">userret</span>: 
+        # userret(pagetable) 
+        # called by usertrapret() in trap.c to
+        # switch from kernel to user.
+        # a0: user page table, for satp.
+
+        # &#30001; trap.c &#25991;&#20214;&#20013;&#30340; usertrapret() &#35843;&#29992;&#65292;&#29992;&#20110;&#23436;&#25104;&#20174;&#20869;&#26680;&#36820;&#22238;&#29992;&#25143;&#31354;&#38388;&#30340;&#26368;&#21518;&#27493;&#39588;
+        # &#20999;&#25442;&#36807;&#31243;&#20013;&#65292;a0 &#23492;&#23384;&#22120;&#20256;&#36882;&#29992;&#25143;&#39029;&#34920;&#30340;&#29289;&#29702;&#22320;&#22336;
+        # &#36825;&#20010;&#22320;&#22336;&#20250;&#34987;&#20889;&#20837; satp &#23492;&#23384;&#22120;&#65292;&#20174;&#32780;&#28608;&#27963;&#29992;&#25143;&#36827;&#31243;&#30340;&#34394;&#25311;&#20869;&#23384;&#26144;&#23556;
+
+        # &#20999;&#25442;&#21040;&#29992;&#25143;&#32423;&#30340;&#39029;&#34920;
+        # switch to the user page table.
+        <span style="color: #00ffff;">sfence.vma</span> zero, zero # &#30830;&#20445;&#20043;&#21069;&#30340;&#20869;&#23384;&#25805;&#20316;&#37117;&#23436;&#25104;&#65292;&#38450;&#27490;&#20351;&#29992;&#38169;&#35823;&#30340;&#39029;&#34920; 
+        <span style="color: #00ffff;">csrw</span> satp, a0 # &#23558;&#29992;&#25143;&#39029;&#34920;&#30340;&#29289;&#29702;&#22320;&#22336;&#20889;&#20837; satp &#23492;&#23384;&#22120;&#65292;&#20999;&#25442;&#21040;&#29992;&#25143;&#39029;&#34920;
+        <span style="color: #00ffff;">sfence.vma</span> zero, zero # &#21047;&#26032; TLB&#65292;&#30830;&#20445;&#19981;&#20250;&#20351;&#29992;&#36807;&#26102;&#30340;&#20869;&#23384;&#26144;&#23556;&#26465;&#30446;
+</pre>
+</div>
+
+<p>
+随后把 <span class="underline">trapframe的地址</span> 放进a0：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm"><span style="color: #87cefa;">li</span> <span style="color: #00ffff;">a0</span>, TRAPFRAME # &#23558; TRAPFRAME &#30340;&#22320;&#22336;&#21152;&#36733;&#21040; a0 &#23492;&#23384;&#22120;&#20013;
+# &#20197;&#20415;&#21518;&#32493;&#20195;&#30721;&#21487;&#20197;&#36890;&#36807; a0 &#35775;&#38382;&#24403;&#21069;&#36827;&#31243;&#30340;&#38519;&#20837;&#19978;&#19979;&#25991;
+</pre>
+</div>
+
+<p>
+下面就是开始恢复之前用户态的寄存器的值了：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-asm">  # restore all but a0 from TRAPFRAME 
+  # &#20174; TRAPFRAME &#20013;&#24674;&#22797;&#38500; a0 &#20043;&#22806;&#30340;&#25152;&#26377;&#29992;&#25143;&#24577;&#23492;&#23384;&#22120;
+  <span style="color: #00ffff;">ld</span> ra, 40(a0)
+  <span style="color: #00ffff;">ld</span> sp, 48(a0)
+  <span style="color: #00ffff;">ld</span> gp, 56(a0)
+  <span style="color: #00ffff;">ld</span> tp, 64(a0)
+  <span style="color: #00ffff;">ld</span> t0, 72(a0)
+  <span style="color: #00ffff;">ld</span> t1, 80(a0)
+  <span style="color: #00ffff;">ld</span> t2, 88(a0)
+  <span style="color: #00ffff;">ld</span> s0, 96(a0)
+  <span style="color: #00ffff;">ld</span> s1, 104(a0)
+  <span style="color: #00ffff;">ld</span> a1, 120(a0)
+  <span style="color: #00ffff;">ld</span> a2, 128(a0)
+  <span style="color: #00ffff;">ld</span> a3, 136(a0)
+  <span style="color: #00ffff;">ld</span> a4, 144(a0)
+  <span style="color: #00ffff;">ld</span> a5, 152(a0)
+  <span style="color: #00ffff;">ld</span> a6, 160(a0)
+  <span style="color: #00ffff;">ld</span> a7, 168(a0)
+  <span style="color: #00ffff;">ld</span> s2, 176(a0)
+  <span style="color: #00ffff;">ld</span> s3, 184(a0)
+  <span style="color: #00ffff;">ld</span> s4, 192(a0)
+  <span style="color: #00ffff;">ld</span> s5, 200(a0)
+  <span style="color: #00ffff;">ld</span> s6, 208(a0)
+  <span style="color: #00ffff;">ld</span> s7, 216(a0)
+  <span style="color: #00ffff;">ld</span> s8, 224(a0)
+  <span style="color: #00ffff;">ld</span> s9, 232(a0)
+  <span style="color: #00ffff;">ld</span> s10, 240(a0)
+  <span style="color: #00ffff;">ld</span> s11, 248(a0)
+  <span style="color: #00ffff;">ld</span> t3, 256(a0)
+  <span style="color: #00ffff;">ld</span> t4, 264(a0)
+  <span style="color: #00ffff;">ld</span> t5, 272(a0)
+  <span style="color: #00ffff;">ld</span> t6, 280(a0)
+
+# restore user a0
+  <span style="color: #00ffff;">ld</span> a0, 112(a0) # &#26368;&#21518;&#25165;&#24674;&#22797; a0, &#22240;&#20026;&#21069;&#38754;&#19968;&#30452;&#22312;&#29992;&#23427;
+</pre>
+</div>
+
+<pre class="example" id="orgf5e3df2">
+注意：最后才回复trapframe 中a0字段
+</pre>
+
+<p>
+<span class="underline">sret</span> 是在kernel中的最后一条指令，当执行完这条指令：
+</p>
+<ol class="org-ol">
+<li>程序会切换回user mode</li>
+<li><span class="underline">sepc寄存器</span> 的数值会被拷贝到 <span class="underline">pc寄存器</span> （程序计数器）</li>
+<li>重新 <b>打开</b> <span class="underline">中断</span></li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #7fffd4;"># return</span> to user mode and user pc.
+<span style="color: #7fffd4;"># usertrapret</span>() set up sstatus and sepc.
+
+<span style="color: #7fffd4;"># usertrapret</span>() &#24050;&#32463;&#35774;&#32622;&#22909;&#20102; sstatus&#65288;&#29305;&#26435;&#32423;&#21644;&#20013;&#26029;&#29366;&#24577;&#65289;&#21644; sepc&#65288;&#24322;&#24120;&#36820;&#22238;&#22320;&#22336;&#65289;
+<span style="color: #7fffd4;"># sret</span> &#25351;&#20196;&#26159; RISC-V &#26550;&#26500;&#19979;&#30340;&#8220;Supervisor Return&#8221;
+<span style="color: #7fffd4;"># &#23427;&#20250;&#23558;</span> sepc &#30340;&#20540;&#21152;&#36733;&#21040;&#31243;&#24207;&#35745;&#25968;&#22120;&#65288;pc&#65289;&#65292;&#24182;&#26681;&#25454; sstatus &#24674;&#22797;&#29305;&#26435;&#32423;&#21644;&#20013;&#26029;&#29366;&#24577;
+<span style="color: #7fffd4;"># &#20174;&#32780;&#35753;</span> CPU &#36339;&#36716;&#22238;&#29992;&#25143;&#24577;&#24182;&#32487;&#32493;&#25191;&#34892;&#34987;&#20013;&#26029;&#30340;&#29992;&#25143;&#31243;&#24207;
+sret # &#20351;&#29992; sret &#25351;&#20196;&#20174;&#20869;&#26680;&#24577;&#36820;&#22238;&#29992;&#25143;&#24577;&#65292;&#24674;&#22797;&#29992;&#25143;&#31243;&#24207;&#30340;&#25191;&#34892;
+</pre>
+</div>
+
+<pre class="example" id="org722fcbd">
+最后其实还剩下一个问题，在回到用户进程后，用户进程是如何知道这次系统调用的结果如何呢？ 
+</pre>
+
+<p>
+答案是 在执行系统调用的业务代码最后，会把结果写回到 trapframe 结构中对应的a0 字段里
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span>
+<span style="color: #87cefa;">syscall</span>(<span style="color: #98fb98;">void</span>)
+{
+                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">num</span>;
+                <span style="color: #00ffff;">struct</span> <span style="color: #98fb98;">proc</span> *<span style="color: #eedd82;">p</span> = myproc();
+
+                num = p-&gt;trapframe-&gt;a7; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#33719;&#21462;&#31995;&#32479;&#35843;&#29992;&#21495;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26816;&#26597;&#31995;&#32479;&#35843;&#29992;&#21495;&#26159;&#21542;&#26377;&#25928;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">1. num &gt; 0 
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">2. num &lt; NELEM(syscalls) &#31995;&#32479;&#35843;&#29992;&#21495;&#22312; syscalls &#25968;&#32452;&#20869;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">3. syscalls[num] &#23545;&#24212;&#30340;&#31995;&#32479;&#35843;&#29992;&#20989;&#25968;&#25351;&#38024;&#26377;&#25928;
+</span>                <span style="color: #00ffff;">if</span>(num &gt; 0 &amp;&amp; num &lt; NELEM(syscalls) &amp;&amp; syscalls[num]) {
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Use num to lookup the system call function for num, call it,
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">and store its return value in p-&gt;trapframe-&gt;a0
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26681;&#25454;&#31995;&#32479;&#35843;&#29992;&#21495;&#35843;&#29992;&#23545;&#24212;&#30340;&#20989;&#25968;&#25351;&#38024;&#65292;&#24182;&#25226;&#36820;&#22238;&#20540;&#25918;&#20837;  p-&gt;trapframe-&gt;a0
+</span>                                p-&gt;trapframe-&gt;a0 = syscalls[num]();
+                } <span style="color: #00ffff;">else</span> { <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31995;&#32479;&#35843;&#29992;&#21495;&#26080;&#25928;
+</span>                                printf(<span style="color: #ffa07a;">"%d %s: unknown sys call %d\n"</span>,
+                                           p-&gt;pid, p-&gt;name, num);
+                                p-&gt;trapframe-&gt;a0 = -1; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25226; -1 &#20316;&#20026;&#36820;&#22238;&#20540;
+</span>                }
+}
+</pre>
+</div>
+
+<p>
+在前面恢复代码里，这个字段也会被恢复到a0寄存器里。根据riscv的ISA函数调用规则，函数返回后a0寄存器保存的是函数返回值。这样当用户进程恢复后，系统调用的结果就被返回了
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org7f4e03f" class="outline-2">
+<h2 id="org7f4e03f">kernel trap</h2>
+<div class="outline-text-2" id="text-org7f4e03f">
+<p>
+Kernel 中的中断处理是在 trap.c/kerneltrap 函数里
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ffa07a;">/**
+ * </span><span style="color: #7fffd4;">@brief</span><span style="color: #ffa07a;"> &#22788;&#29702;&#22312;&#20869;&#26680;&#24577;&#19979;&#21457;&#29983;&#30340;&#20013;&#26029;&#25110;&#24322;&#24120;
+ * &#19982;&#29992;&#25143;&#24577;&#38519;&#20837;&#19981;&#21516;&#65292;kerneltrap &#21482;&#20250;&#22312; CPU &#24050;&#32463;&#22788;&#20110;&#20869;&#26680;&#27169;&#24335;&#26102;&#34987;&#35843;&#29992;&#65292;&#27604;&#22914;&#22788;&#29702;&#20013;&#26029;&#12289;&#23450;&#26102;&#22120;&#12289;&#35774;&#22791;&#35831;&#27714;&#31561;
+ * 
+ * &#20869;&#26680;&#20250;&#26681;&#25454;&#20013;&#26029;&#25110;&#24322;&#24120;&#30340;&#31867;&#22411;&#65292;&#25191;&#34892;&#30456;&#24212;&#30340;&#22788;&#29702;&#36923;&#36753;
+ * &#20363;&#22914;&#65292;&#26102;&#38047;&#20013;&#26029;&#20250;&#26356;&#26032;&#31995;&#32479;&#26102;&#38047;&#33410;&#25293;&#65288;ticks&#65289;&#65292;&#35774;&#22791;&#20013;&#26029;&#20250;&#21796;&#37266;&#31561;&#24453;&#30340;&#36827;&#31243;&#31561;
+ * 
+ * &#35813;&#20989;&#25968;&#36824;&#38656;&#35201;&#20445;&#35777;&#20869;&#26680;&#29366;&#24577;&#30340;&#27491;&#30830;&#20445;&#23384;&#19982;&#24674;&#22797;&#65292;&#36991;&#20813;&#24433;&#21709;&#27491;&#22312;&#36816;&#34892;&#30340;&#20869;&#26680;&#20219;&#21153;
+ */</span>
+<span style="color: #98fb98;">void</span> 
+<span style="color: #87cefa;">kerneltrap</span>()
+{
+  <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">which_dev</span> = 0;
+  <span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">sepc</span> = r_sepc(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462;&#65288;&#30417;&#30563;&#32773;&#20013;&#26029;&#31243;&#24207;&#35745;&#25968;&#22120;&#65289; &#23492;&#23384;&#22120;
+</span>  <span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">sstatus</span> = r_sstatus(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462;&#65288;&#30417;&#30563;&#32773;&#29366;&#24577;&#65289;&#23492;&#23384;&#22120;
+</span>  <span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">scause</span> = r_scause(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462; &#65288;&#30417;&#30563;&#32773;&#38519;&#20837;&#21407;&#22240;&#65289;&#23492;&#23384;&#22120;
+</span>
+  <span style="color: #00ffff;">if</span>((sstatus &amp; SSTATUS_SPP) == 0) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26816;&#26597;&#24403;&#21069;&#26159;&#21542;&#22312;&#30417;&#30563;&#27169;&#24335;
+</span>    panic(<span style="color: #ffa07a;">"kerneltrap: not from supervisor mode"</span>); 
+  <span style="color: #00ffff;">if</span>(intr_get() != 0) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26816;&#26597;&#24403;&#21069;&#26159;&#21542;&#20801;&#35768;&#20013;&#26029;
+</span>    panic(<span style="color: #ffa07a;">"kerneltrap: interrupts enabled"</span>);
+
+  <span style="color: #00ffff;">if</span>((which_dev = devintr()) == 0){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22788;&#29702;&#35774;&#22791;&#20013;&#26029;&#65292;&#22914;&#26524;&#36820;&#22238;0&#65292;&#34920;&#31034;&#20013;&#26029;&#26080;&#27861;&#35782;&#21035;
+</span>    <span style="color: #ff4500;">// </span><span style="color: #ff4500;">interrupt or trap from an unknown source
+</span>    printf(<span style="color: #ffa07a;">"scause=0x%lx sepc=0x%lx stval=0x%lx\n"</span>, scause, r_sepc(), r_stval());
+    panic(<span style="color: #ffa07a;">"kerneltrap"</span>); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26410;&#30693;&#20013;&#26029;&#65292;&#20869;&#26680;&#22868;&#28291;
+</span>  }
+
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">give up the CPU if this is a timer interrupt.
+</span>  <span style="color: #00ffff;">if</span>(which_dev == 2 &amp;&amp; myproc() != 0) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26102;&#38047;&#20013;&#26029;&#65292;&#24182;&#19988;&#24403;&#21069;&#36827;&#31243;&#19981;&#20026;0&#65288;&#21363;&#26377;&#36827;&#31243;&#22312;&#36816;&#34892;&#65289;
+</span>    yield(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35753;&#20986;cpu&#65292;&#36827;&#20837;&#35843;&#24230;&#22120;
+</span>
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">the yield() may have caused some traps to occur,
+</span>  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">so restore trap registers for use by kernelvec.S's sepc instruction.
+</span>
+  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">yield() &#21487;&#33021;&#20250;&#23548;&#33268;&#26032;&#30340;&#38519;&#20837;&#65288;trap&#65289;&#21457;&#29983;&#65292;&#22240;&#27492;&#38656;&#35201;&#37325;&#26032;&#24674;&#22797;&#38519;&#20837;&#30456;&#20851;&#30340;&#23492;&#23384;&#22120;
+</span>  w_sepc(sepc); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#20445;&#23384;&#30340; sepc&#65288;&#20540;&#20889;&#22238;&#30828;&#20214;&#23492;&#23384;&#22120;&#65292;&#25351;&#23450;&#24322;&#24120;&#36820;&#22238;&#21518; CPU &#24212;&#35813;&#36339;&#36716;&#21040;&#30340;&#25351;&#20196;&#22320;&#22336;
+</span>  w_sstatus(sstatus); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#20445;&#23384;&#30340; sstatus&#20540;&#20889;&#22238;&#30828;&#20214;&#23492;&#23384;&#22120;&#65292;&#24674;&#22797;&#20043;&#21069;&#30340;&#29305;&#26435;&#32423;&#21644;&#20013;&#26029;&#29366;&#24577;
+</span>}
+</pre>
+</div>
+
+<p>
+这个函数比较简单，因为：
+</p>
+<ol class="org-ol">
+<li>不需要切换栈</li>
+<li>不需要切换页表</li>
+<li>不需要切换中断入口</li>
+<li>不需要保存/恢复大量寄存器</li>
+</ol>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 

@@ -3,3 +3,538 @@
 #+HTML_LINK_UP: page_table.html   
 #+HTML_LINK_HOME: xv6.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
+* 系统调用的执行流程
+1. 系统调用通过 *ecall* 指令会切换到具有 _supervisor mode_ 的内核中
+2. 内核中执行的第一个指令是一个由汇编语言写的函数，叫做 _uservec_
+3. 在这个汇编函数中，代码执行跳转到了由C语言实现的函数 _usertrap_ 中，这个函数在 _trap.c_ 中
+4. 在usertrap这个C函数中，执行了一个叫做 _syscall_ 的函数
+5. syscall函数会在一个 _表_ 中，根据传入的代表 _系统调用的数字_ 进行查找，并在内核中 *执行* 具体实现了系统调用功能的函数
+6. sys_write会将显示数据输出到console上，当它完成了之后，它会返回给syscall函数,再返回给usertrap函数
+7. usertrap()会调用一个函数叫做 _usertrapret_ ，它也位于trap.c中，这个函数完成了部分方便在C代码中实现的 *返回* 到 _用户空间_ 的 准备工作
+8. 汇编函数中会调用机器指令返回到用户空间，并且恢复ecall之后的用户程序的执行
+** ecall 指令
+通过ecall走到trampoline page的，而ecall实际上只会改变三件事情：
+1. ecall将代码从 _user mode_ 改到 _supervisor mode_ 
+2. ecall将 _程序计数器_ 的值 *保存* 在了 _sepc寄存器_
+   #+begin_example
+     可以通过打印程序计数器看到这里的效果
+   #+end_example
+3. ecall会 *跳转* 到 _stvec寄存器_ 指向的指令
+   #+begin_example
+     这个指令实际上指向 trampoline.S/uservec 函数，代码位于tramploine page
+
+     因此这个内存地址，用户态和内核态，都可以通过虚拟内存获取到
+   #+end_example
+
+接下来：
++ 需要 *保存* _32个用户寄存器_ 的内容，这样当想要恢复用户代码执行时，才能恢复这些寄存器的内容
++ 因为现在还在user page table，需要 *切换* 到 _kernel page table_
++ 需要 *创建或者找到* 一个 _kernel stack_ ，并将 _sp寄存器_ 的内容 *指向* 那个kernel stack。这样才能给C代码提供栈
++ 还需要跳转到内核中C代码的某些合理的位置（特定系统调用的处理代码）
+
+** uservec
+为了能执行更新page table的指令，需要一些空闲的寄存器，这样才能先将page table的地址存在这些寄存器中，然后再执行修改SATP寄存器的指令
+
+对于保存用户寄存器，XV6在RISC-V上的实现包括了两个部分：
+1. XV6在每个 _user page table_ *映射* 了 _trapframe page_ ，这样每个进程都有自己的trapframe page
+   + trapframe page _第一个字段_ *保存* 了 _kernel page table地址_ ，这将会是trap处理代码将要 *加载* 到 _satp寄存器_ 的数值
+2. 把 _trapframe page的地址_ *加载* 到 _a0_ ，也就是 _0x3fffffe000_ ， 这是个常量。而原来 _用户空间的a0_ 会被 *临时保存在* _sscratch这个寄存器_ 中
+
+#+begin_src asm 
+  uservec:    
+  	#
+          # trap.c sets stvec to point here, so
+          # traps from user space start here,
+          # in supervisor mode, but with a
+          # user page table.
+          
+          # trap.c 会将 stvec 寄存器设置为该地址
+          # 使得用户态陷入（如系统调用或异常）时，CPU 能跳转到这里执行陷入处理流程
+
+          # save user a0 in sscratch so
+          # a0 can be used to get at TRAPFRAME.
+
+          # csrw 是 “Control and Status Register Write” 的缩写，用于将一个通用寄存器的值写入指定的 CSR
+          # sscratch 是 supervisor 模式下的临时寄存器
+          # 常用于陷入（trap）处理过程中保存和传递关键数据，比如内核栈指针或进程控制块指针
+          # a0 是一个通用寄存器，通常在陷入切换或上下文切换时，
+          # 内核会把需要后续 trap handler 使用的数据（如内核栈地址）写入 sscratch，方便 trap handler 直接读取
+          csrw sscratch, a0 # 将用户态的 a0 寄存器值保存到 sscratch 寄存器中
+                            # 以便后续代码可以使用 a0 寄存器来访问 TRAPFRAME
+
+          # each process has a separate p->trapframe memory area,
+          # but it's mapped to the same virtual address
+          # (TRAPFRAME) in every process's user page table.
+
+          # 每个进程都有独立的 p->trapframe 内存区域（用于保存该进程的用户态寄存器等陷入上下文）
+          # 但在每个进程的用户页表中，这块物理内存都被映射到相同的虚拟地址 TRAPFRAME
+          li a0, TRAPFRAME # 将 TRAPFRAME 的地址加载到 a0 寄存器中
+                            # 以便后续代码可以通过 a0 访问当前进程的陷入上下文
+#+end_src
+所以，下面执行 _sd_ *存储* _用户空间寄存器_ 的时候，是让每个寄存器被保存在了 _偏移量+a0_ 的位置 （也就是相对于 trapframe 页的偏移）
+
+#+begin_src asm 
+  	# save the user registers in TRAPFRAME
+  	# 把进程相关的用户态寄存器保存到 TRAPFRAME 中 
+  	sd ra, 40(a0)
+  	sd sp, 48(a0)
+  	sd gp, 56(a0)
+  	sd tp, 64(a0)
+  	sd t0, 72(a0)
+  	sd t1, 80(a0)
+  	sd t2, 88(a0)
+  	sd s0, 96(a0)
+  	sd s1, 104(a0)
+  	sd a1, 120(a0)
+  	sd a2, 128(a0)
+  	sd a3, 136(a0)
+  	sd a4, 144(a0)
+  	sd a5, 152(a0)
+  	sd a6, 160(a0)
+  	sd a7, 168(a0)
+  	sd s2, 176(a0)
+  	sd s3, 184(a0)
+  	sd s4, 192(a0)
+  	sd s5, 200(a0)
+  	sd s6, 208(a0)
+  	sd s7, 216(a0)
+  	sd s8, 224(a0)
+  	sd s9, 232(a0)
+  	sd s10, 240(a0)
+  	sd s11, 248(a0)
+  	sd t3, 256(a0)
+  	sd t4, 264(a0)
+  	sd t5, 272(a0)
+  	sd t6, 280(a0)
+#+end_src
+
+注意：最后才把把用户态原来a0寄存器的值 从临时存放的寄存器 sscartch，存到p->trapframe->a0中
+
+#+begin_src asm 
+          # save the user a0 in p->trapframe->a0
+
+          # 即把用户态 a0 的值保存到 p->trapframe->a0
+          # 在 xv6 的 trap 处理流程中，sscratch 通常保存了用户态 a0 的值
+          csrr t0, sscratch # 从 sscratch 寄存器中读取用户态的 a0 值到 t0 寄存器
+          sd t0, 112(a0) # 将用户态的 a0 值保存到 TRAPFRAME 中的 a0 字段
+#+end_src
+
+将a0指向的内存地址往后数的第8个字节开始的数据加载到Stack Pointer寄存器。第8个字节开始的数据是内核的Stack Pointer（kernel_sp）
+#+begin_src asm 
+  	# initialize kernel stack pointer, from p->trapframe->kernel_sp
+          # 从当前进程的 trapframe 结构体中的 kernel_sp 字段加载内核栈指针
+          # 偏移 8 字节正好是 kernel_sp 字段的位置
+          ld sp, 8(a0) # 从以 a0 为基址、偏移 8 字节的位置读取 64 位数据，并将其加载到 sp（栈指针寄存器）中
+#+end_src
+
+#+begin_example
+  trapframe中的kernel_sp是由kernel在进入用户空间之前就设置好的，它的值是这个进程的kernel stack
+
+  在xv6中，用户进程数量是固定的，在初始化进程表的时候就为每个进程分配了自己的内核进程栈
+#+end_example
+
+接下来将CPU核的编号也就是 _hartid_ 保存在 _tp寄存器_ , 这个寄存器表明当前运行在多核处理器的哪个核上
+#+begin_src asm 
+          # make tp hold the current hartid, from p->trapframe->kernel_hartid
+          # 偏移 32 字节正好是 kernel_hartid 字段的位置
+          ld tp, 32(a0) # 从以 a0 为基址、偏移 32 字节的位置读取 64 位数据，并将其加载到 tp（线程指针寄存器）中
+#+end_src
+
+把 _usertrap_ 函数的地址载入到 _t0寄存器_
+#+begin_src asm 
+          # load the address of usertrap(), from p->trapframe->kernel_trap
+          # 偏移 16 字节正好是 kernel_trap 字段的位置
+          ld t0, 16(a0) # 从以 a0 为基址、偏移 16 字节的位置读取 64 位数据，并将其加载到 t0 寄存器中
+                            # t0 现在保存了 usertrap() 函数的地址，后续会跳转到该地址执行
+#+end_src
+
+从用户进程的页表切换到内核的页表
+#+begin_src asm 
+          # fetch the kernel page table address, from p->trapframe->kernel_satp.
+          # 偏移 24 字节正好是 kernel_satp 字段的位置
+          ld t1, 0(a0) # 从以 a0 为基址、偏移 0 字节的位置读取 64 位数据，并将其加载到 t1 寄存器中
+          # t1 现在保存了内核页表的 satp 值，后续会用它来切换到内核页表
+
+          # wait for any previous memory operations to complete, so that
+          # they use the user page table.
+
+          # 确保之前的内存操作（如保存寄存器到 TRAPFRAME）都完成
+          # 以防止内存操作使用错误的页表
+          sfence.vma zero, zero # sfence.vma 是 RISC-V 指令，用于刷新虚拟内存的地址转换缓存（TLB）
+
+          # install the kernel page table.
+          csrw satp, t1 # 将内核页表的 satp 值写入 satp 寄存器，切换到内核页表
+
+          # flush now-stale user entries from the TLB.
+          sfence.vma zero, zero # 再次刷新 TLB，确保切换页表后不会使用过时的用户页表条目
+#+end_src
+
+#+begin_example
+  之前的汇编代码里并没有保存用户进程的页表地址，而是直接覆盖了satp寄存器，那在中断返回的时候如何恢复呢？
+
+  答案：用户进程的页表地址在初始化的时候就会被保存在 proc->pagetable 字段内，返回的时候只需要用它来覆盖satp寄存器即可
+#+end_example
+
+最后一条指令是jr t0, 从 trampoline.S 跳到内核的C代码中。这条指令的作用是跳转到t0指向的函数 _usertrap_ 中
+
+#+begin_src asm 
+          # jump to usertrap(), which does not return
+          # usertrap() 处理完陷入后不会返回到这里
+          jr t0 # 跳转到 usertrap() 函数地址，开始执行陷入处理流程
+#+end_src
+
+** usertrap
+#+begin_src c 
+  // send interrupts and exceptions to kerneltrap(),
+  // since we're now in the kernel.
+  // 由于当前已经处于内核态，接下来所有的中断和异常都应该交由 kerneltrap() 处理 
+
+  // 设置陷入向量寄存器（stvec）
+  w_stvec((uint64)kernelvec); // 后续的中断和异常都跳转到 kerneltrap() 进行处理
+
+  struct proc *p = myproc(); // 获取当前运行的（用户态）进程结构体指针
+
+  // save user program counter.
+  p->trapframe->epc = r_sepc(); // 保存用户程序计数器（sepc）到进程的 trapframe 中
+#+end_src
+
+1. 在内核中执行任何操作之前，usertrap中先将 _stvec_ 指向了 _kernelvec_ 函数，这是内核空间trap处理代码的位置，而不是用户空间trap处理代码的位置
+   #+begin_example
+     这是因为在执行中断处理的时候，仍然可能产生其他中断，如果需要立刻执行，那必须切换到kernelvec函数 
+   #+end_example
+2. 通过调用myproc函数来得到当前运行的是什么进程
+   #+begin_example
+     myproc函数实际上会查找一个根据当前CPU核的编号索引的数组，CPU核的编号是hartid
+
+     如果还记得，之前在uservec函数中将它存在了tp寄存器
+
+     这是因为必须考虑到用户进程和内核代码可能执行在不同的cpu上
+   #+end_example
+3. 要把sepc寄存器中的用户程序计数器保存到进程的 trapframe 数据结构中
+
+接下来需要找出现在会在usertrap函数的原因。根据触发trap的原因，RISC-V的 _scause寄存器_ 会有不同的数字：
++ 如果是系统调用：
+  + 存储在sepc寄存器中的程序计数器，是用户程序中触发trap的指令的地址。但是当恢复用户程序时，希望在下一条指令恢复，也就是ecall之后的一条指令
+    #+begin_example
+      所以对于系统调用，需要保存的用户程序计数器加4，这样会在ecall的下一条指令恢复
+    #+end_example
+  + 重新打开中断，因为调用syscall的时候，依旧允许其他比如时钟中断
+  + 执行sycall函数，处理系统调用
++ 硬件中断：在 devintr函数里执行
+#+begin_src c 
+  if(r_scause() == 8){ // 系统调用
+  		// system call
+
+  		if(killed(p)) // 进程已经停止，直接退出
+  				exit(-1); 
+
+  		// sepc points to the ecall instruction,
+  		// but we want to return to the next instruction.
+  		// sepc（Supervisor Exception Program Counter）寄存器此时指向触发系统调用的 ecall 指令本身
+  		// 为了让用户程序在系统调用返回后能继续执行下一条指令
+  		// 需要将 sepc 增加 4（RISC-V 指令长度为 4 字节）
+  		p->trapframe->epc += 4;
+
+  		// an interrupt will change sepc, scause, and sstatus,
+  		// so enable only now that we're done with those registers.
+
+  		// 中断发生时会改变 sepc、scause 和 sstatus 这几个关键寄存器的值
+  		// 只有在这些寄存器相关的操作全部完成后，才调用 intr_on() 重新开启中断
+  		// 避免在处理中断或异常信息时被新的中断打断，导致数据不一致或处理流程混乱。
+  		intr_on(); // 重新开启中断，允许处理其他中断
+
+  		syscall(); // 调用系统调用处理函数，根据系统调用号执行相应的内核功能
+  } else if((which_dev = devintr()) != 0){ 
+  		// ok
+  } else { // 其他异常 或无法识别的中断 打印出错信息，并停止进程
+  		printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
+  		printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
+  		setkilled(p); // 标记进程为已终止状态
+  }
+#+end_src
+
+
+最后会调用 usertrapret 恢复用户进程：
+
+#+begin_src c 
+  usertrapret(); // 返回用户态
+#+end_src
+
+#+begin_example
+这里忽略了部分和进程休眠，关闭相关的代码逻辑，未来在讲时钟中断时候再详细描述
+#+end_example
+
+** usertrapret
+它首先 *关闭* 了 _中断_ 。之前在系统调用的过程中是打开了中断的，这里关闭中断是我们将要更新 _stvec寄存器_ 指向 _用户空间的trap入口_ (trampoline.S/uservec) ，而之前在内核中的时候，指向的是内核空间的trap代码 kernelvec
+
+#+begin_src c 
+  struct proc *p = myproc(); // 获取当前（用户态）进程结构体指针
+
+  // we're about to switch the destination of traps from
+  // kerneltrap() to usertrap(), so turn off interrupts until
+  // we're back in user space, where usertrap() is correct. 
+
+  // 当前即将把陷入处理的入口从 kerneltrap() 切换为 usertrap()
+  // 在内核态时，陷入应该由 kerneltrap() 处理
+  // 而回到用户空间后，陷入才应该由 usertrap() 处理 
+  // 只有等回到用户空间后，才重新允许中断，此时陷入目标已经正确设置为 usertrap()
+  intr_off(); // 关闭中断，防止在内核态时被新的中断打断
+
+  // send syscalls, interrupts, and exceptions to uservec in trampoline.S
+
+  // 这段代码的作用是设置陷入向量寄存器（stvec）
+  // 让后续的用户态的系统调用、中断和异常都跳转到 trampoline.S 文件中的 uservec 入口进行处理
+    
+  // TRAMPOLINE 是 trampoline 代码段在虚拟地址空间中的基地址
+  // uservec 和 trampoline 都是外部符号，分别表示 trampoline 代码段中 uservec 和 trampoline 标签的地址
+  // uservec - trampoline 计算出 uservec 相对于 trampoline 段起始的偏移
+  uint64 trampoline_uservec = TRAMPOLINE + (uservec - trampoline); // uservec 在虚拟地址空间中的实际入口地址
+  w_stvec(trampoline_uservec); // 设置陷入向量寄存器 stvec，指向 uservec 入口
+#+end_src
+
+下面把kernal要用到的一些变量写进trapframe。因为当用户态再次执行ecall或中断时，还需要用这里的值
+
+#+begin_src c 
+  // set up trapframe values that uservec will need when
+  // the process next traps into the kernel.
+  // 当前进程的 trapframe（陷入帧）结构体设置一组关键字段
+  // 这些字段会在下次进程从用户态陷入内核态时，被 uservec 使用
+  p->trapframe->kernel_satp = r_satp();         // kernel page table 内核页表
+  p->trapframe->kernel_sp = p->kstack + PGSIZE; // process's kernel stack 内核栈顶
+  p->trapframe->kernel_trap = (uint64)usertrap;  // usertrap() 函数地址
+  p->trapframe->kernel_hartid = r_tp();         // hartid for cpuid() 内核线程指针（tp）
+#+end_src
+
+接下来要设置 _sstatus寄存器_ ，这是一个 *控制寄存器*：
++ 这个寄存器的 _SPP bit位_ 控制了 _sret指令的行为_ ：该bit为 _0_ 表示下次执行 _sret_ 的时候，想要返回 _user mode_ 而不是supervisor mode
++ 这个寄存器的 _SPIE bit位_ 控制了 *在执行完sret之后* ，是否打开中断。因为在返回到用户空间之后，的确希望打开中断，所以这里将SPIE bit位设置为 _1_ 
+
+修改完这些bit位之后，会把新的值写回到sstatus寄存器
+
+#+begin_src c 
+  // set S Previous Privilege mode to User.
+  unsigned long x = r_sstatus(); // 读取当前的 sstatus 寄存器值
+  // 清除 SPP 位，设置为 0，表示返回用户态
+  // SPP 位表示陷入发生时 CPU 的前一个特权级
+  x &= ~SSTATUS_SPP; // clear SPP to 0 for user mode 
+  // 用户态允许中断
+  x |= SSTATUS_SPIE; // enable interrupts in user mode
+  w_sstatus(x); // 将修改后的值写回 sstatus 寄存器
+#+end_src
+
+现在将 _sepc寄存器_ 的值设置成 _之前保存的用户程序计数器_ 的值，这样将来在trampoline.S/userret 函数最后执行了sret指令时候会将程序计数器设置成sepc寄存器的值
+
+#+begin_src c 
+  // set S Exception Program Counter to the saved user pc.
+  // sepc 寄存器保存了用户程序计数器（pc），即用户程序发生陷入时的指令地址
+  // 该地址会在从内核态返回用户态时，执行sret命令后重新加载到 pc 中
+  w_sepc(p->trapframe->epc); // 将保存的用户进程的 pc 写回 sepc 寄存器
+#+end_src
+
+根据user page table地址计算相应的 _satp值_ ，这样在返回到用户空间的时候才能完成page table的切换。需要吧它当作 _userret函数_ 的 *第一个参数* (放入 _a0寄存器_ ) 传给接下来的汇编代码
+
+#+begin_src c 
+  // tell trampoline.S the user page table to switch to.
+  uint64 satp = MAKE_SATP(p->pagetable); // 计算用户进程对应的内存页表的 satp 值
+#+end_src
+
+#+begin_example
+  但是现在还没有在trampoline代码中，现在还在一个普通的C函数中，所以这里只是将 user page table地址准备好
+
+  这里的计算也只是一个位移操作， 需要把 proc->pagetable 左移动12位
+#+end_example
+
+计算出将要跳转到汇编代码的地址。也就是tampoline.S中的userret函数，这个函数包含了所有能带回到用户空间的指令：
+
+#+begin_src c 
+   // jump to userret in trampoline.S at the top of memory, which 
+    // switches to the user page table, restores user registers,
+    // and switches to user mode with sret.
+    // 将跳转到 trampoline.S 汇编文件中的 userret 入口
+    // 该入口负责切换到用户页表、恢复用户寄存器，并通过 sret 指令切换回用户模式
+    uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline); // 计算 userret 在虚拟地址空间中的实际入口地址
+#+end_src
+
+将trampoline_userret指针作为一个函数指针，执行相应的函数（也就是userret函数）并传入参数，参数存储在a0寄存器中, 也就是user page table指针：
+
+#+begin_src c 
+  // 将该地址强制转换为一个接受 uint64 参数的函数指针，并调用它，同时传入 satp（用户页表的寄存器值）
+  // 这样 trampoline 代码就能切换到用户页表，并完成用户态的恢复和跳转
+  // (void (*)(uint64) 表示一个函数指针，指向一个接受 uint64 参数且无返回值的函数
+  ((void (*)(uint64))trampoline_userret)(satp); 
+#+end_src
+
+** userret
+#+begin_example
+userret 函数做的事情几乎就是 uservec函数的 逆向操作
+#+end_example
+首先把之前 _a0寄存器_ *传递* 过来的 _user pagetable指针_ 放到 _satp寄存器_ 中
+#+begin_src asm 
+  userret: 
+          # userret(pagetable) 
+          # called by usertrapret() in trap.c to
+          # switch from kernel to user.
+          # a0: user page table, for satp.
+
+          # 由 trap.c 文件中的 usertrapret() 调用，用于完成从内核返回用户空间的最后步骤
+          # 切换过程中，a0 寄存器传递用户页表的物理地址
+          # 这个地址会被写入 satp 寄存器，从而激活用户进程的虚拟内存映射
+
+          # 切换到用户级的页表
+          # switch to the user page table.
+          sfence.vma zero, zero # 确保之前的内存操作都完成，防止使用错误的页表 
+          csrw satp, a0 # 将用户页表的物理地址写入 satp 寄存器，切换到用户页表
+          sfence.vma zero, zero # 刷新 TLB，确保不会使用过时的内存映射条目
+#+end_src
+
+随后把 _trapframe的地址_ 放进a0：
+
+#+begin_src asm 
+          li a0, TRAPFRAME # 将 TRAPFRAME 的地址加载到 a0 寄存器中
+          # 以便后续代码可以通过 a0 访问当前进程的陷入上下文
+#+end_src
+
+下面就是开始恢复之前用户态的寄存器的值了：
+
+#+begin_src asm 
+          # restore all but a0 from TRAPFRAME 
+          # 从 TRAPFRAME 中恢复除 a0 之外的所有用户态寄存器
+          ld ra, 40(a0)
+          ld sp, 48(a0)
+          ld gp, 56(a0)
+          ld tp, 64(a0)
+          ld t0, 72(a0)
+          ld t1, 80(a0)
+          ld t2, 88(a0)
+          ld s0, 96(a0)
+          ld s1, 104(a0)
+          ld a1, 120(a0)
+          ld a2, 128(a0)
+          ld a3, 136(a0)
+          ld a4, 144(a0)
+          ld a5, 152(a0)
+          ld a6, 160(a0)
+          ld a7, 168(a0)
+          ld s2, 176(a0)
+          ld s3, 184(a0)
+          ld s4, 192(a0)
+          ld s5, 200(a0)
+          ld s6, 208(a0)
+          ld s7, 216(a0)
+          ld s8, 224(a0)
+          ld s9, 232(a0)
+          ld s10, 240(a0)
+          ld s11, 248(a0)
+          ld t3, 256(a0)
+          ld t4, 264(a0)
+          ld t5, 272(a0)
+          ld t6, 280(a0)
+
+  	# restore user a0
+          ld a0, 112(a0) # 最后才恢复 a0, 因为前面一直在用它
+#+end_src
+
+#+begin_example
+  注意：最后才回复trapframe 中a0字段
+#+end_example
+
+_sret_ 是在kernel中的最后一条指令，当执行完这条指令：
+1. 程序会切换回user mode
+2. _sepc寄存器_ 的数值会被拷贝到 _pc寄存器_ （程序计数器）
+3. 重新 *打开* _中断_
+
+#+begin_src c 
+  # return to user mode and user pc.
+  # usertrapret() set up sstatus and sepc.
+
+  # usertrapret() 已经设置好了 sstatus（特权级和中断状态）和 sepc（异常返回地址）
+  # sret 指令是 RISC-V 架构下的“Supervisor Return”
+  # 它会将 sepc 的值加载到程序计数器（pc），并根据 sstatus 恢复特权级和中断状态
+  # 从而让 CPU 跳转回用户态并继续执行被中断的用户程序
+  sret # 使用 sret 指令从内核态返回用户态，恢复用户程序的执行
+#+end_src
+
+#+begin_example
+  最后其实还剩下一个问题，在回到用户进程后，用户进程是如何知道这次系统调用的结果如何呢？ 
+#+end_example
+
+答案是 在执行系统调用的业务代码最后，会把结果写回到 trapframe 结构中对应的a0 字段里
+
+#+begin_src c 
+  void
+  syscall(void)
+  {
+  		int num;
+  		struct proc *p = myproc();
+
+  		num = p->trapframe->a7; // 获取系统调用号
+  		// 检查系统调用号是否有效
+  		// 1. num > 0 
+  		// 2. num < NELEM(syscalls) 系统调用号在 syscalls 数组内
+  		// 3. syscalls[num] 对应的系统调用函数指针有效
+  		if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+  				// Use num to lookup the system call function for num, call it,
+  				// and store its return value in p->trapframe->a0
+  				// 根据系统调用号调用对应的函数指针，并把返回值放入  p->trapframe->a0
+  				p->trapframe->a0 = syscalls[num]();
+  		} else { // 系统调用号无效
+  				printf("%d %s: unknown sys call %d\n",
+  					   p->pid, p->name, num);
+  				p->trapframe->a0 = -1; // 把 -1 作为返回值
+  		}
+  }
+#+end_src
+
+在前面恢复代码里，这个字段也会被恢复到a0寄存器里。根据riscv的ISA函数调用规则，函数返回后a0寄存器保存的是函数返回值。这样当用户进程恢复后，系统调用的结果就被返回了
+* kernel trap
+Kernel 中的中断处理是在 trap.c/kerneltrap 函数里
+#+begin_src c 
+  /**
+   ,* @brief 处理在内核态下发生的中断或异常
+   ,* 与用户态陷入不同，kerneltrap 只会在 CPU 已经处于内核模式时被调用，比如处理中断、定时器、设备请求等
+   ,* 
+   ,* 内核会根据中断或异常的类型，执行相应的处理逻辑
+   ,* 例如，时钟中断会更新系统时钟节拍（ticks），设备中断会唤醒等待的进程等
+   ,* 
+   ,* 该函数还需要保证内核状态的正确保存与恢复，避免影响正在运行的内核任务
+   ,*/
+  void 
+  kerneltrap()
+  {
+    int which_dev = 0;
+    uint64 sepc = r_sepc(); // 读取（监督者中断程序计数器） 寄存器
+    uint64 sstatus = r_sstatus(); // 读取（监督者状态）寄存器
+    uint64 scause = r_scause(); // 读取 （监督者陷入原因）寄存器
+
+    if((sstatus & SSTATUS_SPP) == 0) // 检查当前是否在监督模式
+      panic("kerneltrap: not from supervisor mode"); 
+    if(intr_get() != 0) // 检查当前是否允许中断
+      panic("kerneltrap: interrupts enabled");
+
+    if((which_dev = devintr()) == 0){ // 处理设备中断，如果返回0，表示中断无法识别
+      // interrupt or trap from an unknown source
+      printf("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(), r_stval());
+      panic("kerneltrap"); // 未知中断，内核奔溃
+    }
+
+    // give up the CPU if this is a timer interrupt.
+    if(which_dev == 2 && myproc() != 0) // 时钟中断，并且当前进程不为0（即有进程在运行）
+      yield(); // 让出cpu，进入调度器
+
+    // the yield() may have caused some traps to occur,
+    // so restore trap registers for use by kernelvec.S's sepc instruction.
+
+    // yield() 可能会导致新的陷入（trap）发生，因此需要重新恢复陷入相关的寄存器
+    w_sepc(sepc); // 将保存的 sepc（值写回硬件寄存器，指定异常返回后 CPU 应该跳转到的指令地址
+    w_sstatus(sstatus); // 将保存的 sstatus值写回硬件寄存器，恢复之前的特权级和中断状态
+  }
+#+end_src
+
+这个函数比较简单，因为：
+1. 不需要切换栈
+2. 不需要切换页表
+3. 不需要切换中断入口
+4. 不需要保存/恢复大量寄存器
+
+
+
