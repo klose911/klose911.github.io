@@ -201,6 +201,322 @@
  <a accesskey="H" href="xv6.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">虚拟内存</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org69fe24a">为什么需要虚拟内存</a></li>
+<li><a href="#orga357426">页表(page table)</a>
+<ul>
+<li><a href="#orgd185ea8">页表的大小和结构</a></li>
+<li><a href="#org0875731">TLB</a></li>
+</ul>
+</li>
+<li><a href="#orgd3e436f">Kernel Pagetable</a>
+<ul>
+<li><a href="#org97241fb">右半</a></li>
+<li><a href="#orgbb8f61b">左半</a>
+<ul>
+<li><a href="#orgf5f9977">Guard Page</a></li>
+<li><a href="#org2b98647">权限</a></li>
+</ul>
+</li>
+<li><a href="#org71b4a0e">User page table</a>
+<ul>
+<li><a href="#org19d583a">跳板页</a></li>
+<li><a href="#org4dee2cf">内核如何使用用户虚拟地址？</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org6639044">页表代码</a></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org69fe24a" class="outline-2">
+<h2 id="org69fe24a">为什么需要虚拟内存</h2>
+<div class="outline-text-2" id="text-org69fe24a">
+<pre class="example" id="org93a6a1e">
+假设shell进程由于bug,引发了随机写入某些内存地址，而这些内存地址可能是其他进程使用的
+
+这就可能影响内核或其他进程的执行
+</pre>
+
+<p>
+所以需要引入 <b>虚拟内存</b> 来实现 <b>隔离的</b> <span class="underline">进程的内存地址空间</span> ：
+</p>
+<ul class="org-ul">
+<li>每个进程拥有自己的内存地址空间，它们能够读写自己的内存，但不能访问其他进程的内存</li>
+</ul>
+
+<p>
+实现多个地址空间与物理内存之间多路复用的挑战在于如何保持隔离性
+</p>
+</div>
+</div>
+<div id="outline-container-orga357426" class="outline-2">
+<h2 id="orga357426">页表(page table)</h2>
+<div class="outline-text-2" id="text-orga357426">
+<p>
+xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空间</b> <span class="underline">AS</span> 。*页表* 提供了一个 <span class="underline">间接层</span> 来处理 <b>地址映射</b> ：
+</p>
+<ul class="org-ul">
+<li><b>CPU</b> 通过 <b>内存管理单元</b> <span class="underline">MMU</span> <b>映射</b> 到 <b>物理内存</b> <span class="underline">RAM</span></li>
+<li><p>
+<b>内核</b> 告诉 <span class="underline">MMU</span> 如何将每个 <b>虚拟地址</b> <span class="underline">VA</span> <b>映射</b> 到 <b>物理地址</b> <span class="underline">PA</span> 
+</p>
+
+
+<div id="orgd72e20a" class="figure">
+<p><img src="pic/10803273-8154d26b87ebfbc5.png" alt="10803273-8154d26b87ebfbc5.png" width="90%" /> 
+</p>
+</div></li>
+</ul>
+
+<p>
+为了实现不同的地址空间，需要多个页表并在切换过程中更换页表：
+</p>
+<ul class="org-ul">
+<li>MMU有一个 <b>satp寄存器</b> ，用于内核写入以更改页表</li>
+<li>页表存在于内存中，satp寄存器保存 <b>当前页表的物理地址</b></li>
+<li>MMU并不会保存page table，它只会从内存中 <b>读取</b> <span class="underline">page table</span> ，然后完成 <b>翻译</b></li>
+</ul>
+</div>
+<div id="outline-container-orgd185ea8" class="outline-3">
+<h3 id="orgd185ea8">页表的大小和结构</h3>
+<div class="outline-text-3" id="text-orgd185ea8">
+
+<div id="org75f6ea9" class="figure">
+<p><img src="pic/10803273-ca010ad9438b7c66.png" alt="10803273-ca010ad9438b7c66.png" width="90%" /> 
+</p>
+</div>
+
+<ul class="org-ul">
+<li>RISC-V映射 <span class="underline">4KB</span> 的 <b>页面</b> ，因此页表只需要为每个页面有一个条目</li>
+<li>RISC-V使用了一个 <span class="underline">三级页表</span> 结构来节省空间，通过 <b>索引位</b> 逐级查找 <b>页面表条目</b> <span class="underline">PTE</span>
+<ul class="org-ul">
+<li><p>
+如果是直接映射，虽然只使用了一个page, 还是需要2^27个PTE（因为有27位用来索引）
+</p>
+<pre class="example" id="org575ffb8">
+这个方案中，只需要3 * 512个PTE（3个9位来索引，512是2^9)，所需的空间大大减少了
+
+这是实际上硬件采用这种层次化的3级page directory结构的主要原因
+</pre></li>
+</ul></li>
+<li>每个PTE有64位，其中只有 <span class="underline">54位</span> 被使用，包括 <span class="underline">44位</span> <b>物理页面号</b> <span class="underline">PPN</span> 和 <span class="underline">10位</span> <b>标志位</b>
+<ul class="org-ul">
+<li>PTE中的标志位包括 <b>有效</b> <span class="underline">V</span> 、 <b>可写</b> <span class="underline">W</span> 、 <b>可读</b> <span class="underline">R</span> 、 <b>可执行</b> <span class="underline">X</span> 和 <b>用户</b> <span class="underline">U</span></li>
+<li>如果 <b>V位</b> 未设置或 <span class="underline">尝试写入</span> 时 <b>W位</b> 未设置，会触发 <b>页错误</b> <span class="underline">PAGE FAULT</span> ，导致控制权转移到内核</li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org0875731" class="outline-3">
+<h3 id="org0875731">TLB</h3>
+<div class="outline-text-3" id="text-org0875731">
+<pre class="example" id="org861e1e6">
+对于一个虚拟内存地址的寻址，需要读三次内存，这里代价有点高
+</pre>
+<p>
+实际中，几乎所有的处理器都会对于最近使用过的虚拟地址的翻译结果有缓存。这个缓存被称为：_Translation Lookside Buffer_ （通常翻译成 <b>页表缓存</b> ）
+</p>
+<ul class="org-ul">
+<li><p>
+当处理器第一次查找一个虚拟地址时，硬件通过3级page table得到最终的PPN，TLB会 <b>保存</b> <span class="underline">虚拟地址</span> 到 <span class="underline">物理地址</span> 的 <b>映射关系</b>
+</p>
+<pre class="example" id="org1c01e0d">
+这样下一次访问同一个虚拟地址时，处理器可以查看TLB，直接得到物理地址
+</pre></li>
+<li>如果 <b>切换</b> 了 <span class="underline">page table</span> ，TLB中的缓存将不再有用，它们 *需要被清空*，否则地址翻译可能会出错
+<ul class="org-ul">
+<li>所以操作系统知道TLB是存在的，要切换page table时，会发送清空TLB的指令， <span class="underline">sfence_vma</span></li>
+</ul></li>
+</ul>
+</div>
+</div>
+</div>
+<div id="outline-container-orgd3e436f" class="outline-2">
+<h2 id="orgd3e436f">Kernel Pagetable</h2>
+<div class="outline-text-2" id="text-orgd3e436f">
+
+<div id="orga96e665" class="figure">
+<p><img src="pic/10803273-a1f5dbe042a039c0.png" alt="10803273-a1f5dbe042a039c0.png" width="90%" />
+</p>
+</div>
+</div>
+<div id="outline-container-org97241fb" class="outline-3">
+<h3 id="org97241fb">右半</h3>
+<div class="outline-text-3" id="text-org97241fb">
+<p>
+图中的右半部分的结构完全由 <span class="underline">硬件设计者</span> 决定
+</p>
+
+<pre class="example" id="orgb9319b0">
+如前面看到的一样，当操作系统启动时，会从地址0x80000000开始运行，这个地址其实也是由硬件设计者决定的
+</pre>
+<p>
+主板的设计人员决定了在完成了虚拟到物理地址的翻译之后
+</p>
+<ul class="org-ul">
+<li>如果得到的 <span class="underline">物理地址</span> <b>大于</b> <span class="underline">0x80000000</span> 会走向 <span class="underline">DRAM芯片</span></li>
+<li>如果得到的 <span class="underline">物理地址</span> <b>低于</b> <span class="underline">0x80000000</span> 会走向不同的 <span class="underline">I/O设备</span>
+<ul class="org-ul">
+<li>PLIC <b>中断控制器</b> <span class="underline">Platform-Level Interrupt Controller</span></li>
+<li>CLINT <span class="underline">Core Local Interruptor</span> 也是中断的一部分。多个设备都能产生中断，需要中断控制器来将这些中断路由到合适的处理函数</li>
+<li>UART0 <span class="underline">Universal Asynchronous Receiver/Transmitter</span> 负责与Console和显示器交互</li>
+<li>VIRTIO disk，与磁盘进行交互</li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgbb8f61b" class="outline-3">
+<h3 id="orgbb8f61b">左半</h3>
+<div class="outline-text-3" id="text-orgbb8f61b">
+<p>
+当机器刚刚启动时，还没有可用的page，XV6操作系统会设置好内核使用的虚拟地址空间，也就是这张图左边的地址分布 
+</p>
+
+<div id="org0fba574" class="figure">
+<p><img src="pic/10803273-6226ad6a48fdbf0d.png" alt="10803273-6226ad6a48fdbf0d.png" width="90%" /> 
+</p>
+</div>
+
+<p>
+实际上在内核空间里，虚拟地址和物理地址是等值映射
+</p>
+</div>
+<div id="outline-container-orgf5f9977" class="outline-4">
+<h4 id="orgf5f9977">Guard Page</h4>
+<div class="outline-text-4" id="text-orgf5f9977">
+<p>
+有一些page在虚拟内存中的地址很靠后，比如kernel stack在虚拟内存中的地址就很靠后。这是因为在它之下有一个 <b>未被映射</b> 的 <span class="underline">Guard page</span>
+</p>
+<ul class="org-ul">
+<li>这个Guard page对应的PTE的 <span class="underline">Valid 标志位</span> 没有设置</li>
+<li>如果kernel stack耗尽了，它会溢出到Guard page，但是因为Guard page的PTE中Valid标志位未设置，会导致立即触发page fault，这样的结果好过内存越界之后造成的数据混乱
+<ul class="org-ul">
+<li>立即触发一个panic（也就是page fault），就 <b>知道</b> <span class="underline">kernel stack出错</span></li>
+<li>同时也又不想 <b>浪费</b> <span class="underline">物理内存</span> 给Guard page，所以Guard page不会映射到任何物理内存，它只是占据了虚拟地址空间的一段靠后的地址</li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org2b98647" class="outline-4">
+<h4 id="org2b98647">权限</h4>
+<div class="outline-text-4" id="text-org2b98647">
+<ul class="org-ul">
+<li>Kernel <span class="underline">text</span> page 被标位 <b>R-X</b> ，意味着可以读它，也可以在这个地址段执行指令，但是不能向Kernel text写数据</li>
+<li>Kernel <span class="underline">data</span> page 需要能被写入，所以它的标志位是 <b>RW-</b> ，但是不能在这个地址段运行指令，所以它的X标志位未被设置</li>
+</ul>
+</div>
+</div>
+</div>
+<div id="outline-container-org71b4a0e" class="outline-3">
+<h3 id="org71b4a0e">User page table</h3>
+<div class="outline-text-3" id="text-org71b4a0e">
+
+<div id="org81986b1" class="figure">
+<p><img src="pic/10803273-008c5f9250b51ab9.png" alt="10803273-008c5f9250b51ab9.png" width="90%" /> 
+</p>
+</div>
+
+<ul class="org-ul">
+<li><p>
+用户空间的虚拟地址从0开始
+</p>
+<pre class="example" id="orga1aa4ee">
+这样做的好处在于可预测性和简化编译器生成代码的工作
+
+编译器可以假设所有地址都是从一个固定的基点开始的，这样可以生成更简洁的机器代码
+</pre></li>
+<li><p>
+这些地址是 <b>连续</b> 的，非常适合比如说大数组这样的数据结构
+</p>
+<pre class="example" id="org96b80d6">
+虽然虚拟地址连续，但它们并不需要映射到连续的物理内存上，从而避免了内存碎片问题
+</pre></li>
+<li>用户地址空间提供了大量的地址范围以供扩展，这对于 <b>动态增长</b> 的数据结构来说非常有用</li>
+</ul>
+</div>
+<div id="outline-container-org19d583a" class="outline-4">
+<h4 id="org19d583a">跳板页</h4>
+<div class="outline-text-4" id="text-org19d583a">
+<p>
+<b>跳板页</b> <span class="underline">trampoline</span> 是一种特殊的内存页面，它既存在于用户空间的地址映射中，也存在于内核空间的地址映射中，虽然 <b>用户位</b> <span class="underline">U</span> 没有被设置。这样的设置方便了用户空间与内核空间之间的转换：
+</p>
+<ul class="org-ul">
+<li>当用户程序需要进行系统调用，即从用户模式切换到内核模式时，通过跳板页可以更加顺畅地进行</li>
+</ul>
+<pre class="example" id="org00336ae">
+因为切换了pagetable之后，理论上同样的VA会用不同的页表找到不同的PA
+
+但是这2块映射是一致的，那么不同的页表，也可以保证代码可以顺畅执行
+</pre>
+</div>
+</div>
+<div id="outline-container-org4dee2cf" class="outline-4">
+<h4 id="org4dee2cf">内核如何使用用户虚拟地址？</h4>
+<div class="outline-text-4" id="text-org4dee2cf">
+<p>
+当用户程序调用如read()这样的系统调用时，它会将 <b>虚拟地址</b> 传递给 <span class="underline">内核</span> 。内核不能直接使用这些用户虚拟地址，因为内核有自己的地址空间。因此，内核必须将这些用户虚拟地址转换为内核空间中的虚拟地址。这一过程：
+</p>
+<ol class="org-ol">
+<li>查询当前进程的页表，找到用户虚拟地址对应的物理地址</li>
+<li>通过内核的页表再将该物理地址映射回内核的虚拟地址</li>
+</ol>
+
+<p>
+通过这种方式，内核可以安全地访问和操作用户程序传递过来的数据
+</p>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org6639044" class="outline-2">
+<h2 id="org6639044">页表代码</h2>
+<div class="outline-text-2" id="text-org6639044">
+<ul class="org-ul">
+<li>内核页表设置在启动时 <span class="underline">kvminit()</span> 由内核建立，大部分直接映射，允许内核使用物理地址作为虚拟地址</li>
+<li>每个进程都有自己的地址空间，内核为每个进程创建独立的页表。
+<ul class="org-ul">
+<li>fork(void) -&gt; uvmcopy(p-&gt;pagetable, np-&gt;pagetable, p-&gt;sz)</li>
+<li>exec() -&gt; pagetable = proc_pagetable(p)</li>
+</ul></li>
+<li>用户地址空间的布局从0开始，为编译器生成代码提供了便利</li>
+<li>内核地址空间的设置：在内核启动时分页还未启用，所以地址是物理地址</li>
+<li><span class="underline">kvmmake()</span> 函数在 vm.c 中 <b>创建</b> <span class="underline">内核的页表</span></li>
+<li><span class="underline">kvmmap()</span> 函数在构建页表时 <b>添加</b> <span class="underline">PTE</span></li>
+<li><span class="underline">mappages()</span> 函数在 vm.c 中为一系列 <span class="underline">虚拟地址</span> <b>添加</b> 到相应 <span class="underline">物理地址</span> 的映射</li>
+<li><span class="underline">walk()</span> 函数 <b>模拟</b> 了 <span class="underline">寻址硬件</span> <b>找到</b> 一个地址的 <span class="underline">PTE</span> 的过程</li>
+</ul>
+
+<pre class="example" id="org94ee470">
+kvm 作为前缀的函数都是对kernel页表的操作
+
+uvm 作为前缀的函数都是对userspace页表的操作
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="trap.html">Next: 中断陷阱</a></td>
+<td class="org-left"><a href="system_call.html">Previous: 系统中断</a></td>
+<td class="org-left"><a href="xv6.html">Home: xv6 解析</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
