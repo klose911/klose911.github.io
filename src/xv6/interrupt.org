@@ -1,0 +1,251 @@
+#+TITLE: 硬件中断
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+HTML_LINK_UP: trap.html   
+#+HTML_LINK_HOME: xv6.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+中断对应的场景很简单，就是硬件想要得到操作系统的关注
+#+begin_example
+  例如网卡收到了一个packet，网卡会生成一个中断
+
+  用户通过键盘按下了一个按键，键盘会产生一个中断
+#+end_example
+
+#+ATTR_HTML: image :width 90%
+[[file:pic/10803273-172e1538c1fb815a.png]]  
+
+3个差别:
+1. 异步：Interrupt handler与当前运行的进程在CPU上没有任何关联
+2. 并行：设备handler 和 CPU 同时运行
+3. 设备编程：每个设备都有一个编程手册
+  
+#+ATTR_HTML: image :width 90%
+[[file:pic/10803273-44a07c6a5153c64c.png]]    
+
+从左上角可以看出，有53个不同的来自于设备的中断。这些中断到达PLIC之后，PLIC会路由这些中断。图的右下角是CPU的核，PLIC会将中断路由到某一个CPU的核.
++ PLIC会通知当前有一个待处理的中断
++ 其中一个CPU核会claim接收中断，这样PLIC就不会把中断发给其他的CPU处理
++ CPU核处理完中断之后，CPU会通知PLIC
++ PLIC将不再保存中断的信息
+
+* 设备驱动概述
+*管理设备* 的代码称为 _驱动_ 。如果查看代码的结构，可以发现大部分驱动都分为两个部分，bottom/top
+
+#+begin_example
+接下来以uart驱动作为实例
+#+end_example
+** bottom 
+bottom部分通常是 *中断处理* ，并不运行在任何特定进程的context中，它只是处理中断
+#+begin_src c 
+  // handle a uart interrupt, raised because input has
+  // arrived, or the uart is ready for more output, or
+  // both. called from devintr().
+  void
+  uartintr(void)
+  {
+  		// read and process incoming characters.
+  		while(1){
+  				int c = uartgetc();
+  				if(c == -1)
+  						break;
+  				consoleintr(c);
+  		}
+
+  		// send buffered characters.
+  		acquire(&uart_tx_lock);
+  		uartstart();
+  		release(&uart_tx_lock);
+  }
+#+end_src
+
+** top 
+top部分，是 _用户进程_ ，或者 _内核的其他部分_ 去调用的 _接口_ ：
+
+#+begin_src c 
+  // alternate version of uartputc() that doesn't 
+  // use interrupts, for use by kernel printf() and
+  // to echo characters. it spins waiting for the uart's
+  // output register to be empty.
+  void
+  uartputc_sync(int c)
+  {
+  		push_off();
+
+  		if(panicked){
+  				for(;;)
+  						;
+  		}
+
+  		// wait for Transmit Holding Empty to be set in LSR.
+  		while((ReadReg(LSR) & LSR_TX_IDLE) == 0)
+  				;
+  		WriteReg(THR, c);
+
+  		pop_off();
+  }
+#+end_src
+通常情况下，驱动中会有一些 *队列* （或者说 _buffer_ ）：
++ top部分的代码会从队列中读写数据
++ Interrupt handler（bottom部分）同时也会向队列中读写数据
+
+#+begin_example
+  Interrupt handler来说存在一些限制，因为它并没有运行在任何进程的context中
+
+  所以进程的page table并不知道该从哪个地址读写数据，也就无法直接从Interrupt handler读写数据
+#+end_example
+
+* 如何对设备进行编程
+操作系统需要知道这些设备位于 _物理地址空间的具体位置_ ，然后再通过普通的 *load/store* 指令对这些地址进行编程
++ load/store指令实际上的工作就是 *读写* _设备的控制寄存器_
+
+#+begin_example
+  例如，对网卡执行store指令时，CPU会修改网卡的某个控制寄存器，进而导致网卡发送一个packet
+
+  所以这里的load/store指令不会读写内存，而是会操作设备
+#+end_example
+
+** Console是如何显示出 $ ls 
+#+begin_example
+  $ 是Shell程序的输出
+
+  而“ls”是用户通过键盘输入之后再显示出来的，实际上就是设备会将字符传输给UART的寄存器，UART之后会在发送完字符之后产生一个中断
+
+  线路的另一端会有另一个UART芯片（模拟的），这个UART芯片连接到了虚拟的Console，它会进一步将$ 显示在console上
+#+end_example
+
+对于“ls”：
+1. 当在键盘上按下一个按键，UART芯片会将 _按键字符_ 通过 *串口线* 发送到另一端的UART芯片
+2. 另一端的UART芯片先将 _数据bit_ *合并* 成 _一个Byte_ ，之后再 *产生* 一个 _中断_ ，并告诉处理器说这里有一个来自于键盘的字符
+   + *SIE* _Supervisor Interrupt Enable_ 寄存器。这个寄存器中有一个bit（E）专门针对 例如UART的外部设备的中断
+   + *SSTATUS* _Supervisor Status_ 寄存器。这个寄存器中有一个bit来打开或者关闭中断
+     #+begin_example
+       每一个CPU核都有独立的SIE和SSTATUS寄存器
+     #+end_example
+   + *SIP* _Supervisor Interrupt Pending_ 寄存器。当发生中断时，处理器可以通过查看这个寄存器知道当前是 *什么类型* 的中断 
+
+
+第一个外设是console，这是print的输出位置。查看位于 _console.c_ 的 _consoleinit_ 函数：
+
+#+begin_src c 
+  void
+  consoleinit(void)
+  {
+  		initlock(&cons.lock, "cons"); // 初始化console相关的自旋锁，保护console的缓存区
+
+  		uartinit(); // 初始化UART硬件，设置波特率、数据格式等 
+
+  		// connect read and write system calls
+  		// to consoleread and consolewrite.
+  		// 设置console设备的读写函数指针 （devsw数组中索引为CONSOLE的元素） 
+  		devsw[CONSOLE].read = consoleread; 
+  		devsw[CONSOLE].write = consolewrite;
+  }
+#+end_src
+
+uartinit函数位于uart.c文件，这个函数实际上就是配置好UART芯片使其可以被使用：
+
+#+begin_src c 
+  void
+  uartinit(void)
+  {
+  		// disable interrupts.
+  		WriteReg(IER, 0x00);
+
+  		// special mode to set baud rate.
+  		WriteReg(LCR, LCR_BAUD_LATCH);
+
+  		// LSB for baud rate of 38.4K.
+  		WriteReg(0, 0x03);
+
+  		// MSB for baud rate of 38.4K.
+  		WriteReg(1, 0x00);
+
+  		// leave set-baud mode,
+  		// and set word length to 8 bits, no parity.
+  		WriteReg(LCR, LCR_EIGHT_BITS);
+
+  		// reset and enable FIFOs.
+  		WriteReg(FCR, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
+
+  		// enable transmit and receive interrupts.
+  		WriteReg(IER, IER_TX_ENABLE | IER_RX_ENABLE);
+
+  		initlock(&uart_tx_lock, "uart");
+  }
+#+end_src
+
+#+begin_example
+运行完这个函数之后，原则上UART就可以生成中断了
+#+end_example
+但是因为还没有对PLIC编程，所以中断不能被CPU感知。最终，在kernel/main.c 的 main函数中，需要调用plicinit函数
+
+#+begin_src c 
+  void
+  plicinit(void)
+  {
+  		// set desired IRQ priorities non-zero (otherwise disabled).
+
+  		// 分别将 UART0 和 VIRTIO0 设备的中断优先级设置为 1
+  		// 优先级必须为非零值，否则该中断会被禁用
+  		// 确保这两个设备的中断能够被 PLIC 正常识别和处理
+  		,*(uint32*)(PLIC + UART0_IRQ*4) = 1;
+  		,*(uint32*)(PLIC + VIRTIO0_IRQ*4) = 1;
+  }
+#+end_src
+
+#+begin_example
+  代码的第一行使能响应UART的中断，这里实际上就是设置PLIC会接收哪些中断，进而将中断路由到CPU
+
+  代码的第二行设置PLIC接收来自IO磁盘的中断
+#+end_example
+
+plicinit之后就是 _plicinithart_ 函数。plicinit是由 *0号CPU* 运行，之后， *每个CPU的核* 都需要调用 _plicinithart_ 函数表明对于 _哪些外设中断感兴趣_ 
+
+#+begin_src c 
+  void
+  plicinithart(void)
+  {
+  		int hart = cpuid(); // 获取当前硬件线程的 ID
+
+  		// set enable bits for this hart's S-mode
+  		// for the uart and virtio disk.
+  		// 设置当前 hart 的 S 模式（Supervisor mode）中断使能位
+  		// 使 UART0 和 VIRTIO0 设备的中断能够被该 hart 接收和处理
+  		// 通过位运算将这两个设备的中断源打开。
+  		,*(uint32*)PLIC_SENABLE(hart) = (1 << UART0_IRQ) | (1 << VIRTIO0_IRQ);
+
+  		// set this hart's S-mode priority threshold to 0.
+  		// 设置当前 hart 的 S 模式中断优先级阈值为 0，表示所有优先级大于 0 的中断都可以被响应
+  		,*(uint32*)PLIC_SPRIORITY(hart) = 0;
+  }
+#+end_src
+
+#+begin_example
+  在plicinithart函数中，每个CPU的核都表明自己对来自于UART和VIRTIO的中断感兴趣
+
+  到目前为止，已经有了接收中断的外部设备PLC，PLIC也可以传递中断到单个的CPU
+
+  但是CPU自己还没有设置好接收中断，因为每个CPU还没有设置好SSTATUS寄存器
+#+end_example
+
+
+在实际运行进程之前，会执行 *intr_on* 函数来使得CPU能接收中断。intr_on函数只完成一件事情，就是 *设置* _SSTATUS_ 寄存器，*打开* _中断标志位_
+
+#+begin_src c 
+  // enable device interrupts
+
+  /**
+   ,* @brief 启用 RISC-V 架构下的设备中断
+   ,* 
+   ,*/
+  static inline void
+  intr_on()
+  {
+  		// 设置 sstatus 寄存器的 SIE 位，允许监督者模式下的中断
+  		w_sstatus(r_sstatus() | SSTATUS_SIE); 
+  }
+#+end_src
+
+** UART 驱动
+
+*** 
