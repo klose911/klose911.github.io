@@ -230,13 +230,28 @@
 </ul>
 </li>
 <li><a href="#org6639044">页表代码</a></li>
+<li><a href="#org23f6c6d">高级应用</a>
+<ul>
+<li><a href="#org6d27057">在 page fault时改变页表</a></li>
+<li><a href="#orgb4adbf9">Lazy page allocation</a></li>
+<li><a href="#orgb51a648">Zero Fill On Demand</a></li>
+<li><a href="#org647385d">Copy On Write</a>
+<ul>
+<li><a href="#orgc472bc8">使用PTEs中额外可用的系统位（RSW）</a></li>
+<li><a href="#org8cc7b22">需要对物理页面进行引用计数</a></li>
+</ul>
+</li>
+<li><a href="#org6c5c86b">Demand Paging</a></li>
+<li><a href="#org3d7eb61">Memory Mapped Files</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
 <div id="outline-container-org69fe24a" class="outline-2">
 <h2 id="org69fe24a">为什么需要虚拟内存</h2>
 <div class="outline-text-2" id="text-org69fe24a">
-<pre class="example" id="org93a6a1e">
+<pre class="example" id="orgcaf78aa">
 假设shell进程由于bug,引发了随机写入某些内存地址，而这些内存地址可能是其他进程使用的
 
 这就可能影响内核或其他进程的执行
@@ -267,7 +282,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 </p>
 
 
-<div id="orgd72e20a" class="figure">
+<div id="orgfdff5f2" class="figure">
 <p><img src="pic/10803273-8154d26b87ebfbc5.png" alt="10803273-8154d26b87ebfbc5.png" width="90%" /> 
 </p>
 </div></li>
@@ -286,7 +301,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <h3 id="orgd185ea8">页表的大小和结构</h3>
 <div class="outline-text-3" id="text-orgd185ea8">
 
-<div id="org75f6ea9" class="figure">
+<div id="orgf2449f7" class="figure">
 <p><img src="pic/10803273-ca010ad9438b7c66.png" alt="10803273-ca010ad9438b7c66.png" width="90%" /> 
 </p>
 </div>
@@ -298,7 +313,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <li><p>
 如果是直接映射，虽然只使用了一个page, 还是需要2^27个PTE（因为有27位用来索引）
 </p>
-<pre class="example" id="org575ffb8">
+<pre class="example" id="org6323fcd">
 这个方案中，只需要3 * 512个PTE（3个9位来索引，512是2^9)，所需的空间大大减少了
 
 这是实际上硬件采用这种层次化的3级page directory结构的主要原因
@@ -315,7 +330,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <div id="outline-container-org0875731" class="outline-3">
 <h3 id="org0875731">TLB</h3>
 <div class="outline-text-3" id="text-org0875731">
-<pre class="example" id="org861e1e6">
+<pre class="example" id="org18f7cda">
 对于一个虚拟内存地址的寻址，需要读三次内存，这里代价有点高
 </pre>
 <p>
@@ -325,7 +340,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <li><p>
 当处理器第一次查找一个虚拟地址时，硬件通过3级page table得到最终的PPN，TLB会 <b>保存</b> <span class="underline">虚拟地址</span> 到 <span class="underline">物理地址</span> 的 <b>映射关系</b>
 </p>
-<pre class="example" id="org1c01e0d">
+<pre class="example" id="orgb5f9635">
 这样下一次访问同一个虚拟地址时，处理器可以查看TLB，直接得到物理地址
 </pre></li>
 <li>如果 <b>切换</b> 了 <span class="underline">page table</span> ，TLB中的缓存将不再有用，它们 *需要被清空*，否则地址翻译可能会出错
@@ -340,7 +355,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <h2 id="orgd3e436f">Kernel Pagetable</h2>
 <div class="outline-text-2" id="text-orgd3e436f">
 
-<div id="orga96e665" class="figure">
+<div id="org61da6fa" class="figure">
 <p><img src="pic/10803273-a1f5dbe042a039c0.png" alt="10803273-a1f5dbe042a039c0.png" width="90%" />
 </p>
 </div>
@@ -352,7 +367,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 图中的右半部分的结构完全由 <span class="underline">硬件设计者</span> 决定
 </p>
 
-<pre class="example" id="orgb9319b0">
+<pre class="example" id="orgb51ae95">
 如前面看到的一样，当操作系统启动时，会从地址0x80000000开始运行，这个地址其实也是由硬件设计者决定的
 </pre>
 <p>
@@ -377,7 +392,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 当机器刚刚启动时，还没有可用的page，XV6操作系统会设置好内核使用的虚拟地址空间，也就是这张图左边的地址分布 
 </p>
 
-<div id="org0fba574" class="figure">
+<div id="org7eac05b" class="figure">
 <p><img src="pic/10803273-6226ad6a48fdbf0d.png" alt="10803273-6226ad6a48fdbf0d.png" width="90%" /> 
 </p>
 </div>
@@ -416,7 +431,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <h3 id="org71b4a0e">User page table</h3>
 <div class="outline-text-3" id="text-org71b4a0e">
 
-<div id="org81986b1" class="figure">
+<div id="org401395b" class="figure">
 <p><img src="pic/10803273-008c5f9250b51ab9.png" alt="10803273-008c5f9250b51ab9.png" width="90%" /> 
 </p>
 </div>
@@ -425,7 +440,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <li><p>
 用户空间的虚拟地址从0开始
 </p>
-<pre class="example" id="orga1aa4ee">
+<pre class="example" id="orgdcc4098">
 这样做的好处在于可预测性和简化编译器生成代码的工作
 
 编译器可以假设所有地址都是从一个固定的基点开始的，这样可以生成更简洁的机器代码
@@ -433,7 +448,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <li><p>
 这些地址是 <b>连续</b> 的，非常适合比如说大数组这样的数据结构
 </p>
-<pre class="example" id="org96b80d6">
+<pre class="example" id="org0799883">
 虽然虚拟地址连续，但它们并不需要映射到连续的物理内存上，从而避免了内存碎片问题
 </pre></li>
 <li>用户地址空间提供了大量的地址范围以供扩展，这对于 <b>动态增长</b> 的数据结构来说非常有用</li>
@@ -448,7 +463,7 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <ul class="org-ul">
 <li>当用户程序需要进行系统调用，即从用户模式切换到内核模式时，通过跳板页可以更加顺畅地进行</li>
 </ul>
-<pre class="example" id="org00336ae">
+<pre class="example" id="org96fbc40">
 因为切换了pagetable之后，理论上同样的VA会用不同的页表找到不同的PA
 
 但是这2块映射是一致的，那么不同的页表，也可以保证代码可以顺畅执行
@@ -491,11 +506,203 @@ xv6操作系统使用RISC-V架构的 <b>分页硬件</b> 来实现 <b>地址空�
 <li><span class="underline">walk()</span> 函数 <b>模拟</b> 了 <span class="underline">寻址硬件</span> <b>找到</b> 一个地址的 <span class="underline">PTE</span> 的过程</li>
 </ul>
 
-<pre class="example" id="org94ee470">
+<pre class="example" id="orgcb240cf">
 kvm 作为前缀的函数都是对kernel页表的操作
 
 uvm 作为前缀的函数都是对userspace页表的操作
 </pre>
+</div>
+</div>
+<div id="outline-container-org23f6c6d" class="outline-2">
+<h2 id="org23f6c6d">高级应用</h2>
+<div class="outline-text-2" id="text-org23f6c6d">
+<p>
+虚拟内存有两个主要的优点
+</p>
+<ol class="org-ol">
+<li>隔离性：虚拟内存使得操作系统可以为每个应用程序提供属于它们自己的地址空间。所以一个应用程序不可能有意或者无意的修改另一个应用程序的内存数据</li>
+<li>抽象性：
+<ul class="org-ul">
+<li>trampoline page，它使得内核可以将一个物理内存page映射到多个用户地址空间中</li>
+<li>guard page，它同时在内核空间和用户空间用来保护Stack</li>
+</ul></li>
+</ol>
+</div>
+<div id="outline-container-org6d27057" class="outline-3">
+<h3 id="org6d27057">在 page fault时改变页表</h3>
+<div class="outline-text-3" id="text-org6d27057">
+<pre class="example" id="org4292f33">
+通过page fault，内核可以更新page table，这是一个非常强大的功能
+</pre>
+<p>
+什么样的信息对于page fault是必须的?
+</p>
+<ol class="org-ol">
+<li>出错的 <b>虚拟内存地址</b> ，或者是触发page fault的源</li>
+<li><p>
+出错的 <b>原因</b> (存在 <span class="underline">scause寄存器</span> 中)
+</p>
+
+<div id="org73515a6" class="figure">
+<p><img src="pic/10803273-c68a4c509176d524.png" alt="10803273-c68a4c509176d524.png" width="90%" /> 
+</p>
+</div>
+<ul class="org-ul">
+<li>因为load引起的page fault</li>
+<li>因为store引起的page fault</li>
+<li>因为指令执行引起的page fault</li>
+</ul></li>
+<li><p>
+引起page fault时的 <b>程序计数器</b> 值 <span class="underline">tf-&gt;epc</span> 这表明了page fault在用户空间发生的位置
+</p>
+<pre class="example" id="org1403f93">
+因为在page fault handler中或许想要修复page table，并重新执行对应的指令
+
+理想情况下，修复完page table之后，指令就可以无错误的运行了
+</pre></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgb4adbf9" class="outline-3">
+<h3 id="orgb4adbf9">Lazy page allocation</h3>
+<div class="outline-text-3" id="text-orgb4adbf9">
+
+<div id="orgfb8b22d" class="figure">
+<p><img src="pic/10803273-31acf45d454c146d.png" alt="10803273-31acf45d454c146d.png" width="90%" />
+</p>
+</div>
+
+<p>
+在XV6中，sbrk的实现默认是eager allocation。这表示了，一旦调用了sbrk，内核会立即分配应用程序所需要的物理内存
+</p>
+<pre class="example" id="orgdc436bc">
+设想自己写了一个应用程序，读取了一些输入然后通过一个矩阵进行一些运算
+
+需要为最坏的情况做准备，比如说为最大可能的矩阵分配内存，但是应用程序可能永远也用不上这些内存
+
+使用虚拟内存和page fault handler，完全可以用某种更聪明的方法来解决这里的问题，这里就是利用lazy allocation
+</pre>
+
+<p>
+sbrk系统调基本上不做任何事情，唯一需要做的事情就是 <b>提升</b> <span class="underline">p-&gt;sz</span> ，之后在某个时间点，应用程序使用到了新申请的那部分内存，这时会 <b>触发</b> <span class="underline">page fault</span> ，因为还没有将新的内存映射到page table。所以，如果解析到一个 <b>大于旧的p-&gt;sz，但是又小于新的p-&gt;sz</b> （注，也就是旧的p-&gt;sz + n）的虚拟地址，希望内核能够分配一个内存page，并且重新执行指令
+</p>
+</div>
+</div>
+<div id="outline-container-orgb51a648" class="outline-3">
+<h3 id="orgb51a648">Zero Fill On Demand</h3>
+<div class="outline-text-3" id="text-orgb51a648">
+<p>
+查看一个用户程序的地址空间时，存在text区域，data区域，同时还有一个 <b>bss</b> 区域
+</p>
+<pre class="example" id="org959ca9b">
+注，bss区域包含了未被初始化或者初始化为0的全局或者静态变量
+</pre>
+
+<p>
+当编译器在生成二进制文件时，编译器会填入这三个区域
+</p>
+<ul class="org-ul">
+<li>text区域是程序的指令</li>
+<li>data区域存放的是初始化了的全局变量</li>
+<li>BSS包含了未被初始化或者初始化为0的全局变量。</li>
+</ul>
+
+
+<p>
+只需要分配一个page，这个page的内容全是0。然后将所有虚拟地址空间的 <span class="underline">全0的page</span> 都 <b>map</b> 到 <span class="underline">这一个物理page</span> 上
+</p>
+
+
+<div id="orgb29e360" class="figure">
+<p><img src="pic/10803273-70ac98e1cfbc2513.png" alt="10803273-70ac98e1cfbc2513.png" width="90%" /> 
+</p>
+</div>
+
+<pre class="example" id="orgd47b9d6">
+这样至少在程序启动的时候能节省大量的物理内存分配
+</pre>
+
+<p>
+在 <span class="underline">写入</span> 时 <b>复制</b> 页面，并在应用地址空间中映射它为 <span class="underline">读/写</span>
+</p>
+</div>
+</div>
+<div id="outline-container-org647385d" class="outline-3">
+<h3 id="org647385d">Copy On Write</h3>
+<div class="outline-text-3" id="text-org647385d">
+<pre class="example" id="org41b0a4a">
+xv6 fork从父进程复制所有页面（参见fork()）
+
+但fork经常紧接着执行exec, 就会直接丢弃那些复制了的页面
+</pre>
+
+<p>
+解决方案是在 <b>父子进程之间共享地址空间,修改标志位为只读</b> 
+</p>
+
+
+<div id="org7356175" class="figure">
+<p><img src="pic/10803273-0478ac9e2a61d47b.png" alt="10803273-0478ac9e2a61d47b.png" width="90%" /> 
+</p>
+</div>
+
+<p>
+要写的时候, <b>复制出来一份,原来的都改成读写</b> 
+</p>
+
+<div id="org6c0bcb5" class="figure">
+<p><img src="pic/10803273-fd1a2158a3e582d8.png" alt="10803273-fd1a2158a3e582d8.png" width="90%" /> 
+</p>
+</div>
+</div>
+<div id="outline-container-orgc472bc8" class="outline-4">
+<h4 id="orgc472bc8">使用PTEs中额外可用的系统位（RSW）</h4>
+<div class="outline-text-4" id="text-orgc472bc8">
+<p>
+当内核在管理这些page table时，对于copy-on-write相关的page，内核可以设置相应的bit位，这样当发生page fault时，可以发现如果copy-on-write bit位设置了，就可以执行相应的操作了
+</p>
+</div>
+</div>
+<div id="outline-container-org8cc7b22" class="outline-4">
+<h4 id="org8cc7b22">需要对物理页面进行引用计数</h4>
+<div class="outline-text-4" id="text-org8cc7b22">
+<p>
+父进程退出时需要更加的小心，因为要判断是否能立即释放相应的物理page。如果有子进程还在使用这些物理page,就不能释放
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org6c5c86b" class="outline-3">
+<h3 id="org6c5c86b">Demand Paging</h3>
+<div class="outline-text-3" id="text-org6c5c86b">
+<pre class="example" id="org00b17d1">
+程序的二进制文件可能非常的巨大，将它全部从磁盘加载到内存中将会是一个代价很高的操作
+
+又或者data区域的大小远大于常见的场景所需要的大小，并不一定需要将整个二进制都加载到内存中
+</pre>
+<p>
+<b>按需</b> 从文件中加载页面：
+</p>
+<ul class="org-ul">
+<li>分配 page table entries，但将它们标记为on-demand</li>
+<li>在错误时，从文件中读入page并更新pagetable</li>
+<li>需要保留一些元信息，说明页面在磁盘上的位置</li>
+<li>这些信息通常在称为 <span class="underline">virtual memory area</span> <b>VMA</b> 的结构中</li>
+<li>如果文件大过物理内存, 把最远使用过的page置换进磁盘.  <span class="underline">Access bit</span> 在PTE 帮助 kernel 实现 <span class="underline">LRU</span></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org3d7eb61" class="outline-3">
+<h3 id="org3d7eb61">Memory Mapped Files</h3>
+<div class="outline-text-3" id="text-org3d7eb61">
+<p>
+将完整或者部分文件加载到内存中，这样就可以通过内存地址相关的load或者store指令来操纵文件。为了支持这个功能，一个现代的操作系统会提供一个叫做 <b>mmap</b> 的 <span class="underline">系统调用</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span> *<span style="color: #87cefa;">mmap</span>(<span style="color: #98fb98;">void</span> *<span style="color: #eedd82;">addr</span>, <span style="color: #98fb98;">size_t</span> <span style="color: #eedd82;">length</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">prot</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">flags</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">fd</span>, <span style="color: #98fb98;">off_t</span> <span style="color: #eedd82;">offset</span>);
+</pre>
+</div>
 
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
 
@@ -515,6 +722,7 @@ uvm 作为前缀的函数都是对userspace页表的操作
 </tr>
 </tbody>
 </table>
+</div>
 </div>
 </div>
 </div>

@@ -141,5 +141,114 @@ xv6操作系统使用RISC-V架构的 *分页硬件* 来实现 *地址空间* _AS
   uvm 作为前缀的函数都是对userspace页表的操作
 #+end_example
 
+* 高级应用
+虚拟内存有两个主要的优点
+1. 隔离性：虚拟内存使得操作系统可以为每个应用程序提供属于它们自己的地址空间。所以一个应用程序不可能有意或者无意的修改另一个应用程序的内存数据
+2. 抽象性：
+   + trampoline page，它使得内核可以将一个物理内存page映射到多个用户地址空间中
+   + guard page，它同时在内核空间和用户空间用来保护Stack
+** 在 page fault时改变页表
+#+begin_example
+通过page fault，内核可以更新page table，这是一个非常强大的功能
+#+end_example
+什么样的信息对于page fault是必须的?
+1. 出错的 *虚拟内存地址* ，或者是触发page fault的源
+2. 出错的 *原因* (存在 _scause寄存器_ 中)
+   #+ATTR_HTML: image :width 90%
+   [[file:pic/10803273-c68a4c509176d524.png]] 
+   + 因为load引起的page fault
+   + 因为store引起的page fault
+   + 因为指令执行引起的page fault
+3. 引起page fault时的 *程序计数器* 值 _tf->epc_ 这表明了page fault在用户空间发生的位置
+   #+begin_example
+     因为在page fault handler中或许想要修复page table，并重新执行对应的指令
+
+     理想情况下，修复完page table之后，指令就可以无错误的运行了
+   #+end_example
+
+** Lazy page allocation
+#+ATTR_HTML: image :width 90%
+[[file:pic/10803273-31acf45d454c146d.png]]
+
+在XV6中，sbrk的实现默认是eager allocation。这表示了，一旦调用了sbrk，内核会立即分配应用程序所需要的物理内存
+#+begin_example
+  设想自己写了一个应用程序，读取了一些输入然后通过一个矩阵进行一些运算
+
+  需要为最坏的情况做准备，比如说为最大可能的矩阵分配内存，但是应用程序可能永远也用不上这些内存
+
+  使用虚拟内存和page fault handler，完全可以用某种更聪明的方法来解决这里的问题，这里就是利用lazy allocation
+#+end_example
+
+sbrk系统调基本上不做任何事情，唯一需要做的事情就是 *提升* _p->sz_ ，之后在某个时间点，应用程序使用到了新申请的那部分内存，这时会 *触发* _page fault_ ，因为还没有将新的内存映射到page table。所以，如果解析到一个 *大于旧的p->sz，但是又小于新的p->sz* （注，也就是旧的p->sz + n）的虚拟地址，希望内核能够分配一个内存page，并且重新执行指令
+
+** Zero Fill On Demand
+查看一个用户程序的地址空间时，存在text区域，data区域，同时还有一个 *bss* 区域
+#+begin_example
+  注，bss区域包含了未被初始化或者初始化为0的全局或者静态变量
+#+end_example
+
+当编译器在生成二进制文件时，编译器会填入这三个区域
++ text区域是程序的指令
++ data区域存放的是初始化了的全局变量
++ BSS包含了未被初始化或者初始化为0的全局变量。
+
+
+只需要分配一个page，这个page的内容全是0。然后将所有虚拟地址空间的 _全0的page_ 都 *map* 到 _这一个物理page_ 上
+
+#+ATTR_HTML: image :width 90%
+[[file:pic/10803273-70ac98e1cfbc2513.png]] 
+
+#+begin_example
+这样至少在程序启动的时候能节省大量的物理内存分配
+#+end_example
+
+在 _写入_ 时 *复制* 页面，并在应用地址空间中映射它为 _读/写_
+
+** Copy On Write
+
+#+begin_example
+  xv6 fork从父进程复制所有页面（参见fork()）
+
+  但fork经常紧接着执行exec, 就会直接丢弃那些复制了的页面
+#+end_example
+
+解决方案是在 *父子进程之间共享地址空间,修改标志位为只读* 
+
+#+ATTR_HTML: image :width 90%
+[[file:pic/10803273-0478ac9e2a61d47b.png]] 
+
+要写的时候, *复制出来一份,原来的都改成读写* 
+#+ATTR_HTML: image :width 90%
+[[file:pic/10803273-fd1a2158a3e582d8.png]] 
+
+*** 使用PTEs中额外可用的系统位（RSW）
+当内核在管理这些page table时，对于copy-on-write相关的page，内核可以设置相应的bit位，这样当发生page fault时，可以发现如果copy-on-write bit位设置了，就可以执行相应的操作了
+
+*** 需要对物理页面进行引用计数
+父进程退出时需要更加的小心，因为要判断是否能立即释放相应的物理page。如果有子进程还在使用这些物理page,就不能释放
+
+** Demand Paging
+#+begin_example
+  程序的二进制文件可能非常的巨大，将它全部从磁盘加载到内存中将会是一个代价很高的操作
+
+  又或者data区域的大小远大于常见的场景所需要的大小，并不一定需要将整个二进制都加载到内存中
+#+end_example
+*按需* 从文件中加载页面：
++ 分配 page table entries，但将它们标记为on-demand
++ 在错误时，从文件中读入page并更新pagetable
++ 需要保留一些元信息，说明页面在磁盘上的位置
++ 这些信息通常在称为 _virtual memory area_ *VMA* 的结构中
++ 如果文件大过物理内存, 把最远使用过的page置换进磁盘.  _Access bit_ 在PTE 帮助 kernel 实现 _LRU_ 
+
+** Memory Mapped Files
+将完整或者部分文件加载到内存中，这样就可以通过内存地址相关的load或者store指令来操纵文件。为了支持这个功能，一个现代的操作系统会提供一个叫做 *mmap* 的 _系统调用_
+
+#+begin_src c 
+  void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+#+end_src
+
 #+ATTR_HTML: :border 1 :rules all :frame boader
 | [[file:trap.org][Next: 中断陷阱]] | [[file:system_call.org][Previous: 系统中断]] |  [[file:xv6.org][Home: xv6 解析]] |
+
+
+
