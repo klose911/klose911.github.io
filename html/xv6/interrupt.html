@@ -216,7 +216,9 @@
 <li><a href="#org305b93b">Console是如何显示出 $ ls</a></li>
 <li><a href="#org7407770">UART 驱动</a>
 <ul>
-<li><a href="#org6db835c"></a></li>
+<li><a href="#org3356174">top-half</a></li>
+<li><a href="#org1fdb4ef">bottom-half</a></li>
+<li><a href="#orgc798ef8">UART读取键盘输入</a></li>
 </ul>
 </li>
 </ul>
@@ -227,14 +229,14 @@
 <p>
 中断对应的场景很简单，就是硬件想要得到操作系统的关注
 </p>
-<pre class="example" id="org3fb39d9">
+<pre class="example" id="org9638732">
 例如网卡收到了一个packet，网卡会生成一个中断
 
 用户通过键盘按下了一个按键，键盘会产生一个中断
 </pre>
 
 
-<div id="org74704bf" class="figure">
+<div id="org0fb521b" class="figure">
 <p><img src="pic/10803273-172e1538c1fb815a.png" alt="10803273-172e1538c1fb815a.png" width="90%" />  
 </p>
 </div>
@@ -249,7 +251,7 @@
 </ol>
 
 
-<div id="org06e875e" class="figure">
+<div id="orgcb9b7c7" class="figure">
 <p><img src="pic/10803273-44a07c6a5153c64c.png" alt="10803273-44a07c6a5153c64c.png" width="90%" />    
 </p>
 </div>
@@ -270,7 +272,7 @@
 <b>管理设备</b> 的代码称为 <span class="underline">驱动</span> 。如果查看代码的结构，可以发现大部分驱动都分为两个部分，bottom/top
 </p>
 
-<pre class="example" id="org9ef7cae">
+<pre class="example" id="org60fd0b9">
 接下来以uart驱动作为实例
 </pre>
 </div>
@@ -343,7 +345,7 @@ top部分，是 <span class="underline">用户进程</span> ，或者 <span clas
 <li>Interrupt handler（bottom部分）同时也会向队列中读写数据</li>
 </ul>
 
-<pre class="example" id="org152fd0d">
+<pre class="example" id="org880f8eb">
 Interrupt handler来说存在一些限制，因为它并没有运行在任何进程的context中
 
 所以进程的page table并不知道该从哪个地址读写数据，也就无法直接从Interrupt handler读写数据
@@ -361,7 +363,7 @@ Interrupt handler来说存在一些限制，因为它并没有运行在任何进
 <li>load/store指令实际上的工作就是 <b>读写</b> <span class="underline">设备的控制寄存器</span></li>
 </ul>
 
-<pre class="example" id="org80462f0">
+<pre class="example" id="orgc6a019a">
 例如，对网卡执行store指令时，CPU会修改网卡的某个控制寄存器，进而导致网卡发送一个packet
 
 所以这里的load/store指令不会读写内存，而是会操作设备
@@ -370,7 +372,7 @@ Interrupt handler来说存在一些限制，因为它并没有运行在任何进
 <div id="outline-container-org305b93b" class="outline-3">
 <h3 id="org305b93b">Console是如何显示出 $ ls</h3>
 <div class="outline-text-3" id="text-org305b93b">
-<pre class="example" id="org8f16747">
+<pre class="example" id="org0432e38">
 $ 是Shell程序的输出
 
 而“ls”是用户通过键盘输入之后再显示出来的，实际上就是设备会将字符传输给UART的寄存器，UART之后会在发送完字符之后产生一个中断
@@ -389,7 +391,7 @@ $ 是Shell程序的输出
 <li><p>
 <b>SSTATUS</b> <span class="underline">Supervisor Status</span> 寄存器。这个寄存器中有一个bit来打开或者关闭中断
 </p>
-<pre class="example" id="orgdcb1ecb">
+<pre class="example" id="orgb13492d">
 每一个CPU核都有独立的SIE和SSTATUS寄存器
 </pre></li>
 <li><b>SIP</b> <span class="underline">Supervisor Interrupt Pending</span> 寄存器。当发生中断时，处理器可以通过查看这个寄存器知道当前是 <b>什么类型</b> 的中断</li>
@@ -453,7 +455,7 @@ uartinit函数位于uart.c文件，这个函数实际上就是配置好UART芯�
 </pre>
 </div>
 
-<pre class="example" id="orgb9a138d">
+<pre class="example" id="org78187a8">
 运行完这个函数之后，原则上UART就可以生成中断了
 </pre>
 <p>
@@ -475,7 +477,7 @@ uartinit函数位于uart.c文件，这个函数实际上就是配置好UART芯�
 </pre>
 </div>
 
-<pre class="example" id="org5939646">
+<pre class="example" id="orgaf379ee">
 代码的第一行使能响应UART的中断，这里实际上就是设置PLIC会接收哪些中断，进而将中断路由到CPU
 
 代码的第二行设置PLIC接收来自IO磁盘的中断
@@ -505,7 +507,7 @@ plicinit之后就是 <span class="underline">plicinithart</span> 函数。plicin
 </pre>
 </div>
 
-<pre class="example" id="org0bb85c9">
+<pre class="example" id="org3cdb9de">
 在plicinithart函数中，每个CPU的核都表明自己对来自于UART和VIRTIO的中断感兴趣
 
 到目前为止，已经有了接收中断的外部设备PLC，PLIC也可以传递中断到单个的CPU
@@ -538,9 +540,505 @@ plicinit之后就是 <span class="underline">plicinithart</span> 函数。plicin
 <div id="outline-container-org7407770" class="outline-3">
 <h3 id="org7407770">UART 驱动</h3>
 <div class="outline-text-3" id="text-org7407770">
+<p>
+UART设备在每次收到一个字符会产生一个中断，同样在每次发送一个中断后也会产生一个中断
+</p>
 </div>
-<div id="outline-container-org6db835c" class="outline-4">
-<h4 id="org6db835c"></h4>
+<div id="outline-container-org3356174" class="outline-4">
+<h4 id="org3356174">top-half</h4>
+<div class="outline-text-4" id="text-org3356174">
+<p>
+在 <span class="underline">init.c</span> 的 <b>main</b> 函数创建了一个代表 <b>console</b> 的设备：
+</p>
+<ol class="org-ol">
+<li>通过 <span class="underline">mknod</span> 操作创建了 <span class="underline">console设备</span> 。因为这是第一个打开的文件，所以这里的文件描述符 <span class="underline">0</span></li>
+<li>通过 <span class="underline">dup</span> 创建 <b>stdout</b> 和 <b>stderr</b> 。复制文件描述符0，得到了另外两个文件描述符 <span class="underline">1</span> ， <span class="underline">2</span> 。因此最终文件描述符0，1，2都用来代表console</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">if</span>(open(<span style="color: #ffa07a;">"console"</span>, O_RDWR) &lt; 0){
+                mknod(<span style="color: #ffa07a;">"console"</span>, CONSOLE, 0);
+                open(<span style="color: #ffa07a;">"console"</span>, O_RDWR);
+}
+
+dup(0);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">stdout
+</span>dup(0);  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">stderr</span>
+</pre>
+</div>
+
+<p>
+尽管console背后是uart设备，但是从应用程序来看，它就像是一个普通的文件。shell程序只是向 <span class="underline">文件描述符2</span> 写了数据
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">else</span> <span style="color: #00ffff;">if</span>(f-&gt;type == FD_DEVICE){
+                <span style="color: #00ffff;">if</span>(f-&gt;major &lt; 0 || f-&gt;major &gt;= NDEV || !devsw[f-&gt;major].write)
+                                <span style="color: #00ffff;">return</span> -1;
+                ret = devsw[f-&gt;major].write(1, addr, n);
+}
+</pre>
+</div>
+
+<p>
+在 <span class="underline">filewrite</span> 函数中首先会判断 <span class="underline">文件描述符的类型</span> 。mknod生成的文件描述符属于 <b>设备</b> <span class="underline">FD_DEVICE</span>
+</p>
+<ul class="org-ul">
+<li><p>
+而对于设备类型的文件描述符，会为这个特定的设备执行设备相应的write函数
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span>
+<span style="color: #87cefa;">consoleinit</span>(<span style="color: #98fb98;">void</span>)
+{
+                initlock(&amp;cons.lock, <span style="color: #ffa07a;">"cons"</span>); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21021;&#22987;&#21270;console&#30456;&#20851;&#30340;&#33258;&#26059;&#38145;&#65292;&#20445;&#25252;console&#30340;&#32531;&#23384;&#21306;
+</span>
+                uartinit(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21021;&#22987;&#21270;UART&#30828;&#20214;&#65292;&#35774;&#32622;&#27874;&#29305;&#29575;&#12289;&#25968;&#25454;&#26684;&#24335;&#31561; 
+</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">connect read and write system calls
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">to consoleread and consolewrite.
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35774;&#32622;console&#35774;&#22791;&#30340;&#35835;&#20889;&#20989;&#25968;&#25351;&#38024; &#65288;devsw&#25968;&#32452;&#20013;&#32034;&#24341;&#20026;CONSOLE&#30340;&#20803;&#32032;&#65289; 
+</span>                devsw[CONSOLE].read = consoleread; 
+                devsw[CONSOLE].write = consolewrite;
+}
+</pre>
+</div>
+<ul class="org-ul">
+<li>因为现在的设备是console，所以这里会调用 <span class="underline">console.c</span> 中的 <b>consolewrite</b> 函数</li>
+</ul></li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">int</span>
+<span style="color: #87cefa;">consolewrite</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">user_src</span>, <span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">src</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">n</span>)
+{
+                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">i</span>;
+
+                <span style="color: #00ffff;">for</span>(i = 0; i &lt; n; i++){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24490;&#29615;&#36941;&#21382;&#35201;&#20889;&#20837;&#30340;&#23383;&#33410;&#25968;
+</span>                                <span style="color: #98fb98;">char</span> <span style="color: #eedd82;">c</span>;
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">either_copyin(&amp;c, user_src, src+i, 1) &#29992;&#20110;&#20174;&#25351;&#23450;&#30340;&#28304;&#31354;&#38388;&#65288;&#29992;&#25143;&#25110;&#20869;&#26680;&#65289;&#25335;&#36125;&#19968;&#20010;&#23383;&#33410;&#21040;&#21464;&#37327; c
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#25335;&#36125;&#22833;&#36133;&#65288;&#36820;&#22238; -1&#65289;&#65292;&#21017;&#25552;&#21069;&#32467;&#26463;&#24490;&#29615;
+</span>                                <span style="color: #00ffff;">if</span>(either_copyin(&amp;c, user_src, src+i, 1) == -1)
+                                                <span style="color: #00ffff;">break</span>;
+                                uartputc(c); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#35835;&#21462;&#30340;&#23383;&#31526;&#21457;&#36865;&#21040; UART &#35774;&#22791;&#36827;&#34892;&#36755;&#20986;
+</span>                }
+
+                <span style="color: #00ffff;">return</span> i; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36820;&#22238;&#23454;&#38469;&#20889;&#20837;&#30340;&#23383;&#33410;&#25968;
+</span>}
+</pre>
+</div>
+
+<p>
+通过 <span class="underline">either_copyin</span> 将字符拷入，之后调用 <span class="underline">uartputc</span> 函数，将字符写入给uart设备
+</p>
+<pre class="example" id="orgf494131">
+所以可以认为consolewrite是一个uart驱动的top部分
+</pre>
+
+<p>
+<span class="underline">uart.c</span> 文件中的 <span class="underline">uartputc</span> 函数会实际的打印字符：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span>
+<span style="color: #87cefa;">uartputc</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">c</span>)
+{
+                acquire(&amp;uart_tx_lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#33719;&#21462; UART &#21457;&#36865;&#32531;&#20914;&#21306;&#30340;&#33258;&#26059;&#38145;
+</span>
+                <span style="color: #ff4500;">//</span><span style="color: #ff4500;">&#36825;&#27573;&#20195;&#30721;&#22312;&#26816;&#27979;&#21040;&#31995;&#32479;&#22788;&#20110; panic &#29366;&#24577;&#26102;&#65292;&#35753;&#24403;&#21069;&#25191;&#34892;&#27969;&#38519;&#20837;&#19968;&#20010;&#31354;&#36716;&#30340;&#26080;&#38480;&#24490;&#29615;&#65292;&#20174;&#32780;&#8220;&#20923;&#32467;&#8221;&#22312;&#24403;&#21069;&#20301;&#32622;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">panicked &#36890;&#24120;&#26159;&#20869;&#26680;&#32423;&#30340;&#20840;&#23616;&#26631;&#24535;&#65292;&#19968;&#26086;&#21457;&#29983;&#33268;&#21629;&#38169;&#35823;&#34987;&#32622;&#20301;&#65292;&#21518;&#32493;&#36335;&#24452;&#65288;&#20363;&#22914; UART &#36755;&#20986;&#65289;&#23601;&#19981;&#20877;&#32487;&#32493;&#25191;&#34892;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20197;&#36991;&#20813;&#36827;&#19968;&#27493;&#30772;&#22351;&#31995;&#32479;&#29366;&#24577;&#25110;&#19982;&#20854;&#20182; CPU/&#19978;&#19979;&#25991;&#20132;&#38169;&#36755;&#20986;&#65292;&#30830;&#20445; panic &#20449;&#24687;&#30340;&#21487;&#35835;&#24615;&#19982;&#19968;&#33268;&#24615;
+</span>                <span style="color: #00ffff;">if</span>(panicked){
+                                <span style="color: #00ffff;">for</span>(;;)
+                                                ;
+                }
+                <span style="color: #00ffff;">while</span>(uart_tx_w == uart_tx_r + UART_TX_BUF_SIZE){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#21457;&#36865;&#32531;&#20914;&#21306;&#24050;&#28385;&#65292;&#38459;&#22622;&#31561;&#24453;
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">buffer is full.
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">wait for uartstart() to open up space in the buffer.
+</span>                                sleep(&amp;uart_tx_r, &amp;uart_tx_lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20241;&#30496;&#65292;&#31561;&#24453; uartstart() &#37322;&#25918;&#32531;&#20914;&#21306;&#31354;&#38388;
+</span>                }
+                uart_tx_buf[uart_tx_w % UART_TX_BUF_SIZE] = c; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#23383;&#31526; c &#28155;&#21152;&#21040;&#21457;&#36865;&#32531;&#20914;&#21306;
+</span>                uart_tx_w += 1; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21457;&#36865;&#32531;&#20914;&#21306;&#20889;&#25351;&#38024;&#21069;&#31227;
+</span>                uartstart(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21551;&#21160; UART &#21457;&#36865;&#32531;&#20914;&#21306;&#20013;&#30340;&#25968;&#25454;
+</span>                release(&amp;uart_tx_lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#37322;&#25918; UART &#21457;&#36865;&#32531;&#20914;&#21306;&#30340;&#33258;&#26059;&#38145;
+</span>}
+</pre>
+</div>
+
+<p>
+在UART的内部会有一个 <span class="underline">buffer</span> 用来发送数据，大小是 <span class="underline">32个</span> 字符。同时还有一个为consumer提供的 <span class="underline">读指针</span> 和为producer提供的 <span class="underline">写指针</span> ，来构建一个 <b>环形的buffer</b>
+</p>
+<ul class="org-ul">
+<li>如果 <span class="underline">读写指针相同</span> ，那么buffer是 <b>空的</b></li>
+<li>如果 <span class="underline">写指针加32（缓冲区大小）等于读指针</span> ，那么buffer <b>满了</b></li>
+</ul>
+
+<p>
+Shell是producer，调用uartputc函数，因为提示符“$”是送出的第一个字符。所以代码会走到while外面，字符会被送到buffer中，更新写指针，之后再调用 <span class="underline">uartstart</span> 函数
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">void</span>
+<span style="color: #87cefa;">uartstart</span>()
+{
+                <span style="color: #00ffff;">while</span>(1){
+                                <span style="color: #00ffff;">if</span>(uart_tx_w == uart_tx_r){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#32531;&#20914;&#21306;&#30340;&#35835;&#25351;&#38024;&#21644;&#20889;&#25351;&#38024;&#30456;&#31561;&#65292;&#34920;&#31034;&#27809;&#26377;&#25968;&#25454;&#21487;&#21457;&#36865; 
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">transmit buffer is empty.
+</span>                                                ReadReg(ISR); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462; UART &#30340;&#20013;&#26029;&#29366;&#24577;&#23492;&#23384;&#22120;&#65288;Interrupt Status Register&#65289; 
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#34429;&#28982;&#36825;&#37324;&#27809;&#26377;&#23545;&#35835;&#21462;&#32467;&#26524;&#36827;&#34892;&#22788;&#29702;&#65292;&#36890;&#24120;&#36825;&#26679;&#20570;&#26159;&#20026;&#20102;&#28165;&#38500;&#26576;&#20123;&#30828;&#20214;&#29366;&#24577;&#25110;&#20013;&#26029;&#26631;&#24535;&#65292;&#30830;&#20445; UART &#29366;&#24577;&#20445;&#25345;&#21516;&#27493;
+</span>                                                <span style="color: #00ffff;">return</span>;
+                                }
+
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462; UART &#30340;&#32447;&#36335;&#29366;&#24577;&#23492;&#23384;&#22120;&#65288;Line Status Register&#65289;&#65292;&#28982;&#21518;&#19982; LSR_TX_IDLE &#36827;&#34892;&#25353;&#20301;&#19982;&#36816;&#31639;
+</span>                                <span style="color: #00ffff;">if</span>((ReadReg(LSR) &amp; LSR_TX_IDLE) == 0){ 
+                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">the UART transmit holding register is full,
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">so we cannot give it another byte.
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">it will interrupt when it's ready for a new byte.
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#32467;&#26524;&#20026; 0&#65292;&#35828;&#26126;&#21457;&#36865;&#23492;&#23384;&#22120;&#24403;&#21069;&#24050;&#28385;&#65292;&#19981;&#33021;&#20877;&#20889;&#20837;&#26032;&#30340;&#23383;&#33410;
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#27492;&#26102;&#65292;&#20195;&#30721;&#20250;&#30452;&#25509; return&#65292;&#26242;&#26102;&#20572;&#27490;&#21457;&#36865;&#25805;&#20316;
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24403;&#21457;&#36865;&#23492;&#23384;&#22120;&#28385;&#26102;&#65292;UART &#20250;&#22312;&#20934;&#22791;&#22909;&#25509;&#25910;&#26032;&#23383;&#33410;&#26102;&#36890;&#36807;&#20013;&#26029;&#36890;&#30693;&#31995;&#32479;&#65292;&#23626;&#26102;&#20877;&#32487;&#32493;&#21457;&#36865;
+</span>                                                <span style="color: #00ffff;">return</span>;
+                                }
+
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174;&#21457;&#36865;&#32531;&#20914;&#21306;&#35835;&#21462;&#19979;&#19968;&#20010;&#24453;&#21457;&#36865;&#30340;&#23383;&#31526; 
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21462;&#27169;&#26159;&#20026;&#20102;&#23454;&#29616;&#32531;&#20914;&#21306;&#30340;&#24490;&#29615;&#21033;&#29992;&#65292;&#38450;&#27490;&#25351;&#38024;&#36234;&#30028;
+</span>                                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">c</span> = uart_tx_buf[uart_tx_r % UART_TX_BUF_SIZE]; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174;&#29615;&#24418;&#32531;&#20914;&#21306; uart_tx_buf &#20013;&#35835;&#21462;&#24403;&#21069;&#35835;&#25351;&#38024; uart_tx_r &#25351;&#21521;&#30340;&#23383;&#31526;
+</span>                                uart_tx_r += 1; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#25351;&#38024;&#21069;&#31227; 
+</span>
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">maybe uartputc() is waiting for space in the buffer.
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21487;&#33021;&#26377; uartputc() &#27491;&#22312;&#31561;&#24453;&#32531;&#20914;&#21306;&#26377;&#31354;&#38388;&#21487;&#29992;
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35843;&#29992; wakeup &#21796;&#37266;&#25152;&#26377;&#31561;&#24453; uart_tx_r &#22320;&#22336;&#30340;&#36827;&#31243;
+</span>                                wakeup(&amp;uart_tx_r);
+
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21018;&#21018;&#21462;&#20986;&#30340;&#23383;&#31526;&#20889;&#20837; UART &#30340;&#21457;&#36865;&#20445;&#25345;&#23492;&#23384;&#22120;&#65288;THR&#65289;&#65292;&#35302;&#21457;&#30828;&#20214;&#23454;&#38469;&#21457;&#36865;&#35813;&#23383;&#33410;
+</span>                                WriteReg(THR, c);
+                }
+}
+</pre>
+</div>
+
+<p>
+uartstart就是 <b>通知</b> <span class="underline">设备</span> 执行操作。先检查当前设备是否空闲
+</p>
+<ul class="org-ul">
+<li><p>
+如果空闲的话，会从buffer中读出数据，然后将数据写入到 <b>THR</b> <span class="underline">Transmission Holding Register</span> 发送寄存器
+</p>
+<pre class="example" id="org58a69b9">
+这里相当于告诉设备，这里有一个字节需要你来发送
+</pre></li>
+<li>uart设备会将数据送出，并产生一个UART中断</li>
+</ul>
+
+<p>
+在某个时间点，CPU会收到中断，因为之前设置了要处理UART设备中断
+</p>
+
+<pre class="example" id="org9e5f961">
+接下来看一下，当收到中断时，实际会发生什么
+</pre>
+</div>
+</div>
+<div id="outline-container-org1fdb4ef" class="outline-4">
+<h4 id="org1fdb4ef">bottom-half</h4>
+<div class="outline-text-4" id="text-org1fdb4ef">
+<p>
+在 <span class="underline">trap.c</span> 的 <span class="underline">devintr</span> 函数中，首先会通过 <span class="underline">scause寄存器</span> 判断当前中断是否是来自于 <b>外设的</b> 中断
+</p>
+<ul class="org-ul">
+<li>如果是的话，再调用 <span class="underline">plic_claim</span> 函数来 <b>获取</b> <span class="underline">中断号</span></li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">scause</span> = r_scause(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462;&#65288;&#30417;&#30563;&#32773;&#38519;&#20837;&#21407;&#22240;&#65289;&#23492;&#23384;&#22120;
+</span>
+<span style="color: #00ffff;">if</span>(scause == 0x8000000000000009L){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22788;&#29702;&#22806;&#37096;&#20013;&#26029;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">this is a supervisor external interrupt, via PLIC.
+</span>
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">irq indicates which device interrupted.
+</span>                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">irq</span> = plic_claim(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35835;&#21462;&#20013;&#26029;&#21521;&#37327;&#21495;&#65292;&#20197;&#27492;&#21028;&#26029;&#26159;&#21738;&#20010;&#35774;&#22791;&#35302;&#21457;&#30340;
+</span>
+                <span style="color: #00ffff;">if</span>(irq == UART0_IRQ){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20018;&#21475;&#20013;&#26029;
+</span>                                uartintr(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22788;&#29702;&#20018;&#21475;&#20013;&#26029;
+</span>                } <span style="color: #00ffff;">else</span> <span style="color: #00ffff;">if</span>(irq == VIRTIO0_IRQ){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#34394;&#25311;&#30913;&#30424;&#20013;&#26029;
+</span>                                virtio_disk_intr(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22788;&#29702;&#34394;&#25311;&#30913;&#30424;&#20013;&#26029;
+</span>                } <span style="color: #00ffff;">else</span> <span style="color: #00ffff;">if</span>(irq){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26080;&#27861;&#21028;&#26029;
+</span>                                printf(<span style="color: #ffa07a;">"unexpected interrupt irq=%d\n"</span>, irq);
+                }
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">....
+</span>}
+</pre>
+</div>
+
+<p>
+plic_claim函数位于plic.c文件中。在这个函数中，当前CPU核会告知PLIC，自己要处理中断，plic_claim会将中断号返回
+</p>
+
+<pre class="example" id="org0f44e8b">
+对于UART来说，返回的中断号是10
+</pre>
+<p>
+接下来会调用 <span class="underline">uartintr</span> 函数处理中断
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24403; UART &#35774;&#22791;&#20135;&#29983;&#20013;&#26029;&#26102;&#65288;&#21487;&#33021;&#26159;&#22240;&#20026;&#26377;&#26032;&#25968;&#25454;&#21040;&#36798;&#65292;&#25110;&#32773;&#21457;&#36865;&#32531;&#20914;&#21306;&#21487;&#20197;&#32487;&#32493;&#21457;&#36865;&#25968;&#25454;&#65289;&#65292;&#31995;&#32479;&#20250;&#35843;&#29992;&#35813;&#20989;&#25968;&#36827;&#34892;&#21709;&#24212;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35813;&#20989;&#25968;&#36890;&#24120;&#30001;&#35774;&#22791;&#20013;&#26029;&#20998;&#21457;&#20989;&#25968; devintr() &#35843;&#29992;
+</span><span style="color: #98fb98;">void</span>
+<span style="color: #87cefa;">uartintr</span>(<span style="color: #98fb98;">void</span>)
+{
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">read and process incoming characters.
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24490;&#29615;&#35835;&#21462;&#21644;&#22788;&#29702;UART &#25509;&#25910;&#21040;&#30340;&#23383;&#31526;
+</span>                <span style="color: #00ffff;">while</span>(1){
+                                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">c</span> = uartgetc(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174; UART &#35835;&#21462;&#19968;&#20010;&#36755;&#20837;&#23383;&#31526;
+</span>                                <span style="color: #00ffff;">if</span>(c == -1) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#27809;&#26377;&#26032;&#23383;&#31526;&#21487;&#35835;&#65292;&#36339;&#20986;&#24490;&#29615;
+</span>                                                <span style="color: #00ffff;">break</span>;
+                                consoleintr(c); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36890;&#24120;&#26159;&#23558;&#23383;&#31526;&#20256;&#36882;&#32473;&#25511;&#21046;&#21488;&#36755;&#20837;&#22788;&#29702;&#36923;&#36753;&#65292;&#27604;&#22914;&#21629;&#20196;&#34892;&#25110;&#32456;&#31471;
+</span>                }
+
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">send buffered characters.
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21457;&#36865;&#32531;&#20914;&#21306;&#20013;&#30340;&#23383;&#31526;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#27880;&#24847;&#65306;&#38656;&#35201;&#32473;&#32531;&#23384;&#21306;&#21152;&#38145;&#65292;&#20197;&#36991;&#20813;&#19981;&#21516;&#32447;&#31243;&#21516;&#26102;&#35775;&#38382;&#24341;&#21457;&#25968;&#25454;&#31454;&#20105;
+</span>                acquire(&amp;uart_tx_lock);
+                uartstart(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35843;&#29992; uartstart() &#21457;&#36865;&#32531;&#20914;&#21306;&#20013;&#30340;&#23383;&#31526;
+</span>                release(&amp;uart_tx_lock);
+}
+</pre>
+</div>
+
+<p>
+现在还没有通过键盘输入任何数据，所以uart的接受寄存器现在为空。代码会直接运行到uartstart函数，会将shell存储在buffer中的任意字符送出（发送给console）
+</p>
+<pre class="example" id="orgeb19261">
+实际上在提示符“$”之后，shell还会输出一个空格字符
+
+因为write系统调用在uart发送提示符“$”的同时，之后将空格字符写入到buffer中
+
+所以uart的发送中断触发时，可以发现在buffer中还有一个空格字符，之后会将这个空格字符送出
+</pre>
+</div>
+</div>
+<div id="outline-container-orgc798ef8" class="outline-4">
+<h4 id="orgc798ef8">UART读取键盘输入</h4>
+<div class="outline-text-4" id="text-orgc798ef8">
+<p>
+有时shell会调用 <b>read</b> 从键盘中读取字符。 在read系统调用的底层，会调用 <span class="underline">fileread</span> 函数。在这个函数中
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #00ffff;">else</span> <span style="color: #00ffff;">if</span>(f-&gt;type == FD_DEVICE){
+                <span style="color: #00ffff;">if</span>(f-&gt;major &lt; 0 || f-&gt;major &gt;= NDEV || !devsw[f-&gt;major].read)
+                                <span style="color: #00ffff;">return</span> -1;
+                r = devsw[f-&gt;major].read(1, addr, n);
+}
+</pre>
+</div>
+
+<p>
+如果读取的文件类型是设备，会调用相应设备的read函数
+</p>
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #98fb98;">int</span>
+<span style="color: #87cefa;">consoleread</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">user_dst</span>, <span style="color: #98fb98;">uint64</span> <span style="color: #eedd82;">dst</span>, <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">n</span>)
+{
+                <span style="color: #98fb98;">uint</span> <span style="color: #eedd82;">target</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#30446;&#26631;&#23383;&#33410;&#25968;&#65292;&#35760;&#24405;&#35201;&#35835;&#21462;&#30340;&#24635;&#23383;&#33410;&#25968;
+</span>                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">c</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29992;&#20110;&#23384;&#20648;&#20174;&#25511;&#21046;&#21488;&#35835;&#21462;&#30340;&#23383;&#31526;
+</span>                <span style="color: #98fb98;">char</span> <span style="color: #eedd82;">cbuf</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#29992;&#20110;&#23384;&#20648;&#20174;&#25511;&#21046;&#21488;&#35835;&#21462;&#30340;&#23383;&#31526;&#65292;&#20934;&#22791;&#20889;&#20837;&#29992;&#25143;&#31354;&#38388;&#25110;&#20869;&#26680;&#31354;&#38388;
+</span>
+                target = n; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20445;&#23384;&#21021;&#22987;&#30340;&#35201;&#35835;&#21462;&#30340;&#23383;&#33410;&#25968;&#65292;&#20197;&#20415;&#22312;&#20989;&#25968;&#32467;&#26463;&#26102;&#36820;&#22238; 
+</span>                acquire(&amp;cons.lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#33719;&#21462;&#25511;&#21046;&#21488;&#33258;&#26059;&#38145;&#65292;&#30830;&#20445;&#23545;&#25511;&#21046;&#21488;&#32531;&#20914;&#21306;&#30340;&#29420;&#21344;&#35775;&#38382;
+</span>                <span style="color: #00ffff;">while</span>(n &gt; 0){ 
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">wait until interrupt handler has put some
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">input into cons.buffer.
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#31561;&#24453;&#25511;&#21046;&#21488;&#32531;&#20914;&#21306;&#26377;&#21487;&#35835;&#25968;&#25454;
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524; cons.r &#31561;&#20110; cons.w&#65292;&#34920;&#31034;&#32531;&#20914;&#21306;&#20026;&#31354;&#65292;&#36827;&#20837;&#20241;&#30496;
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24403; cons.r &#19981;&#31561;&#20110; cons.w &#26102;&#65292;&#34920;&#31034;&#26377;&#25968;&#25454;&#21487;&#35835;
+</span>                                <span style="color: #00ffff;">while</span>(cons.r == cons.w){
+                                                <span style="color: #00ffff;">if</span>(killed(myproc())){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26816;&#26597;&#24403;&#21069;&#36827;&#31243;&#26159;&#21542;&#34987;&#26432;&#27515;&#65292;&#22914;&#26524;&#26159;&#65292;&#21017;&#37322;&#25918;&#38145;&#24182;&#36820;&#22238; -1
+</span>                                                                release(&amp;cons.lock); 
+                                                                <span style="color: #00ffff;">return</span> -1;
+                                                }
+                                                sleep(&amp;cons.r, &amp;cons.lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20241;&#30496;&#65292;&#31561;&#24453;&#25511;&#21046;&#21488;&#36755;&#20837;
+</span>                                }
+
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174;&#25511;&#21046;&#21488;&#32531;&#20914;&#21306;&#35835;&#21462;&#19968;&#20010;&#23383;&#31526;&#65292;&#24182;&#26356;&#26032;&#35835;&#21462;&#32034;&#24341; cons.r 
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#37324;&#20351;&#29992;&#27169;&#36816;&#31639;&#30830;&#20445;&#32034;&#24341;&#22312;&#32531;&#20914;&#21306;&#22823;&#23567;&#33539;&#22260;&#20869;&#24490;&#29615;
+</span>                                c = cons.buf[cons.r++ % INPUT_BUF_SIZE];  
+
+
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#27573;&#20195;&#30721;&#29992;&#20110;&#22788;&#29702;&#25511;&#21046;&#21488;&#36755;&#20837;&#20013;&#30340;&#25991;&#20214;&#32467;&#26463;&#31526;&#65288;EOF&#65289;&#65292;&#21363;&#29992;&#25143;&#25353;&#19979; Ctrl+D &#30340;&#24773;&#20917;
+</span>                                <span style="color: #00ffff;">if</span>(c == C(<span style="color: #ffa07a;">'D'</span>)){  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">end-of-file &#21363; Ctrl+D&#65289;&#26102;&#65292;&#34920;&#31034;&#29992;&#25143;&#24076;&#26395;&#32467;&#26463;&#36755;&#20837;&#65292;&#30456;&#24403;&#20110;&#21040;&#36798;&#25991;&#20214;&#26411;&#23614;
+</span>                                                <span style="color: #00ffff;">if</span>(n &lt; target){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24050;&#32463;&#35835;&#21462;&#20102;&#19968;&#20123;&#25968;&#25454;&#65288;n &lt; target&#65289;&#65292;&#35828;&#26126;&#26412;&#27425;&#35835;&#21462;&#36824;&#27809;&#26377;&#28040;&#32791;&#25481;&#25152;&#26377;&#35831;&#27714;&#30340;&#23383;&#33410;&#25968;
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Save ^D for next time, to make sure
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">caller gets a 0-byte result.
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20026;&#20102;&#20445;&#35777;&#19979;&#27425;&#35835;&#21462;&#26102;&#36824;&#33021;&#27491;&#30830;&#26816;&#27979;&#21040; EOF&#65292;&#20195;&#30721;&#20250;&#23558;&#35835;&#21462;&#32034;&#24341; cons.r &#22238;&#36864;&#19968;&#20301;&#65292;&#25226; Ctrl+D &#30041;&#22312;&#32531;&#20914;&#21306;&#20013;
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#26679;&#65292;&#19979;&#19968;&#27425;&#35835;&#21462;&#25805;&#20316;&#20250;&#31435;&#21363;&#36935;&#21040; EOF&#65292;&#36820;&#22238; 0 &#23383;&#33410;&#65292;&#31526;&#21512;&#26631;&#20934;&#36755;&#20837;&#34892;&#20026;
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#31181;&#22788;&#29702;&#26041;&#24335;&#30830;&#20445;&#20102; Ctrl+D &#33021;&#27491;&#30830;&#22320;&#20316;&#20026;&#36755;&#20837;&#32467;&#26463;&#26631;&#24535;&#65292;&#24182;&#19988;&#22810;&#27425;&#35835;&#21462;&#26102;&#34892;&#20026;&#19968;&#33268;
+</span>                                                                cons.r--;
+                                                }
+                                                <span style="color: #00ffff;">break</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#30452;&#25509;&#36339;&#20986;&#24490;&#29615;&#65292;&#32467;&#26463;&#35835;&#21462;
+</span>                                }
+
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">copy the input byte to the user-space buffer.
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25335;&#36125;&#35835;&#21462;&#30340;&#23383;&#31526;&#21040;&#29992;&#25143;&#31354;&#38388;&#25110;&#20869;&#26680;&#31354;&#38388;
+</span>                                cbuf = c;
+                                <span style="color: #00ffff;">if</span>(either_copyout(user_dst, dst, &amp;cbuf, 1) == -1)
+                                                <span style="color: #00ffff;">break</span>;
+
+                                dst++; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26356;&#26032;&#30446;&#26631;&#22320;&#22336;&#65292;&#20934;&#22791;&#20889;&#20837;&#19979;&#19968;&#20010;&#23383;&#31526;
+</span>                                --n; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20943;&#23569;&#21097;&#20313;&#35201;&#35835;&#21462;&#30340;&#23383;&#33410;&#25968;
+</span>
+                                <span style="color: #00ffff;">if</span>(c == <span style="color: #ffa07a;">'\n'</span>){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#35835;&#21462;&#21040;&#25442;&#34892;&#31526;&#65288;\n&#65289;&#65292;&#34920;&#31034;&#19968;&#34892;&#36755;&#20837;&#32467;&#26463;
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">a whole line has arrived, return to
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">the user-level read().
+</span>                                                <span style="color: #00ffff;">break</span>; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36339;&#20986;&#24490;&#29615;&#65292;&#32467;&#26463;&#35835;&#21462;
+</span>                                }
+                }
+                release(&amp;cons.lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#37322;&#25918;&#25511;&#21046;&#21488;&#33258;&#26059;&#38145;&#65292;&#20801;&#35768;&#20854;&#20182;&#32447;&#31243;&#35775;&#38382;&#25511;&#21046;&#21488;&#32531;&#20914;&#21306;
+</span>
+                <span style="color: #00ffff;">return</span> target - n; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36820;&#22238;&#23454;&#38469;&#35835;&#21462;&#30340;&#23383;&#33410;&#25968;&#65292;&#21363;&#21021;&#22987;&#35831;&#27714;&#30340;&#23383;&#33410;&#25968;&#20943;&#21435;&#21097;&#20313;&#26410;&#35835;&#21462;&#30340;&#23383;&#33410;&#25968;
+</span>}
+</pre>
+</div>
+
+<p>
+在某个时间点，假设用户通过键盘输入了“l”
+</p>
+<ol class="org-ol">
+<li>导致“l”被发送到主板上的 <span class="underline">UART芯片</span></li>
+<li>产生 <b>中断</b> 之后再被 <span class="underline">PLIC</span> <b>路由</b> 到某个 <span class="underline">CPU核</span></li>
+<li>触发 <span class="underline">devintr</span> 函数，devintr可以发现这是一个 <b>UART中断</b></li>
+<li><span class="underline">uartintr</span> 通过 <b>uartgetc</b> 函数获取到相应的字符</li>
+<li>再将字符传递给 <span class="underline">consoleintr</span> 函数</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#27880;&#24847;&#65306;&#35813;&#20989;&#25968;&#19981;&#20250;&#38459;&#22622;&#31561;&#24453;&#25968;&#25454;
+</span><span style="color: #98fb98;">int</span>
+<span style="color: #87cefa;">uartgetc</span>(<span style="color: #98fb98;">void</span>)
+{
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">ReadReg(LSR) &#35835;&#21462; UART &#30340;&#32447;&#36335;&#29366;&#24577;&#23492;&#23384;&#22120;&#65288;Line Status Register&#65289;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35813;&#23492;&#23384;&#22120;&#30340;&#26368;&#20302;&#20301;&#65288;0x01&#65289;&#29992;&#20110;&#25351;&#31034;&#25509;&#25910;&#32531;&#20914;&#21306;&#26159;&#21542;&#26377;&#25968;&#25454;&#20934;&#22791;&#22909;
+</span>                <span style="color: #00ffff;">if</span>(ReadReg(LSR) &amp; 0x01){
+                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">input data is ready.
+</span>                                <span style="color: #00ffff;">return</span> ReadReg(RHR); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174;&#25509;&#25910;&#20445;&#25345;&#23492;&#23384;&#22120;&#65288;RHR&#65289;&#35835;&#21462;&#24182;&#36820;&#22238;&#36755;&#20837;&#23383;&#31526;
+</span>                } <span style="color: #00ffff;">else</span> {
+                                <span style="color: #00ffff;">return</span> -1; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#27809;&#26377;&#25968;&#25454;&#21487;&#35835;&#65292;&#36820;&#22238; -1
+</span>                }
+}
+
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">handle a uart interrupt, raised because input has
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">arrived, or the uart is ready for more output, or
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">both. called from devintr().
+</span>
+<span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24403; UART &#35774;&#22791;&#20135;&#29983;&#20013;&#26029;&#26102;&#65288;&#21487;&#33021;&#26159;&#22240;&#20026;&#26377;&#26032;&#25968;&#25454;&#21040;&#36798;&#65292;&#25110;&#32773;&#21457;&#36865;&#32531;&#20914;&#21306;&#21487;&#20197;&#32487;&#32493;&#21457;&#36865;&#25968;&#25454;&#65289;&#65292;&#31995;&#32479;&#20250;&#35843;&#29992;&#35813;&#20989;&#25968;&#36827;&#34892;&#21709;&#24212;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35813;&#20989;&#25968;&#36890;&#24120;&#30001;&#35774;&#22791;&#20013;&#26029;&#20998;&#21457;&#20989;&#25968; devintr() &#35843;&#29992;
+</span><span style="color: #98fb98;">void</span>
+<span style="color: #87cefa;">uartintr</span>(<span style="color: #98fb98;">void</span>)
+{
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">read and process incoming characters.
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24490;&#29615;&#35835;&#21462;&#21644;&#22788;&#29702;UART &#25509;&#25910;&#21040;&#30340;&#23383;&#31526;
+</span>                <span style="color: #00ffff;">while</span>(1){
+                                <span style="color: #98fb98;">int</span> <span style="color: #eedd82;">c</span> = uartgetc(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#20174; UART &#35835;&#21462;&#19968;&#20010;&#36755;&#20837;&#23383;&#31526;
+</span>                                <span style="color: #00ffff;">if</span>(c == -1) <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#27809;&#26377;&#26032;&#23383;&#31526;&#21487;&#35835;&#65292;&#36339;&#20986;&#24490;&#29615;
+</span>                                                <span style="color: #00ffff;">break</span>;
+                                consoleintr(c); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36890;&#24120;&#26159;&#23558;&#23383;&#31526;&#20256;&#36882;&#32473;&#25511;&#21046;&#21488;&#36755;&#20837;&#22788;&#29702;&#36923;&#36753;&#65292;&#27604;&#22914;&#21629;&#20196;&#34892;&#25110;&#32456;&#31471;
+</span>                }
+
+                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">send buffered characters.
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21457;&#36865;&#32531;&#20914;&#21306;&#20013;&#30340;&#23383;&#31526;
+</span>                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#27880;&#24847;&#65306;&#38656;&#35201;&#32473;&#32531;&#23384;&#21306;&#21152;&#38145;&#65292;&#20197;&#36991;&#20813;&#19981;&#21516;&#32447;&#31243;&#21516;&#26102;&#35775;&#38382;&#24341;&#21457;&#25968;&#25454;&#31454;&#20105;
+</span>                acquire(&amp;uart_tx_lock);
+                uartstart(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35843;&#29992; uartstart() &#21457;&#36865;&#32531;&#20914;&#21306;&#20013;&#30340;&#23383;&#31526;
+</span>                release(&amp;uart_tx_lock);
+}
+</pre>
+</div>
+
+<p>
+在 <span class="underline">consoleintr</span> 中
+</p>
+<ol class="org-ol">
+<li>字符会通过 <b>consputc</b> ，输出到console上给用户查看</li>
+<li>字符被存放在buffer中</li>
+<li>在遇到换行符的时候，*唤醒* 之前sleep的进程，也就是shell</li>
+<li>shell 再从buffer中将数据读出</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35813;&#20989;&#25968;&#20250;&#22788;&#29702;&#36755;&#20837;&#20013;&#30340;&#21024;&#38500;&#65288;erase&#65289;&#21644;&#34892;&#28165;&#38500;&#65288;kill&#65289;&#25805;&#20316;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#24182;&#23558;&#26377;&#25928;&#23383;&#31526;&#36861;&#21152;&#21040;&#25511;&#21046;&#21488;&#36755;&#20837;&#32531;&#20914;&#21306; cons.buf &#20013;
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#29992;&#25143;&#36755;&#20837;&#20102;&#19968;&#25972;&#34892;&#65288;&#36890;&#24120;&#20197;&#22238;&#36710;&#25110;&#25442;&#34892;&#32467;&#26463;&#65289;&#65292;&#20989;&#25968;&#20250;&#21796;&#37266;&#27491;&#22312;&#31561;&#24453;&#36755;&#20837;&#30340; consoleread()
+</span><span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#35753;&#20854;&#21487;&#20197;&#35835;&#21462;&#23436;&#25972;&#30340;&#19968;&#34892;&#25968;&#25454;
+</span><span style="color: #98fb98;">void</span>
+<span style="color: #87cefa;">consoleintr</span>(<span style="color: #98fb98;">int</span> <span style="color: #eedd82;">c</span>)
+{
+                acquire(&amp;cons.lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#33719;&#21462;&#25511;&#21046;&#21488;&#33258;&#26059;&#38145;&#65292;&#30830;&#20445;&#23545;&#25511;&#21046;&#21488;&#32531;&#20914;&#21306;&#30340;&#29420;&#21344;&#35775;&#38382;
+</span>
+                <span style="color: #00ffff;">switch</span>(c){
+                <span style="color: #00ffff;">case</span> C(<span style="color: #ffa07a;">'P'</span>):  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Print process list. 
+</span>                                procdump(); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#25171;&#21360;&#24403;&#21069;&#36827;&#31243;&#21015;&#34920;
+</span>                                <span style="color: #00ffff;">break</span>;
+                <span style="color: #00ffff;">case</span> C(<span style="color: #ffa07a;">'U'</span>):  <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Kill line. &#21024;&#38500;&#34892;
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#19968;&#27425;&#24615;&#21024;&#38500;&#24403;&#21069;&#36755;&#20837;&#34892;&#30340;&#25152;&#26377;&#23383;&#31526;&#65292;&#30452;&#21040;&#36935;&#21040;&#19978;&#19968;&#34892;&#30340;&#25442;&#34892;&#31526; \n &#25110;&#32531;&#20914;&#21306;&#20026;&#31354; 
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">cons.e &#26159;&#32534;&#36753;&#32034;&#24341;&#65292;&#25351;&#21521;&#24403;&#21069;&#27491;&#22312;&#32534;&#36753;&#30340;&#20301;&#32622;&#65307;cons.w &#26159;&#20889;&#20837;&#32034;&#24341;&#65292;&#25351;&#21521;&#36755;&#20837;&#32531;&#20914;&#21306;&#30340;&#36215;&#22987;&#20301;&#32622; 
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">cons.e != cons.w &#20445;&#35777;&#19981;&#20250;&#36234;&#36807;&#24403;&#21069;&#36755;&#20837;&#30340;&#36215;&#22987;&#20301;&#32622;&#65292;&#38450;&#27490;&#21024;&#38500;&#36229;&#20986;&#26412;&#34892;&#30340;&#20869;&#23481; 
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != '\n' &#26816;&#26597;&#24403;&#21069;&#35201;&#21024;&#38500;&#30340;&#23383;&#31526;&#26159;&#21542;&#20026;&#25442;&#34892;&#31526;
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#36935;&#21040;&#25442;&#34892;&#31526;&#23601;&#20572;&#27490;&#65292;&#30830;&#20445;&#21482;&#21024;&#38500;&#26412;&#34892;&#20869;&#23481;
+</span>                                <span style="color: #00ffff;">while</span>(cons.e != cons.w &amp;&amp;
+                                          cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != <span style="color: #ffa07a;">'\n'</span>){
+                                                cons.e--; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#32534;&#36753;&#32034;&#24341;&#21521;&#21069;&#31227;&#21160;&#19968;&#20301;
+</span>                                                consputc(BACKSPACE); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22312;&#32456;&#31471;&#19978;&#25191;&#34892;&#36864;&#26684;&#25805;&#20316;&#65292;&#35270;&#35273;&#19978;&#21024;&#38500;&#19968;&#20010;&#23383;&#31526;
+</span>                                }
+                                <span style="color: #00ffff;">break</span>;
+                <span style="color: #00ffff;">case</span> C(<span style="color: #ffa07a;">'H'</span>): <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Backspace 
+</span>                <span style="color: #00ffff;">case</span> <span style="color: #ffa07a;">'\x7f'</span>: <span style="color: #ff4500;">// </span><span style="color: #ff4500;">Delete key
+</span>                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#29992;&#25143;&#36755;&#20837;&#20102;&#36864;&#26684;&#38190;&#25110;&#21024;&#38500;&#38190;&#65292;&#26816;&#26597;&#26159;&#21542;&#26377;&#23383;&#31526;&#21487;&#20197;&#21024;&#38500;
+</span>                                <span style="color: #00ffff;">if</span>(cons.e != cons.w){
+                                                cons.e--;
+                                                consputc(BACKSPACE);
+                                }
+                                <span style="color: #00ffff;">break</span>; 
+                <span style="color: #00ffff;">default</span>: <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22788;&#29702;&#25511;&#21046;&#21488;&#36755;&#20837;&#23383;&#31526;&#30340;&#24120;&#35268;&#24773;&#20917;&#65292;&#24182;&#23558;&#20854;&#23384;&#20837;&#36755;&#20837;&#32531;&#20914;&#21306;
+</span>                                <span style="color: #00ffff;">if</span>(c != 0 &amp;&amp; cons.e-cons.r &lt; INPUT_BUF_SIZE){ <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#26816;&#26597;&#36755;&#20837;&#23383;&#31526; c &#26159;&#21542;&#26377;&#25928;&#19988;&#32531;&#20914;&#21306;&#26410;&#28385; 
+</span>                                                c = (c == <span style="color: #ffa07a;">'\r'</span>) ? <span style="color: #ffa07a;">'\n'</span> : c; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#36755;&#20837;&#30340;&#26159;&#22238;&#36710;&#31526; \r&#65292;&#20250;&#34987;&#36716;&#25442;&#20026;&#25442;&#34892;&#31526; \n&#65292;&#20197;&#32479;&#19968;&#34892;&#32467;&#26463;&#31526;&#30340;&#22788;&#29702; 
+</span>
+                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">echo back to the user.
+</span>                                                consputc(c); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#36755;&#20837;&#30340;&#23383;&#31526;&#22238;&#26174;&#21040;&#25511;&#21046;&#21488;
+</span>
+                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">store for consumption by consoleread().
+</span>                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23383;&#31526;&#34987;&#23384;&#20837;&#36755;&#20837;&#32531;&#20914;&#21306; cons.buf&#65292;
+</span>                                                cons.buf[cons.e++ % INPUT_BUF_SIZE] = c; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#32534;&#36753;&#32034;&#24341; cons.e &#36882;&#22686;&#65292;&#30830;&#20445;&#32531;&#20914;&#21306;&#24490;&#29615;&#21033;&#29992; 
+</span>
+                                                <span style="color: #00ffff;">if</span>(c == <span style="color: #ffa07a;">'\n'</span> || c == C(<span style="color: #ffa07a;">'D'</span>) || cons.e-cons.r == INPUT_BUF_SIZE){ 
+                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">wake up consoleread() if a whole line (or end-of-file)
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">has arrived.
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#22914;&#26524;&#36755;&#20837;&#30340;&#26159;&#25442;&#34892;&#31526;&#12289;Ctrl+D&#65288;&#25991;&#20214;&#32467;&#26463;&#31526;&#65292;C('D')&#65289;&#65292;&#25110; &#32531;&#20914;&#21306;&#24050;&#28385; 
+</span>                                                                cons.w = cons.e; <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#23558;&#20889;&#20837;&#32034;&#24341; cons.w &#26356;&#26032;&#20026;&#24403;&#21069;&#32534;&#36753;&#32034;&#24341; cons.e
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#21796;&#37266;&#31561;&#24453;&#36755;&#20837;&#30340;&#36827;&#31243;&#65288;&#22914; consoleread()&#65289;&#65292;&#34920;&#31034;&#19968;&#25972;&#34892;&#36755;&#20837;&#25110;&#36755;&#20837;&#32467;&#26463;&#24050;&#32463;&#21040;&#36798;&#65292;&#21487;&#20197;&#34987;&#35835;&#21462;
+</span>                                                                <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#36825;&#20445;&#35777;&#20102;&#25511;&#21046;&#21488;&#36755;&#20837;&#30340;&#21516;&#27493;&#21644;&#34892;&#32531;&#20914;&#34892;&#20026;
+</span>                                                                wakeup(&amp;cons.r); 
+                                                }
+                                }
+                                <span style="color: #00ffff;">break</span>;
+                }
+
+                release(&amp;cons.lock); <span style="color: #ff4500;">// </span><span style="color: #ff4500;">&#37322;&#25918;&#25511;&#21046;&#21488;&#33258;&#26059;&#38145;&#65292;&#20801;&#35768;&#20854;&#20182;&#32447;&#31243;&#35775;&#38382;&#25511;&#21046;&#21488;&#32531;&#20914;&#21306;
+</span>}
+</pre>
+</div>
+
+<pre class="example" id="org6a42d27">
+这里也是通过buffer将consumer和producer之间解耦，这样它们才能按照自己的速度，独立的并行运行
+
+如果某一个运行的过快了，那么buffer要么是满的要么是空的
+
+consumer和producer其中一个会sleep并等待另一个追上来
+</pre>
+
+<p>
+最后要说明的是：当用户输入时候，往往第一个字符是通过uartputc函数发送给UART设备的，之后产生了发送成功的中断，其余的字符都是在中断处理的uartinir函数里触发uartstart持续发送的
+</p>
+</div>
 </div>
 </div>
 </div>
