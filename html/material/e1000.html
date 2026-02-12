@@ -227,7 +227,37 @@
 <li><a href="#orge06dcaf">缓冲区和描述符结构</a></li>
 </ul>
 </li>
-<li><a href="#orgb6257d2">发送和接收</a></li>
+<li><a href="#orgb6257d2">发送和接收</a>
+<ul>
+<li><a href="#org5e949c2">数据包接收</a>
+<ul>
+<li><a href="#orga2e0363">包地址过滤</a></li>
+<li><a href="#orgb305571">接收数据存储</a></li>
+<li><a href="#org34f403f">接收描述符格式</a>
+<ul>
+<li><a href="#org73e7878">接收描述符状态字段</a></li>
+<li><a href="#org941eb75">接收描述符错误字段</a></li>
+<li><a href="#org06c9468">Receive Descriptor Special Field</a></li>
+</ul>
+</li>
+<li><a href="#org7efd49a">接收描述符获取</a></li>
+</ul>
+</li>
+<li><a href="#orgf28fcb1">网络包发送</a>
+<ul>
+<li><a href="#org859a584">传输数据的存储</a></li>
+<li><a href="#orgeba1942">传输描述符</a></li>
+<li><a href="#org5705dcd">传统描述符格式</a>
+<ul>
+<li><a href="#org2760f34">CMD字段</a></li>
+<li><a href="#org2674e07">传输状态字段</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org74cff7e">网卡初始化</a></li>
 </ul>
 </div>
 </div>
@@ -238,7 +268,7 @@
 <div id="outline-container-orge382fda" class="outline-3">
 <h3 id="orge382fda">介绍</h3>
 <div class="outline-text-3" id="text-orge382fda">
-<pre class="example" id="orgcd90384">
+<pre class="example" id="org8bc03d0">
 这一章将介绍PCI/PCI-X系列网卡（以下简称网卡）。接下来将介绍网卡功能、寄存器描述和初始化顺序、以及网卡的主要接口
 </pre>
 
@@ -252,7 +282,7 @@
 <li><p>
 提供对所有内存的直接访问，不使用映射寄存器
 </p>
-<pre class="example" id="org35e3f12">
+<pre class="example" id="orgf668af9">
 映射寄存器：假设有一个网络接口卡（NIC），需要从内存中读取数据包以进行处理
 
 如果使用映射寄存器，首先需要将数据包的内存地址写入映射寄存器，然后处理器会根据映射寄存器中的值来读取实际的数据
@@ -268,7 +298,7 @@
 <li><p>
 尽量减少管理网卡所需的PCI 访问次数
 </p>
-<pre class="example" id="org1fa8f6b">
+<pre class="example" id="org50feba6">
 举例来说，假设需要发送一封电子邮件
 
 在这个过程中，CPU需要多次通过PCI接口与网卡通信：处理数据包的组装、发送以及状态的监控
@@ -289,7 +319,7 @@ PCI/PCI-X系列的网卡架构是82542和82543设计的衍生品。继承了前�
 </p>
 
 
-<div id="org3000a23" class="figure">
+<div id="orgfd6f4e7" class="figure">
 <p><img src="pic/image-20240319131216988.png" alt="image-20240319131216988.png" width="70%" /> 
 </p>
 </div>
@@ -302,19 +332,19 @@ PCI/PCI-X系列的网卡架构是82542和82543设计的衍生品。继承了前�
 与前代相比，PCI/PCI-X系列网卡的MAC增加了改进的 <b>数据包过滤</b> 功能，以支持基于SMBus的 <b>可管理性</b> ，以及传输基于SMBus的可管理性数据包的能力。此外，控制器的MAC集成了一个符合ASF标准的 <b>TCO</b> <span class="underline">透明冷却覆盖</span> 控制器，用于降低成本的基本ASF可管理性
 </p>
 
-<pre class="example" id="org84a07a3">
+<pre class="example" id="orgc729810">
 注：82544GC/EI和82541ER不支持基于SMBus的可管理性
 </pre>
 <p>
 对于82546GB/EB，这些新功能被打包在一个集成的双端口组合中。该架构包括 <b>两个</b> <span class="underline">MAC和PHY</span> 的实例以及一个*单一* 的 <span class="underline">PCI/PCI-X</span> 接口。因此，每个逻辑局域网设备都表现为一个 <b>独立</b> 的 <span class="underline">PCI/PCI-X</span> 总线设备
 </p>
 
-<pre class="example" id="orga69bf9f">
+<pre class="example" id="org2db2b8b">
 接下来几节将描述硬件构成。图2-4展示内部微架构
 </pre>
 
 
-<div id="org085706e" class="figure">
+<div id="org9e1b513" class="figure">
 <p><img src="pic/image-20240319131713720.png" alt="image-20240319131713720.png" width="90%" /> 
 </p>
 </div>
@@ -355,7 +385,7 @@ PCI/PCI-X总线与DMA引擎相连
 <p>
 网卡有一个 <b>片上缓冲区</b> ，大小为 <span class="underline">64KB</span> 。接收和发送缓冲区的大小可根据系统需求进行分配
 </p>
-<pre class="example" id="orgab11988">
+<pre class="example" id="org425f716">
 这个缓冲区为网卡接收或传输数据帧提供了一个临时的缓冲存储区域
 </pre>
 
@@ -378,7 +408,7 @@ DMA引擎和缓冲区经过优化，以最大化PCI总线的效率并减少处�
 <p>
 控制器的 <span class="underline">CSMA/CD单元</span> 在*DMA* 和 <b>TBI/内部SerDes/MII/GMII接口</b> 模块之间处理所有IEEE 802.3 <b>接收</b> 和 <b>发送</b> <span class="underline">MAC功能</span> 
 </p>
-<pre class="example" id="org497bc7b">
+<pre class="example" id="org43bf75e">
 CSMA/CD单元支持10 Mb/s的IEEE 802.3、100 Mb/s的IEEE 802.3u以及1000 Mb/s的IEEE 802.3z和IEEE 802.3ab
 </pre>
 
@@ -417,7 +447,7 @@ CSMA/CD单元支持10 Mb/s的IEEE 802.3、100 Mb/s的IEEE 802.3u以及1000 Mb/s�
 </ul></li>
 </ul>
 
-<pre class="example" id="org07d6998">
+<pre class="example" id="org3c65236">
 注意： 请参考扩展设备控制寄存器（位23:22）进行模式选择（请参阅第13.4.6节）
 </pre>
 </div>
@@ -466,7 +496,7 @@ PCI/PCI-X系列网卡提供了一个与串行EEPROM设备（如93C46或兼容设
 <p>
 在适当的系统中，网卡管理的地址都是 <span class="underline">64位的</span> ，以支持拥有大于32位物理寻址的系统。提供64位地址消除了对特殊段寄存器的需求。
 </p>
-<pre class="example" id="orge5b23c0">
+<pre class="example" id="org09d008f">
 注：PCI 2.2或2.3规范要求，任何高32位全为0b的64位地址都应该表现为32位地址周期。以太网控制器符合PCI 2.2或2.3规范
 </pre>
 
@@ -486,12 +516,12 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 数据包缓冲区地址没有对齐限制。主要字的字节地址如左侧所示。PCI总线的字节号和位号如顶部所示
 </p>
 
-<div id="org0251d3d" class="figure">
+<div id="orgff071fe" class="figure">
 <p><img src="pic/image-20240319132832019.png" alt="image-20240319132832019.png" width="70%" /> 
 </p>
 </div>
 
-<pre class="example" id="orgdb6a0fc">
+<pre class="example" id="org42f83d1">
 描述符访问不会字节交换
 </pre>
 </div>
@@ -502,7 +532,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 <p>
 网卡中的几个寄存器存储了 <span class="underline">以太网地址</span> 。地址由 <span class="underline">两个32位</span> 寄存器组成：一个称为“高”（high），另一个称为“低”（low）
 </p>
-<pre class="example" id="org7f1daca">
+<pre class="example" id="orgdda2496">
 例如，接收地址寄存器由接收地址高（RAH）和接收地址低（RAL）组成
 </pre>
 
@@ -511,7 +541,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 </p>
 
 
-<div id="orgbe9a356" class="figure">
+<div id="org0500e0b" class="figure">
 <p><img src="pic/image-20240319132858589.png" alt="image-20240319132858589.png" width="70%" /> 
 </p>
 </div>
@@ -543,7 +573,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 <li><p>
 对于在Set寄存器中写入为 <span class="underline">1b</span> 的每个位，会 <b>设置</b> <span class="underline">原因位</span> ，如果硬件设置原因位和软件清除中断之间存在竞争，该位将保持设置
 </p>
-<pre class="example" id="orgb38961a">
+<pre class="example" id="org8eb25ea">
 在写入Set寄存器时不存在竞争条件，Set操作允许软件发布中断。Read操作自动清除，以避免昂贵的写操作
 
 大多数系统都有写缓冲，这最小化了开销，但通常需要一个读操作来保证写操作已经从发布的缓冲区中刷新
@@ -557,7 +587,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 <li><p>
 软件可以通过清除屏蔽寄存器中的位来阻止中断线的断言
 </p>
-<pre class="example" id="orgdce1f4e">
+<pre class="example" id="orgac08911">
 无论屏蔽位的状态如何，原因位都会存储中断事件
 
 清除和设置操作通过避免在屏蔽寄存器上执行“读-修改-写”操作，使这个寄存器更加“线程安全”
@@ -587,7 +617,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 网卡提供了在传输时卸载IP、TCP和UDP校验和的功能。这些功能可以显著 <b>减少</b> <span class="underline">处理器的利用率</span> ，通过将这些功能的负担从驱动程序转移到硬件来实现
 </p>
 
-<pre class="example" id="org39de551">
+<pre class="example" id="org37abccc">
 校验和卸载功能在以下章节中简要概述。关于所有硬件加速功能的更多详细信息，请参阅第3.2.9节
 </pre>
 </div>
@@ -601,14 +631,14 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 <li><p>
 对于传输，在网卡可能会为每个以太网数据包计算并插入两个校验和
 </p>
-<pre class="example" id="orgd73da0a">
+<pre class="example" id="org6dd3dcd">
 通常情况下，这些将是IP校验和，以及TCP或UDP校验和
 </pre>
 <ul class="org-ul">
 <li><p>
 软件设备驱动程序指定了哪些部分的数据包包含在校验和计算中，并通过描述符指定了计算出的值的插入位置
 </p>
-<pre class="example" id="orgbc0694f">
+<pre class="example" id="org97c267a">
 详情请参阅第3.3.5节
 </pre></li>
 </ul></li>
@@ -617,7 +647,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 <li><p>
 校验和和错误信息通过接收描述符提供给软件
 </p>
-<pre class="example" id="org3f8281d">
+<pre class="example" id="orgc3604fa">
 详情请参阅第3.2.9节
 </pre></li>
 </ul></li>
@@ -630,7 +660,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 <p>
 网卡实现了一个 <span class="underline">TCP分段</span> 功能，用于传输，允许软件设备驱动程序将数据包分段和封装卸载到硬件。软件设备驱动程序可以将整个由网络操作系统 <span class="underline">NOS</span> 发送的IP、TCP或UDP消息发送给网卡进行传输。网卡将数据包分段成合法的以太网帧并将它们传输到电缆上。通过处理分段任务，硬件 <b>减轻</b> 了软件处理某些帧处理责任的负担。这减少了CPU在传输过程中的开销，从而降低了整体CPU利用率
 </p>
-<pre class="example" id="org6c8a063">
+<pre class="example" id="org7188223">
 详情请参见第3.5节
 </pre>
 </div>
@@ -643,7 +673,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 软件 <b>分配</b> <span class="underline">传输</span> 和 <span class="underline">接收</span> <b>缓冲区*，并形成 *包含</b> <span class="underline">指向</span> 这些缓冲区以及其状态的 <b>描述符</b>
 </p>
 
-<pre class="example" id="org358736a">
+<pre class="example" id="orgd76b29d">
 在缓冲区和描述符的硬件与驱动程序软件之间存在一个概念上的所有权边界
 
 软件将 接收缓冲区的所有权交给硬件，这些接收缓冲区存储着软件一旦收到有效数据包后所拥有的数据
@@ -665,7 +695,7 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 <p>
 描述符包含一个指示数据包的最后一个缓冲区的 <span class="underline">结束字段</span> 。描述符还包含指示 <span class="underline">数据包类型</span> 的特定于数据包的信息，以及在 <span class="underline">传输数据包的上下文</span> 中执行的特定操作
 </p>
-<pre class="example" id="orga1199ac">
+<pre class="example" id="org913083f">
 例如用于VLAN或校验和卸载的操作
 </pre>
 </div>
@@ -674,10 +704,516 @@ PCI是 <span class="underline">little endian</span> 的；然而，并非所有�
 <div id="outline-container-orgb6257d2" class="outline-2">
 <h2 id="orgb6257d2">发送和接收</h2>
 <div class="outline-text-2" id="text-orgb6257d2">
-<p width="70%">
-<a href="pic/" width="70%">pic/</a> 
+</div>
+<div id="outline-container-org5e949c2" class="outline-3">
+<h3 id="org5e949c2">数据包接收</h3>
+<div class="outline-text-3" id="text-org5e949c2">
+<p>
+包接收包括以下步骤：
+</p>
+<ol class="org-ol">
+<li>识别线路上包的存在</li>
+<li>执行地址过滤</li>
+<li>将包存储在接收缓冲区中</li>
+<li>将数据传输到主机内存中的接收缓冲区</li>
+<li>更新接收描述符的状态</li>
+</ol>
+</div>
+<div id="outline-container-orga2e0363" class="outline-4">
+<h4 id="orga2e0363">包地址过滤</h4>
+<div class="outline-text-4" id="text-orga2e0363">
+<p>
+硬件根据以下过滤模式将传入的包存储在主机内存中。如果接收队列中没有足够的空间，硬件将丢弃它们，并在相应的统计寄存器中指示丢失的包
+</p>
+<ol class="org-ol">
+<li>ExactUnicast/Multicast：数据包的目的地址必须与 <b>存储</b> 在 <span class="underline">控制器中的16个地址之一</span> 完全匹配。这些地址可以是 <span class="underline">单播</span> 或 <span class="underline">多播</span> 地址</li>
+<li>PromiscuousUnicast：接收 <b>所有</b> <span class="underline">单播数据包</span> ，不论其目的地址是什么</li>
+<li>Multicast：传入数据包的目的地址的 <span class="underline">高位</span> 用于 <b>索引</b> 一个 <span class="underline">位向量</span> ，该位向量指示是否接受该数据包；
+<ul class="org-ul">
+<li>如果位向量中的位是1，则接受数据包，否则拒绝</li>
+<li>控制器提供了一个4096位的位向量，软件可以选择使用位向量中的哪几位进行索引，选项包括[47:36]、[46:35]、[45:34]或[43:32]</li>
+</ul></li>
+<li>PromiscuousMulticast：接收 <b>所有</b> <span class="underline">多播数据包</span></li>
+<li>VLAN：接收所有VLAN中为此站准备的数据包，并且这些数据包在VLAN过滤表中有相应的位设置</li>
+</ol>
+
+<p>
+通常，只有良好的数据包会被接收。这些数据包被定义为 <b>没有</b> <span class="underline">CRC错误</span> 、 <span class="underline">符号错误</span> 、 <span class="underline">序列错误</span> 、 <span class="underline">长度错误</span> 、 <span class="underline">对齐错误</span> ，或者在其中检测到 <span class="underline">载波扩展</span> 或 <span class="underline">接收错误</span>
+</p>
+<pre class="example" id="org027ed35">
+然而，如果设备控制寄存器 RCTL.SBP 中设置了存储坏包位，则通过过滤功能的坏包也会被存储在主机内存中
+
+接收描述符 RDESC.ERRORS 中的错误位指示了包错误
+
+通过设置混杂模式使能位 RCTL.UPE/MPE 和存储坏包位 RCTL.SBP ，无论数据包是否损坏，都可以接收所有数据包 
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb305571" class="outline-4">
+<h4 id="orgb305571">接收数据存储</h4>
+<div class="outline-text-4" id="text-orgb305571">
+<p>
+由 <span class="underline">接收描述符</span> 指向的 <span class="underline">内存缓冲区</span> 存储包数据。支持七种接收缓冲区大小
+</p>
+
+<pre class="example" id="orgf3cf01a">
+• 256 B     • 4096 B
+• 512 B     • 8192 B
+• 1024 B    • 16384 B
+• 2048 B
+</pre>
+
+<p>
+缓冲区大小通过 <b>接收控制寄存器</b> <span class="underline">RCTL.BSIZE</span> &amp; <span class="underline">RCTL.BSEX</span> 中的位来设置
+</p>
+
+<pre class="example" id="org10fee49">
+网卡对包缓冲区地址没有对齐限制。但建议地址对齐
+</pre>
+</div>
+</div>
+<div id="outline-container-org34f403f" class="outline-4">
+<h4 id="org34f403f">接收描述符格式</h4>
+<div class="outline-text-4" id="text-org34f403f">
+<p>
+接收描述符是一种数据结构，包含接收 <span class="underline">数据缓冲区地址</span> 和用于 <span class="underline">硬件存储包信息</span> 的字段。表3-1说明了接收描述符的格式
+</p>
+
+<div id="orgb2e8eb7" class="figure">
+<p><img src="pic/image-20240319144554618.png" alt="image-20240319144554618.png" width="70%" /> 
 </p>
 </div>
+
+<p>
+注意：
+</p>
+<ul class="org-ul">
+<li><b>校验和</b> 指的是数据包的 <b>未调整</b> 的 <span class="underline">16位补数</span>
+<ul class="org-ul">
+<li>在将数据包发送到上层软件层之前，可能需要软件辅助来删除部分信息</li>
+<li>数据包校验和始终在第一个描述符中报告（即使在多描述符数据包的情况下也是如此）</li>
+</ul></li>
+<li>对于网卡接收到的数据包，硬件将数据包数据存储到指定的缓冲区，并写入 <span class="underline">长度</span> 、 <span class="underline">数据包校验和</span> 、 <span class="underline">状态</span> 、 <span class="underline">错误</span> 和 <span class="underline">状态</span> 字段
+<ul class="org-ul">
+<li>长度包括写入接收缓冲区的数据，包括CRC字节（如果有）</li>
+<li>对于跨越多个接收缓冲区的数据包，软件必须读取多个描述符以确定完整的长度</li>
+</ul></li>
+<li>对于标准的802.3数据包（非VLAN），数据包校验和默认情况下是计算整个数据包，从 <b>第一个字节到最后一个字节</b> ，包括 <span class="underline">以太网</span> 和 <span class="underline">IP头</span> 
+<ul class="org-ul">
+<li>软件可以通过接收控制寄存器来修改数据包校验和计算的起始偏移量</li>
+<li>要使用数据包校验和验证TCP校验和，软件必须调整数据包校验和的值，以撤销不属于TCP校验和的字节</li>
+</ul></li>
+</ul>
+</div>
+<div id="outline-container-org73e7878" class="outline-5">
+<h5 id="org73e7878">接收描述符状态字段</h5>
+<div class="outline-text-5" id="text-org73e7878">
+<p>
+<b>状态信息</b> 指示描述符是否已使用以及引用的缓冲区是否是数据包的最后一个。表3-2说明了状态字段的布局
+</p>
+
+<div id="org4c7c0fa" class="figure">
+<p><img src="pic/image-20240319144702733.png" alt="image-20240319144702733.png" width="70%" /> 
+</p>
+</div>
+
+
+<p>
+对于多描述符数据包，数据包状态在数据包的 <span class="underline">最后一个描述符</span> 中提供 EOP 。如果描述符的EOP未设置，则只有地址、长度和DD位有效
+</p>
+
+<ul class="org-ul">
+<li><b>IPCS</b> <span class="underline">bit 6</span> IP校验和计算： 当未设置忽略校验和指示位（IXSM = 0b）时，IPCS位指示硬件是否对接收到的数据包计算IP校验和
+<ul class="org-ul">
+<li>0b = 不执行IP校验和</li>
+<li><p>
+1b = 执行IP校验和
+</p>
+<pre class="example" id="org14da509">
+校验和的Pass/Fail信息在描述符接收错误（RDESC.ERRORS）的错误位（IPE）中指示
+
+IPv6数据包不设置IPCS位。读取为0b
+</pre></li>
+</ul></li>
+<li><b>TCPCS</b> <span class="underline">bit 5</span> TCP校验和计算：当未设置忽略校验和指示位（IXSM = 0b）时，TCPCS位指示硬件是否对接收到的数据包计算TCP/UDP校验和
+<ul class="org-ul">
+<li>0b = 不执行TCP/UDP校验和</li>
+<li><p>
+1b = 执行TCP/UDP校验和
+</p>
+<pre class="example" id="orgfebbb8e">
+关于校验和的通过/失败信息在描述符接收错误（RDESC.ERRORS）的错误位（TCPE）中指示。
+
+如果识别出TCP/UDP数据包，则IPv6数据包可能设置此位。读取为0b
+</pre></li>
+</ul></li>
+<li><b>RSV</b> <span class="underline">bit 4</span>  保留位，值位0b</li>
+<li><b>IXSM</b> <span class="underline">bit 2</span> 忽略校验和指示：
+<ul class="org-ul">
+<li>IXSM = 1b时，忽略校验和指示结果（IPCS、TCPCS位）</li>
+<li>IXSM = 0b时，IPCS和TCPCS位指示硬件是否对接收到的数据包执行了IP或TCP/UDP校验和</li>
+</ul></li>
+<li><b>EOP</b> <span class="underline">bit 1</span> 指示这是否是传入数据包的最后一个描述符</li>
+<li><p>
+<b>DD</b> <span class="underline">bit 0</span> 指示硬件是否完成了对描述符的处理
+</p>
+<pre class="example" id="orga679d57">
+当与EOP一起设置时，表示接收到的数据包已完全存储在主存储器中
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org941eb75" class="outline-5">
+<h5 id="org941eb75">接收描述符错误字段</h5>
+<div class="outline-text-5" id="text-org941eb75">
+<p>
+大多数错误信息仅在 <b>设置</b> 了 <span class="underline">存储错误数据包位</span> RCTL.SBP 并接收到 <span class="underline">错误数据包</span> 时才出现。仅当描述符状态字段中的EOP和DD位设置时，错误位才有效。错误状态信息在表3-3中 
+</p>
+
+
+<div id="orgbbb9321" class="figure">
+<p><img src="pic/image-20240319152813055.png" alt="image-20240319152813055.png" width="70%" /> 
+</p>
+</div>
+
+<ul class="org-ul">
+<li><b>RXE</b> <span class="underline">bit 7</span> 略</li>
+<li><b>IPE</b> <span class="underline">bit 6</span> IP校验和错误。当设置时，表示在接收到的数据包中检测到IP校验和错误。仅在通过RDESC.STATUS字段中的IPCS位指示接收数据包进行IP校验和时有效
+<ul class="org-ul">
+<li>如果接收IP校验和卸载被禁用（RXCSUM.IPOFL），则IPE位被设置为0b</li>
+<li><p>
+读取为0b
+</p>
+<pre class="example" id="orgd0d7385">
+它对数据包过滤机制没有影响
+</pre></li>
+</ul></li>
+<li><b>TCPE</b> <span class="underline">bit 5</span> TCP/UDP校验和错误 当设置时，表示在接收到的数据包中检测到TCP/UDP校验和错误
+<ul class="org-ul">
+<li>仅在通过RDESC.STATUS字段中的TCPCS位指示接收数据包进行TCP/UDP校验和时有效</li>
+<li>如果接收TCP/UDP校验和卸载被禁用（RXCSUM.TUOFL），则TCPE位被设置为0b</li>
+<li>它对数据包过滤机制没有影响。读取为0b</li>
+</ul></li>
+<li><b>CXE RSV</b> <span class="underline">bit 4</span> 略</li>
+<li><b>SEQ</b> <span class="underline">bit 2</span> 序列错误
+<ul class="org-ul">
+<li>当设置时，表示接收到的数据包具有错误的分隔符序列。在其他802.3实现中，这将被分类为帧错误</li>
+<li>有效的分隔符序列包括：空闲态 -&gt; 帧起始（SOF） -&gt; 数据 -&gt; 填充（可选）-&gt; 帧结束（EOF） -&gt; 填充（可选） -&gt; 空闲态</li>
+</ul></li>
+<li><b>SE</b> <span class="underline">bit 1</span> 略</li>
+<li><b>CE</b> <span class="underline">bit0</span> CRC错误或对齐错误
+<ul class="org-ul">
+<li><p>
+CRC错误和对齐错误都通过CE位指示
+</p>
+<pre class="example" id="org5656e34">
+软件可以通过监视相应的统计寄存器来区分这些错误
+</pre></li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org06c9468" class="outline-5">
+<h5 id="org06c9468">Receive Descriptor Special Field</h5>
+<div class="outline-text-5" id="text-org06c9468">
+<p>
+略
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org7efd49a" class="outline-4">
+<h4 id="org7efd49a">接收描述符获取</h4>
+<div class="outline-text-4" id="text-org7efd49a">
+<p>
+接收描述符获取策略旨在支持跨PCI总线的大数据突发。这是通过使用 <span class="underline">64个</span> <b>片上接收描述符</b> 和优化的 <b>获取算法</b> 实现的。获取算法试图通过每次突发获取一个或多个缓存行的描述符，以最大限度地利用PCI带宽
+</p>
+<ul class="org-ul">
+<li>当片上缓冲区 <b>为空</b> 时，只要有任何描述符可用（软件写入尾指针），就会进行获取
+<ul class="org-ul">
+<li>当片上缓冲区 <b>几乎为空</b> （RXDCTL.PTHRESH）时，在 <span class="underline">主机内存</span> 中有 <b>足够多的有效描述符</b> （RXDCTL.HTHRESH）可用，并且 <b>没有</b> <span class="underline">更高优先级的其他PCI活动</span> （描述符获取和写回或数据包传输）挂起时，将执行预取</li>
+</ul></li>
+<li>当主机内存中的 <span class="underline">描述符数量</span> <b>大于</b> <span class="underline">可用的片上描述符存储</span> 时，芯片 <b>可能</b> 会选择执行 <span class="underline">不是缓存行大小倍数的获取</span>
+<ul class="org-ul">
+<li><p>
+如果这样做可以使下一个描述符获取在缓存行边界上对齐，硬件将执行此非对齐获取
+</p>
+<pre class="example" id="org712d565">
+该机制提供了在获取落后于软件的情况下的最高效率
+</pre></li>
+</ul></li>
+</ul>
+<pre class="example" id="org3d09dc5">
+注：以太网控制器从不获取超出描述符尾部指针的描述符
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgf28fcb1" class="outline-3">
+<h3 id="orgf28fcb1">网络包发送</h3>
+<div class="outline-text-3" id="text-orgf28fcb1">
+<p>
+常规数据包（非TCP分段数据包）的传输过程包括以下步骤：
+</p>
+<ol class="org-ol">
+<li>协议栈从应用程序接收要传输的数据块</li>
+<li>协议栈根据 <span class="underline">MTU大小</span> 和 <span class="underline">所需的数据包头部</span> 计算出需要传输的 <span class="underline">数据块数量</span></li>
+<li>对于数据块中的每个数据包：
+<ul class="org-ul">
+<li>协议栈准备以太网、IP和TCP/UDP头部</li>
+<li>协议栈调用设备驱动程序，命令其发送单个数据包</li>
+<li>驱动程序获取帧并与硬件通信</li>
+<li>硬件通过DMA从内存读取数据包</li>
+<li>当硬件完成帧的DMA传输后（通过 <b>中断</b> 指示），驱动程序将数据包的所有权返回给网络操作系统（NOS）</li>
+</ul></li>
+</ol>
+
+<p>
+输出的数据包由 <b>指针-长度</b> 对组成，构成一个 <span class="underline">描述符链</span> （基于描述符的传输）。软件通过组装 指针-长度对列表，将这些信息存储在 <span class="underline">传输描述符</span> 中，然后更新芯片上的 <b>传输尾指针</b> 到描述符。 <span class="underline">传输描述符</span> 和 <span class="underline">缓冲区</span> 存储在 <span class="underline">主机内存</span> 中。硬件只有在完全从内存获取到所有数据并将其存入 <span class="underline">芯片上的传输FIFO</span> 后，才会传输数据包
+</p>
+<pre class="example" id="orgba28e20">
+这样可以允许TCP或UDP校验和计算
+</pre>
+</div>
+<div id="outline-container-org859a584" class="outline-4">
+<h4 id="org859a584">传输数据的存储</h4>
+<div class="outline-text-4" id="text-org859a584">
+<p>
+数据存储在 <span class="underline">描述符</span> 指向的 <span class="underline">缓冲区</span> 中
+</p>
+<ul class="org-ul">
+<li>数据的对齐是在任意字节边界上进行的</li>
+<li>每个描述符的最大大小受限于允许的最大数据包大小 <span class="underline">16288字节</span></li>
+<li>一个数据包通常由两个（或更多）描述符组成
+<ul class="org-ul">
+<li>一个（或更多）用于头部</li>
+<li><p>
+一个用于实际数据
+</p>
+<pre class="example" id="orga416e41">
+一些软件实现将头部和数据包数据复制到一个缓冲区中，并为每个传输的数据包仅使用一个描述符
+</pre></li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgeba1942" class="outline-4">
+<h4 id="orgeba1942">传输描述符</h4>
+<div class="outline-text-4" id="text-orgeba1942">
+<p>
+以太网控制器提供三种类型的传输描述符格式。原始描述符被称为 <span class="underline">传统</span> 描述符格式
+</p>
+<pre class="example" id="orgbdf6357">
+另外两种描述符类型统称为扩展描述符，本次LAB只使用传统描述符格式，所以只翻译这部分
+</pre>
+</div>
+</div>
+<div id="outline-container-org5705dcd" class="outline-4">
+<h4 id="org5705dcd">传统描述符格式</h4>
+<div class="outline-text-4" id="text-org5705dcd">
+<p>
+要选择传统模式操作，位29 <span class="underline">TDESC.DEXT</span> 应设置为 <span class="underline">0b</span> 。在这种情况下，描述符格式如表3-8所示
+</p>
+
+<div id="orga021a5f" class="figure">
+<p><img src="pic/image-20240321155938339.png" alt="image-20240321155938339.png" width="70%" /> 
+</p>
+</div>
+
+<p>
+地址和长度必须由软件提供
+</p>
+<pre class="example" id="orgbffcd52">
+CMD中的位是可选的，校验和偏移（CSO）和校验和开始（CSS）字段也是如此
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 表3-8. 传输描述符（TDESC）布局 - 传统模式</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">字段</td>
+<td class="org-left">含义</td>
+</tr>
+
+<tr>
+<td class="org-left">Buffer Address</td>
+<td class="org-left">传输描述符在 <span class="underline">主机内存中的地址</span> 。地址为null的描述符不会传输数据。如果在CMD中设置了RS位（TDESC.CMD），那么在硬件处理完这个描述符时，状态字（TDESC.STATUS）中的DD字段会被写入</td>
+</tr>
+
+<tr>
+<td class="org-left">Length</td>
+<td class="org-left">长度是 <b>每段的长度</b> ，不是总长度，单个描述符的最大长度是 16288 字节。尽管允许缓冲区长度仅为1字节，但在填充和写入CRC之前，数据包总长度应不少于48字节。Length最大值为16288字节缓冲区的长度最大可为允许的最大传输数据包长度。长度为零的描述符不会传输数据</td>
+</tr>
+
+<tr>
+<td class="org-left">CSO</td>
+<td class="org-left">校验和偏移字段：存储了如果启用了该模式在TDESC.CMD中设置了插入校验和位(IC)，TCP校验和相对于数据包起始位置的偏移量。除非在TDESC.CMD中设置了EOP，否则硬件会忽略CSO。CSO以字节为单位提供，并且必须在描述符提供给以太网控制器的数据范围内。（CSO &lt; 长度 - 1）。为了未来的兼容性，应该用0b来写入</td>
+</tr>
+
+<tr>
+<td class="org-left">CMD</td>
+<td class="org-left">3.3.3.1节介绍</td>
+</tr>
+
+<tr>
+<td class="org-left">STA</td>
+<td class="org-left">3.3.3.2节介绍</td>
+</tr>
+
+<tr>
+<td class="org-left">RSV</td>
+<td class="org-left">保留字段，全部写成0b</td>
+</tr>
+
+<tr>
+<td class="org-left">CSS</td>
+<td class="org-left">校验和开始字段（TDESC.CSS）：指示了从哪里开始计算校验和，排除不应包含在TCP校验和中的字节。单位为字节。对于软件填充的短数据包，CSS必须在未填充数据长度的范围内。0b的值对应于&gt;数据包中的第一个字节。 CSS 必须在数据包的第一个描述符中设置</td>
+</tr>
+
+<tr>
+<td class="org-left">Special</td>
+<td class="org-left">本次LAB不用</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+注：
+</p>
+<ul class="org-ul">
+<li>尽管CSO和CSS以字节为单位，但校验和计算通常在16位字上进行。硬件不会强制执行偶字节对齐</li>
+<li><p>
+尽管可以像上面描述的那样使用传统描述符格式编程以太网控制器来计算和插入TCP校验和，但建议软件使用更新的TCP/IP上下文传输描述符格式
+</p>
+<pre class="example" id="orgb70df22">
+这种新的描述符格式允许硬件为传出的数据包计算IP和TCP校验和
+</pre></li>
+</ul>
+</div>
+<div id="outline-container-org2760f34" class="outline-5">
+<h5 id="org2760f34">CMD字段</h5>
+<div class="outline-text-5" id="text-org2760f34">
+
+<div id="org81974ad" class="figure">
+<p><img src="pic/image-20240321162519317.png" alt="image-20240321162519317.png" width="70%" /> 
+</p>
+</div>
+
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 2:</span> CMD Layout</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">字段</td>
+<td class="org-left">含义</td>
+</tr>
+
+<tr>
+<td class="org-left">IDE (bit 7)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">VLE (bit 6)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">DEXT (bit 5)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">RSV (bit 4)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">RS (bit 3)</td>
+<td class="org-left">Report Status 此位被设置时，网卡在传输完当前描述符的数据后，会报告状态信息。设置STA中的DD位</td>
+</tr>
+
+<tr>
+<td class="org-left">IC (bit 2)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">IFCS (bit 1)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">EOP (bit 0)</td>
+<td class="org-left">数据包结束。当设置时，表示组成数据包的最后一个描述符。一个或多个描述符可以用来形成一个数据包</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="outline-container-org2674e07" class="outline-5">
+<h5 id="org2674e07">传输状态字段</h5>
+<div class="outline-text-5" id="text-org2674e07">
+
+<div id="orgec95a8a" class="figure">
+<p><img src="pic/image-20240321162639560.png" alt="image-20240321162639560.png" width="70%" /> 
+</p>
+</div>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">字段</td>
+<td class="org-left">含义</td>
+</tr>
+
+<tr>
+<td class="org-left">RSV (bit 3)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">LC (bit 2)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">EC (bit 1)</td>
+<td class="org-left">用不上</td>
+</tr>
+
+<tr>
+<td class="org-left">DD (bit 0)</td>
+<td class="org-left">设置了CMD中的RS位后，当描述符被网卡发送完成时，会设置此位，以告知传输已完成</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org74cff7e" class="outline-2">
+<h2 id="org74cff7e">网卡初始化</h2>
 </div>
 </div>
 <div id="postamble" class="status">
