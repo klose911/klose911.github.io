@@ -465,3 +465,80 @@ PCI是 _little endian_ 的；然而，并非所有使用PCI的系统中的处理
 | DD (bit 0)  | 设置了CMD中的RS位后，当描述符被网卡发送完成时，会设置此位，以告知传输已完成 |
 
 * 网卡初始化
+本节列出了PCI/PCI-X系列网卡的所有必要初始化，并描述了复位命令
+
+#+begin_example
+  注：82544GC/EI使用TBI模式。82546GB/EB和82545GM/EM使用内部SerDes
+#+end_example
+
+** Power Up
+在Power Up后，网卡不会由硬件自动配置，并正常工作。需要进行软件初始化。一般来说，直到驱动程序成功加载并设置完硬件之前，网卡都不能正常工作
+
+#+begin_example
+但是，如果由EEPROM配置，自动协商可以在上电时或接收到PCI复位断言时启动
+#+end_example
+** 通用配置
+*设备控制寄存器* _CTRL_ 中的几个值需要在上电或进行设置，以正常工作：
++ 速度和双工通过 *PHY* ( _Physical Layer_ ：物理层)的自动协商、内部SerDes1模式的MAC的自动协商，或者如果链路被强制，则由软件强制确定
+  + 在内部PHY模式下，网卡可以由硬件自动配置，也可以被软件强制配置为与PHY相同的配置
++ 在内部PHY模式下，当 *Auto-SpeedDetectionEnable* _CTRL.ASDE_ 位设置为1时，会检测链路的解析速度和双工，并自动配置MAC。应该与 *Set Link Up* _CTRL.SLU_ 位一起设置该位
++ MAC也可以被强制设置为特定的速度/双工组合。通过设置 *Set Link Up*  _CTRL.SLU_ 、 *Force Speed*  _CTRL.FRCSPD_ 和 *Force Duplex* _CTRL.FRCDPLX_ 位来实现。一旦确定速度和双工（通过自动协商或软件强制），就通过设置适当的速度选择 _CTRL.SPEED_ 位强制速度，并通过更新全双工 _CTRL.FD_ 位来强制双工
++ 对于82541xx和82547GI/EI，通过_LEDCTRL_ 配置LED行为
++ *LinkReset* _CTRL.LRST_ 应设置为0b（正常）。网卡默认LRST = 1b，这会禁用自动协商。将LRST转换为0b会启动自动协商功能。LRST可以在 _EEPROM_ 中定义。此位仅在内部SerDes模式下有效，在内部PHY模式下无效
++ *PHY复位* _CTRL.PHY_RST_ 应设置为0b。将此位设置为1b会在不访问PHY寄存器的情况下重置PHY。在内部SerDes模式下，忽略此位
++ _CTRL.ILOS_ 应设置为0b（不适用于82541xx和82547GI/EI）
++ 如果需要流量控制，应配置 _FCAH_ 、 _FCAL_ 、 _FCT_ 和 _FCTTV_ 寄存器
+  + 如果不需要流量控制，这些寄存器应写入0b
+  + 要启用XON帧传输，必须设置 *XON Enable* _FCTRL.XONE_ 位
+  + 在Auto-Negotiation过程中广告流量控制功能取决于网卡是在内部SerDes模式还是内部PHY模式下运行
+  + 在内部SerDes模式下，在启动Auto-Negotiation过程之前必须设置好TXCW寄存器
+  + 在内部PHY模式下，在启动或重新启动Auto-Negotiation过程之前，必须正确设置适当的PHY寄存器以广告所需的功能
+  + 在内部PHY模式下，软件需要显式地设置接收流控使能（CTRL.RFCE）和发送流控使能（CTRL.TFCE）位（因为Auto-Negotiation由PHY而不是MAC管理），或者在需要光纤连接但链接是强制而不是自动协商时
++ 如果不使用VLAN，软件应清除VLAN模式使能（CTRL.VME）位。在这种情况下，不需要初始化VLAN Filter Table Array（VFTA）。如果需要VLAN，则应同时初始化VFTA并加载所需的信息
++ 对于82541xx和82547GI/EI，清除所有统计计数器
+
+** 接收初始化
+
+1. 将 *接收地址寄存器*  _RAL/RAH_ 编程为所需的 _以太网地址_ 。 _RAL[0]/RAH[0]_ 用于存储网卡的个体以太网MAC地址
+2. 将 *多播表数组* _MTA_ 初始化为0b。根据需求，可向此表中添加条目
+3. _对Interrupt Mask Set/Read (IMS)_ *中断寄存器* 进行编程，将其修改为在事件发生时启用软件驱动程序希望收到通知的任何中断
+   + 建议包括 _RXT_ 、 _RXO_ 、 _RXDMT_ 、 _RXSEQ_ 和 _LSC_ 等位
+     #+begin_example
+       暂时没有立即启用传输中断的原因
+     #+end_example
+   + 如果软件使用接收描述符最小阈值中断，应将 *接收延迟定时器* _RDTR_ 寄存器初始化为所需的延迟时间
+4. 为 *接收描述符列表* _receive descriptor list_ 分配一块内存区域
+   + 这块内存应 _16字节_ 对齐
+   + 将新分配的内存地址写入 *描述符基地址*  _RDBAL/RDBAH_ 寄存器，RDBAL用于32位地址，RDBAL + RDBAH用于64位地址
+5. 将 *接收描述符长度* _RDLEN_ 寄存器设置为接收描述符环的大小（以字节为单位）。该寄存器必须是128字节对齐的
+6. 网卡初始化后，*接收描述符头* _RDH_ 和 *尾* _RDT_ 寄存器被硬件初始化为0b
+   + 需创建大小合适的接收缓冲区，并将这些缓冲区的地址存储在接收描述符环中
+   + RDH应指向描述符环中第一个接收描述符
+   + 尾应指向描述符环中最后一个有效描述符之后
+
+配置 *接收控制* _RCTL_ 寄存器：
++ 将 *接收使能* _RCTL.EN_ 位设置为 _1b_ ，用于正常操作
+  #+begin_example
+    然而，最好在接收描述符环被初始化并且软件准备好处理接收到的数据包之后再禁用网卡接收逻辑（RCTL.EN = 0b）
+  #+end_example
++ 在处理大于标准以太网数据包大小的数据包时，将 *长数据包使能* _RCTL.LPE_ 位设置为1b
+  #+begin_example
+    例如，当处理巨型帧时，此位将设置为1b
+  #+end_example
++ 将 *环回模式* _RCTL.LBM_ 设置为00b，用于正常操作
++ 将 *接收描述符最小阈值大小* _RCTL.RDMTS_ 位配置为所需值
++ 将 *多播偏移量* _RCTL.MO_ 位配置为所需值
++ 将 *广播接收模式* _RCTL.BAM_ 位设置为1b，允许硬件接收广播数据包
++ 根据软件提供给硬件的接收缓冲区的大小配置 *接收缓冲区大小* _RCTL.BSIZE_ 位
+  + 如果接收缓冲区需要大于2048字节，则还需要配置 *缓冲区扩展大小* _RCTL.BSEX_ 位
++ 如果需要硬件在将接收数据包DMA到主机内存之前剥离CRC，则设置 *剥离以太网CRC* _RCTL.SECRC_ 位
++ 对于82541xx和82547GI/EI，将 *中断掩码设置/读取* _IMS_ 寄存器编程为在发生事件时通知驱动程序的任何中断
+  #+begin_example
+    建议位包括RXT、RXO、RXDMT、RXSEQ和LSC
+
+    暂时没有立即启用传输中断的原因
+
+    计划稍后优化中断，包括编程中断调节寄存器TIDV、TADV、RADV和IDTR
+  #+end_example
++ 对于82541xx和82547GI/EI，如果软件使用接收描述符最小阈值中断，应将 *接收延迟定时器* _RDTR_ 寄存器初始化为所需的延迟时间
+
