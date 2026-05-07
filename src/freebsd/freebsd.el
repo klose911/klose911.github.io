@@ -28,7 +28,16 @@
          :publishing-function org-publish-attachment
          )
 
-        ("freebsd" :components ("freebsd-notes" "freebsd-static"))
+	        ;; These are static files (images, pdf, etc)
+        ("freebsd-pic"
+         :base-directory "~/Documents/programming/html/klose911.github.io/src/freebsd/pic" ;; Change this to your local dir
+         :base-extension "css\\|js\\|png\\|jpg\\|gif"
+         :publishing-directory "~/Documents/programming/html/klose911.github.io/html/freebsd/pic"
+         :recursive t
+         :publishing-function org-publish-attachment
+         )
+
+        ("freebsd" :components ("freebsd-notes" "freebsd-static" "freebsd-pic"))
         )
       )
 
