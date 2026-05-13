@@ -1,0 +1,125 @@
+#+TITLE: 设备资源提示
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: sysadmin.html
+#+HTML_LINK_UP: doas.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+
+*设备资源提示文件* _device.hints_ 是 FreeBSD 引导过程中的配置文件
+#+begin_example
+  系统启动时，boot loader(8) 读取该文件，其内容传递给内核，用于控制内核的引导行为，但也可包含任何内核可调参数值
+#+end_example
+
+device.hints 存储了内核启动时使用的配置变量，供设备驱动程序在设备配置过程中使用
+
+* device.hints 文件结构
+#+begin_example
+  /
+  ├── boot/ 操作系统引导过程中使用的程序和配置文件
+  │    └── device.hints 设备资源提示文件
+  └── sys/
+       └── ARCH/ 某架构，具体参见内核
+            └── conf/ 内核配置相关文件
+                 ├── GENERIC.hints GENERIC 内核的设备资源提示示例
+                 └── NOTES 关于内核配置文件和设备资源提示的说明
+#+end_example
+
+* 基本系统中的 device.hints
+基本系统中 device.hints 文件的默认内容根据架构的不同而变化：
+#+begin_example
+  # 下面的驱动大多数已经被现代计算机所淘汰，或在个人 PC 上较为罕见
+
+  # AT 键盘控制器驱动 atkbdc(4) AT 机，1980 年代产物
+  hint.atkbdc.0.at="isa"  # at：指定设备所连接的总线
+  hint.atkbdc.0.port="0x060"  # port：即指定设备将使用的 I/O Port 起始地址
+  hint.atkbd.0.at="atkbdc"
+  hint.atkbd.0.irq="1"  # irq：要使用的中断线路编号
+
+  # PS/2 外设 IBM 兼容鼠标驱动 psm(4)，1980 年代产物
+
+  #isa
+  # └── atkbdc0
+  #       ├── atkbd0
+  #       └── psm0
+
+  hint.psm.0.at="atkbdc"
+  hint.psm.0.irq="12"
+
+  # syscons(4) 传统控制台驱动
+  hint.sc.0.at="isa"
+  hint.sc.0.flags="0x100"  # flags：为设备设置标志位
+
+  # 串口驱动 uart(4)
+  hint.uart.0.at="acpi"  # 即设置 COM1
+  hint.uart.0.port="0x3F8"
+  hint.uart.0.flags="0x10"
+  hint.uart.1.at="acpi"  # 即设置 COM2
+  hint.uart.1.port="0x2F8"
+
+  # RTC 驱动（实时时钟 atrtc(4)）
+  hint.atrtc.0.at="isa"
+  hint.atrtc.0.port="0x70"
+  hint.atrtc.0.irq="8"
+
+  # i8254 可编程间隔定时器（AT 定时器）驱动 attimer(4)
+  hint.attimer.0.at="isa"
+  hint.attimer.0.port="0x40"
+  hint.attimer.0.irq="0"
+
+  # 禁用 ACPI CPU throttle 驱动，参见 cpufreq(4)
+  hint.acpi_throttle.0.disabled="1"  # disabled：设置为 “1” 意味着禁用该设备
+
+  # 禁用 Pentium 4 热控制，参见 cpufreq(4)
+  hint.p4tcc.0.disabled="1"
+#+end_example
+
+根据源代码分析，[[https://github.com/freebsd/freebsd-src/blob/main/sys/amd64/conf/GENERIC.hints][sys/amd64/conf/GENERIC.hints]] 即为 amd64 架构默认的 device.hints 文件
+
+* device.hints 语法
+device.hints 采用每行一个变量的格式，语法如下：
+#+begin_example
+hint.驱动.单元编号.关键字="值"
+#+end_example
+
+该行用于为驱动程序的指定单元编号设备实例设置资源或属性（注释标记为 #）。其中，
++ _驱动_ : 设备驱动名称
+
++ _单元编号_ : 设备驱动的单元编号
+
++ _关键字_ 为提示关键字。关键字可以是以下选项：
+
+  + at：指定设备所连接的总线
+
+  + port：指定要使用的 I/O 起始地址
+
+  + irq：指定要使用的中断请求号
+
+  + drq：指定 DMA 通道号
+
+  + maddr：指定设备所占用的物理内存地址
+
+  + flags：为设备设置各种标志位
+
+  + disabled：如果设置为 1，则禁用该设备
+
+#+begin_example
+hint.atkbdc.0.at="isa"
+#+end_example
+
+将驱动 *atkbdc*  _AT 键盘控制器_ 的 设备实例 0 *附加* _attach_ 到 _ISA 总线_ ，即指定 0 号 atkbdc 设备位于 ISA 总线上。
+
+* 第 3 阶段引导加载器
+可以在第 3 阶段引导加载器提示符处指定设备提示，将覆盖写在 /boot/device.hints 中的变量
+#+begin_example
+在引导加载器中输入的设备提示仅在当次启动会话中生效，重启后即失效
+#+end_example
+
+第 3 阶段引导加载器的语法为：
+
+#+begin_src sh 
+  set hint.驱动.单元编号.关键字=值
+#+end_src
+使用 set 添加变量，用 unset 删除变量，用 show 查看变量
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:sysctl.org][Next: Sysctl工具]] | [[file:doas.org][Previous: 用户提权]] | [[file:sysadmin.org][Home: 系统管理]] |

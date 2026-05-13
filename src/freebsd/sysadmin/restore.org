@@ -1,0 +1,88 @@
+#+TITLE: 系统恢复
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: sysadmin.html
+#+HTML_LINK_UP: sysctl.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+* 系统恢复方法概述
+
+FreeBSD 系统恢复可根据故障严重程度选择不同的方法，按侵入性从低到高排列如下：
+1. *单用户模式* _Single-User Mode_ ：系统启动至运行级 1（run level 1），仅挂载根文件系统（/），不启动网络服务和多用户环境，以 root 权限运行
+   + 开机按 2 进入 single user 模式，默认无需输入密码，可使用 passwd 命令重置密码
+2. *Live 镜像启动* ：从安装介质（U 盘或光盘）启动完整的 FreeBSD 运行环境，不依赖硬盘上的系统
+   + 适用于无法从硬盘启动的场景
+     #+begin_example
+       如引导加载器损坏、根文件系统严重损坏、磁盘分区表丢失等
+
+       Live 环境提供了完整的工具链，可执行文件系统检查（fsck）、ZFS 池导入（zpool import）、数据备份等操作
+     #+end_example
+3. 灾难恢复：当整个存储子系统不可用时，需要依赖预先创建的备份（如 ZFS 快照的远程复制、dump/restore 备份）进行系统重建
+   #+begin_example
+     此场景超出本节范围
+   #+end_example
+* UFS 文件系统
+
+将根 UFS 文件系统挂载为可写：
+
+#+begin_src sh 
+  $ mount -u /
+#+end_src
+
+挂载所有 UFS 文件系统：
+#+begin_src sh 
+  $ mount -a -t ufs
+#+end_src
+* ZFS 文件系统
+
+#+begin_example
+  在某些情况下，FreeBSD Live 镜像对 ZFS 磁盘的操作可能受限，例如无法创建挂载点或修改为可写模式。此类限制通常与 Live 镜像的默认配置有关
+
+  如遇此类问题，可尝试使用 Ubuntu 24.04 或更高版本的 Live 模式对 ZFS 磁盘进行操作，例如还原快照等
+#+end_example
+
+将根文件系统挂载为可写：
+#+begin_src sh 
+  $ mount -u / 
+#+end_src
+
+挂载所有 ZFS 文件系统：
+#+begin_src sh 
+  $ zfs mount -a 
+#+end_src
+
+挂载 ZFS 根文件系统：
+#+begin_src sh 
+  $ zpool import -fR /mnt zroot
+#+end_src
+
+参数说明：
++ -f：强制导入（force）
++ -R：指定备用根目录（altroot）
+
+#+begin_example
+使用 zpool import -fR /mnt zroot 表示强制将 zroot 池导入到 /mnt 作为备用根目录
+#+end_example
+** 故障排除与未竟事宜
+#+begin_example
+passwd: pam_chauthtok(): Error in service module
+#+end_example
+
+请检查 ZFS 文件系统是否处于只读状态：
+#+begin_src sh 
+  $ zfs get all | grep readonly
+#+end_src
+
+解除 ZFS 文件系统只读属性：
+#+begin_src sh 
+  $ zfs set readonly=off zroot
+#+end_src
+* 使用 U 盘设备
+将指定 U 盘分区挂载到 /mnt 并以读写模式访问：
+#+begin_src sh 
+  $ mount /dev/daXpN -o rw /mnt
+#+end_src
+参数说明：
++ 可通过 dmesg 命令查看设备信息以确定 da 后的具体编号
++ X、N 的参数取决于具体设备编号 
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:sysctl.org][Previous: Sysctl工具]] | [[file:sysadmin.org][Home: 系统管理]] |

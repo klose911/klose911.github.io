@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>FreeBSD指南</title>
+<title>Sysctl工具</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -192,15 +192,305 @@
     { background-color: #ffff00; color: #000000; font-weight: bold; }
   .org-svg { }
 </style>
-<link rel="stylesheet" type="text/css" href="css/main.css" />
+<link rel="stylesheet" type="text/css" href="../css/main.css" />
 </head>
 <body>
-<div id="content" class="content">
-<h1 class="title">FreeBSD指南</h1>
-<ul class="org-ul">
-<li><a href="dtrace.html">DTrace</a></li>
-<li><a href="sysadmin/sysadmin.html">系统管理</a></li>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="device_hints.html"> UP </a>
+ |
+ <a accesskey="H" href="sysadmin.html"> HOME </a>
+</div><div id="content" class="content">
+<h1 class="title">Sysctl工具</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org026275c">读取内核状态变量</a>
+<ul>
+<li><a href="#org1b45fa0">使用管理信息库表读取内核状态变量</a></li>
 </ul>
+</li>
+<li><a href="#orgc2a4be6">sysctl 工具相关文件结构</a></li>
+<li><a href="#orgf627764">配置文件</a></li>
+<li><a href="#orgab8fee7">设置内核状态变量</a></li>
+</ul>
+</div>
+</div>
+<p>
+<span class="underline">sysctl(8)</span> 实用程序用于检索和设置当前运行的 FreeBSD 系统内核状态
+</p>
+
+<pre class="example" id="org9f1a741">
+本节涵盖 sysctl 命令用法与 sysctl.conf 的配置方法
+
+sysctl(8) 工具可以检索内核状态，并为具有适当权限的进程设置内核状态
+</pre>
+<div id="outline-container-org026275c" class="outline-2">
+<h2 id="org026275c">读取内核状态变量</h2>
+<div class="outline-text-2" id="text-org026275c">
+<p>
+sysctl 命令支持读取和写入内核状态变量。要查看所有可读取的变量：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sysctl -a
+</pre>
+</div>
+
+<p>
+输出类似如下内容：
+</p>
+<pre class="example" id="orgcdeb980">
+kern.ostype: FreeBSD
+kern.osrelease: 16.0-CURRENT
+kern.osrevision: 199506
+kern.version: FreeBSD 16.0-CURRENT #0 main-n285005-e9fc0c538264: Mon Apr 13 12:44:54 UTC 2026
+    root@releng3.nyi.freebsd.org:/usr/obj/usr/src/amd64.amd64/sys/GENERIC
+
+kern.maxvnodes: 184403
+kern.maxproc: 9428
+kern.maxfiles: 129441
+kern.argmax: 524288
+kern.securelevel: -1
+kern.hostname: ykla
+kern.hostid: 4270621168
+kern.clockrate: { hz = 100, tick = 10000, profhz = 8128, stathz = 127 }
+
+……省略其他输出……
+</pre>
+
+<p>
+要读取特定变量，指定其名称：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysctl kern.maxproc
+</pre>
+</div>
+
+<p>
+输出类似于以下内容：
+</p>
+<pre class="example" id="org3fc853b">
+kern.maxproc: 9428
+</pre>
+</div>
+<div id="outline-container-org1b45fa0" class="outline-3">
+<h3 id="org1b45fa0">使用管理信息库表读取内核状态变量</h3>
+<div class="outline-text-3" id="text-org1b45fa0">
+<p>
+sysctl 基于管理信息库（MIB）风格的 ASCII 名称标识
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 管理信息库表</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">sysctl</td>
+<td class="org-left">说明</td>
+</tr>
+
+<tr>
+<td class="org-left">kern</td>
+<td class="org-left">内核功能和特性</td>
+</tr>
+
+<tr>
+<td class="org-left">vm</td>
+<td class="org-left">虚拟存储器</td>
+</tr>
+
+<tr>
+<td class="org-left">vfs</td>
+<td class="org-left">文件系统</td>
+</tr>
+
+<tr>
+<td class="org-left">net</td>
+<td class="org-left">网络</td>
+</tr>
+
+<tr>
+<td class="org-left">debug</td>
+<td class="org-left">调试参数</td>
+</tr>
+
+<tr>
+<td class="org-left">hw</td>
+<td class="org-left">硬件</td>
+</tr>
+
+<tr>
+<td class="org-left">machdep</td>
+<td class="org-left">机器相关</td>
+</tr>
+
+<tr>
+<td class="org-left">user</td>
+<td class="org-left">用户空间</td>
+</tr>
+
+<tr>
+<td class="org-left">p1003_1b</td>
+<td class="org-left">POSIX 1003.1B</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+管理信息库（MIB）是分层的，因此指定特定前缀将列出它下面的所有节点：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sysctl net
+</pre>
+</div>
+
+<p>
+输出类似于以下内容：
+</p>
+<pre class="example" id="org6722572">
+net.local.stream.recvspace: 65536
+net.local.stream.sendspace: 65536
+net.local.dgram.recvspace: 16384
+net.local.dgram.maxdgram: 8192
+net.local.seqpacket.recvspace: 65536
+net.local.seqpacket.maxseqpacket: 65536
+net.local.sockcount: 19
+net.local.taskcount: 9
+
+……省略其他输出……
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc2a4be6" class="outline-2">
+<h2 id="orgc2a4be6">sysctl 工具相关文件结构</h2>
+<div class="outline-text-2" id="text-orgc2a4be6">
+<pre class="example" id="orge037a04">
+/
+└── etc/
+    ├── rc.d/
+    │   ├── sysctl               # rc(8) 脚本，处理 sysctl.conf，在系统过渡到多用户模式早期执行
+    │   └── sysctl_lastload      # rc(8) 脚本，处理 sysctl.conf，在系统接近多用户模式时执行
+    ├── sysctl.conf              # sysctl(8) 的初始设置
+    ├── sysctl.conf.local        # 机器特定设置，用于共享 /etc/sysctl.conf 的位置（默认不存在）
+    └── sysctl.kld.d/            # 内核模块特定设置，用于通过 rc.subr(8) 加载的模块（默认为空目录）
+</pre>
+
+<p>
+系统启动时， <span class="underline">/etc/rc.d/sysctl</span> 脚本加载 <b>/etc/sysctl.conf</b> 文件:
+</p>
+<ul class="org-ul">
+<li>sysctl 的默认源代码在 <a href="https://github.com/freebsd/freebsd-src/tree/main/sbin/sysctl"><i>sbin/sysctl</i></a></li>
+<li>sysctl.conf 的源代码位于 <a href="https://github.com/freebsd/freebsd-src/blob/main/sbin/sysctl/sysctl.conf">/sbin/sysctl/sysctl.conf</a></li>
+</ul>
+
+<pre class="example" id="org07c898b">
+不建议直接修改 /etc/sysctl.conf 文件
+
+如需自定义配置，应使用 /etc/sysctl.conf.local 文件扩展本地配置，避免系统更新时配置被覆盖
+</pre>
+</div>
+</div>
+<div id="outline-container-orgf627764" class="outline-2">
+<h2 id="orgf627764">配置文件</h2>
+<div class="outline-text-2" id="text-orgf627764">
+<p>
+系统进入多用户模式时读取 /etc/sysctl.conf 文件，用于设置内核的默认配置。格式看起来类似于 /etc/rc.conf。基本系统默认的 /etc/sysctl.conf 文件实际上是空文件：
+</p>
+
+<pre class="example" id="org7109046">
+#  此文件在系统进入多用户模式时读取，其内容通过 sysctl 管道传递以调整内核值
+#  详情参见 man 5 sysctl.conf
+
+
+#  取消注释此行可以防止用户查看由其他 UID 运行的进程信息
+#security.bsd.see_other_uids=0
+</pre>
+
+<pre class="example" id="org1a71e96">
+虽然 /etc/sysctl.conf 文件实质上为空，但这不代表系统默认的 sysctl 参数为空
+
+它们是通过不同的宏（如 SYSCTL_INT）注入到系统中的！
+
+使用命令 sysctl -a 可列出当前系统所有默认的参数值
+</pre>
+</div>
+</div>
+<div id="outline-container-orgab8fee7" class="outline-2">
+<h2 id="orgab8fee7">设置内核状态变量</h2>
+<div class="outline-text-2" id="text-orgab8fee7">
+<p>
+要设置特定变量:
+</p>
+
+<pre class="example" id="org1c55d81">
+sysctl 管理信息标识符=值
+</pre>
+
+<p>
+示例：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysctl kern.maxfiles=9500
+</pre>
+</div>
+
+<pre class="example" id="org627e96e">
+注意：指定的值会在系统进入多用户模式后设置。并非所有变量都可以在此模式下设置
+</pre>
+
+<p>
+输出类似于以下内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">kern.maxfiles: 9428 -&gt; 9500
+</pre>
+</div>
+
+<pre class="example" id="org8073ec5">
+注意: 为了在重启后保持配置，必须将这些变量添加到 /etc/sysctl.conf 文件中
+</pre>
+
+<p>
+例如，要关闭致命信号退出的日志记录，并防止用户查看其他用户启动的进程，可以在 /etc/sysctl.conf 文件中设置以下参数：
+</p>
+
+<pre class="example" id="org6d05c5c">
+# 不记录致命信号退出（例如，sig 11）
+kern.logsigexit=0
+
+# 防止用户查看由其他 UID 启动的进程信息。
+security.bsd.see_other_uids=0
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="restore.html">Next: 系统恢复</a></td>
+<td class="org-left"><a href="device_hints.html">Previous: 驱动参数</a></td>
+<td class="org-left"><a href="sysadmin.html">Home: 系统管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 

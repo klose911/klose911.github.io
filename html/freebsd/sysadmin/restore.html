@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>FreeBSD指南</title>
+<title>系统恢复</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -192,15 +192,187 @@
     { background-color: #ffff00; color: #000000; font-weight: bold; }
   .org-svg { }
 </style>
-<link rel="stylesheet" type="text/css" href="css/main.css" />
+<link rel="stylesheet" type="text/css" href="../css/main.css" />
 </head>
 <body>
-<div id="content" class="content">
-<h1 class="title">FreeBSD指南</h1>
-<ul class="org-ul">
-<li><a href="dtrace.html">DTrace</a></li>
-<li><a href="sysadmin/sysadmin.html">系统管理</a></li>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="sysctl.html"> UP </a>
+ |
+ <a accesskey="H" href="sysadmin.html"> HOME </a>
+</div><div id="content" class="content">
+<h1 class="title">系统恢复</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgcff750c">系统恢复方法概述</a></li>
+<li><a href="#orgb29c43f">UFS 文件系统</a></li>
+<li><a href="#org3887e14">ZFS 文件系统</a>
+<ul>
+<li><a href="#orgb712a70">故障排除与未竟事宜</a></li>
 </ul>
+</li>
+<li><a href="#orgc22a9ef">使用 U 盘设备</a></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgcff750c" class="outline-2">
+<h2 id="orgcff750c">系统恢复方法概述</h2>
+<div class="outline-text-2" id="text-orgcff750c">
+<p>
+FreeBSD 系统恢复可根据故障严重程度选择不同的方法，按侵入性从低到高排列如下：
+</p>
+<ol class="org-ol">
+<li><b>单用户模式</b> <span class="underline">Single-User Mode</span> ：系统启动至运行级 1（run level 1），仅挂载根文件系统（/），不启动网络服务和多用户环境，以 root 权限运行
+<ul class="org-ul">
+<li>开机按 2 进入 single user 模式，默认无需输入密码，可使用 passwd 命令重置密码</li>
+</ul></li>
+<li><b>Live 镜像启动</b> ：从安装介质（U 盘或光盘）启动完整的 FreeBSD 运行环境，不依赖硬盘上的系统
+<ul class="org-ul">
+<li><p>
+适用于无法从硬盘启动的场景
+</p>
+<pre class="example" id="orga41f6aa">
+如引导加载器损坏、根文件系统严重损坏、磁盘分区表丢失等
+
+Live 环境提供了完整的工具链，可执行文件系统检查（fsck）、ZFS 池导入（zpool import）、数据备份等操作
+</pre></li>
+</ul></li>
+<li><p>
+灾难恢复：当整个存储子系统不可用时，需要依赖预先创建的备份（如 ZFS 快照的远程复制、dump/restore 备份）进行系统重建
+</p>
+<pre class="example" id="org2a71af6">
+此场景超出本节范围
+</pre></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgb29c43f" class="outline-2">
+<h2 id="orgb29c43f">UFS 文件系统</h2>
+<div class="outline-text-2" id="text-orgb29c43f">
+<p>
+将根 UFS 文件系统挂载为可写：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ mount -u /
+</pre>
+</div>
+
+<p>
+挂载所有 UFS 文件系统：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mount -a -t ufs
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org3887e14" class="outline-2">
+<h2 id="org3887e14">ZFS 文件系统</h2>
+<div class="outline-text-2" id="text-org3887e14">
+<pre class="example" id="org252fada">
+在某些情况下，FreeBSD Live 镜像对 ZFS 磁盘的操作可能受限，例如无法创建挂载点或修改为可写模式。此类限制通常与 Live 镜像的默认配置有关
+
+如遇此类问题，可尝试使用 Ubuntu 24.04 或更高版本的 Live 模式对 ZFS 磁盘进行操作，例如还原快照等
+</pre>
+
+<p>
+将根文件系统挂载为可写：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mount -u / 
+</pre>
+</div>
+
+<p>
+挂载所有 ZFS 文件系统：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ zfs mount -a 
+</pre>
+</div>
+
+<p>
+挂载 ZFS 根文件系统：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ zpool import -fR /mnt zroot
+</pre>
+</div>
+
+<p>
+参数说明：
+</p>
+<ul class="org-ul">
+<li>-f：强制导入（force）</li>
+<li>-R：指定备用根目录（altroot）</li>
+</ul>
+
+<pre class="example" id="org0e05aeb">
+使用 zpool import -fR /mnt zroot 表示强制将 zroot 池导入到 /mnt 作为备用根目录
+</pre>
+</div>
+<div id="outline-container-orgb712a70" class="outline-3">
+<h3 id="orgb712a70">故障排除与未竟事宜</h3>
+<div class="outline-text-3" id="text-orgb712a70">
+<pre class="example" id="org891dd6c">
+passwd: pam_chauthtok(): Error in service module
+</pre>
+
+<p>
+请检查 ZFS 文件系统是否处于只读状态：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ zfs get all | grep readonly
+</pre>
+</div>
+
+<p>
+解除 ZFS 文件系统只读属性：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ zfs set <span style="color: #eedd82;">readonly</span>=off zroot
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc22a9ef" class="outline-2">
+<h2 id="orgc22a9ef">使用 U 盘设备</h2>
+<div class="outline-text-2" id="text-orgc22a9ef">
+<p>
+将指定 U 盘分区挂载到 /mnt 并以读写模式访问：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mount /dev/daXpN -o rw /mnt
+</pre>
+</div>
+<p>
+参数说明：
+</p>
+<ul class="org-ul">
+<li>可通过 dmesg 命令查看设备信息以确定 da 后的具体编号</li>
+<li>X、N 的参数取决于具体设备编号</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="sysctl.html">Previous: Sysctl工具</a></td>
+<td class="org-left"><a href="sysadmin.html">Home: 系统管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 

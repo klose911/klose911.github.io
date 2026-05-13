@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>FreeBSD指南</title>
+<title>用户提权工具</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -192,15 +192,167 @@
     { background-color: #ffff00; color: #000000; font-weight: bold; }
   .org-svg { }
 </style>
-<link rel="stylesheet" type="text/css" href="css/main.css" />
+<link rel="stylesheet" type="text/css" href="../css/main.css" />
 </head>
 <body>
-<div id="content" class="content">
-<h1 class="title">FreeBSD指南</h1>
-<ul class="org-ul">
-<li><a href="dtrace.html">DTrace</a></li>
-<li><a href="sysadmin/sysadmin.html">系统管理</a></li>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="login.html"> UP </a>
+ |
+ <a accesskey="H" href="sysadmin.html"> HOME </a>
+</div><div id="content" class="content">
+<h1 class="title">用户提权工具</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgc64aa86">doas</a>
+<ul>
+<li><a href="#orgc447125">安装 doas</a></li>
+<li><a href="#orgcd0391a">使用 doas 进行共享管理</a></li>
+<li><a href="#orgd2c94b8">doas 示例配置文件</a></li>
 </ul>
+</li>
+<li><a href="#org176fb4e">sudo</a></li>
+</ul>
+</div>
+</div>
+<p>
+<span class="underline">sudo</span> 和 <span class="underline">doas</span> 通过配置文件定义权限规则，使特定用户无需 root 密码即可执行特权操作，并提供操作日志
+</p>
+<div id="outline-container-orgc64aa86" class="outline-2">
+<h2 id="orgc64aa86">doas</h2>
+<div class="outline-text-2" id="text-orgc64aa86">
+<p>
+doas 是一款从 OpenBSD 移植的命令行工具，可作为类 Unix 系统中广泛使用的 sudo 的替代方案
+</p>
+
+<pre class="example" id="org986fff0">
+doas 的作者是 Ted Unangst，首次出现于 OpenBSD 5.8
+
+借助 doas，用户可以以提升的权限执行命令（通常以 root 身份），兼顾简便与安全
+
+与 sudo 不同，doas 强调配置简洁与安全性，专注于精简的权限委派，摒弃了庞杂的配置选项
+</pre>
+<p>
+使用时可将 sudo 直接替换为 doas，二者在基本使用场景下功能等价。但 doas 除 NOPASSWD 外，不支持 sudo 的其他细粒度权限控制（如时间戳超时、命令参数限制、插件架构等）
+</p>
+</div>
+<div id="outline-container-orgc447125" class="outline-3">
+<h3 id="orgc447125">安装 doas</h3>
+<div class="outline-text-3" id="text-orgc447125">
+<ul class="org-ul">
+<li><p>
+使用 pkg 安装
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install doas
+</pre>
+</div></li>
+<li><p>
+使用 ports 安装
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cd /usr/ports/security/doas/
+$ make install clean
+</pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgcd0391a" class="outline-3">
+<h3 id="orgcd0391a">使用 doas 进行共享管理</h3>
+<div class="outline-text-3" id="text-orgcd0391a">
+<p>
+对于用户 user2，只需创建文件 <b>/usr/local/etc/doas.conf</b> 并写入：
+</p>
+
+<pre class="example" id="org6f6732f">
+permit nopass user2 as root
+</pre>
+<p>
+即可允许用户 user2 在执行 doas 时无需输入密码便获取 root 权限
+</p>
+
+<p>
+对于 wheel 组用户，则写入以下行即可：
+</p>
+
+<pre class="example" id="org563bd42">
+permit nopass :wheel
+</pre>
+<p>
+安装并配置好 doas 之后，即可执行特权命令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ doas ee /etc/rc.conf
+</pre>
+</div>
+
+<pre class="example" id="org966254e">
+如果不需要 doas 免密码，移除 nopass 即可
+</pre>
+</div>
+</div>
+<div id="outline-container-orgd2c94b8" class="outline-3">
+<h3 id="orgd2c94b8">doas 示例配置文件</h3>
+<div class="outline-text-3" id="text-orgd2c94b8">
+<p>
+示例配置文件位于 <b>/usr/local/etc/doas.conf.sample</b>
+</p>
+
+<pre class="example" id="org0b1d97b">
+# Sample file for doas
+# Please see doas.conf manual page for information on setting
+# up a doas.conf file.
+
+# Permit members of the wheel group to perform actions as root.
+permit :wheel # 允许 wheel 组成员 doas
+
+# Same without having to enter the password
+permit nopass :wheel # 允许 wheel 组成员 doas，但免密码
+
+# Permit user alice to run commands as a root user.
+permit alice as root # 允许用户 alice doas
+
+# Permit user bob to run programs as root, maintaining
+# environment variables. Useful for GUI applications.
+permit keepenv bob as root  # 允许用户 bob doas，并继承用户 bob 的环境变量，图形用户界面程序需要，但会降低安全性（参见查看安装后信息）
+
+# Permit user cindy to run only the pkg package manager as root
+# to perform package updates and upgrades.
+permit cindy as root cmd pkg args update  # 仅允许用户 cindy 执行 pkg update
+permit cindy as root cmd pkg args upgrade # 仅允许用户 cindy 执行 pkg upgrade
+
+# Allow david to run id command as root without logging it
+permit nolog david as root cmd id # 允许 david 以 root 身份运行 id 命令且不记录日志
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org176fb4e" class="outline-2">
+<h2 id="org176fb4e">sudo</h2>
+<div class="outline-text-2" id="text-org176fb4e">
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="device_hints.html">Next: 驱动参数</a></td>
+<td class="org-left"><a href="login.html">Previous: 用户分级</a></td>
+<td class="org-left"><a href="sysadmin.html">Home: 系统管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 

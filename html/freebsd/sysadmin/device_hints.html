@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>FreeBSD指南</title>
+<title>设备资源提示</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -192,15 +192,197 @@
     { background-color: #ffff00; color: #000000; font-weight: bold; }
   .org-svg { }
 </style>
-<link rel="stylesheet" type="text/css" href="css/main.css" />
+<link rel="stylesheet" type="text/css" href="../css/main.css" />
 </head>
 <body>
-<div id="content" class="content">
-<h1 class="title">FreeBSD指南</h1>
-<ul class="org-ul">
-<li><a href="dtrace.html">DTrace</a></li>
-<li><a href="sysadmin/sysadmin.html">系统管理</a></li>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="doas.html"> UP </a>
+ |
+ <a accesskey="H" href="sysadmin.html"> HOME </a>
+</div><div id="content" class="content">
+<h1 class="title">设备资源提示</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org41d474d">device.hints 文件结构</a></li>
+<li><a href="#orge687545">基本系统中的 device.hints</a></li>
+<li><a href="#orge45c926">device.hints 语法</a></li>
+<li><a href="#org23566a1">第 3 阶段引导加载器</a></li>
 </ul>
+</div>
+</div>
+<p>
+<b>设备资源提示文件</b> <span class="underline">device.hints</span> 是 FreeBSD 引导过程中的配置文件
+</p>
+<pre class="example" id="org13e6f19">
+系统启动时，boot loader(8) 读取该文件，其内容传递给内核，用于控制内核的引导行为，但也可包含任何内核可调参数值
+</pre>
+
+<p>
+device.hints 存储了内核启动时使用的配置变量，供设备驱动程序在设备配置过程中使用
+</p>
+<div id="outline-container-org41d474d" class="outline-2">
+<h2 id="org41d474d">device.hints 文件结构</h2>
+<div class="outline-text-2" id="text-org41d474d">
+<pre class="example" id="orgbef619a">
+/
+├── boot/ 操作系统引导过程中使用的程序和配置文件
+│    └── device.hints 设备资源提示文件
+└── sys/
+     └── ARCH/ 某架构，具体参见内核
+          └── conf/ 内核配置相关文件
+               ├── GENERIC.hints GENERIC 内核的设备资源提示示例
+               └── NOTES 关于内核配置文件和设备资源提示的说明
+</pre>
+</div>
+</div>
+<div id="outline-container-orge687545" class="outline-2">
+<h2 id="orge687545">基本系统中的 device.hints</h2>
+<div class="outline-text-2" id="text-orge687545">
+<p>
+基本系统中 device.hints 文件的默认内容根据架构的不同而变化：
+</p>
+<pre class="example" id="orgfcd0863">
+# 下面的驱动大多数已经被现代计算机所淘汰，或在个人 PC 上较为罕见
+
+# AT 键盘控制器驱动 atkbdc(4) AT 机，1980 年代产物
+hint.atkbdc.0.at="isa"  # at：指定设备所连接的总线
+hint.atkbdc.0.port="0x060"  # port：即指定设备将使用的 I/O Port 起始地址
+hint.atkbd.0.at="atkbdc"
+hint.atkbd.0.irq="1"  # irq：要使用的中断线路编号
+
+# PS/2 外设 IBM 兼容鼠标驱动 psm(4)，1980 年代产物
+
+#isa
+# └── atkbdc0
+#       ├── atkbd0
+#       └── psm0
+
+hint.psm.0.at="atkbdc"
+hint.psm.0.irq="12"
+
+# syscons(4) 传统控制台驱动
+hint.sc.0.at="isa"
+hint.sc.0.flags="0x100"  # flags：为设备设置标志位
+
+# 串口驱动 uart(4)
+hint.uart.0.at="acpi"  # 即设置 COM1
+hint.uart.0.port="0x3F8"
+hint.uart.0.flags="0x10"
+hint.uart.1.at="acpi"  # 即设置 COM2
+hint.uart.1.port="0x2F8"
+
+# RTC 驱动（实时时钟 atrtc(4)）
+hint.atrtc.0.at="isa"
+hint.atrtc.0.port="0x70"
+hint.atrtc.0.irq="8"
+
+# i8254 可编程间隔定时器（AT 定时器）驱动 attimer(4)
+hint.attimer.0.at="isa"
+hint.attimer.0.port="0x40"
+hint.attimer.0.irq="0"
+
+# 禁用 ACPI CPU throttle 驱动，参见 cpufreq(4)
+hint.acpi_throttle.0.disabled="1"  # disabled：设置为 “1” 意味着禁用该设备
+
+# 禁用 Pentium 4 热控制，参见 cpufreq(4)
+hint.p4tcc.0.disabled="1"
+</pre>
+
+<p>
+根据源代码分析，<a href="https://github.com/freebsd/freebsd-src/blob/main/sys/amd64/conf/GENERIC.hints">sys/amd64/conf/GENERIC.hints</a> 即为 amd64 架构默认的 device.hints 文件
+</p>
+</div>
+</div>
+<div id="outline-container-orge45c926" class="outline-2">
+<h2 id="orge45c926">device.hints 语法</h2>
+<div class="outline-text-2" id="text-orge45c926">
+<p>
+device.hints 采用每行一个变量的格式，语法如下：
+</p>
+<pre class="example" id="orgaa8f485">
+hint.驱动.单元编号.关键字="值"
+</pre>
+
+<p>
+该行用于为驱动程序的指定单元编号设备实例设置资源或属性（注释标记为 #）。其中，
+</p>
+<ul class="org-ul">
+<li><span class="underline">驱动</span> : 设备驱动名称</li>
+
+<li><span class="underline">单元编号</span> : 设备驱动的单元编号</li>
+
+<li><span class="underline">关键字</span> 为提示关键字。关键字可以是以下选项：
+
+<ul class="org-ul">
+<li>at：指定设备所连接的总线</li>
+
+<li>port：指定要使用的 I/O 起始地址</li>
+
+<li>irq：指定要使用的中断请求号</li>
+
+<li>drq：指定 DMA 通道号</li>
+
+<li>maddr：指定设备所占用的物理内存地址</li>
+
+<li>flags：为设备设置各种标志位</li>
+
+<li>disabled：如果设置为 1，则禁用该设备</li>
+</ul></li>
+</ul>
+
+<pre class="example" id="org5fed902">
+hint.atkbdc.0.at="isa"
+</pre>
+
+<p>
+将驱动 <b>atkbdc</b>  <span class="underline">AT 键盘控制器</span> 的 设备实例 0 <b>附加</b> <span class="underline">attach</span> 到 <span class="underline">ISA 总线</span> ，即指定 0 号 atkbdc 设备位于 ISA 总线上。
+</p>
+</div>
+</div>
+<div id="outline-container-org23566a1" class="outline-2">
+<h2 id="org23566a1">第 3 阶段引导加载器</h2>
+<div class="outline-text-2" id="text-org23566a1">
+<p>
+可以在第 3 阶段引导加载器提示符处指定设备提示，将覆盖写在 /boot/device.hints 中的变量
+</p>
+<pre class="example" id="orge725235">
+在引导加载器中输入的设备提示仅在当次启动会话中生效，重启后即失效
+</pre>
+
+<p>
+第 3 阶段引导加载器的语法为：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #b0c4de;">set</span> hint.&#39537;&#21160;.&#21333;&#20803;&#32534;&#21495;.<span style="color: #eedd82;">&#20851;&#38190;&#23383;</span>=&#20540;
+</pre>
+</div>
+<p>
+使用 set 添加变量，用 unset 删除变量，用 show 查看变量
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="sysctl.html">Next: Sysctl工具</a></td>
+<td class="org-left"><a href="doas.html">Previous: 用户提权</a></td>
+<td class="org-left"><a href="sysadmin.html">Home: 系统管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
