@@ -3,3 +3,116 @@
 #+HTML_LINK_HOME: storage.html
 #+HTML_LINK_UP: windows_fs.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
+swap 空间是操作系统内存管理的关键机制
+
+#+begin_example
+  在 FreeBSD 中，swap 可通过传统分区、交换文件或 ZFS 卷（ZVOL）等多种方式实现
+
+  本节介绍系统安装后添加 swap 空间的方法
+#+end_example
+
+如果在系统安装阶段未配置 swap（交换分区），则仅能通过 dd 命令创建交换文件或 ZFS 卷来实现，因为 UFS 及 ZFS 文件系统均不支持分区收缩操作
+* 目录结构
+
+#+begin_example
+  /
+  ├── usr
+  │   └── swap0                       # 交换文件
+  ├── etc
+  │   ├── rc.conf                      # 系统启动配置文件
+  │   └── fstab                        # 持久化挂载配置文件
+  └── dev
+      ├── md0                          # 内存磁盘（用于交换文件）
+      ├── nda0p3                       # 交换分区
+      └── zvol
+          └── zroot
+              └── swap                 # ZFS 交换卷
+#+end_example
+* 基于 dd 命令的传统交换文件方案
+
+创建一个大小为 8 GB 的交换文件 /usr/swap0（1 GB = 1024 MB，如需更大容量，可按此比例换算）：
+
+#+begin_src sh 
+  $ dd if=/dev/zero of=/usr/swap0 bs=1M count=8192 status=progress  # bs=1M 表示使用 1MB 块写入零；status=progress 用于显示写入进度
+  8416919552 bytes (8417 MB, 8027 MiB) transferred 4.011s, 2098 MB/s # 该输出为实时刷新信息
+  8192+0 records in
+  8192+0 records out
+  8589934592 bytes transferred in 4.071005 secs (2110028088 bytes/sec)
+#+end_src
+
+设置交换文件的访问权限，仅允许属主读写：
+
+#+begin_src sh 
+  $ chmod 0600 /usr/swap0
+#+end_src
+
+如果要立即启用，需先将交换文件通过 _mdconfig_ 配置为内存磁盘设备，再使用 _swapon_ 激活交换空间。其中，mdconfig 用于将文件映射为内存磁盘，swapon 用于激活交换设备：
+
+#+begin_src sh 
+  $ mdconfig -a -t vnode -f /usr/swap0 -u 0 && swapon /dev/md0
+#+end_src
+
+如果要在系统重启后仍能生效，还需在 */etc/rc.conf* 配置文件中添加以下内容：
+#+begin_src sh 
+  swapfile="/usr/swap0"
+#+end_src
+
+该配置用于定义交换文件的路径
+* 使用 ZFS 卷作为 swap 空间
+#+begin_example
+  本节所述操作可能会影响系统崩溃转储功能
+
+  根据 OpenZFS Project. OpenZFS 文档, 在内存压力极高的系统上，无论 swap 空间剩余多少，使用 zvol 作为 swap 设备都可能导致系统锁死
+
+  参见：OpenZFS Project. Swap deadlock in 0.7.9[EB/OL]. [2026-03-26]. https://github.com/openzfs/zfs/issues/7734
+
+  而将 swap 放置在其他分区上又可能会影响 ZFS 对 swap 的数据校验，因此上游文档建议弃用 swap
+
+  此外，swap 对于系统休眠功能至关重要，如果需要该功能，需至少保证 swap 的容量不小于系统内存容量
+#+end_example
+
+在 ZFS 池 zroot 下创建大小为 8 GB 的 zvol（ZFS 块设备卷）用作交换空间：
+#+begin_src sh 
+  $ zfs create -V 8G -b $(getconf PAGESIZE) -o logbias=throughput -o sync=always -o primarycache=metadata -o com.sun:auto-snapshot=false zroot/swap
+#+end_src
+
+对上述命令的参数说明如下：
++ _$(getconf PAGESIZE)_ ：返回系统页面大小
+  #+begin_example
+    FreeBSD/amd64 下固定为 4096，使 swap 卷与系统页面对齐，以提高性能
+  #+end_example
++ -o：用于指定选项，语法为 -o 属性名=属性值
+  + -o _logbias=throughput_ ：ZFS 将优化同步操作，提高池的全局吞吐量并有效利用资源，可提升文件写入性能
+  + -o _sync=always_ ：强制所有写入操作实时同步
+  + -o _primarycache=metadata_ ：控制 ARC 的缓存策略，仅缓存元数据，不缓存实际数据块，避免 ARC 将 swap 数据缓存到内存
+  + -o _com.sun:auto-snapshot=false_ ：禁用自动快照功能，因为通常无需对 swap 进行快照
++ 参数 -V：用于创建 *ZFS 卷* _zvol_ 而非 ZFS 文件系统
++ 在 FreeBSD 中，ZFS 默认的池名称为 zroot, 本次创建的卷名称为 swap
+
+启用 ZFS zvol 作为交换空间：
+#+begin_src sh 
+  $ swapon /dev/zvol/zroot/swap
+#+end_src
+
+在 */etc/fstab* 文件中添加 ZFS zvol 交换分区的挂载项，以实现开机时自动挂载：
+#+begin_src sh 
+  /dev/zvol/zroot/swap none swap sw 0 0
+#+end_src
+
+写入配置后，可使用命令 *swapon -a* 检查（ _-a_ 表示激活 /etc/fstab 中所有 swap 条目），确保无错误输出
+* 查看 swap 使用量
+以更易读的单位显示系统交换空间信息：
+#+begin_src sh 
+  $ swapinfo -h
+  Device              Size     Used    Avail Capacity
+  /dev/nda0p3         2.0G       0B     2.0G     0%
+#+end_src
+
+选项 -h 表示以人类可读格式输出
+
+#+begin_example
+从输出可知，/dev/nda0p3 为交换分区，其大小为 2 GB，当前已使用量为 0
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:windows_fs.org][Previous: Windows 文件系统]] | [[file:storage.org][Home: 存储管理]] |

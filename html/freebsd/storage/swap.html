@@ -201,6 +201,199 @@
  <a accesskey="H" href="storage.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">swap 分区</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgdeef0d5">目录结构</a></li>
+<li><a href="#orge3db328">基于 dd 命令的传统交换文件方案</a></li>
+<li><a href="#org0e102dc">使用 ZFS 卷作为 swap 空间</a></li>
+<li><a href="#org6a9943c">查看 swap 使用量</a></li>
+</ul>
+</div>
+</div>
+<p>
+swap 空间是操作系统内存管理的关键机制
+</p>
+
+<pre class="example" id="org353583b">
+在 FreeBSD 中，swap 可通过传统分区、交换文件或 ZFS 卷（ZVOL）等多种方式实现
+
+本节介绍系统安装后添加 swap 空间的方法
+</pre>
+
+<p>
+如果在系统安装阶段未配置 swap（交换分区），则仅能通过 dd 命令创建交换文件或 ZFS 卷来实现，因为 UFS 及 ZFS 文件系统均不支持分区收缩操作
+</p>
+<div id="outline-container-orgdeef0d5" class="outline-2">
+<h2 id="orgdeef0d5">目录结构</h2>
+<div class="outline-text-2" id="text-orgdeef0d5">
+<pre class="example" id="org0630240">
+/
+├── usr
+│   └── swap0                       # 交换文件
+├── etc
+│   ├── rc.conf                      # 系统启动配置文件
+│   └── fstab                        # 持久化挂载配置文件
+└── dev
+    ├── md0                          # 内存磁盘（用于交换文件）
+    ├── nda0p3                       # 交换分区
+    └── zvol
+        └── zroot
+            └── swap                 # ZFS 交换卷
+</pre>
+</div>
+</div>
+<div id="outline-container-orge3db328" class="outline-2">
+<h2 id="orge3db328">基于 dd 命令的传统交换文件方案</h2>
+<div class="outline-text-2" id="text-orge3db328">
+<p>
+创建一个大小为 8 GB 的交换文件 /usr/swap0（1 GB = 1024 MB，如需更大容量，可按此比例换算）：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ dd <span style="color: #eedd82;">if</span>=/dev/zero <span style="color: #eedd82;">of</span>=/usr/swap0 <span style="color: #eedd82;">bs</span>=1M <span style="color: #eedd82;">count</span>=8192 <span style="color: #eedd82;">status</span>=progress  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">bs=1M &#34920;&#31034;&#20351;&#29992; 1MB &#22359;&#20889;&#20837;&#38646;&#65307;status=progress &#29992;&#20110;&#26174;&#31034;&#20889;&#20837;&#36827;&#24230;
+</span>8416919552 bytes (8417 MB, 8027 MiB) transferred 4.011s, 2098 MB/s <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35813;&#36755;&#20986;&#20026;&#23454;&#26102;&#21047;&#26032;&#20449;&#24687;
+</span>8192+0 records<span style="color: #00ffff;"> in</span>
+8192+0 records out
+8589934592 bytes transferred<span style="color: #00ffff;"> in</span> 4.071005 secs (2110028088 bytes/sec)
+</pre>
+</div>
+
+<p>
+设置交换文件的访问权限，仅允许属主读写：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ chmod 0600 /usr/swap0
+</pre>
+</div>
+
+<p>
+如果要立即启用，需先将交换文件通过 <span class="underline">mdconfig</span> 配置为内存磁盘设备，再使用 <span class="underline">swapon</span> 激活交换空间。其中，mdconfig 用于将文件映射为内存磁盘，swapon 用于激活交换设备：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ mdconfig -a -t vnode -f /usr/swap0 -u 0 &amp;&amp; swapon /dev/md0
+</pre>
+</div>
+
+<p>
+如果要在系统重启后仍能生效，还需在 <b>/etc/rc.conf</b> 配置文件中添加以下内容：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">swapfile</span>=<span style="color: #ffa07a;">"/usr/swap0"</span>
+</pre>
+</div>
+
+<p>
+该配置用于定义交换文件的路径
+</p>
+</div>
+</div>
+<div id="outline-container-org0e102dc" class="outline-2">
+<h2 id="org0e102dc">使用 ZFS 卷作为 swap 空间</h2>
+<div class="outline-text-2" id="text-org0e102dc">
+<pre class="example" id="orga5c1eca">
+本节所述操作可能会影响系统崩溃转储功能
+
+根据 OpenZFS Project. OpenZFS 文档, 在内存压力极高的系统上，无论 swap 空间剩余多少，使用 zvol 作为 swap 设备都可能导致系统锁死
+
+参见：OpenZFS Project. Swap deadlock in 0.7.9[EB/OL]. [2026-03-26]. https://github.com/openzfs/zfs/issues/7734
+
+而将 swap 放置在其他分区上又可能会影响 ZFS 对 swap 的数据校验，因此上游文档建议弃用 swap
+
+此外，swap 对于系统休眠功能至关重要，如果需要该功能，需至少保证 swap 的容量不小于系统内存容量
+</pre>
+
+<p>
+在 ZFS 池 zroot 下创建大小为 8 GB 的 zvol（ZFS 块设备卷）用作交换空间：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ zfs create -V 8G -b $(<span style="color: #fa8072;">getconf PAGESIZE</span>) -o <span style="color: #eedd82;">logbias</span>=throughput -o <span style="color: #eedd82;">sync</span>=always -o <span style="color: #eedd82;">primarycache</span>=metadata -o com.sun:auto-snapshot=false zroot/swap
+</pre>
+</div>
+
+<p>
+对上述命令的参数说明如下：
+</p>
+<ul class="org-ul">
+<li><p>
+<span class="underline">$(getconf PAGESIZE)</span> ：返回系统页面大小
+</p>
+<pre class="example" id="orgef8e818">
+FreeBSD/amd64 下固定为 4096，使 swap 卷与系统页面对齐，以提高性能
+</pre></li>
+<li>-o：用于指定选项，语法为 -o 属性名=属性值
+<ul class="org-ul">
+<li>-o <span class="underline">logbias=throughput</span> ：ZFS 将优化同步操作，提高池的全局吞吐量并有效利用资源，可提升文件写入性能</li>
+<li>-o <span class="underline">sync=always</span> ：强制所有写入操作实时同步</li>
+<li>-o <span class="underline">primarycache=metadata</span> ：控制 ARC 的缓存策略，仅缓存元数据，不缓存实际数据块，避免 ARC 将 swap 数据缓存到内存</li>
+<li>-o <span class="underline">com.sun:auto-snapshot=false</span> ：禁用自动快照功能，因为通常无需对 swap 进行快照</li>
+</ul></li>
+<li>参数 -V：用于创建 <b>ZFS 卷</b> <span class="underline">zvol</span> 而非 ZFS 文件系统</li>
+<li>在 FreeBSD 中，ZFS 默认的池名称为 zroot, 本次创建的卷名称为 swap</li>
+</ul>
+
+<p>
+启用 ZFS zvol 作为交换空间：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ swapon /dev/zvol/zroot/swap
+</pre>
+</div>
+
+<p>
+在 <b>/etc/fstab</b> 文件中添加 ZFS zvol 交换分区的挂载项，以实现开机时自动挂载：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">/dev/zvol/zroot/swap none swap sw 0 0
+</pre>
+</div>
+
+<p>
+写入配置后，可使用命令 <b>swapon -a</b> 检查（ <span class="underline">-a</span> 表示激活 /etc/fstab 中所有 swap 条目），确保无错误输出
+</p>
+</div>
+</div>
+<div id="outline-container-org6a9943c" class="outline-2">
+<h2 id="org6a9943c">查看 swap 使用量</h2>
+<div class="outline-text-2" id="text-org6a9943c">
+<p>
+以更易读的单位显示系统交换空间信息：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ swapinfo -h
+Device              Size     Used    Avail Capacity
+/dev/nda0p3         2.0G       0B     2.0G     0%
+</pre>
+</div>
+
+<p>
+选项 -h 表示以人类可读格式输出
+</p>
+
+<pre class="example" id="orgf805379">
+从输出可知，/dev/nda0p3 为交换分区，其大小为 2 GB，当前已使用量为 0
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="windows_fs.html">Previous: Windows 文件系统</a></td>
+<td class="org-left"><a href="storage.html">Home: 存储管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
