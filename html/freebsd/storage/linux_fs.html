@@ -201,6 +201,287 @@
  <a accesskey="H" href="storage.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">Linux 文件系统</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org5481ffe">EXT 系列文件系统</a>
+<ul>
+<li><a href="#org521ec57">安装 fusefs-ext2</a></li>
+<li><a href="#org2d18b6f">加载内核模块</a></li>
+<li><a href="#org64ca469">测试挂载 Ext 分区</a></li>
+</ul>
+</li>
+<li><a href="#orgdd70090">Btrfs、XFS 和 ext4 文件系统</a>
+<ul>
+<li><a href="#org0abda5e">安装 fusefs-lkl</a></li>
+<li><a href="#orga14e509">加载 FUSE 内核模块</a></li>
+<li><a href="#orge590ceb">测试挂载 Btrfs 分区</a></li>
+<li><a href="#org9f61c83">测试挂载 Xfs 分区</a></li>
+</ul>
+</li>
+<li><a href="#org975be93">故障排除与未竟事宜</a>
+<ul>
+<li><a href="#orgf2a94d5">文件系统的卸载方法</a></li>
+<li><a href="#org6311add">持久化的挂载配置</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org9cfa845">
+FreeBSD 对 ext2/ext3/ext4、XFS、Btrfs 等 Linux 原生文件系统提供只读或读写挂载支持
+
+但内核模块需单独加载，且不同文件系统的兼容程度差异较大
+</pre>
+<p>
+为便于演示挂载操作，本节预设一个包含多种 Linux 文件系统分区的示例环境，用于验证各挂载方法的正确性
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ gpart show -p nda1        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26174;&#31034;&#35774;&#22791; nda1 &#30340;&#20998;&#21306;&#20449;&#24687;
+</span>=&gt;      34  41942973    nda1  GPT  (20G)
+34      2014          - free -  (1.0M)
+2048   1339392  nda1p5  linux-data  (654M) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">ext2
+</span>1341440  19630080  nda1p1  linux-data  (9.4G) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">ext4
+</span>20971520   8388608  nda1p2  linux-data  (4.0G) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">btrfs
+</span>29360128   4194304  nda1p3  ms-basic-data  (2.0G) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">fat32
+</span>33554432   8386560  nda1p4  linux-data  (4.0G) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">xfs
+</span>41940992      2015          - free -  (1.0M)
+</pre>
+</div>
+
+<p>
+<span class="underline">-p</span> 参数用于显示完整设备路径。示例分区中预先配置了一些文件和目录，用于后续验证挂载操作的正确性
+</p>
+
+<pre class="example" id="org1f83012">
+/
+├── usr
+│   └── ports
+│       └── filesystems
+│           ├── ext2                  # fusefs-ext2 Ports 目录
+│           └── lkl                   # fusefs-lkl Ports 目录
+├── home
+│   └── ykla
+│       ├── test                      # EXT2/3/4 挂载点
+│       ├── btrfs                     # Btrfs 挂载点
+│       └── xfs                        # XFS 挂载点
+└── etc
+    └── fstab                          # 持久化挂载配置文件
+</pre>
+<div id="outline-container-org5481ffe" class="outline-2">
+<h2 id="org5481ffe">EXT 系列文件系统</h2>
+<div class="outline-text-2" id="text-org5481ffe">
+<p>
+<span class="underline">fusefs-ext2</span> 是一款基于 FUSE 的文件系统实现
+</p>
+<pre class="example" id="org0ebde2f">
+尽管名称为 ext2，但该模块通过兼容 ext3/ext4 的磁盘格式，同样支持对 ext3 和 ext4 文件系统的访问
+</pre>
+</div>
+<div id="outline-container-org521ec57" class="outline-3">
+<h3 id="org521ec57">安装 fusefs-ext2</h3>
+<div class="outline-text-3" id="text-org521ec57">
+<ul class="org-ul">
+<li><p>
+使用 pkg 安装：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install fusefs-ext2
+</pre>
+</div></li>
+<li><p>
+使用 Ports 安装：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cd /usr/ports/filesystems/ext2/
+$ make install clean
+</pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org2d18b6f" class="outline-3">
+<h3 id="org2d18b6f">加载内核模块</h3>
+<div class="outline-text-3" id="text-org2d18b6f">
+<p>
+首先，确保已加载 FUSE 内核模块，该模块为所有基于 FUSE 的文件系统提供底层支持。将 ext2fs 和 fusefs 内核模块添加至开机加载列表：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">kld_list</span>+=<span style="color: #ffa07a;">"fusefs"</span>
+$ sysrc <span style="color: #eedd82;">kld_list</span>+=<span style="color: #ffa07a;">"ext2fs"</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org64ca469" class="outline-3">
+<h3 id="org64ca469">测试挂载 Ext 分区</h3>
+<div class="outline-text-3" id="text-org64ca469">
+<ol class="org-ol">
+<li><p>
+创建挂载目录 /home/ykla/test：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mkdir -p /home/ykla/test <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#31034;&#20363;&#25346;&#36733;&#30446;&#24405;&#65292;&#35831;&#26681;&#25454;&#23454;&#38469;&#36335;&#24452;&#35843;&#25972;&#65292;&#19979;&#21516;</span>
+</pre>
+</div></li>
+<li><p>
+将 nda1p1 分区挂载至 /home/ykla/test：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ fuse-ext2 /dev/nda1p1 /home/ykla/test <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25346;&#36733;&#20998;&#21306;&#65292;&#40664;&#35748;&#21482;&#35835;
+</span>Mounting /dev/nda1p1 Read-Only.
+Use <span style="color: #ffa07a;">'force'</span> or <span style="color: #ffa07a;">'rw+'</span> options to enable Read-Write mode
+$ ls /home/ykla/test/ <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21015;&#20986;&#25346;&#36733;&#30446;&#24405;&#20869;&#23481;
+</span>lost+found      test            test.pdf
+</pre>
+</div>
+<pre class="example" id="org81e6311">
+fusefs-ext2 默认以只读模式挂载，这是为了避免写入操作可能引发的文件系统损坏风险
+</pre></li>
+<li><p>
+将 nda1p1 分区以读写模式挂载至 /home/ykla/test:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ fuse-ext2 -o rw+ /dev/nda1p1 /home/ykla/test <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25346;&#36733;&#30913;&#30424;&#20998;&#21306;&#20026;&#21487;&#20889;
+</span>$ ls /home/ykla/test/ <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26597;&#30475;&#25346;&#36733;&#30446;&#24405;&#20869;&#23481;
+</span>lost+found      test            test.pdf
+$ cd /home/ykla/test/ <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20999;&#25442;&#21040;&#25346;&#36733;&#36335;&#24452;
+</span>root@ykla:/home/ykla/test <span style="color: #ff4500;"># </span><span style="color: #ff4500;">touch my.txt # &#21019;&#24314;&#27979;&#35797;&#25991;&#20214;&#20197;&#39564;&#35777;&#20889;&#20837;&#25805;&#20316;
+</span>root@ykla:/home/ykla/test <span style="color: #ff4500;"># </span><span style="color: #ff4500;">ls # &#21015;&#20986;&#25346;&#36733;&#30446;&#24405;&#20869;&#23481;
+</span>lost+found      my.txt          test            test.pdf
+</pre>
+</div></li>
+</ol>
+</div>
+</div>
+</div>
+<div id="outline-container-orgdd70090" class="outline-2">
+<h2 id="orgdd70090">Btrfs、XFS 和 ext4 文件系统</h2>
+<div class="outline-text-2" id="text-orgdd70090">
+<p>
+fusefs-lkl 是基于 Linux 内核库（LKL，Linux Kernel Library）的 FUSE 实现，通过在用户空间运行 Linux 内核代码，提供对 Btrfs、XFS 等更多 Linux 文件系统的完整支持
+</p>
+<pre class="example" id="org21cd2b1">
+与 fusefs-ext2 相比，fusefs-lkl 支持的文件系统类型更广泛，但性能可能略低
+</pre>
+</div>
+<div id="outline-container-org0abda5e" class="outline-3">
+<h3 id="org0abda5e">安装 fusefs-lkl</h3>
+<div class="outline-text-3" id="text-org0abda5e">
+<ul class="org-ul">
+<li><p>
+使用 pkg 安装：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install fusefs-lkl
+</pre>
+</div></li>
+<li><p>
+使用 Ports 安装：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cd /usr/ports/filesystems/lkl/
+$ make install clean
+</pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orga14e509" class="outline-3">
+<h3 id="orga14e509">加载 FUSE 内核模块</h3>
+<div class="outline-text-3" id="text-orga14e509">
+<p>
+fusefs 是 FreeBSD 的 FUSE 框架内核模块，为所有基于 FUSE 的文件系统提供底层支持。在安装 fusefs-ext2 时已加载该模块，如果尚未加载，可执行以下命令：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">kld_list</span>=<span style="color: #ffa07a;">"fusefs"</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orge590ceb" class="outline-3">
+<h3 id="orge590ceb">测试挂载 Btrfs 分区</h3>
+<div class="outline-text-3" id="text-orge590ceb">
+<p>
+使用 <span class="underline">lklfuse</span> 将 Btrfs 分区 nda1p2 挂载至 /home/ykla/btrfs：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ mkdir -p /home/ykla/btrfs <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#25346;&#36733;&#30446;&#24405;
+</span>$ lklfuse -o <span style="color: #eedd82;">type</span>=btrfs /dev/nda1p2 /home/ykla/btrfs <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25346;&#36733;&#30913;&#30424;&#20998;&#21306;
+</span>$ ls /home/ykla/btrfs <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26597;&#30475;&#25346;&#36733;&#30446;&#24405;&#20869;&#23481;
+</span>test1   test2   test3   test4
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org9f61c83" class="outline-3">
+<h3 id="org9f61c83">测试挂载 Xfs 分区</h3>
+<div class="outline-text-3" id="text-org9f61c83">
+<p>
+使用 <span class="underline">lklfuse</span> 将 XFS 分区 nda1p4 挂载至 /home/ykla/xfs：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ mkdir -p /home/ykla/xfs <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#25346;&#36733;&#30446;&#24405;
+</span>$ lklfuse -o <span style="color: #eedd82;">type</span>=xfs /dev/nda1p4 /home/ykla/xfs <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25346;&#36733;&#30913;&#30424;&#20998;&#21306;
+</span>$ ls /home/ykla/xfs <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26597;&#30475;&#25346;&#36733;&#30446;&#24405;&#20869;&#23481;
+</span>cfc     test1   test2
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org975be93" class="outline-2">
+<h2 id="org975be93">故障排除与未竟事宜</h2>
+<div class="outline-text-2" id="text-org975be93">
+</div>
+<div id="outline-container-orgf2a94d5" class="outline-3">
+<h3 id="orgf2a94d5">文件系统的卸载方法</h3>
+<div class="outline-text-3" id="text-orgf2a94d5">
+<p>
+文件系统卸载操作可通过 <span class="underline">umount</span> 命令完成，卸载前应确保没有进程正在访问挂载点，否则卸载将失败。其基本语法为：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ umount /home/ykla/test    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21368;&#36733;&#25351;&#23450;&#25346;&#36733;&#28857;&#30340;&#25991;&#20214;&#31995;&#32479;</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org6311add" class="outline-3">
+<h3 id="org6311add">持久化的挂载配置</h3>
+<div class="outline-text-3" id="text-org6311add">
+<p>
+持久化挂载可通过将挂载配置写入 <b>/etc/fstab</b> 文件实现
+</p>
+<ul class="org-ul">
+<li>对于 FUSE 文件系统，需特别注意挂载参数与延迟挂载选项 <span class="underline">late</span> 的使用</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="windows_fs.html">Next: Windows 文件系统</a></td>
+<td class="org-left"><a href="automount.html">Previous: 自动挂载</a></td>
+<td class="org-left"><a href="storage.html">Home: 存储管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
