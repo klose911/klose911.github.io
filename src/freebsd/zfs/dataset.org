@@ -3,4 +3,1687 @@
 #+HTML_LINK_HOME: zfs.html
 #+HTML_LINK_UP: pool.html
 #+OPTIONS: num:nil timestamp:nil ^:nil
+* 创建和销毁数据集
+#+begin_example
+  与传统磁盘和卷管理器不同，ZFS 不会预先分配空间
 
+  传统文件系统在分区并分配空间后，若不添加新磁盘，便无法创建新的文件系统
+#+end_example
+ZFS 允许随时创建新的文件系统
++ 每个 数据集 都具备压缩、去重、缓存和配额等特性，此外还有只读、大小写敏感、网络文件共享和挂载点等实用属性
++ 数据集可以嵌套，子数据集会继承父数据集的属性
++ 每个数据集都可以委托管理、复制、创建快照、纳入 jail，也可以直接销毁
+
+
+#+begin_example
+  为每种文件类型或文件集合创建单独的数据集是一种推荐做法
+
+  然而，数据集过多亦存在不足：zfs list 等命令会变慢，挂载数百乃至数千个数据集也会拖慢 FreeBSD 的启动速度
+#+end_example
+
+查看目前的数据集：
+#+begin_src sh 
+  $ zfs list
+  NAME                 USED  AVAIL  REFER  MOUNTPOINT
+  zroot                916M  49.0G    96K  /zroot
+  zroot/ROOT           886M  49.0G    96K  none
+  zroot/ROOT/default   886M  49.0G   886M  /
+  zroot/home          27.8M  49.0G    96K  /home
+  zroot/home/ykla     27.7M  49.0G  27.7M  /home/ykla
+  zroot/tmp            128K  49.0G   128K  /tmp
+  zroot/usr            288K  49.0G    96K  /usr
+  zroot/usr/ports       96K  49.0G    96K  /usr/ports
+  zroot/usr/src         96K  49.0G    96K  /usr/src
+  zroot/var            636K  49.0G    96K  /var
+  zroot/var/audit       96K  49.0G    96K  /var/audit
+  zroot/var/crash       96K  49.0G    96K  /var/crash
+  zroot/var/log        156K  49.0G   156K  /var/log
+  zroot/var/mail        96K  49.0G    96K  /var/mail
+  zroot/var/tmp         96K  49.0G    96K  /var/tmp
+#+end_src
+
+#+begin_example
+  本节示例中出现的用户名 ykla 及路径 /home/ykla 均为示例，请根据自身环境替换为实际用户名和主目录
+#+end_example
+
+创建新的数据集并启用 LZ4 压缩：
+#+begin_src sh 
+  $ zfs create -o compression=lz4 zroot/usr/mydataset
+  $ zfs list
+  NAME                  USED  AVAIL  REFER  MOUNTPOINT
+  zroot                 916M  49.0G    96K  /zroot
+  zroot/ROOT            886M  49.0G    96K  none
+  zroot/ROOT/default    886M  49.0G   886M  /
+  zroot/home           27.8M  49.0G    96K  /home
+  zroot/home/ykla      27.7M  49.0G  27.7M  /home/ykla
+  zroot/tmp             128K  49.0G   128K  /tmp
+  zroot/usr             384K  49.0G    96K  /usr
+  zroot/usr/mydataset    96K  49.0G    96K  /usr/mydataset # 注意此行
+  zroot/usr/ports        96K  49.0G    96K  /usr/ports
+  zroot/usr/src          96K  49.0G    96K  /usr/src
+  zroot/var             636K  49.0G    96K  /var
+  zroot/var/audit        96K  49.0G    96K  /var/audit
+  zroot/var/crash        96K  49.0G    96K  /var/crash
+  zroot/var/log         156K  49.0G   156K  /var/log
+  zroot/var/mail         96K  49.0G    96K  /var/mail
+  zroot/var/tmp          96K  49.0G    96K  /var/tmp
+#+end_src
+
+
+销毁创建的数据集：
+
+#+begin_src sh 
+  $ zfs destroy zroot/usr/mydataset
+  $ zfs list
+  NAME                 USED  AVAIL  REFER  MOUNTPOINT
+  zroot                916M  49.0G    96K  /zroot
+  zroot/ROOT           886M  49.0G    96K  none
+  zroot/ROOT/default   886M  49.0G   886M  /
+  zroot/home          27.8M  49.0G    96K  /home
+  zroot/home/ykla     27.7M  49.0G  27.7M  /home/ykla
+  zroot/tmp            128K  49.0G   128K  /tmp
+  zroot/usr            288K  49.0G    96K  /usr
+  zroot/usr/ports       96K  49.0G    96K  /usr/ports
+  zroot/usr/src         96K  49.0G    96K  /usr/src
+  zroot/var            636K  49.0G    96K  /var
+  zroot/var/audit       96K  49.0G    96K  /var/audit
+  zroot/var/crash       96K  49.0G    96K  /var/crash
+  zroot/var/log        156K  49.0G   156K  /var/log
+  zroot/var/mail        96K  49.0G    96K  /var/mail
+  zroot/var/tmp         96K  49.0G    96K  /var/tmp
+#+end_src
+
+#+begin_example
+由于此操作不涉及扫描文件和更新相应的元数据，销毁数据集比删除数据集中的文件要快得多
+#+end_example
+
+在现代版本的 ZFS 中，zfs destroy 是异步的，释放的空间可能几分钟后才会在池中体现。使用 zpool get freeing 存储池 查看 freeing 属性：
+
+#+begin_src sh 
+  NAME   PROPERTY  VALUE    SOURCE
+  zroot  freeing   0        -
+#+end_src
+
+该属性会显示哪些数据集正在后台释放其块。如果有子数据集（例如快照或其他数据集），则无法直接销毁父数据集
++ 要销毁数据集及其所有子数据集，可使用 _-r_ 递归销毁
++ 使用 _-n -v_ 可以列出此操作将销毁的数据集和快照，但不会实际销毁任何数据
++ 销毁快照时，回收的空间也会一并显示
+
+#+begin_example
+  zfs destroy 将永久删除数据集及其所有数据，且无法撤销
+
+  请务必确认操作对象正确无误，必要时可先用 zfs destroy -n -v 预览待销毁的数据集和快照
+#+end_example
+* 创建和销毁卷
+卷是一种特殊的数据集类型。它不作为文件系统挂载，而是以 _块设备_ 的形式暴露于 */dev/zvol/poolname/dataset* 路径下
+
+#+begin_example
+  因此，卷可用于其他文件系统、充当虚拟机磁盘，或通过 iSCSI 及 HAST 等协议提供给网络上的其他主机
+#+end_example
+
+卷可以格式化并使用任何文件系统，也可以不格式化而直接存储原始数据。对用户而言，卷与普通磁盘无异。在这些 zvol 上放置普通文件系统，可以获得普通磁盘或文件系统所不具备的功能
+#+begin_example
+  例如，对一个 250 MB 的卷启用压缩属性，即可创建一个压缩的 FAT 文件系统
+#+end_example
+
+创建 3 GB 的 ZFS 卷并启用压缩：
+
+#+begin_src sh 
+  $ zfs create -V 3G -o compression=on zroot/fat32
+#+end_src
+
+#+begin_example
+如果设置的 FAT32 容量过低，由于文件簇不足，将无法正常格式化
+#+end_example
+
+确认卷已创建并查看其空间占用：
+#+begin_src sh 
+  $ zfs list zroot/fat32
+  NAME          USED  AVAIL  REFER  MOUNTPOINT
+  zroot/fat32  3.05G  49.0G    56K  -
+#+end_src
+
+卷以块设备形式出现在 /dev/zvol/ 路径下：
+#+begin_src sh 
+  $ ls -al  /dev/zvol/zroot/fat32
+  crw-r-----  1 root operator 0x75 Apr 16 12:21 /dev/zvol/zroot/fat32
+#+end_src
+
+将卷格式化为 FAT32 文件系统：
+#+begin_src sh 
+  $ newfs_msdos -F32 /dev/zvol/zroot/fat32
+  newfs_msdos: cannot get number of sectors per track: Operation not supported
+  newfs_msdos: cannot get number of heads: Operation not supported
+  /dev/zvol/zroot/fat32: 6288320 sectors in 98255 FAT32 clusters (32768 bytes/cluster)
+  BytesPerSec=512 SecPerClust=64 ResSectors=64 FATs=2 Media=0xf0 SecPerTrack=63 Heads=255 HiddenSecs=0 HugeSectors=6291456 FATsecs=768 RootCluster=2 FSInfo=1 Backup=2
+#+end_src
+
+#+begin_example
+newfs_msdos 将格式化指定的 ZFS 卷，卷上已有数据将永久丢失。请确认设备路径 /dev/zvol/ 正确无误，避免误格式化其他设备
+#+end_example
+
+挂载卷并确认挂载成功：
+#+begin_src sh 
+  $ mount -t msdosfs /dev/zvol/zroot/fat32 /mnt
+  $ mount | grep fat32
+  /dev/zvol/zroot/fat32 on /mnt (msdosfs, local)
+#+end_src
+
+复制一些文件以测试：
+#+begin_src sh 
+  $ cp /home/ykla/Philosophische-untersuchungen.pdf /mnt/
+  $ df -h /mnt | grep fat32
+  /dev/zvol/zroot/fat32    3.0G     36M    3.0G     1%    /mnt
+#+end_src
+
+销毁卷的过程与销毁常规文件系统数据集类似：
+#+begin_src sh 
+  $ zfs destroy zroot/fat32
+#+end_src
+
+该操作几乎即时完成，但空闲空间可能需要几分钟才能在后台回收
+* 重命名数据集
+要更改数据集的名称，可使用 _zfs rename_ 命令。要更改数据集的父级，同样使用该命令
++ 将数据集重命名至不同的父级下，会改变其从父级继承的属性值
++ 重命名数据集时，会卸载该数据集并将其挂载到新位置（该位置从新父级继承）
+  + 要阻止此行为，可使用 _-u_ 选项
+
+将数据集重命名并移动到不同的父级：
+1. 创建用于演示的数据集并确认其位置：
+   #+begin_src sh 
+     $ zfs create zroot/usr/mydataset
+     $ zfs list
+     NAME                  USED  AVAIL  REFER  MOUNTPOINT
+     zroot                3.94G  46.0G    96K  /zroot
+     zroot/ROOT            886M  46.0G    96K  none
+     zroot/ROOT/default    886M  46.0G   886M  /
+     zroot/fat32          3.05G  49.0G  31.0M  -
+     zroot/home           27.8M  46.0G    96K  /home
+     zroot/home/ykla      27.7M  46.0G  27.7M  /home/ykla
+     zroot/tmp             128K  46.0G   128K  /tmp
+     zroot/usr             384K  46.0G    96K  /usr
+     zroot/usr/mydataset    96K  46.0G    96K  /usr/mydataset # 注意此行
+     zroot/usr/ports        96K  46.0G    96K  /usr/ports
+     zroot/usr/src          96K  46.0G    96K  /usr/src
+     zroot/var             636K  46.0G    96K  /var
+     zroot/var/audit        96K  46.0G    96K  /var/audit
+     zroot/var/crash        96K  46.0G    96K  /var/crash
+     zroot/var/log         156K  46.0G   156K  /var/log
+     zroot/var/mail         96K  46.0G    96K  /var/mail
+     zroot/var/tmp          96K  46.0G    96K  /var/tmp
+   #+end_src
+2. 给数据集创建快照，演示重命名后快照仍会保留：
+   #+begin_src sh 
+     $ zfs snapshot zroot/usr/mydataset@01
+     $ zfs list -t snapshot
+     NAME                     USED  AVAIL  REFER  MOUNTPOINT
+     zroot/usr/mydataset@01     0B      -    96K  -
+   #+end_src
+3. 执行重命名，将数据集从 zroot/usr 移至 zroot/var 下：
+   #+begin_src sh 
+     $ zfs rename zroot/usr/mydataset zroot/var/newname
+     $ zfs list
+     NAME                 USED  AVAIL  REFER  MOUNTPOINT
+     zroot               3.94G  46.0G    96K  /zroot
+     zroot/ROOT           886M  46.0G    96K  none
+     zroot/ROOT/default   886M  46.0G   886M  /
+     zroot/fat32         3.05G  49.0G  31.0M  -
+     zroot/home          27.8M  46.0G    96K  /home
+     zroot/home/ykla     27.7M  46.0G  27.7M  /home/ykla
+     zroot/tmp            128K  46.0G   128K  /tmp
+     zroot/usr            288K  46.0G    96K  /usr
+     zroot/usr/ports       96K  46.0G    96K  /usr/ports
+     zroot/usr/src         96K  46.0G    96K  /usr/src
+     zroot/var            732K  46.0G    96K  /var
+     zroot/var/audit       96K  46.0G    96K  /var/audit
+     zroot/var/crash       96K  46.0G    96K  /var/crash
+     zroot/var/log        156K  46.0G   156K  /var/log
+     zroot/var/mail        96K  46.0G    96K  /var/mail
+     zroot/var/newname     96K  46.0G    96K  /var/newname # 注意此行
+     zroot/var/tmp         96K  46.0G    96K  /var/tmp
+
+   #+end_src
+4. 快照无法更改父级。再创建一个快照验证：
+   #+begin_src sh 
+     $ zfs snapshot zroot/var/newname@02
+     $ zfs list -t snapshot
+     NAME                   USED  AVAIL  REFER  MOUNTPOINT
+     zroot/var/newname@01     0B      -    96K  -
+     zroot/var/newname@02     0B      -    96K  -
+   #+end_src
+5. 重命名快照也使用相同的命令:
+   #+begin_src sh 
+     $ zfs rename zroot/var/newname@02 zroot/var/newname@03
+     $ zfs list -t snapshot
+     NAME                   USED  AVAIL  REFER  MOUNTPOINT
+     zroot/var/newname@01     0B      -    96K  -
+     zroot/var/newname@03     0B      -    96K  -
+   #+end_src
+
+要递归重命名快照，可使用 _-r_ 选项，这将重命名所有子数据集中具有相同名称的快照。 _-r_ 同样适用于递归重命名数据集及其所有子数据集
+* 设置数据集属性
+每个 ZFS 数据集都有一组控制其行为的属性。大多数属性默认从父数据集继承，但可以单独覆盖
++ 使用 _zfs set_ 命令设置数据集属性，语法为 _<property=value dataset>_
++ 大多数属性的有效值范围有限，_zfs get_ 会列出每种属性及其有效值
++ 通过 _zfs get all <数据集>_ 可查看数据集当前的所有属性（包括继承值和本地设置值），方便问题诊断与状态确认
++ 使用 _zfs inherit_ 可以将大多数属性恢复为继承值
++ 还可以定义用户自定义属性，这些属性成为数据集配置的一部分，可提供关于数据集或其内容的附加信息
+  + 为区分自定义属性与 ZFS 内置属性，可使用冒号 _:_ 创建自定义命名空间
+
+设置自定义属性并查看：
+#+begin_src sh 
+  $ zfs set custom:costcenter=1234 zroot/var/newname
+  $ zfs get custom:costcenter zroot/var/newname
+  NAME               PROPERTY           VALUE              SOURCE
+  zroot/var/newname  custom:costcenter  1234               local
+#+end_src
+
+要删除自定义属性，使用 zfs inherit 并加上 -r 选项
+  
+#+begin_example
+  如果自定义属性在任何父级数据集中未定义，此选项将删除它（但池的历史记录仍然会记录该更改）
+#+end_example
+
+删除自定义属性并验证：
+#+begin_src sh 
+  $ zfs inherit -r custom:costcenter zroot/var/newname
+  $ zfs get custom:costcenter zroot/var/newname
+  NAME               PROPERTY           VALUE              SOURCE
+  zroot/var/newname  custom:costcenter  -                  -
+  $ zfs get all zroot/var/newname | grep custom:costcenter
+  #
+#+end_src
+** 获取和设置共享属性
+两个常用且实用的数据集属性是 _NFS_ 和 _SMB_ 共享选项。设置这些属性可以定义 ZFS 是否通过网络共享数据集以及如何共享
+
+#+begin_example
+目前，FreeBSD 仅支持设置 NFS 共享
+#+end_example
+
+要获取共享的当前状态，可输入：
+
+#+begin_src sh 
+  $ zfs get sharenfs zroot/home
+  NAME        PROPERTY  VALUE     SOURCE
+  zroot/home  sharenfs  off       default
+#+end_src
+
+要启用数据集的共享，可以输入：
+
+#+begin_src sh 
+  $ zfs set sharenfs=on zroot/home
+  $ zfs get sharenfs zroot/home
+  NAME        PROPERTY  VALUE     SOURCE
+  zroot/home  sharenfs  on        local
+#+end_src
+
+可以为通过 NFS 共享的数据集设置其他选项，如 -alldirs、-maproot 和 -network。要设置共享选项，可以输入：
+
+#+begin_src sh 
+  $ zfs set sharenfs="-alldirs,-maproot=root,-network=192.168.1.0/24" zroot/home
+  $ zfs get sharenfs zroot/home
+  NAME        PROPERTY  VALUE                                           SOURCE
+  zroot/home  sharenfs  -alldirs,-maproot=root,-network=192.168.1.0/24  local
+#+end_src
+* 管理快照
+ZFS 快照采用 *写时复制* _COW_ 机制，创建过程瞬时完成且不占用额外磁盘空间
++ 快照创建后，原文件系统中的数据块发生修改时，ZFS 将新数据写入新位置，旧数据块原地保留，从而捕获文件系统在快照创建时刻的时间点状态
++ 快照提供了数据集的只读、时间点副本
++ 快照作用于整个数据集而非单个文件，在创建时不额外占用空间，随其引用的块发生变化而消耗空间
+
+快照的典型用途是，在执行软件安装或系统升级等高风险操作之前，快速备份当前文件系统状态。如果操作失败，可回滚到快照恢复系统状态；如果升级成功，则删除快照释放空间。快照回滚速度很快，几乎不会造成停机。快照不能替代完整的池备份，但在特定时刻保存数据集副本方面极为高效
+
+#+begin_example
+  FreeBSD 中文社区（CFC）提供了 ZFS 脚本，可用于查看、创建、删除和恢复 ZFS 快照（ZFS snapshot）
+
+  ZFS 脚本项目地址。该脚本已部署至 https://docs.bsdcn.org/zfs.sh，可在 FreeBSD 系统上直接使用 fetch 命令下载
+#+end_example
+** 创建快照
+在默认情况下，使用 Auto ZFS 布局创建的分区结构如下：
+#+begin_src sh 
+  $ zfs list  # 列出所有 ZFS 文件系统及其属性
+  NAME                 USED  AVAIL  REFER  MOUNTPOINT
+  zroot               3.94G  46.0G    96K  /zroot
+  zroot/ROOT           886M  46.0G    96K  none
+  zroot/ROOT/default   886M  46.0G   886M  /
+  zroot/fat32         3.05G  49.0G  31.0M  -
+  zroot/home          27.8M  46.0G    96K  /home
+  zroot/home/ykla     27.7M  46.0G  27.7M  /home/ykla
+  zroot/tmp            128K  46.0G   128K  /tmp
+  zroot/usr            288K  46.0G    96K  /usr
+  zroot/usr/ports       96K  46.0G    96K  /usr/ports
+  zroot/usr/src         96K  46.0G    96K  /usr/src
+  zroot/var            732K  46.0G    96K  /var
+  zroot/var/audit       96K  46.0G    96K  /var/audit
+  zroot/var/crash       96K  46.0G    96K  /var/crash
+  zroot/var/log        156K  46.0G   156K  /var/log
+  zroot/var/mail        96K  46.0G    96K  /var/mail
+  zroot/var/newname     96K  46.0G    96K  /var/newname
+  zroot/var/tmp         96K  46.0G    96K  /var/tmp
+#+end_src
+
+要创建快照，可以使用 _zfs snapshot <数据集>@<快照名>_ 命令。添加 _-r_ 选项可以 *递归* 创建快照，在所有子数据集上使用相同的名称。创建整个池的递归快照：
+
+#+begin_src sh 
+  $ zfs snapshot -r zroot@test   # 为 zroot 池及其所有子文件系统递归创建快照 test
+#+end_src
+
+快照不会在正常的 zfs list 操作中显示。要列出快照，必须在 zfs list 命令后加上 _-t snapshot_ 选项。 _-t all_ 会显示文件系统和快照 
+#+begin_src sh 
+  $ zfs list -t snap              # 列出所有 ZFS 快照
+  NAME                      USED  AVAIL  REFER  MOUNTPOINT
+  zroot@test                  0B      -    96K  -
+  zroot/ROOT@test             0B      -    96K  -
+  zroot/ROOT/default@test     0B      -   886M  -
+  zroot/fat32@test            0B      -  31.0M  -
+  zroot/home@test             0B      -    96K  -
+  zroot/home/ykla@test        0B      -  27.7M  -
+  zroot/tmp@test              0B      -   128K  -
+  zroot/usr@test              0B      -    96K  -
+  zroot/usr/ports@test        0B      -    96K  -
+  zroot/usr/src@test          0B      -    96K  -
+  zroot/var@test              0B      -    96K  -
+  zroot/var/audit@test        0B      -    96K  -
+  zroot/var/crash@test        0B      -    96K  -
+  zroot/var/log@test          0B      -   156K  -
+  zroot/var/mail@test         0B      -    96K  -
+  zroot/var/newname@01        0B      -    96K  -
+  zroot/var/newname@03        0B      -    96K  -
+  zroot/var/newname@test      0B      -    96K  -
+  zroot/var/tmp@test          0B      -    96K  -	# 注意此行
+#+end_src
+
+#+begin_example
+在命令中，snapshot 可以缩写为 snap，其他命令也有对应的缩写形式，可自行查阅文档
+#+end_example
+
+快照不会直接挂载，因此在 MOUNTPOINT 列中不会显示路径。由于快照在创建后是只读的，因此 ZFS 不会在 AVAIL 列中显示可用空间。可以通过以下命令比较快照与原数据集：
+
+#+begin_src sh 
+  $ zfs list -rt all zroot/home
+  NAME                   USED  AVAIL  REFER  MOUNTPOINT
+  zroot/home            27.8M  45.9G    96K  /home
+  zroot/home@test          0B      -    96K  -
+  zroot/home/ykla       27.7M  45.9G  27.7M  /home/ykla
+  zroot/home/ykla@test     0B      -  27.7M  -
+#+end_src
+
+#+begin_example
+  同时显示数据集和快照可以揭示快照如何以写时复制（COW）方式工作
+
+  它们只保存更改的部分（delta），而不是重新保存整个文件系统的内容。这意味着快照在发生变化时占用的空间极小
+#+end_example
+
+通过将文件复制到数据集后再创建第二个快照，可以更清楚地观察空间占用情况：
+#+begin_src sh 
+  $ cp /COPYRIGHT /var/tmp
+  $ zfs snapshot zroot/var/tmp@test2
+#+end_src
+
+查看创建第二个快照后各快照的空间占用变化：
+
+#+begin_src sh 
+  $ zfs list -rt all zroot/var/tmp
+  NAME                  USED  AVAIL  REFER  MOUNTPOINT
+  zroot/var/tmp         164K  45.9G   100K  /var/tmp
+  zroot/var/tmp@test     64K      -    96K  -
+  zroot/var/tmp@test2     0B      -   100K  -
+#+end_src
+
+第二个快照只包含复制操作后数据集的更改，因此极大节省了空间
+
+#+begin_example
+  快照 zroot/var/tmp@test 的大小在 USED 列中也发生了变化，这反映的是它与之后创建的快照之间的差异
+#+end_example
+** 销毁快照
+销毁快照时，可以使用 _-r_ 参数递归删除：
+
+#+begin_src sh 
+  $ zfs destroy -r zroot@test   # 递归删除 zroot 池及其子文件系统的 test 快照
+  $ zfs list -t snap             # 列出所有 ZFS 快照
+  no datasets available
+#+end_src
+* 快照保持
+#+begin_example
+  有时需要防止关键快照被误删
+
+  例如在备份流程尚未完成之前，或因法规要求必须保留的特定时间点副本
+#+end_example
+ZFS 的 *保持* _hold_ 机制可对快照施加命名的轻量级引用，使其在保持解除前无法被 zfs destroy 删除. 为快照添加保持标签：
+
+#+begin_src sh 
+  $ zfs hold keeptest zroot/var/tmp@test
+#+end_src
+
+#+begin_example
+keeptest 只是便于识别的标签，可以修改为其他名称
+#+end_example
+
+查看快照上的所有保持：
+#+begin_src sh 
+  $ zfs holds zroot/var/tmp@test
+  NAME                TAG       TIMESTAMP
+  zroot/var/tmp@test  keeptest  Wed May 13 13:18 2026
+#+end_src
+
+尝试销毁被保持的快照会返回错误：
+#+begin_src sh 
+  $ zfs destroy zroot/var/tmp@test
+  cannot destroy snapshot zroot/var/tmp@test: it's being held. Run 'zfs holds -r zroot/var/tmp@test' to see holders.
+#+end_src
+
+使用 _-r_ 选项可递归地对所有子数据集的同名快照施加保持：
+#+begin_src sh 
+  $ zfs hold -r keepall zroot@test
+  $ zfs holds -r zroot@test
+  NAME                     TAG       TIMESTAMP
+  zroot@test               keepall   Wed May 13 13:18 2026
+  zroot/ROOT@test          keepall   Wed May 13 13:18 2026
+  zroot/ROOT/default@test  keepall   Wed May 13 13:18 2026
+  zroot/home@test          keepall   Wed May 13 13:18 2026
+  zroot/home/ykla@test     keepall   Wed May 13 13:18 2026
+  zroot/tmp@test           keepall   Wed May 13 13:18 2026
+  zroot/usr@test           keepall   Wed May 13 13:18 2026
+  zroot/usr/ports@test     keepall   Wed May 13 13:18 2026
+  zroot/usr/src@test       keepall   Wed May 13 13:18 2026
+  zroot/var@test           keepall   Wed May 13 13:18 2026
+  zroot/var/audit@test     keepall   Wed May 13 13:18 2026
+  zroot/var/crash@test     keepall   Wed May 13 13:18 2026
+  zroot/var/log@test       keepall   Wed May 13 13:18 2026
+  zroot/var/mail@test      keepall   Wed May 13 13:18 2026
+  zroot/var/tmp@test       keepall   Wed May 13 13:18 2026
+  zroot/var/tmp@test       keeptest  Wed May 13 13:18 2026
+#+end_src
+
+释放保持标签后，快照即可正常销毁：
+
+#+begin_src sh 
+  $ zfs release keeptest zroot/var/tmp@test
+  $ zfs release keepall zroot/var/tmp@test
+  $ zfs destroy zroot/var/tmp@test
+#+end_src
+
+zfs send 的 _-h_ 选项可在发送流中包含保持标签。这对灾难恢复环境中保持备份完整性特别有用
+
+#+begin_src sh 
+  $ zfs send -h zroot/var/tmp@test | zfs receive backup/var/tmp
+#+end_src
+
+接收端使用 zfs receive 接收该流时，快照的保持将在接收方自动重建
+** 比较快照
+ZFS 提供了内建命令用于比较两个快照之间内容的差异
+#+begin_example
+  对于长期保存大量快照的场景，此功能极为实用，用户可借此查看文件系统随时间推移的变化
+
+  例如，zfs diff 可帮助用户找到最近的快照，检查其中是否仍包含误删除的文件
+#+end_example
+
+比较前面章节中创建的两个快照，得到以下输出：
+#+begin_src sh 
+  $ zfs diff zroot/var/tmp@test
+  +	/var/tmp/COPYRIGHT
+  M	/var/tmp/
+#+end_src
+
+#+begin_example
+该命令列出了指定快照（此处为 zroot/var/tmp@test）与当前文件系统之间的变化
+#+end_example
+
+第一列显示更改类型：
+| 命令 | 功能             |
+| +    | 添加路径或文件   |
+| -    | 删除路径或文件   |
+| M    | 修改路径或文件   |
+| R    | 重命名路径或文件 |
+
+#+begin_example
+  将输出与上述符号对照可知，ZFS 在创建 zroot/var/tmp@test 快照之后添加了 COPYRIGHT 文件
+
+  这也导致挂载在 /var/tmp 的父目录发生了修改
+#+end_example
+
+通过完整的数据集名称和两个快照名称来比较两个快照
+
+#+begin_src sh 
+  $ cp /var/tmp/COPYRIGHT /var/tmp/COPYRIGHT.copy
+  $ zfs snapshot zroot/var/tmp@diff
+
+  $ zfs diff zroot/var/tmp@test zroot/var/tmp@diff
+  +	/var/tmp/COPYRIGHT
+  M	/var/tmp/
+  +	/var/tmp/COPYRIGHT.copy
+
+  $ zfs diff zroot/var/tmp@test zroot/var/tmp@test2
+  +	/var/tmp/COPYRIGHT
+  M	/var/tmp/
+#+end_src
+
+#+begin_example
+  两个快照的比较在借助 ZFS 复制功能将数据集传输到不同主机备份时非常有用
+
+  备份管理员可以比较从发送主机接收到的两个快照，并确定数据集中的实际变化
+#+end_example
+** 快照回滚
+只要存在至少一个快照，随时都可以回滚到该快照
+#+begin_example
+  回滚最常见的场景是：当前数据集的状态已失效，或者更适合使用旧版本
+
+  例如，本地开发测试出错、系统更新失败导致功能受损，或者需要恢复已删除的文件或目录, 这些情况都很常见
+#+end_example
+
+要回滚到快照，可使用 _zfs rollback <snapshotname>_ 命令
++ 如果更改量较大，操作可能耗时较长
++ 在此期间，数据集始终保持一致状态，如同符合 ACID 原则的数据库执行回滚一般
++ 整个过程在数据集在线且无需停机的情况下完成
+
+回滚之后，数据集的状态将恢复到快照创建时的状态。回滚到快照会丢弃该数据集中所有不属于该快照的数据
+#+begin_example
+  如果在回滚到更早快照之前先为当前状态创建快照，则之后需要某些数据时可以方便地回滚
+
+  这样，用户可以在快照之间来回切换，而不会丢失仍有价值的数据
+#+end_example
+*** 快照还原测试
+#+begin_example
+  可以通过增删文件来验证快照的有效性
+
+  在测试环境中，如果事先创建了快照，即使执行 rm -rf /* 命令也可以顺利恢复
+
+  如果系统使用 UEFI，则需要根据其他章节的说明自行恢复 EFI 引导
+#+end_example
+
+假设在之前示例中，因误执行 rm 命令删除了超出预期的数据，需要回滚到快照：
+1. 首先查看当前可用的快照：
+   #+begin_src sh 
+     $ zfs list -rt all zroot/var/tmp
+     NAME                  USED  AVAIL  REFER  MOUNTPOINT
+     zroot/var/tmp         232K  45.9G   112K  /var/tmp
+     zroot/var/tmp@test     64K      -    96K  -
+     zroot/var/tmp@test2    56K      -   100K  -
+     zroot/var/tmp@diff      0B      -   112K  -
+   #+end_src
+2. 查看当前目录下的文件：
+   #+begin_src sh 
+     $ ls /var/tmp
+     COPYRIGHT	COPYRIGHT.copy	vi.recover
+   #+end_src
+3. 模拟误删除操作，移除 COPYRIGHT 相关文件：
+   #+begin_src sh 
+     $ rm /var/tmp/COPYRIGHT*
+     $ ls /var/tmp
+     vi.recover
+   #+end_src
+   #+begin_example
+     此时，用户发现误删了多余的文件，希望将其恢复
+
+     ZFS 提供了一种简便的恢复方式：只要定期为重要数据创建快照即可
+
+     回滚到上一个快照后，便可找回丢失的文件，并从该点重新开始
+   #+end_example
+4. 执行回滚操作，将数据集恢复到 diff 快照的状态：
+   #+begin_src sh 
+     $ zfs rollback zroot/var/tmp@diff
+     $ ls -al /var/tmp
+     total 19
+     drwxrwxrwt   3 root wheel    5 Apr 16 13:01 .
+     drwxr-xr-x  25 root wheel   25 Apr 16 12:33 ..
+     -r--r--r--   1 root wheel 6070 Apr 16 12:56 COPYRIGHT
+     -r--r--r--   1 root wheel 6070 Apr 16 13:01 COPYRIGHT.copy
+     drwxrwxrwt   2 root wheel    2 Apr 13 12:38 vi.recover
+   #+end_src
+   #+begin_example
+     回滚操作将数据集恢复到最后一个快照的状态
+   #+end_example
+5. 确认回滚后快照列表未变：
+   #+begin_src sh 
+     $ zfs list -rt snapshot zroot/var/tmp
+     NAME                  USED  AVAIL  REFER  MOUNTPOINT
+     zroot/var/tmp@test     64K      -    96K  -
+     zroot/var/tmp@test2    56K      -   100K  -
+     zroot/var/tmp@diff      0B      -   112K  -
+   #+end_src
+6. 也可以回滚到更早的快照，即使之后还有其他快照存在。尝试这样做时，ZFS 会显示以下警告：
+   #+begin_src sh 
+     $ zfs rollback zroot/var/tmp@test
+     cannot rollback to 'zroot/var/tmp@test': more recent snapshots or bookmarks exist
+     use '-r' to force deletion of the following snapshots and bookmarks:
+     zroot/var/tmp@test2
+     zroot/var/tmp@diff
+   #+end_src
+   #+begin_example
+     此警告表明，在目标快照与当前数据集状态之间存在其他快照。要完成回滚，必须删除这些快照
+
+     与虚拟机快照不同，默认情况下，zfs rollback 命令只能回滚到最新快照
+
+     由于快照是只读的，除非用户使用 -r 选项确认这是所需操作并销毁比目标快照更新的所有快照
+
+     否则 ZFS 无法跟踪数据集跨不同状态的所有更改
+   #+end_example
+   + 使用 _-r_ 选项后，ZFS 将销毁比目标快照更新的所有快照，从而允许回滚到非最新的快照。如果这确实是预期操作，且用户理解删除所有中间快照的后果，可执行以下命令：
+     #+begin_src sh 
+       $ zfs rollback -r zroot/var/tmp@test
+
+       $ zfs list -rt snapshot zroot/var/tmp
+       NAME                 USED  AVAIL  REFER  MOUNTPOINT
+       zroot/var/tmp@test     0B      -    96K  -
+
+       $ ls -al /var/tmp
+       total 10
+       drwxrwxrwt   3 root wheel  3 Apr 16 19:49 .
+       drwxr-xr-x  25 root wheel 25 Apr 16 12:33 ..
+       drwxrwxrwt   2 root wheel  2 Apr 13 12:38 vi.recover
+     #+end_src
+     #+begin_example
+       从 zfs list -t snapshot 的输出可以确认，在执行 zfs rollback -r 后，中间快照已删除
+     #+end_example
+   + ZFS 不支持一次性递归回滚所有子数据集，需要对每个子文件系统单独执行回滚操作
+     #+begin_src sh 
+       $ zfs rollback -r zroot@test             # 回滚 zroot 到 test 快照并销毁更新的快照
+       $ zfs rollback -r zroot/ROOT@test        # 回滚 zroot/ROOT 到 test 快照并销毁更新的快照
+       $ zfs rollback -r zroot/ROOT/default@test # 回滚 zroot/ROOT/default 到 test 快照并销毁更新的快照
+       $ zfs rollback -r zroot/tmp@test         # 回滚 zroot/tmp 到 test 快照并销毁更新的快照
+       $ zfs rollback -r zroot/usr@test         # 回滚 zroot/usr 到 test 快照并销毁更新的快照
+       $ zfs rollback -r zroot/home@test    # 回滚 zroot/home 到 test 快照并销毁更新的快照
+       $ zfs rollback -r zroot/usr/ports@test   # 回滚 zroot/usr/ports 到 test 快照并销毁更新的快照
+       $ zfs rollback -r zroot/var@test         # 回滚 zroot/var 到 test 快照并销毁更新的快照
+       $ zfs rollback -r zroot/var/log@test     # 回滚 zroot/var/log 到 test 快照并销毁更新的快照
+     #+end_src
+
+*** 从快照中恢复单个文件
+快照存储在父数据集下的隐藏目录 *.zfs/snapshots/快照名称* 中
+
+#+begin_example
+  默认情况下，即使执行 ls -a 命令，这些目录也不会显示
+
+  尽管不可见，但仍可像普通目录一样访问
+#+end_example
+
+属性 _snapdir_ 控制着这些隐藏目录是否出现在目录列表中。将该属性设为 _visible_ 后，它们便会显示在 ls 及其他涉及目录内容的命令输出中。查看 snapdir 属性的当前设置，再将其切换为 visible：
+
+#+begin_src sh
+  $ zfs get snapdir zroot/var/tmp
+  NAME           PROPERTY  VALUE     SOURCE
+  zroot/var/tmp  snapdir   hidden    default
+
+  $ ls -a /var/tmp
+  .		..		vi.recover
+
+  $ zfs set snapdir=visible zroot/var/tmp
+
+  $ ls -al /var/tmp
+  total 10
+  drwxrwxrwt   4 root wheel  3 Apr 16 19:49 .
+  drwxr-xr-x  25 root wheel 25 Apr 16 12:33 ..
+  dr-xr-xr-x+  3 root wheel  3 Apr 16 19:46 .zfs	# 注意此行
+  drwxrwxrwt   2 root wheel  2 Apr 13 12:38 vi.recover
+#+end_src
+
+通过将快照中的文件复制回父数据集，可将单个文件恢复到先前状态。.zfs/snapshot 下的目录结构包含与之前创建的快照同名的目录，便于识别
+
+#+begin_example
+  以下示例展示了如何从隐藏的 .zfs 目录中恢复文件
+
+  将文件从包含目标文件的快照中复制回来
+#+end_example
+
+删除文件后，通过 .zfs/snapshot 目录找到并恢复：
+
+#+begin_src sh 
+  $ rm -rf /var/tmp/vi.recover
+
+  $ ls -a /var/tmp
+  .	..	.zfs
+
+  $ ls /var/tmp/.zfs/snapshot
+  test
+
+  $ ls /var/tmp/.zfs/snapshot/test
+  vi.recover
+
+  $ cp -r /var/tmp/.zfs/snapshot/test/vi.recover /var/tmp
+  $ ls /var/tmp/
+  .zfs		vi.recover
+#+end_src
+
+#+begin_example
+  即使将属性 snapdir 还原为默认属性 hidden，执行 ls .zfs/snapshot 仍会列出该目录的内容
+
+  管理员可自行决定是否显示这些目录，该设置作用于每个数据集
+#+end_example
+
+将 snapdir 恢复为 hidden 后，仍可通过路径直接访问快照：
+
+#+begin_src sh 
+  $ zfs set snapdir=hidden zroot/var/tmp
+
+  $ ls /var/tmp/.zfs/snapshot/test
+  vi.recover
+#+end_src
+
+从隐藏的 .zfs/snapshot 目录复制文件或目录非常简便。反过来尝试将文件复制到快照目录时，会出现以下错误：尝试向快照目录写入文件，验证快照的只读特性：
+
+#+begin_src sh 
+  $ cp /COPYRIGHT /var/tmp/.zfs/snapshot/test/
+  cp: /var/tmp/.zfs/snapshot/test/COPYRIGHT: Read-only file system
+#+end_src
+
+#+begin_example
+  此错误提醒用户：快照是只读的，创建后不可更改。无法向快照目录复制文件或从中删除文件
+
+  因为这会改变快照所代表的数据集状态
+#+end_example
+快照随父文件系统自快照创建以来所发生的变化而消耗空间。快照的 *written* 属性可跟踪该快照占用的空间
+
+要销毁快照并回收空间，可使用 _zfs destroy <数据集>@<快照>_ 命令
++ 加上 _-r_ 选项可递归删除父数据集下所有同名快照
++ 使用 _-n -v_ 选项时，命令会列出将要删除的快照及其预计回收的空间，而不执行实际销毁
+
+* 克隆
+*克隆* 是快照的 _可写副本_ ，可写、可挂载，且拥有自己的属性
++ 使用 _zfs clone_ 创建克隆之后，原始快照便无法销毁
++ 要反转克隆与快照之间的父子关系，可使用 _zfs promote_
+  + 提升克隆后，快照将成为克隆的子项，原来父子关系下的空间占用计算方式也会相应改变
++ 克隆可以挂载到 ZFS 文件系统层次结构中的任意位置
+
+** 创建克隆
+下面是展示克隆功能的示例数据集：
+
+#+begin_src sh 
+  $ zfs list -rt all zroot/home/ykla
+  NAME                   USED  AVAIL  REFER  MOUNTPOINT
+  zroot/home/ykla       27.7M  45.9G  27.7M  /home/ykla
+  zroot/home/ykla@test     0B      -  27.7M  -
+#+end_src 
+
+克隆的典型用途是保留快照的同时，对特定数据集做实验，以便在出错时可以恢复
+#+begin_example
+  由于快照无法更改，可为其创建一个可读写的克隆
+
+  实验取得理想结果后，可将克隆提升为数据集，并删除初始的文件系统
+
+  删除原始数据集并非必要，因为克隆与数据集可以共存而不会引发问题
+#+end_example
+
+从快照创建克隆，并验证克隆与原数据集内容一致：
+
+#+begin_src sh 
+  $ zfs clone zroot/home/ykla@test zroot/home/ykla2
+
+  $ ls -al /home/ykla*
+  /home/ykla:
+  total 28222
+  drwxr-xr-x  2 ykla ykla        11 Apr 16 11:55 .
+  drwxr-xr-x  4 root wheel        4 Apr 16 13:30 ..
+  -rw-r--r--  1 ykla ykla       950 Apr 16 19:50 .cshrc
+  -rw-r--r--  1 ykla ykla       311 Apr 16 19:50 .login
+  -rw-r--r--  1 ykla ykla        79 Apr 16 19:50 .login_conf
+  -rw-------  1 ykla ykla       289 Apr 16 19:50 .mail_aliases
+  -rw-r--r--  1 ykla ykla       255 Apr 16 19:50 .mailrc
+  -rw-r--r--  1 ykla ykla       966 Apr 16 19:50 .profile
+  -rw-r--r--  1 ykla ykla      1042 Apr 16 19:50 .shrc
+  -rw-r--r--  1 ykla ykla  37635246 May 10 13:23 Philosophische-untersuchungen.pdf
+  -rw-r--r--  1 root ykla       118 Apr 16 11:58 checksum.txt
+
+  /home/ykla2:
+  total 28222
+  drwxr-xr-x  2 ykla ykla        11 Apr 16 11:55 .
+  drwxr-xr-x  4 root wheel        4 Apr 16 13:30 ..
+  -rw-r--r--  1 ykla ykla       950 Apr 16 19:50 .cshrc
+  -rw-r--r--  1 ykla ykla       311 Apr 16 19:50 .login
+  -rw-r--r--  1 ykla ykla        79 Apr 16 19:50 .login_conf
+  -rw-------  1 ykla ykla       289 Apr 16 19:50 .mail_aliases
+  -rw-r--r--  1 ykla ykla       255 Apr 16 19:50 .mailrc
+  -rw-r--r--  1 ykla ykla       966 Apr 16 19:50 .profile
+  -rw-r--r--  1 ykla ykla      1042 Apr 16 19:50 .shrc
+  -rw-r--r--  1 ykla ykla  37635246 May 10 13:23 Philosophische-untersuchungen.pdf
+  -rw-r--r--  1 root ykla       118 Apr 16 11:58 checksum.txt
+#+end_src
+
+查看克隆与原数据集的磁盘占用，二者共享同一份数据块：
+
+#+begin_src sh 
+  $ df -h /home*
+  Filesystem    Size    Used   Avail Capacity  Mounted on
+  zroot/home     46G     96K     46G     0%    /home
+
+  $ df -h /home/ykla*
+  Filesystem          Size    Used   Avail Capacity  Mounted on
+  zroot/home/ykla      46G     28M     46G     0%    /home/ykla
+  zroot/home/ykla2     46G     28M     46G     0%    /home/ykla2
+#+end_src
+
+** 提升克隆
+#+begin_example
+  克隆创建时，它是快照创建时刻数据集的完整副本
+
+  此后，克隆可独立于原始数据集更改
+
+  两者之间由快照关联，ZFS 在 origin 属性中记录这一关联
+#+end_example
+使用 zfs promote 提升克隆后，克隆将变为独立的数据集，origin 属性的值已清除，克隆与快照之间的关联也随之断开。以下示例展示了这一过程：
+1. 提升前，查看克隆的 origin 属性，确认源自快照：
+   #+begin_src sh 
+     $ zfs get origin zroot/home/ykla2
+     NAME              PROPERTY  VALUE                 SOURCE
+     zroot/home/ykla2  origin    zroot/home/ykla@test  -
+   #+end_src
+2. 执行提升操作：
+   #+begin_src sh 
+     $ zfs promote zroot/home/ykla2
+   #+end_src
+3. 提升后 origin 属性已清除，克隆成为独立数据集：
+   #+begin_src sh 
+     $ zfs get origin zroot/home/ykla2
+     NAME              PROPERTY  VALUE   SOURCE
+     zroot/home/ykla2  origin    -       -
+   #+end_src
+4. 在克隆中添加新文件：
+   #+begin_src sh 
+     $ cp /COPYRIGHT /home/ykla2
+   #+end_src
+   #+begin_example
+     将 COPYRIGHT 复制到提升后的克隆中，旧目录便已过时
+
+     此时可以用提升后的克隆替换它
+   #+end_example
+5. 删除原始数据集：
+   #+begin_src sh 
+     $ zfs destroy -f zroot/home/ykla
+   #+end_src
+6. 将克隆重命名为原数据集名称，完成替换：
+   #+begin_src sh 
+     $ zfs rename zroot/home/ykla2 zroot/home/ykla
+
+     $ ls /home/ykla
+     .cshrc					.profile
+     .login					.shrc
+     .login_conf				COPYRIGHT
+     .mail_aliases				Philosophische-untersuchungen.pdf
+     .mailrc					checksum.txt
+
+     $ df -h /home/ykla
+     Filesystem         Size    Used   Avail Capacity  Mounted on
+     zroot/home/ykla     46G     28M     46G     0%    /home/ykla
+   #+end_src
+   #+begin_example
+     至此，从快照克隆而来的数据集已成为一个普通数据集
+
+     它包含原始快照的所有数据以及新增的文件（如 COPYRIGHT）
+   #+end_example
+
+克隆为 ZFS 用户提供了多种场景下的实用功能
+#+begin_example
+  例如，可以为 jail 提供包含不同应用集的快照，用户克隆这些快照后可按需添加自己的应用程序
+
+  对更改满意后，可将克隆提升为完整数据集，并交付给最终用户，最终用户可将其当作普通数据集使用
+
+  这大大节省了提供 jail 所需的时间和管理开销
+#+end_example
+
+* 复制
+#+begin_example
+  将数据仅存储在单个池的单一位置中，会使数据面临盗窃、自然灾害或人为破坏等风险
+
+  因此，定期备份整个池至关重要
+#+end_example
+ZFS 提供了内置的序列化功能，可将数据的流表示发送到标准输出。借助此功能，既可以将数据存储到连接至本地系统的另一个池中，也可以通过网络将数据发送到另一台系统。快照是这种复制的基础。用于复制数据的命令是 _zfs send_ 和 _zfs receive_
+
+
+创建所需测试存储池：
+
+
+#+begin_src sh 
+  $ mdconfig -a -t swap -s 1G
+  md0
+
+  $ mdconfig -a -t swap -s 1G
+  md1
+
+  $ zpool create mypool md0
+  $ zpool create backup md1
+  $ zpool list backup mypool
+  NAME     SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP    HEALTH  ALTROOT
+  backup   960M   372K   960M        -         -     7%     0%  1.00x    ONLINE  -
+  mypool   960M   372K   960M        -         -     7%     0%  1.00x    ONLINE  -
+#+end_src
+
+复制若干 非重要 文件以便于测试：
+
+#+begin_src sh 
+  $ cp /home/ykla/bsdbook.pdf /mypool/
+#+end_src
+
+以下示例展示了如何使用这两个池完成 ZFS 复制：
++ 存储池 mypool 是主池，用于读写常规数据
++ 第二个池 backup 作为备用，以防主池不可用
+
+#+begin_example
+  请注意，ZFS 不会自动执行故障转移，需要管理员在必要时手动操作
+
+  利用快照可以获取一致的文件系统版本用以复制还原
+#+end_example
+
+为 mypool 创建快照后，即可通过复制快照将其传输到 backup 池。此操作不包含自上次快照以来的更改
+
+#+begin_src sh 
+  $ zfs snapshot mypool@backup1
+#+end_src
+
+确认快照已创建：
+
+#+begin_src sh 
+  $ zfs list -t snapshot mypool
+  NAME             USED  AVAIL  REFER  MOUNTPOINT
+  mypool@backup1     0B      -   165M  -
+#+end_src
+
+#+begin_example
+  现在已经存在一个快照，可使用 zfs send 创建代表快照内容的流。将此流存储为文件，或在另一个池上接收
+#+end_example
+
+必须将流重定向到文件或管道，否则会出现如下错误：
+#+begin_src sh 
+  $ zfs send mypool@backup1
+  Error: Stream can not be written to a terminal.
+  You must redirect standard output.
+#+end_src
+
+** 创建备份流
+要备份数据集，可在使用 _zfs send_ 时将流重定向到已挂载备份池上的文件:
+
+#+begin_src sh 
+  $ zfs send mypool@backup1 > /backup/backup1
+#+end_src
+
+#+begin_example
+  请确保池有足够的可用空间容纳所发送快照的大小
+
+  即快照中包含的数据总量，而非与上一个快照之间的差异容量
+#+end_example
+
+查看发送后两个池的空间占用变化：
+
+#+begin_src sh 
+  $ zpool list mypool backup
+  NAME     SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP    HEALTH  ALTROOT
+  backup   960M   161M   799M        -         -     8%    16%  1.00x    ONLINE  -
+  mypool   960M   166M   794M        -         -     8%    17%  1.00x    ONLINE  -
+#+end_src
+
+zfs send 已将快照 backup1 中的所有数据传输到存储池 backup
+
+#+begin_example
+要自动创建并发送这些快照，可配置 cron 任务
+#+end_example
+
+** 接收备份流
+#+begin_example
+与作为归档文件存储不同，ZFS 可将数据接收为活动的文件系统，从而直接访问备份数据
+#+end_example
+要访问这些流中的实际数据，可使用 _zfs receive_ 将流还原为文件和目录。
+
+#+begin_example
+以下示例将 zfs send 与 zfs receive 结合，通过管道将数据从池 mypool 复制到另一个池 backup
+#+end_example
+
+1. 先为 mypool 创建快照：
+   #+begin_src sh 
+     $ zfs snapshot mypool@replica1
+   #+end_src
+   #+begin_example
+     传输完成后，可直接在接收池上使用数据
+
+     注意：只能将数据集复制到空数据集
+   #+end_example
+2. 执行全量发送与接收：
+   #+begin_src sh 
+     $ zfs send -v mypool@replica1 | zfs receive backup/mypool
+
+     full send of mypool@replica1 estimated size is 166M
+     total estimated size is 166M
+     TIME        SENT   SNAPSHOT mypool@replica1
+   #+end_src
+3. 验证：
+   1. 查看接收后两个池的空间占用：
+      #+begin_src sh 
+	$ zpool list mypool backup
+	NAME     SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP    HEALTH  ALTROOT
+	backup   960M   331M   629M        -         -    12%    34%  1.00x    ONLINE  -
+	mypool   960M   166M   794M        -         -     8%    17%  1.00x    ONLINE  -
+      #+end_src
+   2. 查看备份目录结构：
+      #+begin_src sh 
+	$ ls -al /backup/
+	total 169330
+	drwxr-xr-x   3 root wheel         4 Apr 16 11:56 .
+	drwxr-xr-x  22 root wheel        24 Apr 16 11:53 ..
+	-rw-r--r--   1 root wheel 173869216 Apr 16 11:54 backup1
+	drwxr-xr-x   2 root wheel         3 Apr 16 11:53 mypool
+      #+end_src
+   3. 验证备份文件与源文件一致：
+      #+begin_src sh 
+	$ ls -al /backup/mypool/bsdbook.pdf
+	-rw-r--r--  1 root wheel 173330339 Apr 16 11:54 /backup/mypool/bsdbook.pdf
+      #+end_src
+** 增量备份
+zfs send 还可以确定两个快照之间的差异，仅发送二者之间的增量。这既节省了磁盘空间，又缩短了传输时间
+1. 将若干 非重要 文件复制到 mypool 池中便于测试：
+   #+begin_src sh 
+     $ cp /home/ykla/bsdbook.epub /mypool
+   #+end_src
+   1. 创建第二个快照：
+      #+begin_src sh 
+	$ zfs snapshot mypool@replica2
+      #+end_src
+   2. 查看快照的 REFER 值变化：
+      #+begin_src sh 
+	$ zfs list -t snapshot mypool
+	NAME              USED  AVAIL  REFER  MOUNTPOINT
+	mypool@backup1      0B      -   165M  -
+	mypool@replica1     0B      -   165M  -
+	mypool@replica2     0B      -   356M  -
+      #+end_src
+   3. 查看增量复制前两个池的容量：
+      #+begin_src sh 
+	$ zpool list backup mypool
+	NAME     SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP    HEALTH  ALTROOT
+	backup   960M   331M   629M        -         -    12%    34%  1.00x    ONLINE  -
+	mypool   960M   356M   604M        -         -    12%    37%  1.00x    ONLINE  -
+      #+end_src
+   #+begin_example
+     以上创建了第二个快照 replica2。此快照包含自上一个快照 replica1 以来文件系统发生的所有更改
+   #+end_example
+2. 使用 zfs send -i 并指定这两个快照对，会生成仅包含已更改数据的增量复制流。若初始快照已存在于接收端，此操作便成功
+   #+begin_src sh 
+     $ zfs send -v -i mypool@replica1 mypool@replica2 | zfs receive backup/mypool
+     send from mypool@replica1 to mypool@replica2 estimated size is 191M
+     total estimated size is 191M
+     TIME        SENT   SNAPSHOT mypool@replica2
+   #+end_src
+3. 增量发送后，查看两个池的空间占用, 备份池仅增加了差异数据量：
+   #+begin_src sh 
+     $ zpool list backup mypool
+     NAME     SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP    HEALTH  ALTROOT
+     backup   960M   522M   438M        -         -    13%    54%  1.00x    ONLINE  -
+     mypool   960M   356M   604M        -         -    12%    37%  1.00x    ONLINE  -
+   #+end_src
+4. 列出两个池及其数据集，查看空间分配：
+   #+begin_src sh 
+     $ zfs list -r backup mypool
+     NAME            USED  AVAIL  REFER  MOUNTPOINT
+     backup          522M   310M   165M  /backup
+     backup/mypool   356M   310M   356M  /backup/mypool
+     mypool          356M   476M   356M  /mypool
+   #+end_src
+5. 查看备份池中的快照列表：
+   #+begin_src sh 
+     $ zfs list -t snapshot backup mypool
+     NAME              USED  AVAIL  REFER  MOUNTPOINT
+     mypool@backup1      0B      -   165M  -
+     mypool@replica1     0B      -   165M  -
+     mypool@replica2     0B      -   356M  -
+   #+end_src
+   #+begin_example
+     增量流仅复制了已更改的数据，而非整个 replica1
+
+     仅发送差异可大幅缩短传输时间，并避免每次都复制整个池而节省磁盘空间
+
+     在通过慢速网络或按传输字节计费的网络复制时，这一优势尤为明显
+   #+end_example
+
+#+begin_example
+至此，新的文件系统 backup/mypool 已可用，其中包含 mypool 池的数据和文件
+#+end_example
+
+确认增量备份文件已存在于备份池中：
+#+begin_src sh
+  $ ls -al /backup/mypool/bsdbook.epub
+  -rw-r--r--  1 root wheel 199611278 Apr 16 11:57 /backup/mypool/bsdbook.epub
+#+end_src
+
++ 使用 _-p_ 选项可复制数据集的属性，包括压缩设置、配额和挂载点
++ 使用 _-R_ 选项可复制数据集的所有子数据集及其属性
+
+#+begin_example
+发送和接收过程可以自动化，以便在第二个池上定期创建备份
+#+end_example
+** 通过 SSH 发送加密备份
+#+begin_example
+  通过网络发送流数据是维持远程备份的有效手段，但存在一个缺点：
+
+  经网络链路发送的数据未加密，任何人都可拦截流数据并将其还原为原始数据，而无需发送方的授权
+
+  这在通过互联网向远程主机发送数据时不可接受
+#+end_example
+为确保数据安全传输，可使用 SSH 加密发送的数据。由于 ZFS 要求将流从标准输出重定向，因此可通过 SSH 轻松管道传输
++ 为确保文件系统的内容在传输过程中及在远程系统上均保持加密，可考虑使用 _PEFS_
+
+首先更改一些配置并采取安全预防措施。下文描述了执行 zfs send 操作所需的步骤：
+1. 配置更改如下：
+   + 使用 ZFS 授权系统来允许每个系统上的非 root 用户执行相应的发送和接收操作。在发送系统上：
+     #+begin_src sh 
+       $ zfs allow -u 用户名 send,snapshot mypool
+     #+end_src
+     #+begin_example
+       在发送和接收主机之间使用 SSH 密钥实现无密码 SSH 访问
+
+       ZFS 需要 root 用户的权限来发送和接收流。这要求以 root 身份登录到接收系统
+
+       出于安全原因，默认情况下禁止 root 登录
+
+     #+end_example
+   + 要挂载池，非特权用户必须拥有该目录，而且常规用户需要有挂载文件系统的权限
+     #+begin_src sh 
+       $ sysctl vfs.usermount=1
+       vfs.usermount: 0 -> 1
+
+       $ echo vfs.usermount=1 >> /etc/sysctl.conf
+
+       $ zfs create recvpool/backup
+       $ zfs allow -u 用户名 create,mount,receive recvpool/backup
+       $ chown 用户名 /recvpool/backup
+     #+end_src
+   #+begin_example
+     现在，非特权用户也可以接收和挂载数据集，并将 home 数据集复制到远程系统
+
+     建议使用 IP 地址或完全限定域名。接收方将数据写入 recvpool 池上的 backup 数据集
+   #+end_example
+2. 在 mypool 池上为文件系统数据集 home 创建递归快照 monday
+   #+begin_src sh 
+     $ zfs snapshot -r mypool/home@monday
+   #+end_src
+3. zfs send -R 会将数据集、所有子数据集、快照、克隆以及设置一并纳入流中
+   #+begin_src sh 
+     $ zfs send -R mypool/home@monday | ssh 用户名@backuphost zfs recv -dvu recvpool/backup
+   #+end_src
+4. 输出经 SSH 管道传输到远程主机 backuphost 上等待的 zfs receive 。在 zfs recv 中：
+   + _-d_ 选项会用快照名称覆盖接收方池的名称
+   + _-u_ 选项使文件系统在接收方不挂载
+   + _-v_ 选项可显示更多传输详情，包括耗时和数据量
+
+* 书签
+书签是 _快照_ 的 *轻量级引用* ，记录快照创建时刻的 _时间点位置_
++ 与快照不同，书签不持有数据块，因此创建后不占用任何额外磁盘空间，也无需像快照那样随数据变化而消耗空间
++ 书签的典型用途是作为 zfs send 增量流的源，在没有完整快照的情况下实现增量复制
+
+#+begin_example
+  书签功能需要存储池启用功能标志 bookmarks
+
+  在现代版本的 ZFS 中，该标志默认启用
+#+end_example
+
+** 创建书签
+使用 _zfs bookmark_ 命令为快照 zroot/var/tmp@test 创建书签：
+
+
+#+begin_src sh 
+  $ zfs bookmark zroot/var/tmp@test zroot/var/tmp#mybookmark
+#+end_src
+也可以基于已有书签再创建书签：
+#+begin_src sh 
+  $ zfs bookmark zroot/var/tmp#mybookmark zroot/var/tmp#mybookmark2
+#+end_src
+
+与快照的 @ 分隔符不同，书签使用 _#_ 分隔数据集名称与书签名 
+
+** 列出书签
+书签不会在普通的 zfs list 操作中显示。要列出书签，需使用 _-t bookmark_ 选项：
+
+#+begin_src sh 
+  $ zfs list -t bookmark
+  NAME                        USED  AVAIL  REFER  MOUNTPOINT
+  zroot/var/tmp#mybookmark       -      -    96K  -
+  zroot/var/tmp#mybookmark2      -      -    96K  -
+#+end_src
+
+由于书签不占用空间也不可挂载，USED、AVAIL、REFER 和 MOUNTPOINT 列均显示为 -
+
+** 使用书签增量发送
+书签的主要价值在于增量复制。如果源系统的快照已销毁，但仍需向备份系统发送增量流，书签可替代快照作为增量源：
+
+#+begin_src sh 
+  $ zfs send -i zroot/var/tmp#mybookmark zroot/var/tmp@test | zfs receive backup/var/tmp
+#+end_src
+
+#+begin_example
+管理员因此可以在销毁中间快照后仍能继续增量备份链，极大节省了存储空间
+#+end_example
+
+** 销毁书签
+使用 zfs destroy 命令销毁书签，与销毁快照的语法类似，但使用 _#_ 分隔符：
+
+#+begin_src sh 
+  $ zfs destroy zroot/var/tmp#mybookmark2
+#+end_src
+
+书签销毁后，若其是某个增量发送链唯一的源，则后续的增量发送将无法使用该书签作为基准
+
+** 书签与回滚
+尝试回滚到非最新快照时，ZFS 会检测是否存在更新的快照和书签，并提示用户使用 _-r_ 选项强制删除：
+
+#+begin_src sh 
+  $ zfs rollback zroot/var/tmp@test
+
+  cannot rollback to 'zroot/var/tmp@test': more recent snapshots or bookmarks exist
+  use '-r' to force deletion of the following snapshots and bookmarks:
+  zroot/var/tmp@test2
+  zroot/var/tmp@diff
+#+end_src
+
+#+begin_example
+  书签虽然不持有数据，但代表一个时间点引用，因此会阻止回滚到比其更早的快照
+
+  除非用户明确确认需要删除这些书签
+#+end_example
+
+* 数据集、用户和组配额
+
++ *数据集配额* 用于限制 _特定数据集可消耗的空间_ 
++ *引用配额* 与之类似，但它仅计算 _数据集本身使用的空间_ ，不包含快照和子数据集
++ 用户配额和组配额可防止用户或组耗尽池或数据集的全部空间
+
+** 数据集配额
+新增用户的家目录数据集通常会自动创建为 _zroot/home/用户名_ ，且 mountpoint 一般是 _/home/用户名_ 。示例假设系统中存在用户 ykla。如下：
+
+#+begin_src sh 
+  $ zfs list -r  zroot/home
+  NAME              USED  AVAIL  REFER  MOUNTPOINT
+  zroot/home        356M  48.7G    96K  /home
+  zroot/home/ykla   356M  48.7G   356M  /home/ykla
+#+end_src
+要对 zroot/home/ykla 强制实施 1 GB 的数据集配额：
+
+#+begin_src sh 
+  $ zfs set quota=1G zroot/home/ykla
+#+end_src
+
+要对 zroot/home/ykla 强制实施 2 GB 的引用配额：
+
+#+begin_src sh 
+  $ zfs set refquota=2G zroot/home/ykla
+#+end_src
+
+要删除 zroot/home/ykla 的 1 GB 配额：
+#+begin_src sh 
+  $ zfs set quota=none zroot/home/ykla
+#+end_src
+** 用户配额
+一般格式为 _userquota@用户=大小_ 数据集或池，且用户的名称可以是以下任一格式：
++ POSIX 兼容的名称，如 ykla
++ POSIX 数字 ID，如 789
++ SID 名称，如 ykla@example.com
++ SID 数字 ID，如 S-1-123-456-789
+
+例如，要为用户 ykla 强制实施 50 GB 的用户配额：
+
+#+begin_src sh 
+  $ zfs set userquota@ykla=50G zroot
+#+end_src
+
+#+begin_example
+  用户配额属性不会通过 zfs get all 显示。除非授予 userquota 特权
+
+  非 root 用户无法看到其他用户的配额
+
+  具有此特权的用户可以查看并设置所有人的配额
+#+end_example
+要查看用户配额：
+
+#+begin_src sh 
+  $ zfs get userquota@ykla  zroot
+  NAME   PROPERTY        VALUE           SOURCE
+  zroot  userquota@ykla  50G             local
+#+end_src
+
+要删除所有配额：
+#+begin_src sh 
+  $ zfs set userquota@ykla=none zroot
+#+end_src
+
+确认用户配额已清除：
+
+#+begin_src sh 
+  $ zfs get userquota@ykla  zroot
+  NAME   PROPERTY        VALUE           SOURCE
+  zroot  userquota@ykla  none            local
+#+end_src
+** 组配额
+设置组配额的一般格式为： _groupquota@组=大小_  数据集或池。要将组 ykla 的配额设置为 50 GB，请使用：
+
+#+begin_src sh 
+  $ zfs set groupquota@ykla=50G zroot
+#+end_src
+
+#+begin_example
+  与用户配额属性类似，非 root 用户可以查看其所属组的配额
+
+  具有 groupquota 特权的用户或 root 可以查看并设置所有组的配额
+#+end_example
+
+确认组配额已生效：
+
+#+begin_src sh 
+  $ zfs get groupquota@ykla zroot
+  NAME   PROPERTY         VALUE            SOURCE
+  zroot  groupquota@ykla  50G              local
+#+end_src
+
+要删除组 ykla 的配额，或者确保没有设置配额，请使用：
+
+#+begin_src sh 
+  $ zfs set groupquota@ykla=none zroot
+#+end_src
+
+确认组配额已清除：
+
+#+begin_src sh 
+  $ zfs get groupquota@ykla zroot
+  NAME   PROPERTY         VALUE            SOURCE
+  zroot  groupquota@ykla  none             local
+#+end_src
+** 查看配额使用情况
+#+begin_example
+  要显示每个用户在文件系统或快照中使用的空间以及所有配额，请使用 zfs userspace
+
+  有关组信息，请使用 zfs groupspace
+#+end_example
+特权用户和 root 可以列出 zroot/home/ykla 的配额，方法是：
+
+#+begin_src sh 
+  $ zfs get quota zroot/home/ykla
+  NAME             PROPERTY  VALUE  SOURCE
+  zroot/home/ykla  quota     none   local
+#+end_src
+* 保留空间
+*保留空间* 确保数据集始终拥有可用空间（保留的空间不会分配给任何其他数据集），对保障关键数据集或日志文件的空间非常实用。reservation 属性的格式为 _reservation=大小_ ，以下命令将为 zroot/home/ykla 设置 10 GB 的保留空间：
+
+#+begin_src sh 
+  $ zfs set reservation=10G zroot/home/ykla
+#+end_src
+
+以下命令显示 zroot/home/ykla 上已有的保留空间：
+
+#+begin_src sh 
+  $  zfs get reservation zroot/home/ykla
+  NAME             PROPERTY     VALUE   SOURCE
+  zroot/home/ykla  reservation  10G     local
+#+end_src
+
+要清除所有保留空间：
+
+#+begin_src sh 
+  $ zfs set reservation=none zroot/home/ykla
+#+end_src
+
+确认保留空间已清除：
+
+#+begin_src sh 
+  #  zfs get reservation zroot/home/ykla
+  NAME             PROPERTY     VALUE   SOURCE
+  zroot/home/ykla  reservation  none    local
+#+end_src
+** 引用预留
+_refreservation_ 属性用于设置 *引用预留* ，适用同样的原则，格式为 _refreservation=size_ 。 以下命令将为 zroot/home/ykla 设置 1 GB 的引用预留：
+
+#+begin_src sh 
+  $ zfs set refreservation=1G zroot/home/ykla
+#+end_src
+
+以下命令显示 zroot/home/ykla 上已有的引用预留：
+
+#+begin_src sh 
+  $ zfs get refreservation zroot/home/ykla
+  NAME             PROPERTY        VALUE      SOURCE
+  zroot/home/ykla  refreservation  1G         local
+#+end_src
+
+要清除所有引用预留：
+#+begin_src sh 
+  $ zfs set refreservation=none zroot/home/ykla
+#+end_src
+
+确认引用预留已清除：
+
+#+begin_src sh 
+  $ zfs get refreservation zroot/home/ykla
+  NAME             PROPERTY        VALUE      SOURCE
+  zroot/home/ykla  refreservation  none       local
+#+end_src
+* 压缩
+
+#+begin_example
+  ZFS 的数据压缩在文件系统层面实现，对上层应用透明
+
+  启用后通常既能减少磁盘占用，又能提升读写吞吐量
+#+end_example
+
+管理员可以通过数据集属性查看压缩效果
+
+#+begin_src sh 
+  $ zfs get used,compressratio,compression,logicalused zroot
+  NAME   PROPERTY       VALUE           SOURCE
+  zroot  used           3.94G           -
+  zroot  compressratio  1.94x           -
+  zroot  compression    on              local
+  zroot  logicalused    1.73G           -
+#+end_src
+
+将 zroot 文件系统的数据压缩算法设置为 zstd-5 级别：
+
+#+begin_src sh 
+  $ zfs set compression=zstd-5 zroot
+#+end_src
+
+#+begin_example
+  压缩属性变更立即生效，无需重启系统
+
+  但该属性仅对新写入的数据生效，不会自动压缩已有的数据
+#+end_example
+
+再次列出各个 ZFS 文件系统的数据压缩属性及其当前设置：
+
+#+begin_src sh 
+  $ zfs get compression
+  NAME                PROPERTY     VALUE           SOURCE
+  zroot               compression  zstd-5          local
+  zroot/ROOT          compression  zstd-5          inherited from zroot
+  zroot/ROOT/default  compression  zstd-5          inherited from zroot
+  zroot/home          compression  zstd-5          inherited from zroot
+  zroot/home/ykla     compression  zstd-5          inherited from zroot
+  zroot/tmp           compression  zstd-5          inherited from zroot
+  zroot/usr           compression  zstd-5          inherited from zroot
+  zroot/usr/ports     compression  zstd-5          inherited from zroot
+  zroot/usr/src       compression  zstd-5          inherited from zroot
+  zroot/var           compression  zstd-5          inherited from zroot
+  zroot/var/audit     compression  zstd-5          inherited from zroot
+  zroot/var/crash     compression  zstd-5          inherited from zroot
+  zroot/var/log       compression  zstd-5          inherited from zroot
+  zroot/var/mail      compression  zstd-5          inherited from zroot
+  zroot/var/tmp       compression  zstd-5          inherited from zroot
+#+end_src
+
+查看各个 ZFS 文件系统的实际数据压缩比：
+
+#+begin_src sh 
+  $ zfs get compressratio
+  NAME                PROPERTY       VALUE  SOURCE
+  zroot               compressratio  2.70x  -
+  zroot/ROOT          compressratio  2.68x  -
+  zroot/ROOT/default  compressratio  2.68x  -
+  zroot/home          compressratio  1.00x  -
+  zroot/home/ykla     compressratio  1.01x  -
+  zroot/tmp           compressratio  1.00x  -
+  zroot/usr           compressratio  2.73x  -
+  zroot/usr/ports     compressratio  1.00x  -
+  zroot/usr/src       compressratio  2.73x  -
+  zroot/var           compressratio  1.47x  -
+  zroot/var/audit     compressratio  1.00x  -
+  zroot/var/crash     compressratio  1.01x  -
+  zroot/var/log       compressratio  2.90x  -
+  zroot/var/mail      compressratio  1.00x  -
+  zroot/var/tmp       compressratio  1.00x  -
+#+end_src
+
+#+begin_example
+compressratio 表示已压缩数据与未压缩数据的比值。例如 2.70x 表示数据压缩到原始大小的约 37%
+#+end_example
+
+ZFS 提供了不同的压缩算法，各有优劣。不同压缩算法在压缩比、压缩速度与解压速度方面表现各异，需根据工作负载特征选择。
++ LZ4：需要池启用 _lz4_compress_ 功能标志（GUID：org.illumos:lz4_compress），启用后即为当前默认压缩算法
+  #+begin_example
+    LZ4 处理可压缩数据比 LZJB 快约 50%，处理不可压缩数据快三倍以上，解压速度也比 LZJB 快约 80%
+
+    在现代 CPU 上，LZ4 单核压缩速度通常超过 500 MB/s，解压速度超过 1.5 GB/s
+  #+end_example
++ LZJB：由 ZFS 创始人之一 Jeff Bonwick 设计，在未启用 LZ4 功能标志的旧池上是默认压缩算法
+  #+begin_example
+    LZJB 压缩效果良好且 CPU 开销低于 GZIP
+  #+end_example
++ ZSTD：一种高性能压缩算法（GUID：org.freebsd:zstd_compress），兼具高压缩比与高速度
+  #+begin_example
+    相比 GZIP 在更高速度下提供略好的压缩比，相比 LZ4 提供更好的压缩比而速度仅略慢
+  #+end_example
+  + 可通过 _zstd-N_ （N=1~19）指定 *压缩级别*
+    #+begin_example
+      zstd 等同于 zstd-3
+    #+end_example
+  + 可通过 _zstd-fast-N_ 指定快速模式，其中 N 为 1–10, 20, 30, …, 100, 500, 1000 中的整数，映射为负 zstd 级别
+    + 级别越低压缩越快，1000 提供最快压缩和最低压缩比
+      #+begin_example
+	zstd-fast 等同于 zstd-fast-1
+      #+end_example
++ GZIP：流行压缩算法，主要优势在于可配置压缩级别
+  + 设置 compression 属性时，管理员可从 gzip-1（最快）到 gzip-9（最佳压缩比）之间选择，以在 CPU 时间与磁盘空间之间取得平衡
+    #+begin_example
+      gzip 等同于 gzip-6（这也是 gzip(1) 的默认级别）
+    #+end_example
++ ZLE：零长度编码，仅压缩连续零块，适用于包含大量零块的数据集
+
+压缩与用户配额结合时可能产生意外的副作用。用户配额限制的是压缩后用户实际消耗的空间
+#+begin_example
+  若一个用户的配额为 10 GB，写入了 10 GB 可压缩数据，则他仍能存储更多数据
+
+  如果他后续更新某个文件（例如数据库），使用更多或更少可压缩数据时，其可用空间量将发生变化
+
+  这可能造成一种奇怪的情况：用户并未增加实际数据量（logicalused 属性），但因压缩率变化而触及配额上限
+#+end_example
+
+压缩与备份的交互也可能出现类似的意外效果。配额通常用于限制数据存储以确保预留足够的备份空间
+
+#+begin_example
+  由于配额不考虑压缩因素，ZFS 可能写入比未压缩备份更多的数据
+#+end_example
+* 去重
+启用去重可节省存储空间，但需大量内存支撑去重表
+#+begin_example
+  在启用前应先评估工作负载是否真正需要去重
+
+  压缩在不增加额外开销的情况下即可提供大部分空间节省
+#+end_example
+
+并非所有数据都适合去重。如果池中的数据没有冗余，去重未必能带来节省。ZFS 可通过模拟去重来预估潜在的空间节省（必须先导出池）：
+
+#+begin_src sh 
+  $ zdb -S mypool
+  Simulated DDT histogram:
+
+  bucket              allocated                       referenced
+  ______   ______________________________   ______________________________
+  refcnt   blocks   LSIZE   PSIZE   DSIZE   blocks   LSIZE   PSIZE   DSIZE
+  ------   ------   -----   -----   -----   ------   -----   -----   -----
+  1      285   35.5M   35.0M   35.0M      285   35.5M   35.0M   35.0M
+  2      278   34.8M   34.3M   34.3M      834    104M    103M    103M
+  Total      563   70.3M   69.3M   69.3M    1.09K    140M    138M    138M
+
+  dedup = 1.99, compress = 1.01, copies = 1.00, dedup * compress / copies = 2.02
+#+end_src
+
+zdb -S 完成分析后，会显示启用去重可能带来的空间节省比例
+
+#+begin_example
+  本例中 dedup 值 2.02 是一个较高的值，节省主要来自压缩
+
+  若在此池上启用去重，不仅不会节省任何空间，启用去重所需的内存开销也得不偿失
+#+end_example
+
+系统管理员可使用以下公式来规划存储分配，判断工作负载的重复块数量是否值得投入相应内存：
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/dedup.png]]
+
++ 如果 dedup 值接近 2，则推荐去重
++ 如果 dedup 接近 1，则不推荐去重 
+
+如果数据具有良好的可压缩性，空间节省可能非常可观。
+
+#+begin_example
+  由于压缩也能带来显著的性能提升，最佳实践是先启用压缩
+
+  仅在去重能提供明显节省且拥有足够内存支撑 DDT 的情况下才启用去重
+#+end_example
+
+要启用去重，请在目标池上设置 dedup 属性：
+
+#+begin_src sh 
+  $ zfs set dedup=on zroot
+#+end_src
+
+#+begin_example
+去重仅影响写入池的新增数据，仅启用此选项不会对已写入的数据生效
+#+end_example
+
+新启用去重的池将显示如下：
+#+begin_src sh 
+  $ zpool list zroot
+  NAME    SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP    HEALTH  ALTROOT
+  zroot  51.5G  1.21G  50.3G        -         -     0%     2%  1.00x    ONLINE  -
+#+end_src
+
+#+begin_example
+DEDUP 列显示池的实际去重率。1.00x 表示数据尚未去重
+#+end_example
+
+下面的例子将随机生成块文件，然后将之分别复制到两个不同文件名观察去重效果：
+#+begin_src sh 
+  $ dd if=/dev/urandom of=/zroot/testfile bs=1M count=100
+  $ cp /zroot/testfile /zroot/testfile.copy1
+  $ cp /zroot/testfile /zroot/testfile.copy2
+#+end_src
+
+要观察冗余数据的去重效果，可使用：
+
+#+begin_src sh 
+  $ zpool list zroot
+  NAME    SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP    HEALTH  ALTROOT
+  zroot  51.5G  1.31G  50.2G        -         -     0%     2%  2.99x    ONLINE  -
+#+end_src
+
+#+begin_example
+  DEDUP 列显示 3.00x 的去重系数，检测并去重数据副本仅使用了三分之一的空间
+
+  空间节省潜力巨大，但需要足够的内存来跟踪去重块
+#+end_example
+
+还可以使用 zdb 命令：
+
+#+begin_src sh 
+  $ zdb -DD zroot
+  DDT-sha256: version=1 [FDT]; flags=0x03 [FLAT LOG]; rootobj=154
+  DDT-sha256-zap-unique: dspace=221184; mspace=163840; entries=643
+  DDT-log-sha256-0: flags=0x01 [FLUSHING]; obj=155; len=393216; txg=593; entries=802
+  DDT-log-sha256-1: flags=0x00; obj=156; len=0; txg=601; entries=0
+
+  DDT histogram (aggregated over all DDTs):
+
+  bucket              allocated                       referenced
+  ______   ______________________________   ______________________________
+  refcnt   blocks   LSIZE   PSIZE   DSIZE   blocks   LSIZE   PSIZE   DSIZE
+  ------   ------   -----   -----   -----   ------   -----   -----   -----
+  1        4   8.50K   8.50K     16K        4   8.50K   8.50K     16K
+  2      800    100M    100M    100M    2.34K    300M    300M    300M
+  Total      804    100M    100M    100M    2.35K    300M    300M    300M
+
+  dedup = 3.00, compress = 1.00, copies = 1.00, dedup * compress / copies = 3.00
+#+end_src
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:delegation.org][Next：委托管理]] | [[file:pool.org][Previous: 存储池管理]] | [[file:zfs.org][Home: ZFS文件系统]] |
