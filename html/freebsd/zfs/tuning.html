@@ -217,13 +217,205 @@
 ZFS 的性能优势与高级特性需要针对性的参数调优才能充分发挥，调优策略依赖具体环境，需结合存储硬件、工作负载特征与使用场景作个性化配置，主要调优方向包括 ARC 缓存大小、记录大小、压缩算法选择等
 </p>
 
-<pre class="example" id="orga09915d">
+<pre class="example" id="orgb28d56f">
 ZFS 不属于典型的开箱即用型文件系统
 </pre>
 </div>
 </div>
 <div id="outline-container-org3893c96" class="outline-2">
 <h2 id="org3893c96">调优</h2>
+<div class="outline-text-2" id="text-org3893c96">
+<p>
+调整可调参数，使 ZFS 在不同的工作负载下表现最佳。可以随时通过 <span class="underline">sysctl(8)</span> 调整以下值，还可以在 <b>/boot/loader.conf</b> 或 <b>/etc/sysctl.conf</b> 中永久设置某值
+</p>
+<ul class="org-ul">
+<li><p>
+vfs.zfs.arc.max : ARC 的最大大小
+</p>
+<ul class="org-ul">
+<li>默认值为 0</li>
+<li>实际取总内存的 1/2</li>
+<li>此值不得低于 64 MiB，如果系统运行其他守护进程或进程可能需要内存，可以使用较小的值</li>
+</ul>
+<pre class="example" id="org78e58e7">
+可以使用 sysctl(8) 动态修改 vfs.zfs.arc.max, 但是系统运行期间无法再将其改回 0
+
+此外，若将该设定值调得比当前 ARC 实际占用还低，ARC 将不会主动缩减，必须等到系统出现内存压力时才会触发回收
+</pre></li>
+<li><p>
+vfs.zfs.arc.min : ARC 的最小大小
+</p>
+<ul class="org-ul">
+<li>默认值为 0</li>
+<li>实际取 32 MiB 与总内存的 1/32 中的较大值</li>
+</ul>
+<pre class="example" id="orgc895cb4">
+可以调整此值，以防止其他应用程序挤出整个 ARC
+</pre></li>
+<li>vfs.zfs.vdev.min_auto_ashift: 池创建时自动使用的最低 ashift（扇区大小）
+<ul class="org-ul">
+<li>该值是 2 的幂</li>
+<li>默认值为 9，表示 2^9 = 512，即 512 字节的扇区大小</li>
+<li>为了避免 <span class="underline">写放大</span> 并获得最佳性能，应将此值设置为 <b>池中设备使用的最大扇区大小</b></li>
+<li><p>
+常见的驱动器有 4 KB 扇区。使用默认的 ashift 值 9 与这些驱动器会导致写放大
+</p>
+<pre class="example" id="orge193807">
+在这些设备中，单个 4 KB 写入的数据将以八次 512 字节写入的方式写入
+
+ZFS 尝试在创建池时从所有设备读取原生扇区大小，但具有 4 KB 扇区的驱动器为兼容性考虑报告其扇区为 512 字节
+</pre>
+<ul class="org-ul">
+<li><p>
+在创建池之前将 vfs.zfs.vdev.min_auto_ashift 设为 12（2^12 = 4096），即可强制 ZFS 使用 4 KB 块，从而获得最佳性能
+</p>
+<pre class="example" id="orged2b30a">
+通过 bsdinstall 安装的 FreeBSD ZFS 系统，vfs.zfs.vdev.min_auto_ashift 值默认为 12
+
+强制使用 4 KB 块在计划升级磁盘的池中也非常有用，因为ashift 值在创建池后无法更改
+</pre></li>
+<li><p>
+在某些特定情况下，较小的 512 字节块大小可能更为合适
+</p>
+<pre class="example" id="org03b077f">
+例如，在使用 512 字节磁盘用于数据库或虚拟机存储时，较小的块在小随机读取时会传输更少的数据
+
+这可以在使用较小的 ZFS 记录大小时提供更好的性能
+</pre></li>
+</ul></li>
+</ul></li>
+<li><p>
+vfs.zfs.prefetch.disable: 禁用预测性预取
+</p>
+<ul class="org-ul">
+<li>值为 0 时启用，值为 1 时禁用</li>
+<li>默认值为 0（启用预测性预取）</li>
+<li>预取会将比请求的块大得多的数据块读取到 ARC 中，预期稍后会用到这些数据</li>
+</ul>
+<pre class="example" id="org4492f93">
+如果工作负载有大量随机读取，禁用预取可能因减少不必要的读取而提高性能
+
+注意，此参数仅禁用预测性预取，不影响先验性预取（prescient prefetch，如 zfs send 使用的预取）
+
+后者永远不会发出最终不被需要的 I/O，因此不会影响性能
+</pre></li>
+<li>vfs.zfs.l2arc.write_max: 限制每个 L2ARC 设备每秒写入的最大数据量
+<ul class="org-ul">
+<li>默认值为 33554432 字节（32 MiB）</li>
+<li>总 L2ARC 吞吐量随池中缓存设备数量线性增长</li>
+</ul></li>
+<li><p>
+vfs.zfs.l2arc.noprefetch: 是否将预取但未被应用程序使用的缓冲区写入 L2ARC
+</p>
+<ul class="org-ul">
+<li>默认值为 1（禁用）</li>
+<li>值为 0 时启用</li>
+</ul>
+<pre class="example" id="org55e8e38">
+禁用时，预取的数据不会缓存到 L2ARC
+
+将此值设为 0 可将磁盘上的顺序读取缓存到 L2ARC，并在之后从 L2ARC 提供这些读取服务
+
+当 L2ARC 设备在顺序读取上比池磁盘快得多时，这可能是有益的
+</pre></li>
+<li>vfs.zfs.l2arc.mfuonly: 控制从 ARC 缓存到 L2ARC 的内容
+<ul class="org-ul">
+<li>默认值为 0，表示 MRU 和 MFU 的数据和元数据都会被缓存到 L2ARC</li>
+<li>设为 1 时，仅缓存 MFU 数据和元数据，适用于读写大量不会再次访问的数据时避免浪费 L2ARC 空间的场景</li>
+<li>设为 2 时，缓存所有元数据（MRU+MFU）但仅缓存 MFU 数据，适用于希望在数据高周转时尽可能多地缓存元数据的场景</li>
+</ul></li>
+<li>vfs.zfs.l2arc.dwpd_limit: L2ARC 设备的 <b>每日写入量</b> <span class="underline">Drive Writes Per Day</span> 限制，以百分比表示
+<ul class="org-ul">
+<li>默认值为 100。100 等于 1.0 DWPD，即每个 L2ARC 设备每天最多写入自身容量一次</li>
+<li><p>
+较低的值支持分数 DWPD
+</p>
+<pre class="example" id="org611d1d4">
+50 = 0.5 DWPD，30 = 0.3 DWPD，适用于 QLC SSD
+</pre></li>
+<li><p>
+较高的值允许更多写入（300 = 3.0 DWPD）
+</p>
+<pre class="example" id="orge908e7c">
+实际写入速率始终受 vfs.zfs.l2arc.write_max 限制
+
+值为 0 时禁用 DWPD 速率限制
+
+DWPD 限制仅在初始填充阶段完成且 L2ARC 总容量至少为 arc_c_max 的两倍后才生效
+</pre></li>
+</ul></li>
+<li>vfs.zfs.txg.timeout: <b>事务组</b> <span class="underline">transaction group</span> 之间的最大秒数，即脏数据刷写到磁盘的最大间隔
+<ul class="org-ul">
+<li>默认值为 <span class="underline">5</span> 秒</li>
+<li>当前事务组写入池中，如果自上一个事务组以来经过了此时间，则启动新的事务组</li>
+<li><p>
+如果写入了足够的数据，事务组可能会提前触发
+</p>
+<pre class="example" id="org7389c50">
+较大的值可能因延迟异步写入而提高读取性能，但这可能导致写入事务组时性能不均匀
+</pre></li>
+</ul></li>
+<li>vfs.zfs.dio_enabled: 启用 Direct I/O
+<ul class="org-ul">
+<li>默认值为 <span class="underline">1</span> （启用）</li>
+<li>如果设为 0，则所有 I/O 请求都将通过 ARC，等同于将数据集属性 direct 设为 disabled</li>
+</ul></li>
+<li>vfs.zfs.vdev.scrub_min_active: scrub 操作时每个设备的最小并发 I/O 数
+<ul class="org-ul">
+<li>默认值为 1: 当 vdev 空闲时，并发数自动提升至 vfs.zfs.vdev.scrub_max_active</li>
+</ul></li>
+<li>vfs.zfs.vdev.scrub_max_active: scrub 操作时每个设备的最大并发 I/O 数
+<ul class="org-ul">
+<li>默认值为 3</li>
+<li>增大此值可加快 scrub 完成速度，但会增加读写延迟并降低吞吐量</li>
+</ul></li>
+<li>vfs.zfs.vdev.rebuild_min_active: resilver 操作时每个设备的最小并发 I/O 数
+<ul class="org-ul">
+<li>默认值为 1</li>
+</ul></li>
+<li>vfs.zfs.vdev.rebuild_max_active: resilver 操作时每个设备的最大并发 I/O 数
+<ul class="org-ul">
+<li>默认值为 3</li>
+<li>增大此值可加快 resilver 完成速度，但会增加读写延迟</li>
+<li><p>
+vfs.zfs.vdev.nia_delay: 对于非交互式 I/O（scrub、resilver、移除、初始化和重建），并发 I/O 数限制为各队列的 min_active，除非 vdev 处于“空闲”状态
+</p>
+<pre class="example" id="org7ba0f95">
+当没有交互式 I/O 活动，且自上次交互式操作以来已完成 vfs.zfs.vdev.nia_delay 个非交互式操作后，vdev 被视为“空闲”
+
+非交互式操作的并发数提升至各队列的 max_active
+</pre>
+<ul class="org-ul">
+<li>默认值为 5</li>
+</ul></li>
+</ul></li>
+<li><p>
+vfs.zfs.vdev.nia_credit: 某些机械硬盘会以较高优先级处理顺序 I/O，导致并发随机 I/O 延迟达到数秒。为防止非交互式 I/O（如 scrub）独占设备，当存在未完成的交互式 I/O 时，最多只能发送 vfs.zfs.vdev.nia_credit 个非交互式操作
+</p>
+<pre class="example" id="org2dac4d0">
+此强制等待确保机械硬盘在合理时间内处理交互式 I/O
+</pre>
+<ul class="org-ul">
+<li>默认值为 5</li>
+</ul></li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="zfs_boot.html">Previous: 启动环境</a></td>
+<td class="org-left"><a href="zfs.html">Home: ZFS文件系统</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
