@@ -193,6 +193,38 @@
   .org-svg { }
 </style>
 <link rel="stylesheet" type="text/css" href="../css/main.css" />
+<script>
+  window.MathJax = {
+    tex: {
+      ams: {
+        multlineWidth: '85%'
+      },
+      tags: 'ams',
+      tagSide: 'right',
+      tagIndent: '.8em'
+    },
+    chtml: {
+      scale: 1.0,
+      displayAlign: 'center',
+      displayIndent: '0em'
+    },
+    svg: {
+      scale: 1.0,
+      displayAlign: 'center',
+      displayIndent: '0em'
+    },
+    output: {
+      font: 'mathjax-modern',
+      displayOverflow: 'overflow'
+    }
+  };
+</script>
+
+<script
+  id="MathJax-script"
+  async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
 </head>
 <body>
 <div id="org-div-home-and-up">
@@ -201,6 +233,451 @@
  <a accesskey="H" href="security.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">账户认证安全</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org0a99415">密码文件目录结构</a></li>
+<li><a href="#org4498aae">阻止登录</a>
+<ul>
+<li><a href="#org1aecb50">锁定账户</a></li>
+<li><a href="#orgda31adb">将 shell 设为 /usr/sbin/nologin</a></li>
+</ul>
+</li>
+<li><a href="#org90732b0">密码哈希</a>
+<ul>
+<li><a href="#org55cab34">查看当前用户密码使用的哈希</a></li>
+<li><a href="#orgf641a23">在登录类别中设置默认密码哈希</a></li>
+<li><a href="#org7d4efbb">密码策略执行</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<p>
+FreeBSD 通过 <b>/etc/master.passwd</b> 主密码文件与 <span class="underline">pam_unix.so</span> 认证模块实现账户安全管理
+</p>
+
+<pre class="example" id="orge80790f">
+本节介绍密码数据库生成流程、账户锁定与 nologin 禁止登录、SHA-512 哈希验证及 pam_passwdqc 密码策略配置
+</pre>
+<div id="outline-container-org0a99415" class="outline-2">
+<h2 id="org0a99415">密码文件目录结构</h2>
+<div class="outline-text-2" id="text-org0a99415">
+<p>
+<b>/etc/master.passwd</b> 是主密码文件，仅 root 可读，内含用户加密后的密码
+</p>
+<ul class="org-ul">
+<li><p>
+/etc/passwd 仅为兼容而保留，由 <span class="underline">pwd_mkdb(8)</span> 自动生成，密码字段替换为 *
+</p>
+<pre class="example" id="org4ec2483">
+/etc/master.passwd
+        │
+        │  pwd_mkdb(8)
+        ▼
+────────────────────────────
+      数据库生成过程
+────────────────────────────
+        │
+        ├──────────────┬──────────────┐
+        ▼              ▼              ▼
+/etc/pwd.db     /etc/spwd.db     /etc/passwd
+（db(3)格式）    （db(3)格式）     （ASCII 密码兼容文件）
+（无密码）        （含密码）        （无密码）
+</pre>
+<p>
+为保证数据一致性，所有密码文件均不应手动编辑，应使用 <span class="underline">vipw(8)</span> 、 <span class="underline">chpass(1)</span> 或 <span class="underline">pw(8)</span> 等工具修改
+</p></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org4498aae" class="outline-2">
+<h2 id="org4498aae">阻止登录</h2>
+<div class="outline-text-2" id="text-org4498aae">
+<p>
+保护系统的首要措施是审计账户，禁用所有不需登录的账户
+</p>
+
+<pre class="example" id="org523d255">
+确保 root 拥有强密码，定期轮替，且不应共享该密码。此说法较为流行，实则存在安全隐患：
+
+1. 强密码复杂难记，致使用户依赖不安全的存储方式（如纸质记录或文本文件），反致安全风险增加
+2. 定期更换密码加剧管理难度，而“密码管理工具”本身的信任问题亦难以回避。
+3. 基于密钥的认证方式虽提供了一定安全保障，但密钥一旦丢失，身份验证将更加复杂
+4. 多因素认证（MFA）虽能增强安全性，但其依赖的设备一旦遗失或程序被卸载，将引发同类问题
+</pre>
+
+<p>
+拒绝账户登录有两种方式，具体如下
+</p>
+</div>
+<div id="outline-container-org1aecb50" class="outline-3">
+<h3 id="org1aecb50">锁定账户</h3>
+<div class="outline-text-3" id="text-org1aecb50">
+<p>
+下面演示如何锁定账户 ykla：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pw lock ykla
+</pre>
+</div>
+
+<p>
+锁定后，用户 ykla 尝试登录：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #87cefa;">FreeBSD/amd64</span> (ykla) (ttyv1)
+
+login: ykla
+Password:
+Login incorrect
+login:
+</pre>
+</div>
+
+<p>
+其他用户尝试切换至 ykla：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ su ykla
+su: Sorry
+</pre>
+</div>
+
+<pre class="example" id="org85d01aa">
+切勿尝试锁定 root 账户
+
+ykla@ykla:~ $ su
+Password:
+su: Sorry
+
+否则可能需要进入单用户模式才能恢复
+</pre>
+
+<p>
+解锁用户 ykla：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pw unlock ykla
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgda31adb" class="outline-3">
+<h3 id="orgda31adb">将 shell 设为 /usr/sbin/nologin</h3>
+<div class="outline-text-3" id="text-orgda31adb">
+<p>
+用户尝试登录时，nologin shell 阻止系统分配 shell。仅 root 有权更改其他用户的 shell：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ chsh -s /usr/sbin/nologin ykla
+</pre>
+</div>
+
+<pre class="example" id="org6c72cdf">
+用户 ykla 登录被阻止，效果与前例类似
+</pre>
+
+<p>
+要恢复登录，可重新为用户 ykla 分配 sh：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ chsh -s sh ykla
+</pre>
+</div>
+
+<pre class="example" id="org1f621d4">
+切勿尝试为 root 账户分配 /usr/sbin/nologin
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org90732b0" class="outline-2">
+<h2 id="org90732b0">密码哈希</h2>
+<div class="outline-text-2" id="text-org90732b0">
+<p>
+既然必须使用密码，密码就应当足够复杂，并以强哈希机制加密后存入密码数据库。FreeBSD 的 <span class="underline">crypt()</span> 库支持 SHA-256、SHA-512、Blowfish 等多种算法
+</p>
+
+<pre class="example" id="org88e6521">
+不应将默认的 SHA-512 降级为更弱的哈希算法，也不建议替换为 Blowfish
+
+Blowfish 算法不属于 AES 家族，也不符合联邦信息处理标准（FIPS）要求，部分环境可能无法通过合规审查
+</pre>
+</div>
+<div id="outline-container-org55cab34" class="outline-3">
+<h3 id="org55cab34">查看当前用户密码使用的哈希</h3>
+<div class="outline-text-3" id="text-org55cab34">
+<p>
+如果要确认用户所用哈希算法，root 用户可查看 FreeBSD 密码数据库中对应哈希值。每个哈希值均以一个符号开头，表明加密该密码的哈希机制类型：
+</p>
+
+<pre class="example" id="org08ad7e3">
+$编号$盐$哈希
+ │
+ ├── DES      : 无编号
+ ├── MD5      : $1$
+ ├── bcrypt   : $2a / $2b / $2y
+ ├── NT-Hash  : $3$
+ ├── SHA-256  : $5$
+ └── SHA-512  : $6$
+编号 4 未使用
+</pre>
+
+<p>
+本例中，ykla 的密码以 \(6\) 开头，即采用默认的 SHA-512 算法
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ grep ykla /etc/master.passwd
+</pre>
+</div>
+
+<p>
+注意，密码数据库中存放的是加密后的哈希值，而非原始密码。输出应类似于以下内容：
+</p>
+
+<pre class="example" id="org3853a3f">
+ykla:$6$SqMJXrv5aC6Wq.by$nmbZs078aHNBVyh9noLFouJsGHyFSvQIzH0W4zpdfXuPtGtt.FHgWfXDHVBa.g9P0eZ32UwfByzRKdVnTaO7W.:1001:1001::0:0:User &amp;:/home/ykla:/bin/sh
+</pre>
+</div>
+</div>
+<div id="outline-container-orgf641a23" class="outline-3">
+<h3 id="orgf641a23">在登录类别中设置默认密码哈希</h3>
+<div class="outline-text-3" id="text-orgf641a23">
+<p>
+passwd_format 默认值为 sha512，有效值包括 des、md5、blf、sha256 和 sha512
+</p>
+
+<pre class="example" id="org487ce05">
+具体请参见 crypt(3)
+
+NIS 客户端如果使用非 FreeBSD NIS 服务器，通常应使用 des
+</pre>
+
+<p>
+运行以下命令可检查当前所用哈希机制：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ grep passwd_format /etc/login.conf
+</pre>
+</div>
+
+<p>
+输出应类似于以下内容：
+</p>
+
+<pre class="example" id="orge093632">
+	:passwd_format=sha512:\
+#	:passwd_format=des:\ # 这是注释行，可忽略
+</pre>
+
+<p>
+要切换为 Blowfish，可将该行修改为：
+</p>
+
+<pre class="example" id="orgb161111">
+:passwd_format=blf:\
+</pre>
+
+<p>
+接着，必须执行 <b>cap_mkdb</b> 来更新 <span class="underline">login.conf</span> 数据库：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cap_mkdb /etc/login.conf
+</pre>
+</div>
+
+<p>
+注意，此更改不会影响已有的密码哈希
+</p>
+<pre class="example" id="org0ee7712">
+也就是说，所有用户都需要运行 passwd 修改一次密码，才能让新算法生效
+</pre>
+</div>
+</div>
+<div id="outline-container-org7d4efbb" class="outline-3">
+<h3 id="org7d4efbb">密码策略执行</h3>
+<div class="outline-text-3" id="text-org7d4efbb">
+<p>
+为本地账户实施强密码策略，属于系统安全基本配置。FreeBSD 以内置的可插拔认证模块 <span class="underline">PAM</span> 控制密码长度、强度与复杂度
+</p>
+
+<pre class="example" id="org9fd0347">
+本节使用 pam_passwdqc 模块（用户修改密码时生效）设置密码最短与最长长度，并强制混合字符
+
+强制要求密码混合字符，密码轮替、禁用常见词汇等复杂性规则，已不再视作最佳安全实践
+</pre>
+
+<p>
+配置时先切换至 root 用户，随后取消 <b>/etc/pam.d/passwd</b> 文件中 <span class="underline">pam_passwdqc.so</span> 所在行的注释
+</p>
+
+<pre class="example" id="org69f7e54">
+#
+#
+# PAM configuration for the "passwd" service
+#
+
+# passwd(1) does not use the auth, account or session services.
+
+# password
+#password       requisite       pam_passwdqc.so         enforce=users # 注意此行，移除行首的 # 符号
+password        required        pam_unix.so             no_warn try_first_pass nullok
+</pre>
+
+<p>
+随后依策略编辑该行：
+</p>
+<ol class="org-ol">
+<li>禁用第一至第三类密码（含密码短语）</li>
+<li>仅允许四类字符密码（≥10 位）或三类字符密码（≥12 位）</li>
+<li>新旧密码不得相似</li>
+<li>失败最多重试 3 次</li>
+<li>仅对普通用户强制执行（root 不受约束）</li>
+</ol>
+
+<pre class="example" id="org3e9fb00">
+password        requisite       pam_passwdqc.so         min=disabled,disabled,disabled,12,10 similar=deny retry=3 enforce=users
+</pre>
+
+<p>
+min=disabled,disabled,disabled,12,10 对应五种密码复杂度：
+</p>
+<ol class="org-ol">
+<li>仅一种字符类（disabled, 禁用）</li>
+<li>仅两种字符类（disabled, 禁用）</li>
+<li>密码短语（disabled, 禁用）</li>
+<li>包含三种字符类（启用但最小 12 位）</li>
+<li>包含四种字符类（启用但最小 10 位）</li>
+</ol>
+
+<pre class="example" id="org2c1a508">
+字符类包括：数字、小写字母、大写字母和其他字符
+
+非 ASCII 字符如果无法归类，视作非数字类
+</pre>
+
+<p>
+保存文件后，用户修改密码时会看到类似下面的提示：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ passwd
+</pre>
+</div>
+
+<p>
+输出应类似于以下内容：
+</p>
+
+<pre class="example" id="org90d2309">
+Changing local password for ykla
+Old Password:
+
+You can now choose the new password.
+A valid password should be a mix of upper and lower case letters,
+digits and other characters.  You can use a 12 character long
+password with characters from at least 3 of these 4 classes, or
+a 10 character long password containing characters from all the
+classes.  Characters that form a common pattern are discarded by
+the check.
+Alternatively, if noone else can see your terminal now, you can
+pick this as your password: "embark,France_list".
+</pre>
+
+<p>
+密码如果不符合策略，系统拒绝并给出警告，例如：
+</p>
+
+<pre class="example" id="orgfbdbafc">
+Weak password: too short.
+
+用户可在配置的重试次数内多次尝试
+</pre>
+
+
+<p>
+如果组织要求密码定期过期，FreeBSD 可在 <b>/etc/login.conf</b> 的用户登录类别中设置 <span class="underline">passwordtime</span> 参数。default 登录类别中包含一个示例：
+</p>
+<pre class="example" id="orgfd95c9d">
+#       :passwordtime=90d:\
+</pre>
+
+<p>
+要为此登录类别设定 90 天过期，移除注释符（#），保存后执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cap_mkdb /etc/login.conf
+</pre>
+</div>
+
+<p>
+如果要为单个用户 ykla 设置密码更改日期（password aging，密码必须在指定日期之前更改），可向 pw 同时传递日期（或距离过期的天数）和用户名：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ pw usermod -p 31-05-2026 -n ykla
+</pre>
+</div>
+
+<pre class="example" id="org2e5235e">
+日期以日、月、年的格式设置 dd-mm-yy[yy] 
+</pre>
+
+<p>
+如需取消密码更改日期限制，将其设为 0 即可
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ pw usermod -p 0 -n ykla
+</pre>
+</div>
+
+<pre class="example" id="org5a4e23a">
+-p 设置的是密码更改日期（password aging），与账户过期是不同概念
+
+如需设置账户过期时间（account expiry），应使用 -e 参数
+</pre>
+
+<p>
+从今天起，指定用户 ykla 在 30 天后账户过期：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pw usermod ykla -e +30d
+</pre>
+</div>
+
+<p>
+从今天起，指定用户 ykla 在一年后过期：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pw usermod ykla -e +1y
+</pre>
+</div>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="resource_limit.html">Next：资源限制</a></td>
+<td class="org-left"><a href="introduction.html">Previous: 安全概述</a></td>
+<td class="org-left"><a href="security.html">Home: 安全管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
