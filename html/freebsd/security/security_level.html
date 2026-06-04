@@ -206,6 +206,8 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#orga4615cf">概述</a></li>
+<li><a href="#orgee6cbd0">安全等级定义</a></li>
+<li><a href="#org1782b27">修改安全等级</a></li>
 </ul>
 </div>
 </div>
@@ -213,11 +215,166 @@
 安全等级为 FreeBSD 内核内置安全机制，可通过 <span class="underline">sysctl kern.securelevel</span> 查看当前等级
 </p>
 
-<pre class="example" id="orgbcc4e67">
+<pre class="example" id="org107c1d0">
 对于运行时，该值只能在 -1 至 3 五个级别间单向提升（不可降低）
 </pre>
 <div id="outline-container-orga4615cf" class="outline-2">
 <h2 id="orga4615cf">概述</h2>
+<div class="outline-text-2" id="text-orga4615cf">
+<p>
+安全等级是内核内置安全机制。安全等级为正值时，内核限制部分操作，root 用户亦不例外。
+</p>
+
+<p>
+安全等级机制限制以下功能：
+</p>
+<ul class="org-ul">
+<li><p>
+取消设置某些文件标志
+</p>
+<pre class="example" id="orge2b14a6">
+如 schg 系统不可变标志
+</pre></li>
+<li>通过 /dev/mem 和 /dev/kmem 写入内核内存</li>
+<li>加载内核模块</li>
+<li>更改防火墙规则</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgee6cbd0" class="outline-2">
+<h2 id="orgee6cbd0">安全等级定义</h2>
+<div class="outline-text-2" id="text-orgee6cbd0">
+<p>
+内核共设五个安全等级。任何超级用户进程均可提升等级，但任何进程均不能降低等级。各安全等级定义如下：
+</p>
+<ul class="org-ul">
+<li>-1： <b>永久不安全</b> 模式 ，系统始终处于不安全模式
+<ul class="org-ul">
+<li>此为默认初始值</li>
+</ul></li>
+<li>0： <b>不安全</b> 模式
+<ul class="org-ul">
+<li>可以关闭不可变和仅追加标志</li>
+<li>所有设备可依其权限读写</li>
+</ul></li>
+<li>1： <b>安全</b> 模式
+<ul class="org-ul">
+<li>无法关闭系统不可变和系统仅追加标志</li>
+<li>已挂载文件系统所在磁盘、/dev/mem 和 /dev/kmem 均不可打开以写入</li>
+<li>如果平台存在 /dev/io，则完全禁止打开</li>
+<li>无法加载或卸载内核模块</li>
+<li><p>
+禁止使用 sysctl debug.kdb.enter 进入内核调试器
+</p>
+<pre class="example" id="org00caa8d">
+除非 MAC(9) 策略授予访问权限，例如 mac_ddb(4)
+</pre></li>
+<li>也无法通过 debug.kdb.panic、debug.kdb.panic_str 及其他 sysctl 强制触发 panic 或 trap</li>
+</ul></li>
+<li>2： <b>高度安全</b> 模式, 在安全模式基础上
+<ul class="org-ul">
+<li><p>
+磁盘（无论是否已挂载）均不可打开以写入，mount 操作除外
+</p>
+<pre class="example" id="org24945b7">
+此等级可阻止以卸载文件系统方式篡改数据，但也意味着多用户模式下无法运行 newfs
+</pre></li>
+<li><p>
+内核时间变更受限于不超过 1 秒
+</p>
+<pre class="example" id="org3228d7a">
+超出此范围修改时间将产生日志消息“Time adjustment clamped to +1 second”
+</pre></li>
+</ul></li>
+<li>3： <b>网络安全</b> 模式, 在高度安全模式基础上
+<ul class="org-ul">
+<li>IP 数据包过滤规则 <span class="underline">ipfw(8)</span> 、 <span class="underline">ipfirewall(4)</span> 和 <span class="underline">pfctl(8)</span> 均无法修改， <span class="underline">dummynet(4)</span> 或 <span class="underline">pf(4)</span> 配置也无法调整</li>
+</ul></li>
+</ul>
+
+<pre class="example" id="org09268dd">
+永久不安全模式与不安全模式的关键差别在于：
+
+前者彻底解除一切安全限制，而后者虽放宽了部分约束，仍保留相当程度的控制力
+</pre>
+
+<p>
+按 init(8) 的工作方式，如果系统初始安全等级为 0，init 会在首次进入多用户模式前将其提升至 1。由于安全等级只能提升不能降低，此后即便返回单用户模式，系统也至少维持在等级 1
+</p>
+
+<pre class="example" id="orge72d2d6">
+另外需要注意，引导阶段过早将安全等级设为大于 1 的值，可能阻碍 fsck(8) 修复不一致的文件系统
+
+因此建议在 /etc/rc 末尾（多用户启动操作全部完成后）再行设置
+</pre>
+</div>
+</div>
+<div id="outline-container-org1782b27" class="outline-2">
+<h2 id="org1782b27">修改安全等级</h2>
+<div class="outline-text-2" id="text-org1782b27">
+<p>
+首先确保安全等级设置被启用：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">kern_securelevel_enable</span>=<span style="color: #ffa07a;">"YES"</span>
+</pre>
+</div>
+
+<p>
+再将 <b>kern.securelevel</b> 设为期望的安全等级（允许的取值范围为 -1 至 3）：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">kern_securelevel</span>=2
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#37325;&#21551;&#21518;&#23433;&#20840;&#31561;&#32423;&#23558;&#29983;&#25928;</span>
+</pre>
+</div>
+
+<pre class="example" id="org78e8a94">
+安全等级只能提升不能降低。设置后若需回退，必须重启系统并在单用户模式下修改
+
+远程管理场景下，过高的安全等级可能限制磁盘写入、内核模块加载等操作，导致无法正常运维
+
+建议先在测试环境中验证影响后再行应用于生产环境
+</pre>
+
+<p>
+查看运行中系统的当前安全等级：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysctl -n kern.securelevel
+2
+</pre>
+</div>
+
+<p>
+输出为安全等级当前值
+</p>
+
+<pre class="example" id="org308a840">
+如果大于 0，说明系统至少已启用部分安全保护
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="root_desktop.html">Next: Root桌面登录</a></td>
+<td class="org-left"><a href="resource_limit.html">Previous：资源限制</a></td>
+<td class="org-left"><a href="security.html">Home: 安全管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
