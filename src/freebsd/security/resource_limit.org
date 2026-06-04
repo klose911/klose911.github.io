@@ -10,5 +10,176 @@ FreeBSD 提供 */etc/login.conf* 静态资源限制与 *rctl* 动态资源限制
   本节分别给出登录类别（login class）配置方法和进程级约束规则定义
 #+end_example
 * 资源限制
+在 FreeBSD 中，资源限制指控制与管理进程和用户可使用的系统资源的机制，用于防止单个进程或用户消耗过多资源，避免性能下降或系统不稳定
+#+begin_example
+  资源限制有助于确保系统中所有活动进程和用户间的资源公平分配
+#+end_example
+
+FreeBSD 提供多种方法供管理员限制用户可使用的系统资源量。
+1. 传统方法是通过编辑 /etc/login.conf 文件来定义登录类别。虽然该方法仍受支持，但任何更改都需经过多个步骤：
+   1. 编辑该文件
+   2. 重建资源数据库
+   3. 修改 /etc/master.passwd 文件
+   4. 重建密码数据库
+      #+begin_example
+	这一过程繁琐，耗时取决于需配置的用户数量
+      #+end_example
+2. rctl 提供了一种更细粒度的资源限制机制，它还可为进程和 jail 设置资源约束
+
+#+begin_example
+接下来演示两种控制资源的方法，从传统方法开始
+#+end_example
+
+* 传统方法
+** 资源类型
+FreeBSD 支持对以下资源类型施加限制：
+
+#+CAPTION: 资源类型表
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 类型                                | 描述                                     |
+| cputime                             | 限制进程可消耗的 CPU 时间量              |
+| memoryuse/memorylocked              | 控制进程可使用的物理内存量/锁定内存量    |
+| openfiles                           | 限制进程可同时打开的文件数量             |
+| maxproc                             | 控制用户或进程可创建的进程数量           |
+| filesize                            | 限制进程可创建的文件的最大大小           |
+| coredumpsize                        | 控制是否允许进程生成核心转储文件及其大小 |
+| datasize/stacksize                  | 限制数据段/栈段大小                      |
+| vmemoryuse                          | 限制进程的总虚拟存储器使用量             |
+| sbsize                              | 限制套接字缓冲区大小                     |
+| pseudoterminals                     | 限制伪终端数量                           |
+| swapuse                             | 限制交换空间使用量                       |
+| umtxp                               | 限制进程共享 pthread 锁的最大数量        |
+| pipebuf                             | 限制管道缓冲区的最大大小                 |
+| nthr                                | 限制线程数（仅 rctl）                    |
+| wallclock/pcpu                      | 限制墙钟时间/CPU 百分比（仅 rctl）       |
+| readbps/writebps/readiops/writeiops | 限制文件系统读写速率（仅 rctl）          |
+** 配置登录类别
+传统方法中，登录类别及其关联的资源限制定义在 */etc/login.conf* 文件中。每个用户账户可归入某个登录类别， _default_ 为默认类别。各类别关联一组 *登录能力* _login capability_ ，格式为 _名称=值_ 对
++ 其中 名称 是已知标识符
++ 值 为任意字符串
++ 按对应 名称 的规则处理
+
+配置资源限制须先编辑 /etc/login.conf 文件，定位至拟修改的用户类别节。本例假设所用类别名为 limited，若不存在则创建。
+
+#+begin_example
+  limited:\	# 用户类别名称
+          :maxproc=50:\ # 将 limited 类别下用户的最大进程数（maxproc）设为 50
+          :tc=default: # 此用户类别继承 default 类别的默认设置
+#+end_example
+
+修改 /etc/login.conf 后，运行 _cap_mkdb_ 生成数据库，供 FreeBSD 应用这些设置：
+
+#+begin_src sh 
+  $ cap_mkdb /etc/login.conf
+#+end_src
+
+_chpass_ 可为目标用户 ykla 切换类别：
+
+#+begin_src sh 
+  $ chpass ykla
+#+end_src
+
+#+begin_example
+使用命令 export EDITOR=ee 可将默认编辑器由 vi 变更为 ee，便于操作
+#+end_example
+
+这将打开文本编辑器，按如下方式添加新的 limited 类别：
+
+#+begin_example
+  #Changing user information for ykla.
+
+  Login: ykla
+  Password: $6$SqMJXrv5aC6Wq.by$nmbZs078aHNBVyh9noLFouJsGHyFSvQIzH0W4zpdfXuPtGtt.FHgWfXDHVBa
+  Uid [#]: 1001
+  Gid [# or name]: 1001
+  Change [month day year]:
+  Expire [month day year]: April 16, 2027
+  Class: limited
+  Home directory: /home/ykla
+  Shell: /bin/sh
+  Full Name: User &
+  Office Location:
+  Office Phone:
+  Home Phone:
+  Other information:
+#+end_example
+
+现在归属于 limited 类别的用户，其最大进程数将限制为 50
+
+#+begin_example
+注意，以上仅为使用 /etc/login.conf 设置资源限制的一个示例
+#+end_example
+
+修改 /etc/login.conf 后，用户需注销并重新登录才能使更改生效
+** Rctl
+rctl 命令用于控制资源限制，可 *动态* 分配资源约束至特定进程或用户，与所属用户类别无关。使用 rctl 前需先将其启用，在 */boot/loader.conf* 中添加以下行并重启系统：
+#+begin_example
+kern.racct.enable=1
+#+end_example
+
+再执行以下命令启用并启动 rctl 服务：
+#+begin_src sh 
+  $ service rctl enable
+  $ service rctl start
+#+end_src
+
+#+begin_example
+此后即可使用 rctl 为系统设置规则
+#+end_example
 
 
+规则语法含 *主语* _process_ 、 _user_ 、 _loginclass_ 或 _jail_ 、 *主语id* 、 *资源* 与 *动作* 四部分：
+
+#+begin_example
+主语:主语id:资源:动作=数量/对象
+#+end_example
+
+其中 *对象* 定义数量统计范围：
+#+CAPTION: 对象
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 标识路径    | 作用范围   | 说明                              |
+| /process    | 每进程     | 对单个进程分别应用资源限制        |
+| /user       | 每用户     | 对同一用户的所有进程统一限制      |
+| /loginclass | 每登录类别 | 按登录类别（login class）分组限制 |
+
+
+#+begin_example
+省略时默认与主语一致
+#+end_example
+
+
+常见可用动作：
+#+CAPTION: 动作
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 动作     | 说明                                                            |
+| deny     | 拒绝该资源分配或操作                                            |
+| log      | 不阻止操作，仅在控制台记录警告信息                              |
+| devctl   | 向 devd(8) 发送事件通知，由系统设备守护进程处理                 |
+| sig*     | 向违规进程发送信号（如 sigterm、sigkill 等）                    |
+| throttle | 减慢进程执行速度；仅支持 readbps、writebps、readiops、writeiops |
+
+例如，要约束用户 ykla 最多只能创建 10 个进程，可执行：
+#+begin_src sh 
+  $ rctl -a user:ykla:maxproc:deny=10/user
+#+end_src
+
+要检查已应用的资源限制，执行 rctl：
+
+
+#+begin_src sh 
+  $ rctl 
+#+end_src
+
+输出应类似于以下内容：
+#+begin_example
+user:ykla:maxproc:deny=10
+#+end_example
+
+将规则写入 /etc/rctl.conf 文件，重启后仍可生效。格式为单条规则，无需前导命令。例如，前述规则可添加为：
+
+#+begin_example
+user:ykla:maxproc:deny=10
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:security_level.org][Next: 安全等级]] | [[file:authentication.org][Previous：账户认证]] | [[file:security.org][Home: 安全管理]] |

@@ -206,6 +206,13 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org5d3a145">资源限制</a></li>
+<li><a href="#orgc14ee40">传统方法</a>
+<ul>
+<li><a href="#orgb790c96">资源类型</a></li>
+<li><a href="#orgeeae1ce">配置登录类别</a></li>
+<li><a href="#orgc0d2194">Rctl</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -213,11 +220,406 @@
 FreeBSD 提供 <b>/etc/login.conf</b> 静态资源限制与 <b>rctl</b> 动态资源限制两种机制
 </p>
 
-<pre class="example" id="org8144fc6">
+<pre class="example" id="org7d3f906">
 本节分别给出登录类别（login class）配置方法和进程级约束规则定义
 </pre>
 <div id="outline-container-org5d3a145" class="outline-2">
 <h2 id="org5d3a145">资源限制</h2>
+<div class="outline-text-2" id="text-org5d3a145">
+<p>
+在 FreeBSD 中，资源限制指控制与管理进程和用户可使用的系统资源的机制，用于防止单个进程或用户消耗过多资源，避免性能下降或系统不稳定
+</p>
+<pre class="example" id="org8032e18">
+资源限制有助于确保系统中所有活动进程和用户间的资源公平分配
+</pre>
+
+<p>
+FreeBSD 提供多种方法供管理员限制用户可使用的系统资源量。
+</p>
+<ol class="org-ol">
+<li>传统方法是通过编辑 /etc/login.conf 文件来定义登录类别。虽然该方法仍受支持，但任何更改都需经过多个步骤：
+<ol class="org-ol">
+<li>编辑该文件</li>
+<li>重建资源数据库</li>
+<li>修改 /etc/master.passwd 文件</li>
+<li><p>
+重建密码数据库
+</p>
+<pre class="example" id="org8317ddb">
+这一过程繁琐，耗时取决于需配置的用户数量
+</pre></li>
+</ol></li>
+<li>rctl 提供了一种更细粒度的资源限制机制，它还可为进程和 jail 设置资源约束</li>
+</ol>
+
+<pre class="example" id="orge4567d6">
+接下来演示两种控制资源的方法，从传统方法开始
+</pre>
+</div>
+</div>
+<div id="outline-container-orgc14ee40" class="outline-2">
+<h2 id="orgc14ee40">传统方法</h2>
+<div class="outline-text-2" id="text-orgc14ee40">
+</div>
+<div id="outline-container-orgb790c96" class="outline-3">
+<h3 id="orgb790c96">资源类型</h3>
+<div class="outline-text-3" id="text-orgb790c96">
+<p>
+FreeBSD 支持对以下资源类型施加限制：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 资源类型表</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">类型</td>
+<td class="org-left">描述</td>
+</tr>
+
+<tr>
+<td class="org-left">cputime</td>
+<td class="org-left">限制进程可消耗的 CPU 时间量</td>
+</tr>
+
+<tr>
+<td class="org-left">memoryuse/memorylocked</td>
+<td class="org-left">控制进程可使用的物理内存量/锁定内存量</td>
+</tr>
+
+<tr>
+<td class="org-left">openfiles</td>
+<td class="org-left">限制进程可同时打开的文件数量</td>
+</tr>
+
+<tr>
+<td class="org-left">maxproc</td>
+<td class="org-left">控制用户或进程可创建的进程数量</td>
+</tr>
+
+<tr>
+<td class="org-left">filesize</td>
+<td class="org-left">限制进程可创建的文件的最大大小</td>
+</tr>
+
+<tr>
+<td class="org-left">coredumpsize</td>
+<td class="org-left">控制是否允许进程生成核心转储文件及其大小</td>
+</tr>
+
+<tr>
+<td class="org-left">datasize/stacksize</td>
+<td class="org-left">限制数据段/栈段大小</td>
+</tr>
+
+<tr>
+<td class="org-left">vmemoryuse</td>
+<td class="org-left">限制进程的总虚拟存储器使用量</td>
+</tr>
+
+<tr>
+<td class="org-left">sbsize</td>
+<td class="org-left">限制套接字缓冲区大小</td>
+</tr>
+
+<tr>
+<td class="org-left">pseudoterminals</td>
+<td class="org-left">限制伪终端数量</td>
+</tr>
+
+<tr>
+<td class="org-left">swapuse</td>
+<td class="org-left">限制交换空间使用量</td>
+</tr>
+
+<tr>
+<td class="org-left">umtxp</td>
+<td class="org-left">限制进程共享 pthread 锁的最大数量</td>
+</tr>
+
+<tr>
+<td class="org-left">pipebuf</td>
+<td class="org-left">限制管道缓冲区的最大大小</td>
+</tr>
+
+<tr>
+<td class="org-left">nthr</td>
+<td class="org-left">限制线程数（仅 rctl）</td>
+</tr>
+
+<tr>
+<td class="org-left">wallclock/pcpu</td>
+<td class="org-left">限制墙钟时间/CPU 百分比（仅 rctl）</td>
+</tr>
+
+<tr>
+<td class="org-left">readbps/writebps/readiops/writeiops</td>
+<td class="org-left">限制文件系统读写速率（仅 rctl）</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="outline-container-orgeeae1ce" class="outline-3">
+<h3 id="orgeeae1ce">配置登录类别</h3>
+<div class="outline-text-3" id="text-orgeeae1ce">
+<p>
+传统方法中，登录类别及其关联的资源限制定义在 <b>/etc/login.conf</b> 文件中。每个用户账户可归入某个登录类别， <span class="underline">default</span> 为默认类别。各类别关联一组 <b>登录能力</b> <span class="underline">login capability</span> ，格式为 <span class="underline">名称=值</span> 对
+</p>
+<ul class="org-ul">
+<li>其中 名称 是已知标识符</li>
+<li>值 为任意字符串</li>
+<li>按对应 名称 的规则处理</li>
+</ul>
+
+<p>
+配置资源限制须先编辑 /etc/login.conf 文件，定位至拟修改的用户类别节。本例假设所用类别名为 limited，若不存在则创建。
+</p>
+
+<pre class="example" id="org3f84426">
+limited:\	# 用户类别名称
+        :maxproc=50:\ # 将 limited 类别下用户的最大进程数（maxproc）设为 50
+        :tc=default: # 此用户类别继承 default 类别的默认设置
+</pre>
+
+<p>
+修改 /etc/login.conf 后，运行 <span class="underline">cap_mkdb</span> 生成数据库，供 FreeBSD 应用这些设置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ cap_mkdb /etc/login.conf
+</pre>
+</div>
+
+<p>
+<span class="underline">chpass</span> 可为目标用户 ykla 切换类别：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ chpass ykla
+</pre>
+</div>
+
+<pre class="example" id="org0b80de2">
+使用命令 export EDITOR=ee 可将默认编辑器由 vi 变更为 ee，便于操作
+</pre>
+
+<p>
+这将打开文本编辑器，按如下方式添加新的 limited 类别：
+</p>
+
+<pre class="example" id="org5aa53cd">
+#Changing user information for ykla.
+
+Login: ykla
+Password: $6$SqMJXrv5aC6Wq.by$nmbZs078aHNBVyh9noLFouJsGHyFSvQIzH0W4zpdfXuPtGtt.FHgWfXDHVBa
+Uid [#]: 1001
+Gid [# or name]: 1001
+Change [month day year]:
+Expire [month day year]: April 16, 2027
+Class: limited
+Home directory: /home/ykla
+Shell: /bin/sh
+Full Name: User &amp;
+Office Location:
+Office Phone:
+Home Phone:
+Other information:
+</pre>
+
+<p>
+现在归属于 limited 类别的用户，其最大进程数将限制为 50
+</p>
+
+<pre class="example" id="org7bddf73">
+注意，以上仅为使用 /etc/login.conf 设置资源限制的一个示例
+</pre>
+
+<p>
+修改 /etc/login.conf 后，用户需注销并重新登录才能使更改生效
+</p>
+</div>
+</div>
+<div id="outline-container-orgc0d2194" class="outline-3">
+<h3 id="orgc0d2194">Rctl</h3>
+<div class="outline-text-3" id="text-orgc0d2194">
+<p>
+rctl 命令用于控制资源限制，可 <b>动态</b> 分配资源约束至特定进程或用户，与所属用户类别无关。使用 rctl 前需先将其启用，在 <b>/boot/loader.conf</b> 中添加以下行并重启系统：
+</p>
+<pre class="example" id="org80a5401">
+kern.racct.enable=1
+</pre>
+
+<p>
+再执行以下命令启用并启动 rctl 服务：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ service rctl enable
+$ service rctl start
+</pre>
+</div>
+
+<pre class="example" id="orga75395b">
+此后即可使用 rctl 为系统设置规则
+</pre>
+
+
+<p>
+规则语法含 <b>主语</b> <span class="underline">process</span> 、 <span class="underline">user</span> 、 <span class="underline">loginclass</span> 或 <span class="underline">jail</span> 、 <b>主语id</b> 、 <b>资源</b> 与 <b>动作</b> 四部分：
+</p>
+
+<pre class="example" id="org1c820d2">
+主语:主语id:资源:动作=数量/对象
+</pre>
+
+<p>
+其中 <b>对象</b> 定义数量统计范围：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 2:</span> 对象</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">标识路径</td>
+<td class="org-left">作用范围</td>
+<td class="org-left">说明</td>
+</tr>
+
+<tr>
+<td class="org-left">/process</td>
+<td class="org-left">每进程</td>
+<td class="org-left">对单个进程分别应用资源限制</td>
+</tr>
+
+<tr>
+<td class="org-left">/user</td>
+<td class="org-left">每用户</td>
+<td class="org-left">对同一用户的所有进程统一限制</td>
+</tr>
+
+<tr>
+<td class="org-left">/loginclass</td>
+<td class="org-left">每登录类别</td>
+<td class="org-left">按登录类别（login class）分组限制</td>
+</tr>
+</tbody>
+</table>
+
+
+<pre class="example" id="orgd41293c">
+省略时默认与主语一致
+</pre>
+
+
+<p>
+常见可用动作：
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 3:</span> 动作</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">动作</td>
+<td class="org-left">说明</td>
+</tr>
+
+<tr>
+<td class="org-left">deny</td>
+<td class="org-left">拒绝该资源分配或操作</td>
+</tr>
+
+<tr>
+<td class="org-left">log</td>
+<td class="org-left">不阻止操作，仅在控制台记录警告信息</td>
+</tr>
+
+<tr>
+<td class="org-left">devctl</td>
+<td class="org-left">向 devd(8) 发送事件通知，由系统设备守护进程处理</td>
+</tr>
+
+<tr>
+<td class="org-left">sig*</td>
+<td class="org-left">向违规进程发送信号（如 sigterm、sigkill 等）</td>
+</tr>
+
+<tr>
+<td class="org-left">throttle</td>
+<td class="org-left">减慢进程执行速度；仅支持 readbps、writebps、readiops、writeiops</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+例如，要约束用户 ykla 最多只能创建 10 个进程，可执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ rctl -a user:ykla:maxproc:<span style="color: #eedd82;">deny</span>=10/user
+</pre>
+</div>
+
+<p>
+要检查已应用的资源限制，执行 rctl：
+</p>
+
+
+<div class="org-src-container">
+<pre class="src src-sh">$ rctl 
+</pre>
+</div>
+
+<p>
+输出应类似于以下内容：
+</p>
+<pre class="example" id="org85a7e1e">
+user:ykla:maxproc:deny=10
+</pre>
+
+<p>
+将规则写入 /etc/rctl.conf 文件，重启后仍可生效。格式为单条规则，无需前导命令。例如，前述规则可添加为：
+</p>
+
+<pre class="example" id="org7c3384d">
+user:ykla:maxproc:deny=10
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="security_level.html">Next: 安全等级</a></td>
+<td class="org-left"><a href="authentication.html">Previous：账户认证</a></td>
+<td class="org-left"><a href="security.html">Home: 安全管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
