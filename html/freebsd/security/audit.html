@@ -205,7 +205,33 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#orgd463b47">进程记账</a></li>
+<li><a href="#orgd463b47">进程记账</a>
+<ul>
+<li><a href="#org4eb1070">启用和使用进程记账</a></li>
+</ul>
+</li>
+<li><a href="#org9a0573c">安全事件审计概述</a>
+<ul>
+<li><a href="#org67fb40f">关键术语</a></li>
+<li><a href="#orgae8cfdd">审计配置</a>
+<ul>
+<li><a href="#orgd05fbc8">事件选择表达式</a></li>
+<li><a href="#org52e64ca">配置文件</a>
+<ul>
+<li><a href="#orgf004fef">audit_control 文件</a></li>
+<li><a href="#org0ec4886">audit_user 文件</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orgae316d5">处理审计跟踪</a>
+<ul>
+<li><a href="#org110eb00">使用审计管道进行实时监控</a></li>
+<li><a href="#org39b0954">轮替与压缩审计跟踪文件</a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -214,6 +240,724 @@
 </p>
 <div id="outline-container-orgd463b47" class="outline-2">
 <h2 id="orgd463b47">进程记账</h2>
+<div class="outline-text-2" id="text-orgd463b47">
+<p>
+进程记账是安全手段之一，管理员可借此追踪系统资源用量及其在不同用户间的分配，监控系统，并可在最低限度上追踪用户执行的命令
+</p>
+
+<pre class="example" id="org3503454">
+进程记账有利有弊。优势是可追溯入侵至入侵点；弊端在于产生海量日志，对磁盘空间要求较高
+</pre>
+</div>
+<div id="outline-container-org4eb1070" class="outline-3">
+<h3 id="org4eb1070">启用和使用进程记账</h3>
+<div class="outline-text-3" id="text-org4eb1070">
+<p>
+启用进程记账前，需执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ service accounting enable
+$ service accounting start
+</pre>
+</div>
+
+<p>
+记账信息存储于 <b>/var/account</b> 目录
+</p>
+<ul class="org-ul">
+<li>首次启动记账服务时按需自动创建</li>
+<li>这些文件包含敏感信息，记录了所有用户执行过的每条命令
+<ul class="org-ul">
+<li>仅 root 可写</li>
+<li>仅 root 与 wheel 组成员可读</li>
+<li>如果需同时阻止 wheel 成员读取，可将 /var/account 目录权限改为仅 root 可访问</li>
+</ul></li>
+</ul>
+
+<p>
+启用后，记账即开始跟踪 CPU 信息、已执行命令等。所有记账日志均为二进制格式，须经 <span class="underline">sa</span> 查看。不加选项执行时，sa 打印每位用户的 <span class="underline">调用次数</span> 、 <span class="underline">总经过时间</span> （分钟）、 <span class="underline">总 CPU 时间与用户时间</span> （分钟）及 <span class="underline">平均 I/O 操作次数</span> 等信息
+</p>
+
+<p>
+要显示用户执行的命令，使用 <span class="underline">lastcomm</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ lastcomm ls trhodes ttyp1
+</pre>
+</div>
+
+<pre class="example" id="orgf390306">
+例如，此命令打印 trhodes 在 ttyp1 终端上所有 ls 的使用记录
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org9a0573c" class="outline-2">
+<h2 id="org9a0573c">安全事件审计概述</h2>
+<div class="outline-text-2" id="text-org9a0573c">
+<p>
+FreeBSD 操作系统支持 <b>安全事件审计</b>  。事件审计可对各类安全系统事件做可靠、精细、可配置的日志记录，包含 <span class="underline">登录</span> 、 <span class="underline">配置变更</span> 、 <span class="underline">文件与网络访问</span> 。这些日志可用于实时监控、入侵检测及事后分析
+</p>
+
+<pre class="example" id="org676b0a9">
+FreeBSD 实现了 Sun 发布的 Basic Security Module（BSM）API 及文件格式，与 Solaris 与 macOS 审计实现互通
+
+接下来介绍事件审计的安装与配置，阐释审计策略，并提供一个审计配置示例
+</pre>
+
+
+<p>
+安全事件审计设施可生成极详细的系统活动日志。繁忙系统若配置为高细节级别，跟踪文件数据量可能极其庞大，某些配置下每周可超过数 GB
+</p>
+<pre class="example" id="org9559a72">
+管理员应考虑高数据量审计配置对磁盘空间的需求
+
+例如，可能需要为 /var/audit 分配专用文件系统，避免写满后影响其他文件系统
+</pre>
+
+<p>
+审计设施存在一些已知局限性。并非所有安全系统事件均可审计，且部分登录机制（如基于 Xorg 的显示管理器和第三方守护进程）无法正确为用户登录会话配置审计
+</p>
+</div>
+<div id="outline-container-org67fb40f" class="outline-3">
+<h3 id="org67fb40f">关键术语</h3>
+<div class="outline-text-3" id="text-org67fb40f">
+<p>
+以下术语与安全事件审计相关：
+</p>
+<ul class="org-ul">
+<li><b>事件</b> <span class="underline">event</span> ：可审计事件即审计子系统能够记录的任何事件
+<ul class="org-ul">
+<li>安全事件示例包括 <span class="underline">创建文件</span> 、 <span class="underline">建立网络连接</span> 或 <span class="underline">用户登录</span></li>
+<li><p>
+事件分 <b>有归属</b> <span class="underline">attributable</span> ，可追溯至已认证用户 和 <b>无归属</b> <span class="underline">non-attributable</span> 两类
+</p>
+<pre class="example" id="orgc4ae531">
+无归属事件例如认证前发生的错误密码尝试等
+</pre></li>
+</ul></li>
+<li><b>类</b> <span class="underline">class</span> ：一组命名相关事件，用于选择表达式。常用事件类包括 <b>文件创建</b> <span class="underline">fc</span> 、 <b>执行</b> <span class="underline">ex</span> 和 <b>登录_注销</b> <span class="underline">lo</span></li>
+<li><b>记录</b> <span class="underline">record</span> ：描述安全事件的审计日志条目。记录包括 <span class="underline">事件类型</span> 、 <span class="underline">执行主体（用户）</span> 信息、 <span class="underline">日期时间</span> 、 <span class="underline">涉及的对象或参数</span> ，以及 <span class="underline">成功</span> 或 <span class="underline">失败</span> 条件</li>
+<li><p>
+<b>跟踪</b> <span class="underline">trail</span> ：由一系列描述安全事件的审计记录组成的日志文件
+</p>
+<pre class="example" id="orga94fd01">
+跟踪大致按事件完成时间排列。仅授权进程可向审计跟踪提交记录
+</pre></li>
+<li><b>选择表达式</b> <span class="underline">selection expression</span> ：一个字符串，包含前缀列表和审计事件类名称，用于匹配事件</li>
+<li><p>
+<b>预选择</b> <span class="underline">preselection</span> ：系统确定管理员关注哪些事件的过程
+</p>
+<pre class="example" id="org4b274b3">
+预选择配置使用一系列选择表达式，确定对哪些用户审计哪些事件类
+
+以及同时适用于已认证和未认证进程的全局设置
+</pre></li>
+<li><p>
+<b>精简</b> <span class="underline">reduction</span> ：从现有审计跟踪中筛选记录以供保存、打印或分析的过程；同样也是从审计跟踪中移除不需要的审计记录的过程
+</p>
+<pre class="example" id="org0fa86ab">
+管理员可借助精简实施审计数据保存策略
+
+例如，详细审计跟踪可保留一个月，之后可精简跟踪，仅保留登录信息以供归档
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgae8cfdd" class="outline-3">
+<h3 id="orgae8cfdd">审计配置</h3>
+<div class="outline-text-3" id="text-orgae8cfdd">
+<pre class="example" id="org88cd970">
+事件审计的用户空间支持已随 FreeBSD 基础系统安装。GENERIC 内核默认提供内核支持
+</pre>
+<p>
+启用 <span class="underline">auditd</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ service auditd enable
+</pre>
+</div>
+
+<p>
+随后启动审计守护进程：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ service auditd start
+</pre>
+</div>
+
+<p>
+使用定制内核的用户，必须在其配置文件中加入：
+</p>
+<pre class="example" id="orge12d0be">
+options	AUDIT
+</pre>
+</div>
+<div id="outline-container-orgd05fbc8" class="outline-4">
+<h4 id="orgd05fbc8">事件选择表达式</h4>
+<div class="outline-text-4" id="text-orgd05fbc8">
+<p>
+选择表达式用于审计配置，确定应审计的事件。表达式包含待匹配的事件类列表，从左至右求值，合并两个表达式即前后拼接 
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 汇总了默认审计事件类</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">类名</td>
+<td class="org-left">描述</td>
+<td class="org-left">操作</td>
+</tr>
+
+<tr>
+<td class="org-left">all</td>
+<td class="org-left">全部</td>
+<td class="org-left">匹配所有事件类</td>
+</tr>
+
+<tr>
+<td class="org-left">aa</td>
+<td class="org-left">认证与授权</td>
+<td class="org-left">&#xa0;</td>
+</tr>
+
+<tr>
+<td class="org-left">ad</td>
+<td class="org-left">管理</td>
+<td class="org-left">面向系统整体的管理操作</td>
+</tr>
+
+<tr>
+<td class="org-left">ap</td>
+<td class="org-left">应用程序</td>
+<td class="org-left">应用程序定义的操作</td>
+</tr>
+
+<tr>
+<td class="org-left">cl</td>
+<td class="org-left">文件关闭</td>
+<td class="org-left">审计对 close 系统调用的调用</td>
+</tr>
+
+<tr>
+<td class="org-left">ex</td>
+<td class="org-left">执行</td>
+<td class="org-left">审计程序执行命令行参数和环境变量的审计通过 audit_control 中的 policy 设置，使用 argv 和 envv 参数控制</td>
+</tr>
+
+<tr>
+<td class="org-left">fa</td>
+<td class="org-left">文件属性访问</td>
+<td class="org-left">审计对象属性的访问，如 stat(1) 和 pathconf(2)</td>
+</tr>
+
+<tr>
+<td class="org-left">fc</td>
+<td class="org-left">文件创建</td>
+<td class="org-left">审计文件创建相关事件</td>
+</tr>
+
+<tr>
+<td class="org-left">fd</td>
+<td class="org-left">文件删除</td>
+<td class="org-left">审计文件删除相关事件</td>
+</tr>
+
+<tr>
+<td class="org-left">fm</td>
+<td class="org-left">文件属性修改</td>
+<td class="org-left">审计文件属性修改相关事件，如 chown(8)、chflags(1) 和 flock(2)</td>
+</tr>
+
+<tr>
+<td class="org-left">fr</td>
+<td class="org-left">文件读取</td>
+<td class="org-left">审计读取数据或为读取而打开文件的事件</td>
+</tr>
+
+<tr>
+<td class="org-left">fw</td>
+<td class="org-left">文件写入</td>
+<td class="org-left">审计写入数据或写入/修改文件的事件</td>
+</tr>
+
+<tr>
+<td class="org-left">io</td>
+<td class="org-left">ioctl 审计</td>
+<td class="org-left">ioctl 系统调用的使用</td>
+</tr>
+
+<tr>
+<td class="org-left">ip</td>
+<td class="org-left">进程间通信</td>
+<td class="org-left">审计各种形式的进程间通信，包括 POSIX 管道和 System V IPC 操作</td>
+</tr>
+
+<tr>
+<td class="org-left">lo</td>
+<td class="org-left">登录_注销</td>
+<td class="org-left">审计 login(1) 和 logout(1) 事件</td>
+</tr>
+
+<tr>
+<td class="org-left">na</td>
+<td class="org-left">无归属</td>
+<td class="org-left">审计无归属事件</td>
+</tr>
+
+<tr>
+<td class="org-left">no</td>
+<td class="org-left">无效类</td>
+<td class="org-left">不匹配任何审计事件</td>
+</tr>
+
+<tr>
+<td class="org-left">nt</td>
+<td class="org-left">网络</td>
+<td class="org-left">审计与网络操作相关的事件，如 connect(2) 和 accept(2)</td>
+</tr>
+
+<tr>
+<td class="org-left">ot</td>
+<td class="org-left">其他</td>
+<td class="org-left">审计其他杂项事件</td>
+</tr>
+
+<tr>
+<td class="org-left">pc</td>
+<td class="org-left">进程</td>
+<td class="org-left">审计进程操作，如 exec(3) 和 exit(3)</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org0d9b6be">
+可修改配置文件 /etc/security/audit_class 和 /etc/security/audit_event 自定义上述审计事件类
+</pre>
+
+<p>
+每个审计事件类可附带前缀，表示匹配成功或失败的操作，以及该条目为该类及类型增加还是移除匹配。审计事件类前缀汇总如下：
+</p>
+
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 2:</span> 汇总了默认审计事件类</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">前缀</td>
+<td class="org-left">操作</td>
+</tr>
+
+<tr>
+<td class="org-left">+</td>
+<td class="org-left">审计该类中成功的事件</td>
+</tr>
+
+<tr>
+<td class="org-left">-</td>
+<td class="org-left">审计该类中失败的事件</td>
+</tr>
+
+<tr>
+<td class="org-left">^</td>
+<td class="org-left">既不审计该类中成功也不审计失败的事件</td>
+</tr>
+
+<tr>
+<td class="org-left">^+</td>
+<td class="org-left">不审计该类中成功的事件</td>
+</tr>
+
+<tr>
+<td class="org-left">^-</td>
+<td class="org-left">不审计该类中失败的事件</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="orgf595170">
+如果没有前缀，该事件成功与失败实例均受审计
+</pre>
+<p>
+以下示例选择字符串选择成功和失败的登录/注销事件，但仅选择成功的执行事件：
+</p>
+
+<pre class="example" id="orge330e9e">
+lo,+ex
+</pre>
+</div>
+</div>
+<div id="outline-container-org52e64ca" class="outline-4">
+<h4 id="org52e64ca">配置文件</h4>
+<div class="outline-text-4" id="text-org52e64ca">
+<p>
+安全事件审计的以下配置文件位于路径 <b>/etc/security</b> 中：
+</p>
+<pre class="example" id="org39fd54e">
+/etc/security
+			├── audit_control   -&gt; 控制审计子系统
+			├── audit_class     -&gt; 审计类定义
+			├── audit_event     -&gt; 系统审计事件
+			├── audit_user      -&gt; 用户特定的审计要求
+			└── audit_warn      -&gt; 警告消息脚本
+</pre>
+<ul class="org-ul">
+<li><p>
+/etc/security/audit_control：控制审计子系统的各方面
+</p>
+<pre class="example" id="org1e87a84">
+如默认审计类、审计日志卷上保留的最小磁盘空间以及最大审计跟踪大小
+</pre></li>
+<li>/etc/security/audit_class：包含审计类定义</li>
+<li>/etc/security/audit_event：系统审计事件的文本名称与描述，以及每个事件所属的类列表</li>
+<li>/etc/security/audit_user：用户特定的审计要求，在登录时与全局默认值合并</li>
+<li><p>
+/etc/security/audit_warn：由 auditd 使用的可自定义 shell 脚本，用于在异常情况下生成警告消息
+</p>
+<pre class="example" id="orgfd67fdc">
+例如审计记录空间即将耗尽或审计跟踪文件已完成轮替时
+</pre></li>
+</ul>
+
+<p>
+审计配置文件应谨慎编辑和维护，配置错误可能造成事件日志记录失当
+</p>
+
+<pre class="example" id="org2782e2e">
+多数情况下，管理员仅需修改 /etc/security/audit_control 和 /etc/security/audit_user
+
+前者控制系统级审计属性与策略，后者可按用户精细调整审计
+</pre>
+</div>
+<div id="outline-container-orgf004fef" class="outline-5">
+<h5 id="orgf004fef">audit_control 文件</h5>
+<div class="outline-text-5" id="text-orgf004fef">
+<p>
+可在 /etc/security/audit_control 文件中指定审计子系统的若干默认值：
+</p>
+
+<pre class="example" id="orgbd79e53">
+dir:/var/audit
+dist:off
+flags:lo,aa
+minfree:5
+naflags:lo,aa
+policy:cnt,argv
+filesz:2M
+expire-after:10M
+</pre>
+
+<p>
+以上是基本系统中 <b>/etc/security/audit_control</b> 文件的默认值，其源代码位于 contrib/openbsm/etc/audit_control。
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">条目</td>
+<td class="org-left">作用</td>
+<td class="org-left">说明</td>
+</tr>
+
+<tr>
+<td class="org-left">dir</td>
+<td class="org-left">审计日志目录</td>
+<td class="org-left">设定一个或多个审计日志存储目录；如果有多个，则按顺序依次写满后切换；通常建议使用独立文件系统以避免写满影响其他系统组件</td>
+</tr>
+
+<tr>
+<td class="org-left">dist</td>
+<td class="org-left">分发（硬链接）</td>
+<td class="org-left">设为 on 或 yes 时，在 /var/audit/dist 中为所有审计跟踪文件创建硬链接</td>
+</tr>
+
+<tr>
+<td class="org-left">flags</td>
+<td class="org-left">默认预选择掩码（有归属事件）</td>
+<td class="org-left">定义系统范围内“有归属事件”的默认审计类；例如登录/注销成功与失败、认证与授权等事件</td>
+</tr>
+
+<tr>
+<td class="org-left">minfree</td>
+<td class="org-left">最小空闲空间</td>
+<td class="org-left">指定审计日志所在文件系统允许的最小剩余空间百分比</td>
+</tr>
+
+<tr>
+<td class="org-left">naflags</td>
+<td class="org-left">无归属事件掩码</td>
+<td class="org-left">指定“无归属事件”应审计的类别，例如登录/注销过程及认证与授权</td>
+</tr>
+
+<tr>
+<td class="org-left">policy</td>
+<td class="org-left">审计策略</td>
+<td class="org-left">以逗号分隔的策略标志列表；cnt 表示审计失败时系统继续运行（推荐），argv 表示记录 execve(2) 的命令行参数</td>
+</tr>
+
+<tr>
+<td class="org-left">filesz</td>
+<td class="org-left">跟踪文件大小限制</td>
+<td class="org-left">指定单个审计跟踪文件自动终止并轮替前的最大大小；0 表示禁用自动轮替；小于 512k 的值会被忽略并记录日志</td>
+</tr>
+
+<tr>
+<td class="org-left">expire-after</td>
+<td class="org-left">日志过期策略</td>
+<td class="org-left">指定审计日志文件的到期时间，到期后自动删除</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="outline-container-org0ec4886" class="outline-5">
+<h5 id="org0ec4886">audit_user 文件</h5>
+<div class="outline-text-5" id="text-org0ec4886">
+<p>
+管理员可在 <b>/etc/security/audit_user</b> 文件中为特定用户指定更多审计要求。每行以两个字段为用户配置审计：
+</p>
+<ul class="org-ul">
+<li>alwaysaudit 字段指定始终对该用户审计的事件集</li>
+<li>neveraudit 字段指定始终不对该用户审计的事件集</li>
+</ul>
+
+<p>
+audit_user 文件默认值如下：
+</p>
+<pre class="example" id="orge04e3bc">
+root:lo:no
+</pre>
+
+<p>
+想要为 www 用户审计文件创建和成功的命令执行
+</p>
+
+<pre class="example" id="org267b3e3">
+root:lo,+ex:no
+www:fc,+ex:no
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orgae316d5" class="outline-3">
+<h3 id="orgae316d5">处理审计跟踪</h3>
+<div class="outline-text-3" id="text-orgae316d5">
+<p>
+由于审计跟踪以 BSM 二进制格式存储，FreeBSD 提供了若干内置工具用于修改或转换为文本。要将跟踪文件转换为简易文本格式，可使用 <span class="underline">praudit</span> 。此工具支持多种选择参数：事件类型、事件类、用户、事件日期或时间，以及操作所涉文件路径或对象。例如，以纯文本形式转储指定审计日志的全部内容
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ praudit /var/audit/&#23457;&#35745;&#26085;&#24535;
+</pre>
+</div>
+
+<pre class="example" id="org9bb37cf">
+要精简审计跟踪文件以供分析、归档或打印，可使用 auditreduce
+</pre>
+
+<p>
+审计跟踪由一系列审计记录组成，每条记录由若干 <b>令牌</b> <span class="underline">token</span> 构成，praudit 按顺序每行打印一个。每个令牌均属特定类型
+</p>
+<pre class="example" id="org7cf578e">
+例如 header（审计记录头）或 path（名称查找产生的文件路径）
+</pre>
+
+<p>
+以下为一条 execve 事件的示例：
+</p>
+
+<pre class="example" id="org0573706">
+header,133,10,execve(2),0,Mon Sep 25 15:58:03 2006, + 384 msec
+exec arg,finger,doug
+path,/usr/bin/finger
+attribute,555,root,wheel,90,24918,104944
+subject,robert,root,wheel,root,wheel,38439,38032,42086,128.232.9.100
+return,success,0
+trailer,133
+</pre>
+
+<p>
+此审计记录表示一次成功的 execve 调用，执行了 finger doug 命令
+</p>
+<ul class="org-ul">
+<li>exec arg: 包含 shell 传递给内核的已处理命令行</li>
+<li>path: 持有内核查找到的可执行文件路径</li>
+<li>attribute: 令牌描述该二进制文件，含文件模式</li>
+<li><p>
+subject: 令牌存储审计用户 ID、有效用户 ID 和组 ID、真实用户 ID 和组 ID、进程 ID、会话 ID、端口 ID 以及登录地址
+</p>
+<pre class="example" id="org0096508">
+审计用户 ID 与真实用户 ID 不同
+
+用户 robert 执行此命令前已切换至 root 账户，但命令仍以原始认证用户审计
+</pre></li>
+<li>return: 令牌指示执行成功</li>
+<li>trailer: 结束该记录</li>
+</ul>
+
+<p>
+由于审计日志可能异常庞大，可使用 auditreduce 选取记录子集。以下示例选取审计日志文件中（AUDITFILE 为占位符，需替换为实际文件名，如 20240521140528.not_terminated）为用户 trhodes 产生的所有审计记录：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ auditreduce -u trhodes /var/audit/AUDITFILE | praudit
+</pre>
+</div>
+
+<p>
+audit 组默认为空，因此仅 root 可读 /var/audit 中的审计跟踪；将用户加入 audit 组可授予审计审阅权限
+</p>
+
+<pre class="example" id="org127f6aa">
+审计日志包含敏感信息，因此建议审慎授予审计审阅权限
+</pre>
+</div>
+<div id="outline-container-org110eb00" class="outline-4">
+<h4 id="org110eb00">使用审计管道进行实时监控</h4>
+<div class="outline-text-4" id="text-org110eb00">
+<p>
+审计管道为 <b>可克隆伪设备</b> ，应用程序可借此接入实时审计记录流，主要面向入侵检测和系统监控程序开发者
+</p>
+
+<pre class="example" id="org7671047">
+审计管道设备也为管理员提供了便捷的实时监控手段，不受审计跟踪文件所有权或日志轮替中断事件流的影响
+</pre>
+
+<p>
+要追踪实时审计事件流：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ praudit /dev/auditpipe
+</pre>
+</div>
+
+<p>
+默认情况下，审计管道设备节点仅可由 root 用户访问。要使 audit 组成员也能访问，可在 <b>/etc/devfs.rules</b> 中添加一条 devfs 规则：
+</p>
+
+<pre class="example" id="org9c8cc4e">
+add path 'auditpipe*' mode 0440 group audit
+</pre>
+
+<p>
+审计事件容易产生反馈循环：每查看一条审计事件便会生成更多审计事件
+</p>
+<pre class="example" id="org398bda5">
+例如，如果审计了所有网络 I/O，并通过 SSH 会话运行 praudit，则会持续高速产生审计事件流
+
+因为打印的每个事件都会触发新事件
+
+因此建议在无细粒度 I/O 审计的会话中运行 praudit（接审计管道设备）
+</pre>
+</div>
+</div>
+<div id="outline-container-org39b0954" class="outline-4">
+<h4 id="org39b0954">轮替与压缩审计跟踪文件</h4>
+<div class="outline-text-4" id="text-org39b0954">
+<pre class="example" id="org2f8afe5">
+审计跟踪由内核写入，审计守护进程 auditd 管理
+
+管理员不应使用 newsyslog.conf(5)  等工具直接轮替审计日志
+
+应改用 audit 关闭审计、重新配置并轮替日志
+</pre>
+<p>
+以下命令令审计守护进程创建新审计日志，并通知内核切换。旧日志终止后重命名，可供管理员后续处理:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ audit -n
+</pre>
+</div>
+
+<pre class="example" id="org0b10e5d">
+如果 auditd 当前未运行，此命令失败并报错
+</pre>
+
+<p>
+在 /etc/crontab 中加入以下行，每 12 小时执行一次轮替：
+</p>
+
+<pre class="example" id="org33660bd">
+0     */12       *       *       *       root    /usr/sbin/audit -n
+</pre>
+
+<p>
+保存 /etc/crontab 文件后此更改即生效
+</p>
+
+<pre class="example" id="org6fc8527">
+基于文件大小自动轮替审计跟踪文件可通过 audit_control 中的 filesz 实现
+</pre>
+
+<p>
+审计跟踪文件可能变得极大，审计守护进程关闭跟踪后，通常需压缩或归档。 <span class="underline">audit_warn</span> 脚本可针对各类审计事件执行自定义操作，包括跟踪在轮替时正常终止的情形。例如，可在 <b>/etc/security/audit_warn</b> 中添加以下内容，以在关闭时压缩审计跟踪：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">Compress audit trail files on close.
+</span><span style="color: #ff4500;">#</span><span style="color: #ff4500;">
+</span><span style="color: #00ffff;">if</span> [ <span style="color: #ffa07a;">"$1"</span> = closefile ]; <span style="color: #00ffff;">then</span>
+    gzip -9 $<span style="color: #eedd82;">2</span>
+<span style="color: #00ffff;">fi</span>
+</pre>
+</div>
+
+<pre class="example" id="orgd17f305">
+其他归档操作可能包含复制跟踪文件至中央服务器、删除旧跟踪文件，或精简审计跟踪以移除不需要的记录
+
+此脚本仅在审计跟踪文件正常终止时运行，非正常关机遗留的未终止跟踪则不触发
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="ssl.html">Next: OpenSSL</a></td>
+<td class="org-left"><a href="root_desktop.html">Previous: Root桌面登录</a></td>
+<td class="org-left"><a href="security.html">Home: 安全管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
