@@ -206,6 +206,9 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org0fca22c">入侵检测系统（IDS）</a></li>
+<li><a href="#org56ffb9f">生成规范文件</a></li>
+<li><a href="#orgf92bbad">规范文件结构</a></li>
+<li><a href="#org29972ae">验证规范文件</a></li>
 </ul>
 </div>
 </div>
@@ -213,11 +216,205 @@
 mtree 以种子值生成目录校验和规范，可事后比对以识别文件变更
 </p>
 
-<pre class="example" id="orgc233283">
+<pre class="example" id="orgac4874f">
 本节介绍规范创建、模拟篡改和校验验证的完整流程
 </pre>
 <div id="outline-container-org0fca22c" class="outline-2">
 <h2 id="org0fca22c">入侵检测系统（IDS）</h2>
+<div class="outline-text-2" id="text-org0fca22c">
+<p>
+验证系统文件和二进制文件的完整性，是系统管理与安全团队掌握变更情况的重要手段。凡能监控系统变更的软件，统称为 <b>入侵检测系统</b> <span class="underline">Intrusion Detection System, IDS</span> 
+</p>
+
+<pre class="example" id="orgfbfda27">
+FreeBSD 原生内置基本 IDS: mtree
+
+不过，每夜安全邮件虽会通报变更，但信息存储于本地，恶意用户仍有机会篡改记录以掩盖其操作
+
+因此，宜另建一套独立的二进制签名，置于只读、属主为 root 的目录；存放在可移动 USB 磁盘或远程服务器上更佳
+</pre>
+
+<p>
+建议在每次更新后运行 <span class="underline">freebsd-update IDS</span> 。目前该命令与 pkgbase 不兼容，报错如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">freebsd-update is incompatible with the use of packaged base.  Please see
+https://wiki.freebsd.org/PkgBase for more information.
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org56ffb9f" class="outline-2">
+<h2 id="org56ffb9f">生成规范文件</h2>
+<div class="outline-text-2" id="text-org56ffb9f">
+<p>
+内置的 mtree 工具可生成目录内容的规范。规范的生成依赖种子值（数值常量），后续检查同样需要它，以此判断文件或二进制文件是否遭修改。攻击者无法获知种子值，伪造或比对校验和将极其困难，甚至不可行
+</p>
+
+<pre class="example" id="org243280d">
+建议为存放二进制和配置文件的目录，以及所有包含敏感数据的目录生成规范
+
+常见对象包含 /bin、/sbin、/usr/bin、/usr/sbin、/usr/local/bin、/etc 和 /usr/local/etc
+</pre>
+
+<p>
+下面的示例为 <i>bin 下的每个系统二进制文件生成一组 SHA-512 哈希值，并存入用户主目录下的隐藏文件 */home/ykla</i>.bin_chksum_mtree* ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ mtree -s 123456789 -c -K cksum,sha512 -p /bin &gt; /home/ykla/.bin_chksum_mtree
+</pre>
+</div>
+
+<pre class="example" id="org668ab49">
+上述示例中的 123456789、/home/ykla 为占位符，须替换为实际的值
+
+123456789 代表种子值，应随机选取。种子值应牢记，且不应泄露
+</pre>
+
+<p>
+输出应类似于以下内容：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">mtree: /bin checksum: 492144657
+</pre>
+</div>
+
+<p>
+同时应防止恶意用户获取种子值与校验和输出结果
+</p>
+</div>
+</div>
+<div id="outline-container-orgf92bbad" class="outline-2">
+<h2 id="orgf92bbad">规范文件结构</h2>
+<div class="outline-text-2" id="text-orgf92bbad">
+<p>
+mtree 格式描述文件系统对象集合，通常用于创建或验证目录层次结构
+</p>
+<ul class="org-ul">
+<li>mtree 文件由一系列行组成，每行描述一个文件系统对象（mtree 始终忽略前导空白）</li>
+<li>FreeBSD 系统规范存放于 <b>/etc/mtree</b> 目录中</li>
+</ul>
+
+<p>
+前面创建的规范文件可说明其格式与内容：
+</p>
+
+<pre class="example" id="org47cee46">
+#	   user: ykla	# 创建规范的用户
+#	machine: ykla	# 机器的主机名
+#	   tree: /bin	# 目录路径
+#	   date: Mon May  4 18:35:28 2026	# 规范生成的日期和时间
+
+# .
+/set type=file uid=0 gid=0 mode=0555 nlink=1 flags=uarch	# 1
+.               type=dir mode=0755 nlink=2 time=1777888070.971124000
+    \133        nlink=2 size=11384 time=1777874933.000000000 \
+                cksum=490895202 \	# ②
+                sha512=a86c4119b31f6b51a61de9b257e195f3809ed16360ba1bec7f75a13e10c24c2959338f59735f8fea76cf32b140194487080b2dd33374d09cf003ea0cf5ccfbf2
+    cat         size=13424 time=1777874930.000000000 cksum=3028726120 \	# 2
+                sha512=3512dafe9764cd4dd94941cd0e9fb35f3c430bb39bd2897fe1011d33b7477bf2e7bf0dd4cc0268aef42ee87dafa987c6e1a3c96a8062ab27feb737849422ecc6
+    chflags     size=7944 time=1777874930.000000000 cksum=3958012774 \	# 3
+
+……以下省略部分输出……
+</pre>
+
+<ol class="org-ol">
+<li>/set 特殊命令，定义从分析文件中提取的部分设置</li>
+<li>引用解析目录，表示其类型、模式、硬链接数及 UNIX 格式修改时间等信息</li>
+<li>引用一份文件，展示其大小、时间及一系列完整性校验哈希值</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org29972ae" class="outline-2">
+<h2 id="org29972ae">验证规范文件</h2>
+<div class="outline-text-2" id="text-org29972ae">
+<p>
+要验证二进制文件是否发生变更，可将目录当前内容与先前规范进行比较，并将结果写入文件
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ mtree -s 123456789 -p /bin &lt; /home/ykla/.bin_chksum_mtree &gt;&gt; /home/ykla/.bin_chksum_output
+</pre>
+</div>
+<pre class="example" id="org14fbcad">
+该命令需要生成原始规范时所用的种子值
+</pre>
+
+<p>
+该命令应当输出与创建规范时一致的 /bin 校验和。
+</p>
+<pre class="example" id="org92c4cb9">
+mtree: /bin checksum: 492144657
+</pre>
+
+<p>
+如果目录中的二进制文件未曾变更，/home/ykla/.bin_chksum_output 将是一个空文件
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ cat /home/ykla/.bin_chksum_output
+$
+</pre>
+</div>
+
+<p>
+为了模拟一次变更，可先用 touch 修改 /bin/cat 的时间戳，再执行验证命令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ touch /bin/cat 
+</pre>
+</div>
+
+<p>
+再次运行验证命令：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mtree -s 123456789 -p /bin &lt; /home/ykla/.bin_chksum_mtree &gt;&gt; /home/ykla/.bin_chksum_output
+mtree: /bin checksum: 492144657
+</pre>
+</div>
+
+<p>
+随后检查 <i>home/ykla</i>.bin_chksum_output 文件的输出内容：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cat /home/ykla/.bin_chksum_output
+</pre>
+</div>
+
+<p>
+输出应类似于以下内容：
+</p>
+<pre class="example" id="orgbf8198e">
+cat:    modification time (Mon May  4 14:08:50 2026, Mon May  4 18:42:53 2026)
+</pre>
+
+<p>
+以上为命令输出示例，说明元数据修改后的情形
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="advisory.html">Next: 第三方漏洞与安全公告</a></td>
+<td class="org-left"><a href="ssl.html">Previous: OpenSSL</a></td>
+<td class="org-left"><a href="security.html">Home: 安全管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
