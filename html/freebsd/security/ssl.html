@@ -206,6 +206,13 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#orgaf15079">概述</a></li>
+<li><a href="#org7e1b7b7">生成证书</a>
+<ul>
+<li><a href="#org5ca3a68">需要 CA 签署的证书签名请求</a></li>
+<li><a href="#org2d1aa12">自签名证书</a></li>
+</ul>
+</li>
+<li><a href="#orgd6092e2">配置 FIPS 提供者</a></li>
 </ul>
 </div>
 </div>
@@ -213,11 +220,458 @@
 OpenSSL 3 自 FreeBSD 14 起纳入基本系统，引入 <b>提供者模块</b> <span class="underline">provider module</span> 架构
 </p>
 
-<pre class="example" id="orgb0637f6">
+<pre class="example" id="org40a8f38">
 本节介绍自签证书生成（自签 CA）、FIPS 合规配置（fips_module 完整性检查与 openssl fipsinstall）和已弃用算法加载
 </pre>
 <div id="outline-container-orgaf15079" class="outline-2">
 <h2 id="orgaf15079">概述</h2>
+<div class="outline-text-2" id="text-orgaf15079">
+<pre class="example" id="org7d40900">
+OpenSSL 是加密工具包，实现安全套接字层（SSL）和传输层安全（TLS）网络协议，并提供丰富的加密例程
+</pre>
+
+<p>
+openssl 程序是该工具包的命令行入口，用户可在 Shell 中调用 OpenSSL 加密库的各类功能，包括：
+</p>
+<ul class="org-ul">
+<li>私钥、公钥和参数的创建与管理</li>
+<li>公钥加密操作</li>
+<li>X.509 证书、CSR 和 CRL 的创建</li>
+<li>消息摘要与消息认证码的计算</li>
+<li>使用密码进行加密和解密</li>
+<li>SSL/TLS 客户端和服务器测试</li>
+<li>S/MIME 签名或加密邮件的处理</li>
+<li>时间戳请求、生成和验证</li>
+<li>加密例程的性能测试</li>
+</ul>
+
+<pre class="example" id="orge77bd27">
+更多信息请参阅免费的 OpenSSL Cookbook https://www.feistyduck.com/books/openssl-cookbook/ 
+</pre>
+</div>
+</div>
+<div id="outline-container-org7e1b7b7" class="outline-2">
+<h2 id="org7e1b7b7">生成证书</h2>
+<div class="outline-text-2" id="text-org7e1b7b7">
+<p>
+OpenSSL 支持生成证书，可提交 CA 验证，也可以自行使用。具体而言：
+</p>
+</div>
+<div id="outline-container-org5ca3a68" class="outline-3">
+<h3 id="org5ca3a68">需要 CA 签署的证书签名请求</h3>
+<div class="outline-text-3" id="text-org5ca3a68">
+<p>
+执行 openssl 搭配以下参数，可生成供 CA 签署的证书：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ openssl req -new -noenc -out req.pem -keyout cert.key -sha512 -newkey rsa:4096
+</pre>
+</div>
+
+<p>
+解释命令选项：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 命令选项</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">选项</td>
+<td class="org-left">解释</td>
+</tr>
+
+<tr>
+<td class="org-left">openssl req</td>
+<td class="org-left">生成证书签名请求（CSR，Certificate Signing Request）</td>
+</tr>
+
+<tr>
+<td class="org-left">-new</td>
+<td class="org-left">创建新的证书签名请求</td>
+</tr>
+
+<tr>
+<td class="org-left">-noenc</td>
+<td class="org-left">不为私钥设置密码，生成的私钥不会加密保护</td>
+</tr>
+
+<tr>
+<td class="org-left">-out req.pem</td>
+<td class="org-left">指定生成的证书签名请求文件的输出文件名，这里是 req.pem</td>
+</tr>
+
+<tr>
+<td class="org-left">-keyout cert.key</td>
+<td class="org-left">指定生成的私钥文件的输出路径，这里是 cert.key</td>
+</tr>
+
+<tr>
+<td class="org-left">-sha512</td>
+<td class="org-left">使用 SHA-512 哈希算法进行签名请求的哈希计算</td>
+</tr>
+
+<tr>
+<td class="org-left">-newkey rsa:4096</td>
+<td class="org-left">生成新的 RSA 密钥对，使用 4096 位的 RSA 加密算法</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+输出应类似于以下内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">...+......+.......+.....+.+.....+....+...+..+++++++++++++++++++++++++++++++++++++++++++++*.........+++++++++++++++++++++++++++++++++++++++++++++*..+................+....+......+.....+++++
+
+&#8230;&#8230;&#30465;&#30053;&#37096;&#20998;&#36755;&#20986;&#8230;&#8230;
+
+-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter <span style="color: #ffa07a;">'.'</span>, the field will be left blank.
+-----
+Country Name (2 letter code) [AU]:CN <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22269;&#23478;&#21644;&#22320;&#21306;&#20004;&#20301;&#32534;&#30721;
+</span>State or Province Name (full name) [Some-State]:Beijing <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#30465;&#25110;&#24030;
+</span>Locality Name (eg, city) []:Beijing     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24066;
+</span>Organization Name (eg, company) [Internet Widgits Pty Ltd]:Chinese FreeBSD Community (CFC) <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#32452;&#32455;&#21517;&#31216;
+</span>Organizational Unit Name (eg, section) []:Systems Administrator <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#32452;&#32455;&#21333;&#20301;&#21517;&#31216;
+</span>Common Name (e.g. server FQDN or YOUR name) []:bsdcn.org <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20844;&#29992;&#21517;
+</span>Email Address []:ykla@bsdcn.org <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#30005;&#23376;&#37038;&#20214;
+</span>
+Please enter the following <span style="color: #ffa07a;">'extra'</span> attributes
+to be sent with your certificate request
+A challenge password []:1234 <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23494;&#30721;&#19981;&#23569;&#20110;&#22235;&#20301;&#25968;
+</span>An optional company name []:1234
+</pre>
+</div>
+
+<pre class="example" id="org07d4208">
+上述命令生成的是证书签名请求（CSR），需提交给 CA 签署后方可获得证书
+</pre>
+
+<p>
+该命令在当前目录创建了两个文件：
+</p>
+<ol class="org-ol">
+<li>req.pem: 将证书请求文件 <b>req.pem</b> 递交至 CA，由 CA 验证凭据、签署后返回已签名证书</li>
+<li><p>
+cert,key: 另一文件 <b>cert.key</b> 为证书私钥，务必妥善保管
+</p>
+<pre class="example" id="orgc1792a4">
+私钥一旦泄露，他人即可冒充用户或服务器
+</pre></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org2d1aa12" class="outline-3">
+<h3 id="org2d1aa12">自签名证书</h3>
+<div class="outline-text-3" id="text-org2d1aa12">
+<p>
+如果无需 CA 签署，可自行创建自签名证书
+</p>
+
+<pre class="example" id="orgd33cb64">
+以下命令将证书和私钥直接写入 /etc/ssl/ 系统目录
+
+若该路径下已有证书文件，将被覆盖且无法恢复。请先备份现有证书
+</pre>
+
+<p>
+执行以下命令生成 X.509 格式的自签名证书：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ openssl req -new -x509 -days 365 -sha512 -keyout /etc/ssl/cert.key -out /etc/ssl/certs/cert.crt
+</pre>
+</div>
+
+<p>
+输出应类似于以下内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #b0c4de;">.</span>+...+.....+.......+...+............+......+.....+.......+++++++++++++++++++++++++++++++++++++++*.+........+...+....+.................+...+...+++++++++++++++++++++++++++++++++++++++*..............+............+........+.........+.+
+
+&#8230;&#8230;&#30465;&#30053;&#37096;&#20998;&#36755;&#20986;&#8230;&#8230;
+
+Enter PEM pass phrase: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#23494;&#30721;
+</span>Verifying - Enter PEM pass phrase: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20877;&#27425;&#36755;&#20837;&#23494;&#30721;
+</span>-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter <span style="color: #ffa07a;">'.'</span>, the field will be left blank.
+-----
+Country Name (2 letter code) [AU]:CN
+State or Province Name (full name) [Some-State]:Beijing
+Locality Name (eg, city) []:Beijing
+Organization Name (eg, company) [Internet Widgits Pty Ltd]:Chinese FreeBSD Community (CFC)
+Organizational Unit Name (eg, section) []:Systems Administrator
+Common Name (e.g. server FQDN or YOUR name) []:bsdcn.org
+Email Address []:ykla@bsdcn.org
+</pre>
+</div>
+
+<p>
+此命令将在目录 <b>/etc/ssl/certs</b> 下创建证书文件 <b>cert.crt</b>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">-rw-r--r--  1 root wheel 1521 Apr 16 11:53 cert.crt
+</pre>
+</div>
+
+<p>
+可执行如下命令进行验证：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ openssl x509 -in /etc/ssl/certs/cert.crt -text -noout
+Certificate:
+Data:
+Version: 3 (0x2)
+Serial Number:
+4d:b3:2e:fa:d1:6d:59:a7:c5:f6:15:a2:44:3c:63:d9:e0:fc:4b:7b
+Signature Algorithm: sha512WithRSAEncryption
+Issuer: <span style="color: #eedd82;">C</span>=CN, <span style="color: #eedd82;">ST</span>=Beijing, <span style="color: #eedd82;">L</span>=Beijing, <span style="color: #eedd82;">O</span>=Chinese FreeBSD Community (CFC), <span style="color: #eedd82;">OU</span>=Systems Administrator, <span style="color: #eedd82;">CN</span>=bsdcn.org, <span style="color: #eedd82;">emailAddress</span>=bsdcn.org
+Validity
+Not Before: Apr 16 03:53:49 2026 GMT
+Not After : Apr 16 03:53:49 2027 GMT
+Subject: <span style="color: #eedd82;">C</span>=CN, <span style="color: #eedd82;">ST</span>=Beijing, <span style="color: #eedd82;">L</span>=Beijing, <span style="color: #eedd82;">O</span>=Chinese FreeBSD Community (CFC), <span style="color: #eedd82;">OU</span>=Systems Administrator, <span style="color: #eedd82;">CN</span>=bsdcn.org, <span style="color: #eedd82;">emailAddress</span>=bsdcn.org
+
+&#8230;&#8230;&#30465;&#30053;&#37096;&#20998;&#36755;&#20986;&#8230;&#8230;
+</pre>
+</div>
+
+
+<p>
+证书私钥 <b>cert.key</b> 位于 <b><i>etc/ssl</i></b> 目录：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">-rw-------  1 root wheel 1886 Apr 16 11:53 /etc/ssl/cert.key
+</pre>
+</div>
+
+<p>
+验证私钥：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ openssl x509 -noout -modulus -in /etc/ssl/certs/cert.crt | openssl sha256
+<span style="color: #87cefa;">SHA2-256</span>(stdin)= b0b6e2fc57193c09f89ce9d3d9712351cf3368cf262ae209e63f3b8f012893f8
+
+$ openssl rsa -noout -modulus -in /etc/ssl/cert.key | openssl sha256
+Enter pass phrase for /etc/ssl/cert.key: <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36755;&#20837;&#20043;&#21069;&#35774;&#32622;&#30340;&#23494;&#30721;
+</span><span style="color: #87cefa;">SHA2-256</span>(stdin)= b0b6e2fc57193c09f89ce9d3d9712351cf3368cf262ae209e63f3b8f012893f8
+</pre>
+</div>
+
+<pre class="example" id="orgdf4fe76">
+如果 SHA-256 值相同，则说明私钥与证书匹配
+</pre>
+
+<p>
+建议将上诉文件存放于 <b><i>etc/ssl</i></b> 目录，使用 chmod 命令将权限设为 <b>0700</b> <span class="underline">仅 root 可读</span> 
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ cp /etc/ssl/certs/cert.crt /etc/ssl/
+$ chmod 0700 /etc/ssl/cert.crt
+$ chmod 0700 /etc/ssl/cert.key
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orgd6092e2" class="outline-2">
+<h2 id="orgd6092e2">配置 FIPS 提供者</h2>
+<div class="outline-text-2" id="text-orgd6092e2">
+<p>
+OpenSSL 3 自 FreeBSD 14 起纳入基本系统，随之而来的还有全新的 <b>提供者模块</b> <span class="underline">provider module</span> 概念
+</p>
+
+<pre class="example" id="org111ff8b">
+除内置默认提供者外，legacy 模块负责实现现已可选、已弃用的加密算法
+
+fips 模块则严格限定于 FIPS 标准允许的密码算法集
+
+OpenSSL 的 FIPS 相关部分受到重点关注，附有已知安全问题列表，并定期接受 FIPS 140 验证流程审查
+
+这些措施使用户得以确保满足 FIPS 合规要求
+</pre>
+<p>
+fips_module 还受额外安全机制保护，未通过完整性检查则无法使用。本地系统管理员可按需配置此检查，继而允许每个 OpenSSL 3 用户加载该模块。如果配置不当，FIPS 模块报错如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ echo test | openssl aes-128-cbc -a -provider fips -pbkdf2
+</pre>
+</div>
+
+<p>
+输出应类似于以下内容：
+</p>
+
+<pre class="example" id="org2fd9997">
+aes-128-cbc: unable to load provider fips
+Hint: use -provider-path option or OPENSSL_MODULES environment variable.
+1090A56510220000:error:12800067:DSO support routines:dlfcn_load:could not load the sharedlibrary:/usr/src/crypto/openssl/crypto/dso/dso_dlfcn.c:115:filename(/usr/lib/ossl-modules/fips.so): Cannot open "/usr/lib/ossl-modules/fips.so"
+1090A56510220000:error:12800067:DSO support routines:DSO_load:could not load the shared library:/usr/src/crypto/openssl/crypto/dso/dso_lib.c:147:
+1090A56510220000:error:07880025:common libcrypto routines:provider_init:reason(37):/usr/src/crypto/openssl/crypto/provider_core.c:1026:name=fips
+</pre>
+
+<p>
+可通过创建 <b>/etc/ssl/fipsmodule.cnf</b> 来配置完整性检查，并在 OpenSSL 主配置文件 <b>/etc/ssl/openssl.cnf</b> 中引用
+</p>
+
+<pre class="example" id="org73da818">
+需要通过 Ports 参照 FIPS 已验证版本清单安装经过认证的 OpenSSL 版本。随后将 fips.so 库复制到对应位置
+
+以下操作将 Ports 中的 OpenSSL 3.0 FIPS 模块复制到基本系统路径
+
+Ports 的 OpenSSL 3.0 与基本系统的 OpenSSL 3.5 存在 ABI 差异，此操作可能导致兼容性问题
+
+建议仅在明确需要 FIPS 认证的场景下执行，并注意版本匹配
+</pre>
+
+<p>
+OpenSSL 提供了 openssl fipsinstall 辅助此过程。用法如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ cp /usr/local/lib/ossl-modules/fips.so /usr/lib/ossl-modules/
+$ openssl fipsinstall -module /usr/lib/ossl-modules/fips.so -out /etc/ssl/fipsmodule.cnf
+</pre>
+</div>
+
+<p>
+输出应类似于以下内容（版本号取决于 Ports 中安装的 OpenSSL 版本）：
+</p>
+
+<pre class="example" id="orgeade426">
+	name:     	OpenSSL FIPS Provider
+	version:  	3.0.20
+	build:    	3.0.20
+INSTALL PASSED
+</pre>
+
+<p>
+接下来应修改 <b>/etc/ssl/openssl.cnf</b> ，加入以下三项配置：
+</p>
+<ul class="org-ul">
+<li>引入上面生成的 <b>/etc/ssl/fipsmodule.cnf</b> 文件</li>
+<li>导出 <b>FIPS</b> 模块以供调用</li>
+<li>并 <b>显式</b> 激活默认模块</li>
+</ul>
+
+<pre class="example" id="org489bbdf">
+……省略其他内容……
+
+# For FIPS
+# Optionally include a file that is generated by the OpenSSL fipsinstall
+# application. This file contains configuration data required by the OpenSSL
+# fips provider. It contains a named section e.g. [fips_sect] which is
+# referenced from the [provider_sect] below.
+# Refer to the OpenSSL security policy for more information.
+.include /etc/ssl/fipsmodule.cnf
+
+……省略其他内容……
+
+# List of providers to load
+[provider_sect]
+default = default_sect
+# The fips section name should match the section name inside the
+# included fipsmodule.cnf.
+fips = fips_sect
+
+# If no providers are activated explicitly, the default one is activated implicitly.
+# See man 7 OSSL_PROVIDER-default for more details.
+#
+# If you add a section explicitly activating any other provider(s), you most
+# probably need to explicitly activate the default provider, otherwise it
+# becomes unavailable in openssl.  As a consequence applications depending on
+# OpenSSL may not work correctly which could lead to significant system
+# problems including inability to remotely access the system.
+[default_sect]
+activate = 1
+</pre>
+
+<p>
+以上步骤完成后，即可确认 FIPS 模块确实可用且正常工作：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ echo test | openssl aes-128-cbc -a -provider fips -pbkdf2
+</pre>
+</div>
+
+<p>
+输出应类似于以下内容：
+</p>
+
+<pre class="example" id="org8da0c45">
+enter AES-128-CBC encryption password: # 输入密码
+Verifying - enter AES-128-CBC encryption password: # 重复输入密码
+U2FsdGVkX1+cIAxHqRAhBgFQdCjTDU2sGevQ152Gw74=
+</pre>
+
+<p>
+查看当前 OpenSSL 提供者状态：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">openssl list -providers
+</span>Providers:
+default
+name: OpenSSL Default Provider
+version: 3.5.6
+status: active
+fips
+name: OpenSSL FIPS Provider
+version: 3.0.20
+status: active
+</pre>
+</div>
+
+<pre class="example" id="org31f2216">
+以上输出中，default 提供者的版本号取决于系统使用的 OpenSSL 版本（基本系统或 Ports）
+
+FIPS 提供者的版本号取决于 Ports 中安装的 OpenSSL 版本
+</pre>
+
+<p>
+FIPS 模块发生变动时（如系统更新后，或基本系统 OpenSSL 应用安全修复后），均需要重复上述过程
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="ids.html">Next：入侵检测系统</a></td>
+<td class="org-left"><a href="audit.html">Previous: 安全审计</a></td>
+<td class="org-left"><a href="security.html">Home: 安全管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
