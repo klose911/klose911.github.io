@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>防火墙概论</title>
+<title>ipfirewall (IPFW)</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -196,229 +196,76 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="firewall.html"> UP </a>
+ <a accesskey="h" href="introduction.html"> UP </a>
  |
  <a accesskey="H" href="firewall.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">防火墙概论</h1>
+<h1 class="title">ipfirewall (IPFW)</h1>
 <div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org9553b33">流量整形</a></li>
-<li><a href="#orgbfd3ea5">规则集</a></li>
-<li><a href="#org3c326c9">包容性</a></li>
-<li><a href="#orgad53e42">有状态</a></li>
-<li><a href="#orgdc82652">NAT</a></li>
+<li><a href="#org5d1f58c">启用 IPFW</a></li>
 </ul>
 </div>
 </div>
-<p>
-防火墙部署于两个网络之间。它依据预设规则，对所有跨网数据流进行管控与过滤，从而保护特定网络或局部网段免受未经授权的访问
-</p>
-<ul class="org-ul">
-<li>防火墙使用一到多个“规则”集检查网络数据包，在数据包进入或离开网络连接时决定允许通过还是阻止</li>
-<li>规则可检查数据包的一个或多个特征，如协议类型、源地址与目标地址、源端口与目标端口</li>
-<li>防火墙主要由服务访问规则、验证工具、包过滤和应用网关（连接两个不同的计算机网络）四个部分组成</li>
-</ul>
+<pre class="example" id="orgb06cedc">
+本节内容未经实际测试，仅理论验证通过
 
-<pre class="example" id="org99ca154">
-使用防火墙规则时，务必 小心谨慎。某些配置可能会导致管理员无法登录服务器
-
-为了安全起见，建议通过本地控制台执行初始防火墙配置，而不是通过 SSH 远程配置
+请勿直接用于生产环境！建议在测试环境中验证后再用于生产部署
 </pre>
 
 <p>
-防火墙可以增强主机或网络的安全性。它们可以执行以下一项或多项操作：
+<b>IPFirewall</b> <span class="underline">IPFW，IP Firewall</span> 是为 FreeBSD 编写的状态防火墙，也是 FreeBSD 中最早的包过滤软件
 </p>
 <ul class="org-ul">
-<li>保护并隔离内部网络的应用程序、服务和主机，使其免受公共互联网不良流量的侵扰</li>
-<li>限制或禁用内部网络的主机访问公共互联网服务</li>
-<li>支持网络地址转换 <span class="underline">NAT</span> ，内部网络可使用私有 IP 地址，并通过单一 IP 地址或共享地址池中的公共地址连接公共互联网</li>
-</ul>
-
-<pre class="example" id="org78e61e5">
-FreeBSD 内置三种防火墙：PF、IPFW 和 IPFILTER（也称 IPF）
-
-此外还提供两种流量整形工具以控制带宽：altq(4) 和 dummynet(4)
-</pre>
-<div id="outline-container-org9553b33" class="outline-2">
-<h2 id="org9553b33">流量整形</h2>
-<div class="outline-text-2" id="text-org9553b33">
-<p>
-<b>流量整形</b> <span class="underline">Traffic Shaping</span> 旨在优化或保障网络性能，其核心是对网络数据流的特征进行主动调节
-</p>
-
-<pre class="example" id="orgc6fab13">
-具体而言，它通过对部分数据包进行限速和缓冲延迟，将原本不规则的流量重塑为平滑的输出流
-
-从而确保网络传输严格符合预设应用在速率、延迟及抖动等方面的服务质量（QoS）标准
-</pre>
-
-<p>
-<b>服务质量</b> <span class="underline">QoS</span> 标准是计算机网络对数据包传输质量的一种承诺，通常通过带宽、延迟及丢包率等性能指标来衡量
-</p>
-<pre class="example" id="orge0f9c25">
-然而，现代互联网在架构设计上采用的是“尽力而为（Best-Effort）”的传输模式
-
-这意味着网络节点会竭尽全力去转发每一个数据包，但在机制上并不提供任何绝对的送达或性能担保
-</pre>
-
-<p>
-<b>交替队列</b> <span class="underline">Alternate Queuing，ALTQ</span> 通常与 <span class="underline">PF</span> 紧密关联，*dummynet* 则与 <span class="underline">IPFW</span> 紧密关联。三种防火墙均通过规则控制进出 FreeBSD 系统的数据包访问，但实现方式各异，规则语法也不相同
-</p>
-
-<pre class="example" id="org2af8367">
-所有防火墙均通过检查数据包控制字段的值来工作
-
-因此规则集的编写者需要了解 TCP/IP 的工作原理、数据包控制字段中各值的含义，以及这些值在正常会话中的使用方式
-</pre>
-</div>
-</div>
-<div id="outline-container-orgbfd3ea5" class="outline-2">
-<h2 id="orgbfd3ea5">规则集</h2>
-<div class="outline-text-2" id="text-orgbfd3ea5">
-<p>
-<b>规则集</b> 包含一组规则，依据数据包中所含值决定 允许通过还是 阻止
-</p>
+<li>IPFW 支持 IPv4 和 IPv6</li>
+<li>它由多个组件组成：
 <ul class="org-ul">
-<li>主机之间的双向数据包交换构成一次会话</li>
-<li>防火墙规则集既处理来自公共互联网的数据包，也处理系统对这些数据包作出的响应数据包</li>
-<li><p>
-每个 TCP/IP 服务由其协议和监听端口定义。指向特定服务的数据包源自非特权端口，目标为特定地址上的服务端口
-</p>
-<pre class="example" id="orgb5dee79">
-上述参数均可作为选择标准来创建规则，从而允许或阻止服务
-</pre></li>
-</ul>
-
-<p>
-要查找未知的端口号，请参阅 <b>/etc/services</b> （源代码位于 <span class="underline">usr.sbin/services_mkdb/services</span> ）
-</p>
-
-<pre class="example" id="orgecf6fb5">
-此外，特洛伊木马也可能使用未知端口，需要额外留意
-</pre>
-</div>
-</div>
-<div id="outline-container-org3c326c9" class="outline-2">
-<h2 id="org3c326c9">包容性</h2>
-<div class="outline-text-2" id="text-org3c326c9">
-<p>
-防火墙规则集可分为 <b>排他性</b> 与 <b>包容性</b> 两类
-</p>
-<ul class="org-ul">
-<li>除非流量与规则集匹配，排他性防火墙对所有流量一律允许通过</li>
-<li><p>
-包容性防火墙则反之：仅允许匹配规则的流量通过，阻止其余所有流量 
-</p>
-
-<pre class="example" id="org4af52d9">
-包容性防火墙能更好地控制出站流量，对提供公共互联网服务的系统是更合适的选择
-
-它同时控制来自公共互联网的流量，决定哪些流量可以访问私有网络，所有不匹配规则的流量均被阻止并记录
-
-包容性防火墙因降低了允许不良流量通过的风险，通常比排他性防火墙更安全
-
-除非另有说明，本章中的所有配置和示例规则集均采用包容性防火墙规则集
-</pre></li>
-</ul>
-</div>
-</div>
-<div id="outline-container-orgad53e42" class="outline-2">
-<h2 id="orgad53e42">有状态</h2>
-<div class="outline-text-2" id="text-orgad53e42">
-<p>
-<b>有状态</b> 防火墙可增强安全性
-</p>
-<ul class="org-ul">
-<li>有状态防火墙会跟踪打开的连接，仅允许与现有连接匹配的流量，或用于建立新连接的数据包</li>
-<li>有状态过滤将流量视作一次双向数据包交换的会话。规则中指定状态后，防火墙会动态生成每个预期数据包的内部规则，能够匹配并判定数据包是否属于该会话
-<ul class="org-ul">
-<li>如果数据包不符合会话模板，即自动拒绝</li>
-<li>会话完成后，即从动态状态表中移除该会话</li>
+<li>内核防火墙过滤规则处理器</li>
+<li>集成的数据包计数设施</li>
+<li>日志设施</li>
+<li>NAT</li>
+<li>dummynet(4) 流量整形器（通过 dnctl 配置）</li>
+<li>转发设施</li>
+<li>桥接设施</li>
+<li>ipstealth 设施</li>
 </ul></li>
-<li><p>
-有状态过滤使用户专注于阻止或允许新的会话
-</p>
-<pre class="example" id="orgfdc0c51">
-新会话一旦允许，所有后续数据包自动放行，任何伪造的数据包均自动拒绝
-
-若阻止新会话，则任何后续数据包均不会允许通过
-</pre></li>
-<li>有状态过滤具备强大的匹配能力，可防御各种攻击方法</li>
 </ul>
-</div>
-</div>
-<div id="outline-container-orgdc82652" class="outline-2">
-<h2 id="orgdc82652">NAT</h2>
-<div class="outline-text-2" id="text-orgdc82652">
+
+<pre class="example" id="org3c8ec8a">
+IPFW 最初由 Daniel Boulet 为 BSDI（Berkeley Software Design, Inc.）编写 API
+
+后由 Ugen J. S. Antsilevich 大幅修改并移植到 FreeBSD，当前的 ipfw2 版本由 Luigi Rizzo 于 2002 年夏季为 FreeBSD 重写
+</pre>
 <p>
-<b>NAT</b> <span class="underline">网络地址转换</span> 是一项核心的网络路由技术，其主要功能是在局域网的私有 IP 地址与互联网的公网 IP 地址之间，执行动态的映射与报文头部替换
+IPFW 未包含在 GENERIC 内核中，但以可加载内核模块 <span class="underline">ipfw.ko</span> 的形式提供，也可通过内核配置选项 <b>options IPFIREWALL</b> 编译进自定义内核。
+</p>
+
+
+<p>
+作为 FreeBSD 原生防火墙，IPFW 采用基于规则编号的优先级机制。规则编号越小，优先级越高，可覆盖编号较大的规则
 </p>
 <ul class="org-ul">
-<li>NAT 使防火墙后的私有局域网可以共享 ISP <span class="underline">the Internet service provider</span> ，互联网服务提供方分配的单一 IP 地址（即便该地址是动态分配的）</li>
-<li>NAT 使局域网中每台计算机均能访问互联网，无需为多个互联网账户或 IP 地址支付额外费用</li>
+<li>FreeBSD 在 <b>/etc/rc.firewall</b> 中提供了一个样例规则集，定义了几个常见场景的防火墙类型，帮助新手用户生成适合的规则集</li>
+<li>IPFW 提供了强大的语法，进阶用户可用来定制符合特定环境安全要求的规则集</li>
 </ul>
 
-<pre class="example" id="orgf31c771">
-数据包经防火墙发往公共互联网时，NAT 自动将各系统的私有局域网 IP 地址转换为单一公共 IP 地址
+<pre class="example" id="org8fd008e">
+IPFW 默认包含一条规则，规则号为 65535，不可删除，该规则会阻断所有未匹配的流量
 
-返回的数据包则执行反向转换
+可通过内核编译选项 IPFIREWALL_DEFAULT_TO_ACCEPT 或在 /boot/loader.conf 中设置可调参数 net.inet.ip.fw.default_to_accept 来改为允许此默认行为
+
+重启后生效，无法在运行时通过 sysctl 修改。
+
+将默认策略改为 允许 在生产环境中极为危险：任何未显式匹配的流量都会被放行，等同于防火墙形同虚设
+
+此配置仅适用于测试环境，切勿在生产环境中使用
+
+同时，在防火墙配置完成之前，切勿启动 IPFW，以免被阻断在防火墙之外
 </pre>
-
-<p>
-根据 RFC 1918，以下 IP 地址范围保留供私有网络使用，这些地址永远不会直接路由到公共互联网，因此可与 NAT 配合使用：
-</p>
-
-<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
-
-
-<colgroup>
-<col  class="org-left" />
-
-<col  class="org-left" />
-</colgroup>
-<tbody>
-<tr>
-<td class="org-left">地址范围</td>
-<td class="org-left">备注</td>
-</tr>
-
-<tr>
-<td class="org-left">10.0.0.0/8</td>
-<td class="org-left">RFC 1918 私有地址</td>
-</tr>
-
-<tr>
-<td class="org-left">172.16.0.0/12</td>
-<td class="org-left">RFC 1918 私有地址</td>
-</tr>
-
-<tr>
-<td class="org-left">192.168.0.0/16</td>
-<td class="org-left">RFC 1918 私有地址</td>
-</tr>
-</tbody>
-</table>
-
-
-<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
-
-
-<colgroup>
-<col  class="org-left" />
-
-<col  class="org-left" />
-</colgroup>
-<tbody>
-<tr>
-<td class="org-left"><a href="ipfw.html">Next: ipfirewall</a></td>
-<td class="org-left"><a href="firewall.html">Home: 防火墙</a></td>
-</tr>
-</tbody>
-</table>
-</div>
+<div id="outline-container-org5d1f58c" class="outline-2">
+<h2 id="org5d1f58c">启用 IPFW</h2>
 </div>
 </div>
 <div id="postamble" class="status">
