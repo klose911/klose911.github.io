@@ -206,10 +206,38 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org5d1f58c">启用 IPFW</a></li>
+<li><a href="#orgc80f8e9">IPFW 规则语法</a>
+<ul>
+<li><a href="#orge2c55ca">CMD</a></li>
+<li><a href="#orgf061122">RULE_NUMBER</a></li>
+<li><a href="#org89adbfa">SET_NUMBER</a></li>
+<li><a href="#org0b7b947">ACTION</a></li>
+<li><a href="#org55bf968">LOG_AMOUNT</a></li>
+<li><a href="#org350d65c">PROTO</a></li>
+<li><a href="#org2e655ac">SRC</a></li>
+<li><a href="#orgbbe7c63">SRC_PORT</a></li>
+<li><a href="#org052b205">DST</a></li>
+<li><a href="#org877ba80">DST_PORT</a></li>
+<li><a href="#orgfcc88d5">OPTIONS</a></li>
+</ul>
+</li>
+<li><a href="#org0fc8352">示例规则集</a></li>
+<li><a href="#org6879e11">内核 NAT</a>
+<ul>
+<li><a href="#org641774e">端口重定向</a></li>
+<li><a href="#org764973e">地址重定向</a></li>
+</ul>
+</li>
+<li><a href="#org7d0c86f">IPFW 命令</a>
+<ul>
+<li><a href="#org3e1a945">记录防火墙日志</a></li>
+<li><a href="#org034f4e6">构建规则脚本</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
-<pre class="example" id="orgb06cedc">
+<pre class="example" id="org6bdb211">
 本节内容未经实际测试，仅理论验证通过
 
 请勿直接用于生产环境！建议在测试环境中验证后再用于生产部署
@@ -233,7 +261,7 @@
 </ul></li>
 </ul>
 
-<pre class="example" id="org3c8ec8a">
+<pre class="example" id="org5eb7cc2">
 IPFW 最初由 Daniel Boulet 为 BSDI（Berkeley Software Design, Inc.）编写 API
 
 后由 Ugen J. S. Antsilevich 大幅修改并移植到 FreeBSD，当前的 ipfw2 版本由 Luigi Rizzo 于 2002 年夏季为 FreeBSD 重写
@@ -251,7 +279,7 @@ IPFW 未包含在 GENERIC 内核中，但以可加载内核模块 <span class="u
 <li>IPFW 提供了强大的语法，进阶用户可用来定制符合特定环境安全要求的规则集</li>
 </ul>
 
-<pre class="example" id="org8fd008e">
+<pre class="example" id="org94e501f">
 IPFW 默认包含一条规则，规则号为 65535，不可删除，该规则会阻断所有未匹配的流量
 
 可通过内核编译选项 IPFIREWALL_DEFAULT_TO_ACCEPT 或在 /boot/loader.conf 中设置可调参数 net.inet.ip.fw.default_to_accept 来改为允许此默认行为
@@ -266,6 +294,1064 @@ IPFW 默认包含一条规则，规则号为 65535，不可删除，该规则会
 </pre>
 <div id="outline-container-org5d1f58c" class="outline-2">
 <h2 id="org5d1f58c">启用 IPFW</h2>
+<div class="outline-text-2" id="text-org5d1f58c">
+<pre class="example" id="orgfa79a0b">
+配置 IPFW 服务需要先启用系统防火墙，再执行启动与状态检查等操作，具体步骤如下
+</pre>
+
+<p>
+可使用以下命令设置 IPFW 防火墙在系统启动时自动启动：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ service ipfw enable <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622; rc &#21464;&#37327;&#24182;&#23581;&#35797;&#31435;&#21363;&#21551;&#21160;</span>
+</pre>
+</div>
+
+<pre class="example" id="orga89eaab">
+参见 FreeBSD 源代码文件 libexec/rc/rc.d/routing
+</pre>
+
+<p>
+要使用 FreeBSD 提供的默认防火墙类型，需要再添加一行，指定类型：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">firewall_type</span>=<span style="color: #ffa07a;">"open"</span>
+</pre>
+</div>
+
+<p>
+可用的类型有：
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">类型</td>
+<td class="org-left">说明</td>
+</tr>
+
+<tr>
+<td class="org-left">open</td>
+<td class="org-left">通过所有流量</td>
+</tr>
+
+<tr>
+<td class="org-left">client</td>
+<td class="org-left">仅保护此机器</td>
+</tr>
+
+<tr>
+<td class="org-left">simple</td>
+<td class="org-left">保护整个网络</td>
+</tr>
+
+<tr>
+<td class="org-left">closed</td>
+<td class="org-left">除回环接口外，完全禁用 IP 流量</td>
+</tr>
+
+<tr>
+<td class="org-left">workstation</td>
+<td class="org-left">仅使用有状态规则保护此机器</td>
+</tr>
+
+<tr>
+<td class="org-left">UNKNOWN</td>
+<td class="org-left">禁用加载防火墙规则</td>
+</tr>
+
+<tr>
+<td class="org-left">filename</td>
+<td class="org-left">包含防火墙规则集的文件的完整路径</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+若 firewall_type 设置为 <span class="underline">client</span> 或 <span class="underline">simple</span> ，需要修改 /etc/rc.firewall 中的默认规则，以适应系统的配置
+</p>
+<pre class="example" id="org27f1078">
+注意，filename 类型用于加载自定义规则集
+</pre>
+
+<p>
+另一种加载自定义规则集的方法是将 <span class="underline">firewall_script</span> 变量设置为包含 IPFW 命令的 可执行脚本 的绝对路径。本节中使用的示例假设 firewall_script 设置为 <b>/etc/ipfw.rules</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">firewall_script</span>=<span style="color: #ffa07a;">"/etc/ipfw.rules"</span>
+</pre>
+</div>
+
+<p>
+要通过 syslogd(8) 启用日志记录，需要添加以下行：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">firewall_logging</span>=<span style="color: #ffa07a;">"YES"</span>
+</pre>
+</div>
+
+<pre class="example" id="org84a7d54">
+只有包含 log 选项的防火墙规则才会记录日志
+
+默认规则不包括此选项，必须手动添加
+
+因此，建议编辑默认规则集以启用日志记录
+
+另外，若日志存储在单独的文件中，可能需要启用日志轮替
+
+没有 /etc/rc.conf 变量可用于设置日志限制
+</pre>
+
+<p>
+要限制每次连接尝试记录规则的次数，需要在 <b>/etc/sysctl.conf</b> 中指定数字
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ echo <span style="color: #ffa07a;">"net.inet.ip.fw.verbose_limit=5"</span> &gt;&gt; /etc/sysctl.conf
+</pre>
+</div>
+
+<p>
+要通过专用接口 <span class="underline">ipfw0</span> 启用日志记录，需要改为在 <b>/etc/rc.conf</b> 中添加以下行：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">firewall_logif</span>=<span style="color: #ffa07a;">"YES"</span>
+</pre>
+</div>
+
+<p>
+然后使用 <span class="underline">tcpdump</span> 查看日志内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ tcpdump -t -n -i ipfw0
+</pre>
+</div>
+
+<pre class="example" id="org842008c">
+除非附加了 tcpdump，否则不会产生日志记录的开销
+</pre>
+
+<p>
+保存必要的编辑后，启动防火墙。要立即启用日志限制，还需要设置上述 sysctl 值：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ service ipfw start
+$ sysctl net.inet.ip.fw.verbose_limit=5
+</pre>
+</div>
+
+<p>
+查看 IPFW 防火墙的当前状态：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ service ipfw status
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc80f8e9" class="outline-2">
+<h2 id="orgc80f8e9">IPFW 规则语法</h2>
+<div class="outline-text-2" id="text-orgc80f8e9">
+<p>
+当数据包进入 IPFW 防火墙时，它会与规则集中的第一条规则进行比较，并按顺序逐条处理
+</p>
+<ul class="org-ul">
+<li><p>
+当数据包与某条规则的选择条件匹配时，将执行该规则的动作，规则集的搜索随即终止
+</p>
+<pre class="example" id="org43c6ca1">
+此过程称为“第一个匹配的规则生效”
+</pre></li>
+<li>若数据包未与任何规则匹配，则会被 IPFW 的强制性默认规则 <span class="underline">65535</span> 捕获，该规则会拒绝所有数据包并静默丢弃它们
+<ul class="org-ul">
+<li>然而，若数据包匹配了包含 <span class="underline">count</span> 、 <span class="underline">skipto</span> 或 <span class="underline">tee</span> 关键字的规则，搜索会继续进行。</li>
+</ul></li>
+</ul>
+
+<pre class="example" id="orgc34ba2a">
+CMD RULE_NUMBER set SET_NUMBER ACTION log LOG_AMOUNT PROTO from SRC SRC_PORT to DST DST_PORT OPTIONS
+</pre>
+
+<p>
+创建 IPFW 规则时，关键字必须按以下 <b>顺序</b> 编写。某些关键字是必需的，其余为可选
+</p>
+<ul class="org-ul">
+<li>大写字母表示变量</li>
+<li>小写字母必须位于紧随其后的变量之前</li>
+<li># 符号用于标记注释的开始，可出现在规则的末尾或单独占一行</li>
+<li>空白行会被忽略</li>
+</ul>
+
+<pre class="example" id="org5a0ee97">
+接下来提供了这些关键字及其选项的概述，并非每个可能选项的详尽列表
+</pre>
+</div>
+<div id="outline-container-orge2c55ca" class="outline-3">
+<h3 id="orge2c55ca">CMD</h3>
+<div class="outline-text-3" id="text-orge2c55ca">
+<p>
+每条规则必须以 <span class="underline">ipfw add</span> 开头 
+</p>
+</div>
+</div>
+<div id="outline-container-orgf061122" class="outline-3">
+<h3 id="orgf061122">RULE_NUMBER</h3>
+<div class="outline-text-3" id="text-orgf061122">
+<p>
+每条规则都与一个从 1 到 65535 的编号相关联
+</p>
+<ul class="org-ul">
+<li>编号 65535 保留为默认规则</li>
+<li>该编号用于表示规则处理的顺序</li>
+<li>多个规则可具有相同的编号，这种情况下它们会按添加顺序依次应用</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org89adbfa" class="outline-3">
+<h3 id="org89adbfa">SET_NUMBER</h3>
+<div class="outline-text-3" id="text-org89adbfa">
+<p>
+每条规则都与一个从 0 到 31 的编号相关联
+</p>
+<ul class="org-ul">
+<li>可单独禁用或启用，因此可快速添加或删除一组规则</li>
+<li>若未指定 SET_NUMBER，则规则将被添加到 0</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org0b7b947" class="outline-3">
+<h3 id="org0b7b947">ACTION</h3>
+<div class="outline-text-3" id="text-org0b7b947">
+<p>
+每条规则可与以下一种动作关联。当数据包与规则的选择条件匹配时，将执行指定的动作
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">动作</td>
+<td class="org-left">说明</td>
+</tr>
+
+<tr>
+<td class="org-left">allow, accept, pass, permit</td>
+<td class="org-left">这些关键字是等价的，允许匹配规则的数据包</td>
+</tr>
+
+<tr>
+<td class="org-left">check-state</td>
+<td class="org-left">检查数据包与动态状态表的匹配情况。若找到匹配项，则执行与生成此动态规则的规则关联的动作，否则移动到下一条规则。若规则集中没有 check-state 规则，则会在第一个 keep-state 或 limit 规则处检查动态规则表</td>
+</tr>
+
+<tr>
+<td class="org-left">count</td>
+<td class="org-left">更新匹配规则的所有数据包计数器搜索会继续进行到下一条规则</td>
+</tr>
+
+<tr>
+<td class="org-left">deny, drop</td>
+<td class="org-left">悄悄丢弃匹配规则的数据包</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="outline-container-org55bf968" class="outline-3">
+<h3 id="org55bf968">LOG_AMOUNT</h3>
+<div class="outline-text-3" id="text-org55bf968">
+<p>
+当数据包匹配包含 log 关键字的规则时，将通过 syslogd(8) 记录一条消息，设施名称为 SECURITY。日志记录仅在特定规则记录的数据包数量未超过指定的 LOG_AMOUNT 时发生
+</p>
+<ul class="org-ul">
+<li>若未指定 LOG_AMOUNT，则限制值将取自 net.inet.ip.fw.verbose_limit 的值</li>
+<li>设置为0 将移除日志记录限制</li>
+<li>达到限制后，可通过 <span class="underline">ipfw resetlog</span> 清除该规则的日志计数器来重新启用日志
+<ul class="org-ul">
+<li>若要同时清除数据包计数器，请使用 <span class="underline">ipfw zero</span></li>
+</ul></li>
+</ul>
+
+<pre class="example" id="org2719461">
+日志记录在所有其他数据包匹配条件满足之后、对数据包执行最终动作之前发生
+
+管理员决定在哪些规则上启用日志记录
+</pre>
+</div>
+</div>
+<div id="outline-container-org350d65c" class="outline-3">
+<h3 id="org350d65c">PROTO</h3>
+<div class="outline-text-3" id="text-org350d65c">
+<p>
+可选值，用于指定 /etc/protocols 中的协议名称或编号 
+</p>
+</div>
+</div>
+<div id="outline-container-org2e655ac" class="outline-3">
+<h3 id="org2e655ac">SRC</h3>
+<div class="outline-text-3" id="text-org2e655ac">
+<p>
+<span class="underline">from</span> 关键字必须跟随源地址或表示源地址的关键字。地址可由
+</p>
+<ul class="org-ul">
+<li>any</li>
+<li>me 此系统上任何接口配置的地址</li>
+<li>me6 此系统上任何接口配置的 IPv6 地址</li>
+<li>table 后跟查找表的编号表示，查找表包含一个地址列表
+<ul class="org-ul">
+<li><p>
+当指定 IP 地址时，可选择后跟其 CIDR 掩码或子网掩码
+</p>
+<pre class="example" id="orgbd5c566">
+例如，1.2.3.4/25 或 1.2.3.4/255.255.255.128
+</pre></li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgbbe7c63" class="outline-3">
+<h3 id="orgbbe7c63">SRC_PORT</h3>
+<div class="outline-text-3" id="text-orgbbe7c63">
+<p>
+可通过端口号或 /etc/services 中的端口名称指定可选的源端口
+</p>
+</div>
+</div>
+<div id="outline-container-org052b205" class="outline-3">
+<h3 id="org052b205">DST</h3>
+<div class="outline-text-3" id="text-org052b205">
+<p>
+<span class="underline">to</span> 关键字必须跟随目标地址或表示目标地址的关键字。可使用与 SRC 部分相同的关键字和地址说明目标
+</p>
+</div>
+</div>
+<div id="outline-container-org877ba80" class="outline-3">
+<h3 id="org877ba80">DST_PORT</h3>
+<div class="outline-text-3" id="text-org877ba80">
+<p>
+可通过端口号或 /etc/services 中的端口名称指定可选的目标端口
+</p>
+</div>
+</div>
+<div id="outline-container-orgfcc88d5" class="outline-3">
+<h3 id="orgfcc88d5">OPTIONS</h3>
+<div class="outline-text-3" id="text-orgfcc88d5">
+<p>
+多个关键字可跟在源和目标之后。如其名所示，OPTIONS 是可选的。常用选项包括
+</p>
+<ul class="org-ul">
+<li>in 或 out，用于指定数据包流动的方向</li>
+<li>icmptypes 后跟 ICMP 消息类型</li>
+<li><p>
+keep-state，当匹配到 keep-state 规则时，防火墙将创建一个 <b>动态</b> 规则，匹配源和目标地址及端口之间的双向流量，使用相同的协议
+</p>
+<pre class="example" id="org379a901">
+动态规则设施容易受到资源耗尽攻击的影响，如 SYN 洪泛攻击，可能会打开大量动态规则
+</pre>
+<ul class="org-ul">
+<li>为应对此类攻击，可使用 <span class="underline">limit</span> : 此选项通过检查已打开的动态规则并计算此规则和 IP 地址组合的出现次数，限制同时会话的数量
+<ul class="org-ul">
+<li>若此计数大于 limit 指定的值，则丢弃数据包</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<pre class="example" id="orgf00836b">
+有许多 OPTIONS 可用。有关每个可用选项的说明，参阅 ipfw(8)
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org0fc8352" class="outline-2">
+<h2 id="org0fc8352">示例规则集</h2>
+<div class="outline-text-2" id="text-org0fc8352">
+<pre class="example" id="orgb50071b">
+本节演示如何创建状态防火墙规则集脚本 /etc/ipfw.rules
+</pre>
+<p>
+在此示例中，所有连接规则均使用 in 或 out 明确方向，并使用 via interface-name 指定数据包经过的接口。
+</p>
+
+<pre class="example" id="orgdddf2bc">
+在首次创建或测试防火墙规则集时，考虑暂时设置这个可调参数：
+
+net.inet.ip.fw.default_to_accept="1"
+
+此参数为只读可调参数，需要在 /boot/loader.conf 中设置，重启后生效，不可通过 sysctl 在运行时修改
+
+这将把 ipfw(8) 的默认策略设置为比默认的 deny ip from any to any 更宽松，这样可在重启后稍微降低被锁定的风险
+</pre>
+
+<p>
+防火墙脚本首先声明其为 sh 脚本
+</p>
+<ol class="org-ol">
+<li>清空所有现有规则</li>
+<li>创建 cmd 变量，以便在每条规则开始时无需重复输入 ipfw add</li>
+<li>定义了 pif 变量，表示连接到互联网的接口名称</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/bin/</span><span style="color: #00ffff;">sh</span><span style="color: #ff4500;">
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#28165;&#31354;&#29616;&#26377;&#35268;&#21017;
+</span>ipfw -q -f flush
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#35268;&#21017;&#21629;&#20196;&#21069;&#32512;&#21464;&#37327;
+</span><span style="color: #eedd82;">cmd</span>=<span style="color: #ffa07a;">"ipfw -q add"</span>
+<span style="color: #eedd82;">pif</span>=<span style="color: #ffa07a;">"em0"</span>     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36830;&#25509;&#21040;&#20114;&#32852;&#32593;&#30340;&#22806;&#37096;&#32593;&#21345;&#25509;&#21475;&#21517;&#31216;</span>
+</pre>
+</div>
+
+<p>
+前两条规则允许通过受信任的内部接口和回环接口的所有流量：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558; em1 &#25913;&#20026;&#23454;&#38469;&#30340;&#23616;&#22495;&#32593;&#32593;&#21345;&#25509;&#21475;&#21517;&#31216;
+</span>$<span style="color: #eedd82;">cmd</span> 00005 allow all from any to any via em1
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#22238;&#29615;&#25509;&#21475;&#19978;&#30340;&#25152;&#26377;&#27969;&#37327;
+</span>$<span style="color: #eedd82;">cmd</span> 00010 allow all from any to any via lo0
+</pre>
+</div>
+
+<p>
+接下来的规则在数据包与动态规则表中的现有条目匹配时允许其通过：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$<span style="color: #eedd82;">cmd</span> 00101 check-state
+</pre>
+</div>
+
+<p>
+接下来的规则集定义了内部系统可创建到互联网上主机的哪些有状态连接：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#35775;&#38382;&#20844;&#20849; DNS &#26381;&#21153;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558; x.x.x.x &#26367;&#25442;&#20026;&#20844;&#20849; DNS &#26381;&#21153;&#22120;&#30340; IP &#22320;&#22336;&#65292;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24182;&#20026; /etc/resolv.conf &#20013;&#21015;&#20986;&#30340;&#27599;&#20010; DNS &#26381;&#21153;&#22120;&#37325;&#22797;&#27492;&#35268;&#21017;
+</span>$<span style="color: #eedd82;">cmd</span> 00110 allow tcp from any to x.x.x.x 53 out via $<span style="color: #eedd82;">pif</span> setup keep-state
+$<span style="color: #eedd82;">cmd</span> 00111 allow udp from any to x.x.x.x 53 out via $<span style="color: #eedd82;">pif</span> keep-state
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#35775;&#38382; ISP &#30340; DHCP &#26381;&#21153;&#22120;&#65292;&#36866;&#29992;&#20110;&#30005;&#32518;&#35843;&#21046;&#35299;&#35843;&#22120;&#25110; ADSL &#31561;&#23485;&#24102;&#36830;&#25509;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#40664;&#35748;&#20351;&#29992;&#35760;&#24405;&#26085;&#24535;&#30340;&#36890;&#29992;&#35268;&#21017;&#65307;&#30830;&#35748; DHCP &#26381;&#21153;&#22120;&#22320;&#22336;&#21518;&#65292;&#21487;&#23558; x.x.x.x &#22635;&#20837;&#19979;&#19968;&#26465;&#35268;&#21017;&#24182;&#21551;&#29992;&#23427;
+</span>$<span style="color: #eedd82;">cmd</span> 00120 allow log udp from any to any 67 out via $<span style="color: #eedd82;">pif</span> keep-state
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">$cmd 00120 allow udp from any to x.x.x.x 67 out via $pif keep-state
+</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#22806;&#21457; HTTP &#21644; HTTPS &#36830;&#25509;
+</span>$<span style="color: #eedd82;">cmd</span> 00200 allow tcp from any to any 80 out via $<span style="color: #eedd82;">pif</span> setup keep-state
+$<span style="color: #eedd82;">cmd</span> 00220 allow tcp from any to any 443 out via $<span style="color: #eedd82;">pif</span> setup keep-state
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#22806;&#21457; SMTP &#37038;&#20214;&#25552;&#20132;&#36830;&#25509;
+</span>$<span style="color: #eedd82;">cmd</span> 00230 allow tcp from any to any 587 out via $<span style="color: #eedd82;">pif</span> setup keep-state
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#22806;&#21457; ICMP&#65288;&#22914; ping&#65289;
+</span>$<span style="color: #eedd82;">cmd</span> 00250 allow icmp from any to any out via $<span style="color: #eedd82;">pif</span> keep-state
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#22806;&#21457; NTP &#26102;&#38388;&#21516;&#27493;
+</span>$<span style="color: #eedd82;">cmd</span> 00260 allow udp from any to any 123 out via $<span style="color: #eedd82;">pif</span> keep-state
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#22806;&#21457; SSH &#36830;&#25509;
+</span>$<span style="color: #eedd82;">cmd</span> 00280 allow tcp from any to any 22 out via $<span style="color: #eedd82;">pif</span> setup keep-state
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#24182;&#35760;&#24405;&#25152;&#26377;&#20854;&#20182;&#22806;&#21457;&#36830;&#25509;
+</span>$<span style="color: #eedd82;">cmd</span> 00299 deny log all from any to any out via $<span style="color: #eedd82;">pif</span>
+</pre>
+</div>
+
+<p>
+接下来的规则集控制从互联网主机到内部网络的连接
+</p>
+<ol class="org-ol">
+<li>首先拒绝通常与攻击相关的数据包</li>
+<li>显式允许特定类型的连接</li>
+<li>所有从互联网发起的授权服务均使用 <span class="underline">limit</span> 防止洪泛攻击</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#25152;&#26377;&#26469;&#33258;&#19981;&#21487;&#36335;&#30001;&#20445;&#30041;&#22320;&#22336;&#31354;&#38388;&#30340;&#20837;&#31449;&#27969;&#37327;
+</span>$<span style="color: #eedd82;">cmd</span> 00300 deny all from 192.168.0.0/16 to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">RFC 1918 &#31169;&#26377;&#22320;&#22336;
+</span>$<span style="color: #eedd82;">cmd</span> 00301 deny all from 172.16.0.0/12 to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">RFC 1918 &#31169;&#26377;&#22320;&#22336;
+</span>$<span style="color: #eedd82;">cmd</span> 00302 deny all from 10.0.0.0/8 to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>         <span style="color: #ff4500;"># </span><span style="color: #ff4500;">RFC 1918 &#31169;&#26377;&#22320;&#22336;
+</span>$<span style="color: #eedd82;">cmd</span> 00303 deny all from 127.0.0.0/8 to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22238;&#29615;&#22320;&#22336;
+</span>$<span style="color: #eedd82;">cmd</span> 00304 deny all from 0.0.0.0/8 to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>          <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26412;&#32593;&#32476;&#22320;&#22336;
+</span>$<span style="color: #eedd82;">cmd</span> 00305 deny all from 169.254.0.0/16 to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#38142;&#36335;&#26412;&#22320;&#22320;&#22336;&#65288;APIPA&#65289;
+</span>$<span style="color: #eedd82;">cmd</span> 00306 deny all from 192.0.2.0/24 to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>       <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25991;&#26723;&#31034;&#20363;&#20445;&#30041;&#22320;&#22336;
+</span>$<span style="color: #eedd82;">cmd</span> 00307 deny all from 224.0.0.0/3 to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">D &#31867;&#32452;&#25773;&#19982; E &#31867;&#20445;&#30041;
+</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#26469;&#33258;&#22806;&#37096;&#30340; ICMP &#22238;&#26174;&#35831;&#27714;&#65288;&#31105;&#27490;&#22806;&#37096; ping &#26412;&#26426;&#65289;
+</span>$<span style="color: #eedd82;">cmd</span> 00310 deny icmp from any to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477; NetBIOS/SMB &#30456;&#20851;&#31471;&#21475;&#30340;&#20837;&#31449;&#35775;&#38382;
+</span>$<span style="color: #eedd82;">cmd</span> 00320 deny tcp from any to any 137<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+$<span style="color: #eedd82;">cmd</span> 00321 deny tcp from any to any 138<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+$<span style="color: #eedd82;">cmd</span> 00322 deny tcp from any to any 139<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+$<span style="color: #eedd82;">cmd</span> 00323 deny tcp from any to any 445<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+$<span style="color: #eedd82;">cmd</span> 00324 deny udp from any to any 137<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+$<span style="color: #eedd82;">cmd</span> 00325 deny udp from any to any 138<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#20998;&#29255;&#25968;&#25454;&#21253;
+</span>$<span style="color: #eedd82;">cmd</span> 00330 deny all from any to any frag<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#26410;&#21305;&#37197;&#21160;&#24577;&#35268;&#21017;&#34920;&#30340; ACK &#21253;
+</span>$<span style="color: #eedd82;">cmd</span> 00332 deny tcp from any to any established<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#26469;&#33258; ISP DHCP &#26381;&#21153;&#22120;&#30340;&#20837;&#31449;&#27969;&#37327;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558; x.x.x.x &#26367;&#25442;&#20026;&#35268;&#21017; 00120 &#20013;&#20351;&#29992;&#30340; DHCP &#26381;&#21153;&#22120; IP &#22320;&#22336;
+</span><span style="color: #ff4500;">#</span><span style="color: #ff4500;">$cmd 00360 allow udp from any to x.x.x.x 67 in via $pif keep-state
+</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#21040;&#20869;&#37096; Web &#26381;&#21153;&#22120;&#30340; HTTP &#36830;&#25509;&#65292;&#24182;&#38480;&#21046;&#21516;&#19968;&#28304;&#22320;&#22336;&#30340;&#21516;&#26102;&#36830;&#25509;&#25968;
+</span>$<span style="color: #eedd82;">cmd</span> 00400 allow tcp from any to me 80<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span> setup limit src-addr 2
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20837;&#31449; SSH &#36830;&#25509;&#65292;&#24182;&#38480;&#21046;&#21516;&#19968;&#28304;&#22320;&#22336;&#30340;&#21516;&#26102;&#36830;&#25509;&#25968;
+</span>$<span style="color: #eedd82;">cmd</span> 00410 allow tcp from any to me 22<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span> setup limit src-addr 2
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#24182;&#35760;&#24405;&#25152;&#26377;&#20854;&#20182;&#20837;&#31449;&#36830;&#25509;
+</span>$<span style="color: #eedd82;">cmd</span> 00499 deny log all from any to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span>
+</pre>
+</div>
+
+<p>
+最后一条规则记录并拒绝所有不匹配上述规则的包：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#24182;&#35760;&#24405;&#25152;&#26377;&#20854;&#20182;&#27969;&#37327;
+</span>$<span style="color: #eedd82;">cmd</span> 00999 deny log all from any to any
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org6879e11" class="outline-2">
+<h2 id="org6879e11">内核 NAT</h2>
+<div class="outline-text-2" id="text-org6879e11">
+<p>
+FreeBSD 的 IPFW 防火墙提供内核 NAT 实现，与 IPFW 配合工作，提供网络地址转换
+</p>
+<pre class="example" id="org7e57503">
+此功能可用于提供互联网连接共享方案，使多台内部计算机能够使用单个公共 IP 地址连接互联网
+</pre>
+
+<p>
+为此，连接到互联网的 FreeBSD 机器必须充当网关。该系统必须有两个网卡
+</p>
+<ul class="org-ul">
+<li>其中一个连接到互联网</li>
+<li>另一个连接到内部局域网（LAN）</li>
+<li>每台连接到 LAN 的计算机应分配一个私有网络空间的 IP 地址，如 RFC 1918 所定义</li>
+</ul>
+
+<p>
+启用 IPFW 的内核 NAT 功能需要额外配置。要在引导时启用 <span class="underline">内核 NAT</span> 支持，必须在 <b>/etc/rc.conf</b> 中设置以下内容：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">gateway_enable</span>=<span style="color: #ffa07a;">"YES"</span>
+<span style="color: #eedd82;">firewall_enable</span>=<span style="color: #ffa07a;">"YES"</span>
+<span style="color: #eedd82;">firewall_nat_enable</span>=<span style="color: #ffa07a;">"YES"</span>
+</pre>
+</div>
+
+<pre class="example" id="org3bd94cd">
+设置了 firewall_nat_enable 而未设置 firewall_enable 时，将不产生任何效果，也不会执行任何操作
+
+这是因为内核 NAT 实现仅与 IPFW 兼容
+</pre>
+
+<p>
+当规则集包含有状态规则时，NAT 规则的位置非常关键，且需要使用 <span class="underline">skipto</span> 动作。skipto 动作需要指定规则号以确定跳转目标
+</p>
+<pre class="example" id="orgb4d84b9">
+下面的示例在前一节中展示的防火墙规则集的基础上构建，添加了一些额外的条目并修改了一些现有的规则，以配置内核 NAT
+</pre>
+
+<p>
+首先添加一些额外变量，表示跳转到的规则号、keep-state 选项以及用于减少规则数量的 TCP 端口列表：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/bin/</span><span style="color: #00ffff;">sh</span><span style="color: #ff4500;">
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#28165;&#31354;&#29616;&#26377;&#35268;&#21017;
+</span>ipfw -q -f flush
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35268;&#21017;&#21629;&#20196;&#21069;&#32512;
+</span><span style="color: #eedd82;">cmd</span>=<span style="color: #ffa07a;">"ipfw -q add"</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20986;&#31449;&#26377;&#29366;&#24577;&#35268;&#21017;&#21305;&#37197;&#21518;&#36339;&#36716;&#21040;&#35268;&#21017; 1000 &#25191;&#34892; NAT
+</span><span style="color: #eedd82;">skip</span>=<span style="color: #ffa07a;">"skipto 1000"</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36830;&#25509;&#21040;&#20114;&#32852;&#32593;&#30340;&#22806;&#37096;&#32593;&#21345;&#25509;&#21475;
+</span><span style="color: #eedd82;">pif</span>=em0
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#29992;&#26377;&#29366;&#24577;&#36319;&#36394;
+</span><span style="color: #eedd82;">ks</span>=<span style="color: #ffa07a;">"keep-state"</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20986;&#31449;&#30340; TCP &#31471;&#21475;&#21015;&#34920;
+</span><span style="color: #eedd82;">good_tcpo</span>=<span style="color: #ffa07a;">"22,53,80,443,587"</span>
+</pre>
+</div>
+
+<pre class="example" id="org6d8dc8a">
+可有多个 NAT 实例，每个实例都有自己的配置
+
+此示例中只需一个 NAT 实例，即 NAT 实例 1
+</pre>
+<p>
+配置可包括几个选项，如：
+</p>
+<ul class="org-ul">
+<li>if: 指定公共接口</li>
+<li>same_ports: 确保别名端口和本地端口号保持一致</li>
+<li>unreg_only: 仅处理未注册（私有）地址空间</li>
+<li>reset: 可在 IPFW 机器的公共 IP 地址发生变化时保持 NAT 实例正常工作</li>
+</ul>
+
+<pre class="example" id="org42d4708">
+有关可传递给单个 NAT 实例配置的所有可能选项，参阅 ipfw(8)
+</pre>
+
+<p>
+配置有状态 NAT 防火墙时，需要允许转换后的数据包重新注入防火墙做进一步处理。在防火墙脚本开头禁用 <b>one_pass</b> 行为即可实现此目的
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#32463;&#36807; NAT &#22788;&#29702;&#30340;&#25968;&#25454;&#21253;&#37325;&#26032;&#27880;&#20837;&#38450;&#28779;&#22681;&#32487;&#32493;&#21305;&#37197;&#21518;&#32493;&#35268;&#21017;
+</span>ipfw disable one_pass
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#37197;&#32622; NAT &#23454;&#20363; 1&#65306;&#20351;&#29992;&#25351;&#23450;&#22806;&#37096;&#25509;&#21475;&#65292;&#20445;&#25345;&#31471;&#21475;&#21495;&#19968;&#33268;&#65292;&#20165;&#22788;&#29702;&#31169;&#26377;&#22320;&#22336;&#65292;IP &#21464;&#21270;&#26102;&#37325;&#32622;
+</span>ipfw -q nat 1 config if $<span style="color: #eedd82;">pif</span> same_ports unreg_only reset
+</pre>
+</div>
+
+<p>
+入站 NAT 规则应插入允许所有受信任和回环接口流量的两条规则之后，在重新组装规则之后、check-state 规则之前
+</p>
+<pre class="example" id="org4e6b596">
+重要的是，这条 NAT 规则的规则号（在此示例中为 100）必须大于前面三条规则的规则号，并且小于 check-state 规则的规则号
+
+此外，由于内核 NAT 的行为，建议在第一个 NAT 规则之前并在允许受信任接口流量的规则之后放置一个重新组装规则
+
+通常情况下，不应发生 IP 分片，但在处理 IPSEC/ESP/GRE 隧道流量时，可能会发生分片，必须先重新组装分片，才能将完整的数据包交给内核 NAT 功能
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-sh">$<span style="color: #eedd82;">cmd</span> 005 allow all from any to any via em1  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#23616;&#22495;&#32593;&#27969;&#37327;&#30452;&#36890;
+</span>$<span style="color: #eedd82;">cmd</span> 010 allow all from any to any via lo0  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#22238;&#29615;&#25509;&#21475;&#27969;&#37327;
+</span>$<span style="color: #eedd82;">cmd</span> 099 reass all from any to any<span style="color: #00ffff;"> in</span>       <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#37325;&#26032;&#32452;&#35013;&#20837;&#31449;&#25968;&#25454;&#21253;&#65292;&#20415;&#20110; NAT &#22788;&#29702;
+</span>$<span style="color: #eedd82;">cmd</span> 100 nat 1 ip from any to any<span style="color: #00ffff;"> in</span> via $<span style="color: #eedd82;">pif</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23545;&#20837;&#31449;&#21040;&#22806;&#37096;&#25509;&#21475;&#30340;&#27969;&#37327;&#25191;&#34892; NAT
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26816;&#26597;&#21160;&#24577;&#35268;&#21017;&#34920;&#65292;&#22914;&#24050;&#23384;&#22312;&#20250;&#35805;&#21017;&#30452;&#25509;&#36890;&#36807;
+</span>$<span style="color: #eedd82;">cmd</span> 101 check-state
+</pre>
+</div>
+
+<pre class="example" id="orgca6ef28">
+此示例中使用的 NAT 实例和规则号与 rc.firewall 创建的默认 NAT 实例和规则号不匹配
+
+rc.firewall 是设置 FreeBSD 默认防火墙规则的脚本
+</pre>
+
+<p>
+出站规则被修改
+</p>
+<ol class="org-ol">
+<li>使用 <span class="underline">$skip</span> 变量 <b>替换</b> allow 动作，表示规则处理将在规则 1000 处继续</li>
+<li>多条 tcp 规则已被规则 125 替换，因为 $good_tcpo 变量包含了允许的出站端口列表</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20986;&#31449;&#30340; DNS &#26597;&#35810;&#65288;TCP &#19982; UDP&#65289;
+</span>$<span style="color: #eedd82;">cmd</span> 120 $<span style="color: #eedd82;">skip</span> udp from any to x.x.x.x 53 out via $<span style="color: #eedd82;">pif</span> $<span style="color: #eedd82;">ks</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20986;&#31449;&#30340; DHCP &#35831;&#27714;
+</span>$<span style="color: #eedd82;">cmd</span> 121 $<span style="color: #eedd82;">skip</span> udp from any to x.x.x.x 67 out via $<span style="color: #eedd82;">pif</span> $<span style="color: #eedd82;">ks</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21512;&#24182;&#20801;&#35768;&#30340;&#20986;&#31449; TCP &#31471;&#21475;&#65288;SSH&#12289;SMTP&#12289;DNS&#12289;HTTP&#12289;HTTPS&#65289;&#65292;&#20351;&#29992; skipto &#36339;&#36716;&#33267; NAT &#35268;&#21017;
+</span>$<span style="color: #eedd82;">cmd</span> 125 $<span style="color: #eedd82;">skip</span> tcp from any to any $<span style="color: #eedd82;">good_tcpo</span> out via $<span style="color: #eedd82;">pif</span> setup $<span style="color: #eedd82;">ks</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20986;&#31449;&#30340; ICMP&#65288;&#22914; ping &#19982; traceroute&#65289;
+</span>$<span style="color: #eedd82;">cmd</span> 130 $<span style="color: #eedd82;">skip</span> icmp from any to any out via $<span style="color: #eedd82;">pif</span> $<span style="color: #eedd82;">ks</span>
+</pre>
+</div>
+
+<pre class="example" id="orgfed9817">
+IPFW 的性能在很大程度上取决于规则集中规则的数量
+</pre>
+
+<ul class="org-ul">
+<li>999: 入站规则除最后一条外保持不变，该规则删除了 via $pif，以便捕获入站和出站规则</li>
+<li>1000: NAT 规则必须跟在最后一条出站规则后面，规则号必须大于最后一条规则，并且规则号必须通过 skipto 动作引用
+<ul class="org-ul">
+<li>在此规则集中，规则号 1000 将所有数据包传递到所配置的 NAT 实例处理</li>
+</ul></li>
+<li>1001: 下一条规则允许任何经过 NAT 处理的数据包通过</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#24182;&#35760;&#24405;&#25152;&#26377;&#26410;&#21305;&#37197;&#35268;&#21017;&#30340;&#27969;&#37327;
+</span>$<span style="color: #eedd82;">cmd</span> 999 deny log all from any to any
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20986;&#31449;&#27969;&#37327; skipto &#30340;&#30446;&#26631;&#65306;&#23545;&#25152;&#26377;&#26410;&#21305;&#37197;&#21040;&#20855;&#20307;&#35268;&#21017;&#30340;&#20986;&#31449;&#27969;&#37327;&#25191;&#34892; NAT
+</span>$<span style="color: #eedd82;">cmd</span> 1000 nat 1 ip from any to any out via $<span style="color: #eedd82;">pif</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#32463;&#36807; NAT &#36716;&#25442;&#21518;&#30340;&#27969;&#37327;&#36890;&#36807;
+</span>$<span style="color: #eedd82;">cmd</span> 1001 allow ip from any to any
+</pre>
+</div>
+
+<pre class="example" id="orgf15d625">
+在此示例中，规则 100、101、125、1000 和 1001 控制出站和入站数据包的地址转换
+
+从而确保动态状态表中的条目始终注册为私有 LAN IP 地址
+</pre>
+
+<p>
+假设有一台内部主机使用网页浏览器，发起了一个新的出站 HTTP 会话，使用端口 80: 
+</p>
+<ol class="org-ol">
+<li>当第一个出站数据包进入防火墙时，它不会匹配规则 100，因为它是出站的，而不是入站的</li>
+<li>它会通过规则 101，因为这是第一个数据包，并且它尚未被添加到动态状态表中</li>
+<li>数据包最终会匹配规则 125，因为它是出站的，并且它的源 IP 地址来自内部 LAN</li>
+<li>当它匹配这个规则时，会执行两个动作
+<ol class="org-ol">
+<li>keep-state 动作将一个条目添加到动态状态表中，并执行指定的动作 skipto rule 1000</li>
+<li>数据包会经过 NAT 处理并被发送到互联网</li>
+</ol></li>
+<li>这个数据包到达目标 Web 服务器，生成并返回响应数据包</li>
+<li>这个新数据包进入规则集的顶部。它匹配规则 100，并将目标 IP 地址映射回原始的内部地址</li>
+<li>接着它会通过 check-state 规则，被识别为已有会话的数据包，并被放行到 LAN</li>
+</ol>
+
+<p>
+在入站方面，规则集必须拒绝不合法的数据包，只允许授权的服务。一个匹配入站规则的数据包会被记录到动态状态表中，然后该数据包会被放行到 LAN。作为响应生成的数据包，会被 check-state 规则识别为属于一个已存在的会话，然后发送到规则 1000，经过 NAT 后再放行到出站接口
+</p>
+</div>
+<div id="outline-container-org641774e" class="outline-3">
+<h3 id="org641774e">端口重定向</h3>
+<div class="outline-text-3" id="text-org641774e">
+<pre class="example" id="org9282434">
+NAT 的一个缺点是，LAN 客户端无法从互联网访问，LAN 上的客户端可发起外向连接，但无法接收传入连接
+
+若尝试在 LAN 客户机上运行互联网服务，则会成为问题
+
+例如，Minecraft 服务器在客户端 A 上运行，Web 服务器在客户端 B 上运行
+
+要使其正常工作，接收到端口 25565（Minecraft）和 80（HTTP）上的连接必须重定向到相应的机器
+
+解决此问题的一种简单方法是将选定的互联网端口重定向到 NAT 提供机上的 LAN 客户机
+</pre>
+
+<p>
+在内核态 NAT 中，所有配置都在 NAT 实例配置中完成。 <span class="underline">redirect_port</span> 的语法如下：
+</p>
+
+<pre class="example" id="org565cc8b">
+# 语法：redirect_port 协议 内部IP:内部端口[-内部端口] [外部IP:]外部端口[-外部端口] [远程IP[:远程端口[-远程端口]]]
+redirect_port proto targetIP:targetPORT[-targetPORT]
+  [aliasIP:]aliasPORT[-aliasPORT]
+  [remoteIP[:remotePORT[-remotePORT]]]
+</pre>
+
+<p>
+要配置上述示例，参数应为：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#22806;&#37096; 25565 &#31471;&#21475;&#37325;&#23450;&#21521;&#21040;&#20869;&#37096; Minecraft &#26381;&#21153;&#22120;
+</span>redirect_port tcp 192.168.0.2:25565 25565
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#22806;&#37096; 80 &#31471;&#21475;&#37325;&#23450;&#21521;&#21040;&#20869;&#37096; Web &#26381;&#21153;&#22120;
+</span>redirect_port tcp 192.168.0.3:80 80
+</pre>
+</div>
+
+<p>
+将这些参数添加到上面规则集中 NAT 实例 1 的配置中后，TCP 端口将转发至运行 Minecraft 和 HTTP 服务的局域网客户机
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312; NAT &#23454;&#20363; 1 &#20013;&#28155;&#21152;&#31471;&#21475;&#37325;&#23450;&#21521;&#35268;&#21017;
+</span>ipfw -q nat 1 config if $<span style="color: #eedd82;">pif</span> same_ports unreg_only reset redirect_port tcp 192.168.0.2:25565 25565 redirect_port tcp 192.168.0.3:80 80
+</pre>
+</div>
+
+<p>
+通过 redirect_port，还可指定端口范围而非单个端口
+</p>
+<pre class="example" id="org4a75096">
+例如，tcp 192.168.0.2:2000-3000 2000-3000 将把所有接收到的 2000 到 3000 端口上的连接转发到客户端 A 上的 2000 到 3000 端口
+</pre>
+</div>
+</div>
+<div id="outline-container-org764973e" class="outline-3">
+<h3 id="org764973e">地址重定向</h3>
+<div class="outline-text-3" id="text-org764973e">
+<p>
+在可用多个 IP 地址时，地址重定向非常有用。可通过 ipfw(8) 为局域网中的每台客户机分配其专有的外部 IP 地址，之后将重写来自局域网客户机的出站数据包，使用正确的外部 IP 地址，并将所有传入该 IP 地址的流量重定向回特定的局域网客户机。这也称为 <span class="underline">静态 NAT</span> 
+</p>
+
+<pre class="example" id="orge437028">
+例如，若有 IP 地址 128.1.1.1、128.1.1.2 和 128.1.1.3 可用：
+
+128.1.1.1 可作为 ipfw(8) 机器的外部 IP 地址，而 128.1.1.2 和 128.1.1.3 则分别转发到局域网客户机 A 和 B
+
+Internet ──► [ ipfw ] ──┬─► 128.1.1.2 ──► 局域网客户机 A
+             │          │
+             │          └─► 128.1.1.3 ──► 局域网客户机 B
+             └── (外部地址: 128.1.1.1)
+</pre>
+
+<p>
+redirect_addr 的语法如下，其中 localIP 是局域网客户机的内部 IP 地址，publicIP 是与局域网客户机对应的外部 IP 地址。
+</p>
+
+<pre class="example" id="orgbaa7c3c">
+# 语法：redirect_addr 内部IP 外部IP（将内部客户机静态映射到某个公网地址）
+redirect_addr localIP publicIP
+</pre>
+
+<p>
+在此示例中，参数应为：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#20869;&#37096;&#20027;&#26426; 192.168.0.2 &#38745;&#24577;&#26144;&#23556;&#21040;&#22806;&#37096;&#22320;&#22336; 128.1.1.2
+</span>redirect_addr 192.168.0.2 128.1.1.2
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#20869;&#37096;&#20027;&#26426; 192.168.0.3 &#38745;&#24577;&#26144;&#23556;&#21040;&#22806;&#37096;&#22320;&#22336; 128.1.1.3
+</span>redirect_addr 192.168.0.3 128.1.1.3
+</pre>
+</div>
+
+<pre class="example" id="orge66013d">
+与 redirect_port 类似，这些参数应放在 NAT 实例的配置中
+
+使用地址重定向时，无需端口重定向，因为所有接收到的特定 IP 地址上的数据都会被重定向
+</pre>
+
+<p>
+ipfw(8) 机器上的外部 IP 地址必须处于活动状态，且已作为别名配置在外部接口上
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org7d0c86f" class="outline-2">
+<h2 id="org7d0c86f">IPFW 命令</h2>
+<div class="outline-text-2" id="text-org7d0c86f">
+<p>
+ipfw 可用于在防火墙运行时手动添加或删除单个规则
+</p>
+<pre class="example" id="orga7ff840">
+使用这种方法的问题在于，所有更改在系统重启时都会丢失
+
+因此，建议将所有规则写入一个文件，并在引导时使用该文件加载规则，且在该文件发生更改时替换当前运行的防火墙规则
+</pre>
+
+<p>
+ipfw 可将运行中的防火墙规则显示到控制台屏幕
+</p>
+<ul class="org-ul">
+<li><p>
+IPFW 计数功能会动态为每条规则创建一个计数器，用于统计每个匹配该规则的数据包数
+</p>
+<pre class="example" id="org4de48a9">
+在测试规则时，列出带有计数器的规则可确定规则是否按预期工作 
+</pre></li>
+</ul>
+
+<p>
+按顺序列出所有正在运行的规则：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw list
+</pre>
+</div>
+
+<p>
+列出所有正在运行的规则，并带有规则上次匹配的时间戳：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw -t list
+</pre>
+</div>
+
+<p>
+列出了计数信息和匹配规则的数据包计数，以及规则本身。第一列是规则编号，接着是匹配的数据包和字节数，再后面是规则本身
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw -a list
+</pre>
+</div>
+
+<p>
+除了静态规则外，列出动态规则：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw -d list
+</pre>
+</div>
+
+<p>
+同时显示已过期的动态规则：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw -d -e list
+</pre>
+</div>
+
+<p>
+清零计数器：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw zero
+</pre>
+</div>
+
+<p>
+仅清零编号为 NUM 的规则的计数器：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw zero NUM
+</pre>
+</div>
+</div>
+<div id="outline-container-org3e1a945" class="outline-3">
+<h3 id="org3e1a945">记录防火墙日志</h3>
+<div class="outline-text-3" id="text-org3e1a945">
+<p>
+即使启用了日志功能，IPFW 默认不会生成任何规则日志。防火墙管理员决定哪些规则在规则集中将被记录，并将关键字 log 添加到这些规则中
+</p>
+
+<pre class="example" id="orgbdcd541">
+通常，只有拒绝规则才会被记录
+
+习惯上，在规则集的最后加上 log 关键字，以便查看所有未匹配规则集中任何规则的数据包
+
+日志记录是双刃剑。若不谨慎，过多的日志数据或 DoS 攻击会填满磁盘
+
+日志消息不仅会写入 syslogd，还会显示在根控制台上，且很快会令人困扰
+</pre>
+
+<p>
+内核选项 <span class="underline">IPFIREWALL_VERBOSE_LIMIT=5</span> 限制了发送到 syslogd(8) 的关于某一规则匹配的数据包消息的连续次数
+</p>
+<ul class="org-ul">
+<li>当此选项在内核中启用时，关于某个特定规则的连续消息数量将限制为指定的数量</li>
+<li><p>
+也可通过 sysctl net.inet.ip.fw.verbose_limit 在运行时设置此值，从而无需重编译内核
+</p>
+<pre class="example" id="org5fe41c3">
+从 200 条相同的日志消息中无法获取任何有用信息
+</pre></li>
+</ul>
+
+<p>
+将此选项设置为 5 时，关于特定规则的五条连续消息会被记录到 syslogd，剩余的相同连续消息会被计数并发送到 syslogd，附带类似以下的短语：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">last message repeated 45 times
+</pre>
+</div>
+
+<p>
+所有记录的数据包消息默认写入 <span class="underline">/var/log/security</span> ，在 <b>/etc/syslog.conf</b> 中定义该路径
+</p>
+</div>
+</div>
+<div id="outline-container-org034f4e6" class="outline-3">
+<h3 id="org034f4e6">构建规则脚本</h3>
+<div class="outline-text-3" id="text-org034f4e6">
+<p>
+大多数经验丰富的 IPFW 用户会创建一个包含规则的文件，并编写为可执行的脚本。这样做的主要好处是防火墙规则可批量刷新，无需重启系统即可激活
+</p>
+
+<pre class="example" id="orga9f30df">
+这种方法在测试新规则时非常方便，因为该过程可根据需要多次执行
+
+作为脚本，可使用符号替代多个规则中频繁使用的值，符号替代字段以美元符号 $ 为前缀
+
+符号字段没有 $ 前缀。要填充符号字段的值必须用双引号" 括起来
+
+这与 sh(1)、csh(1) 和 tcsh(1) shell 使用的语法兼容
+</pre>
+
+<p>
+以如下方式启动规则文件：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#28165;&#31354;&#26082;&#26377;&#35268;&#21017;
+</span>ipfw -q -f flush
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#21464;&#37327;
+</span><span style="color: #eedd82;">oif</span>=<span style="color: #ffa07a;">"tun0"</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22806;&#32593;&#25509;&#21475;
+</span><span style="color: #eedd82;">odns</span>=<span style="color: #ffa07a;">"192.0.2.11"</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">ISP &#30340; DNS &#26381;&#21153;&#22120; IP &#22320;&#22336;
+</span><span style="color: #eedd82;">cmd</span>=<span style="color: #ffa07a;">"ipfw -q add "</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26500;&#24314;&#35268;&#21017;&#21069;&#32512;
+</span><span style="color: #eedd82;">ks</span>=<span style="color: #ffa07a;">"keep-state"</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26377;&#29366;&#24577;&#36319;&#36394;&#65292;&#36991;&#20813;&#27599;&#27425;&#37325;&#22797;&#36755;&#20837;
+</span>$<span style="color: #eedd82;">cmd</span> 00500 check-state <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26816;&#26597;&#21160;&#24577;&#35268;&#21017;&#34920;
+</span>$<span style="color: #eedd82;">cmd</span> 00502 deny all from any to any frag <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#20998;&#29255;
+</span>$<span style="color: #eedd82;">cmd</span> 00501 deny tcp from any to any established <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25298;&#32477;&#26410;&#24314;&#31435;&#20250;&#35805;&#30340; ACK
+</span>$<span style="color: #eedd82;">cmd</span> 00600 allow tcp from any to any 80 out via $<span style="color: #eedd82;">oif</span> setup $<span style="color: #eedd82;">ks</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20986;&#31449; HTTP
+</span>$<span style="color: #eedd82;">cmd</span> 00610 allow tcp from any to $<span style="color: #eedd82;">odns</span> 53 out via $<span style="color: #eedd82;">oif</span> setup $<span style="color: #eedd82;">ks</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20986;&#31449; DNS&#65288;TCP&#65289;
+</span>$<span style="color: #eedd82;">cmd</span> 00611 allow udp from any to $<span style="color: #eedd82;">odns</span> 53 out via $<span style="color: #eedd82;">oif</span> $<span style="color: #eedd82;">ks</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20986;&#31449; DNS&#65288;UDP&#65289;</span>
+</pre>
+</div>
+
+<pre class="example" id="orgb36d429">
+这些规则并非重点，因为此示例旨在演示符号替代字段的填充方法
+</pre>
+
+<p>
+若上述示例位于 /etc/ipfw.rules，可通过以下命令重新加载规则：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sh /etc/ipfw.rules
+</pre>
+</div>
+
+<pre class="example" id="org741c21a">
+/etc/ipfw.rules 可位于任何地方，也可以任意指定文件名
+</pre>
+
+<p>
+同样，也可以手动执行以下命令：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw -q -f flush
+$ ipfw -q add check-state
+$ ipfw -q add deny all from any to any frag
+$ ipfw -q add deny tcp from any to any established
+$ ipfw -q add allow tcp from any to any 80 out via tun0 setup keep-state
+$ ipfw -q add allow tcp from any to 192.0.2.11 53 out via tun0 setup keep-state
+$ ipfw -q add 00611 allow udp from any to 192.0.2.11 53 out via tun0 keep-state
+</pre>
+</div>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="ipf.html">Next: IPfilter</a></td>
+<td class="org-left"><a href="introduction.html">Previous: 防火墙概论</a></td>
+<td class="org-left"><a href="firewall.html">Home: 防火墙</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
