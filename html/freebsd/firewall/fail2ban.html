@@ -201,7 +201,42 @@
  <a accesskey="H" href="firewall.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">Fail2Ban （基于 IPFW、PF 与 IPF）</h1>
-<pre class="example" id="org1bf177c">
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgad5ee93">安装 Fail2Ban</a></li>
+<li><a href="#org651a9c2">Fail2Ban 配置解读</a></li>
+<li><a href="#org376b9ca">Fail2Ban 封禁配置</a></li>
+<li><a href="#org06025e9">配置防火墙</a>
+<ul>
+<li><a href="#orgdd889f6">IPFW</a>
+<ul>
+<li><a href="#org5400b36">配置开机启动服务</a></li>
+<li><a href="#orgff36227">修改 IPFW 默认规则</a></li>
+</ul>
+</li>
+<li><a href="#org11083e8">PF</a>
+<ul>
+<li><a href="#org5147b5d">Fail2Ban 配置文件</a></li>
+<li><a href="#org60f543d">修改 PF 配置文件</a></li>
+<li><a href="#orge3d12f0">服务</a></li>
+</ul>
+</li>
+<li><a href="#org4ddadd8">IPFILTER (IPF)</a></li>
+</ul>
+</li>
+<li><a href="#orgb021294">测试效果</a>
+<ul>
+<li><a href="#org86ed253">查看状态</a></li>
+<li><a href="#org9598bf1">解禁 IP</a></li>
+</ul>
+</li>
+<li><a href="#org335eecd">故障排除与未竟事宜</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org8ce3694">
 网络安全实践中，暴力破解（brute-force attack）是针对身份认证系统的常见威胁之一
 </pre>
 
@@ -209,13 +244,475 @@
 Fail2Ban 是一款基于日志的 <b>入侵防御系统</b> <span class="underline">Intrusion Prevention System, IPS</span> ，通过动态更新防火墙规则实现自适应访问控制，为服务器提供实时防护
 </p>
 
-<pre class="example" id="orgd80d262">
+<pre class="example" id="org78a0f39">
 根据 官方说明，Fail2Ban 通过更新系统防火墙规则，拒绝多次身份验证失败的 IP 地址发起的新连接（详见 Fail2Ban 工作原理）
 
 Fail2Ban 几乎完全由 Python 实现（Python 代码占比约 96%）
 
 本节适配了 FreeBSD 常见的三种防火墙（IPFW、PF 与 IPF），无需同时配置所有防火墙，只需选择其中一种即可
 </pre>
+<div id="outline-container-orgad5ee93" class="outline-2">
+<h2 id="orgad5ee93">安装 Fail2Ban</h2>
+<div class="outline-text-2" id="text-orgad5ee93">
+<p>
+Fail2Ban 的安装过程如下，用户可选择 pkg 或 Ports 安装
+</p>
+<ul class="org-ul">
+<li><p>
+pkg:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install security/py-fail2ban
+</pre>
+</div></li>
+<li><p>
+ports:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cd /usr/ports/security/py-fail2ban/
+$ make install clean
+</pre>
+</div></li>
+</ul>
+
+<p>
+启用 fail2ban 服务：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ service faile2ban enable 
+</pre>
+</div>
+
+<p>
+查看 Fail2Ban 安装后的说明
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg info -D security/py-fail2ban
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org651a9c2" class="outline-2">
+<h2 id="org651a9c2">Fail2Ban 配置解读</h2>
+<div class="outline-text-2" id="text-org651a9c2">
+<pre class="example" id="org73ce793">
+此处的 jail 并非 BSD 系统中的 jail（容器）
+
+在 Fail2Ban 中，jail 是指对特定服务的监控和封禁配置单元，每个 jail 对应一个需要防护的服务（如 SSH、FTP 等）
+</pre>
+
+<p>
+Fail2Ban 的工作流程分为两个部分：
+</p>
+<ol class="org-ol">
+<li>filter <span class="underline">过滤器</span> : 解析日志，识别失败的登录尝试</li>
+<li>action <span class="underline">动作</span> : 调用防火墙规则执行封禁操作</li>
+</ol>
+
+<p>
+涉及的文件结构：
+</p>
+<pre class="example" id="orgc277787">
+/usr/local/etc/fail2ban/
+├── jail.conf
+├── filter.d/
+│   ├── bsd-sendmail.conf
+│   ├── bsd-sshd.conf
+│   ├── bsdftp.conf
+│   ├── courier-auth.conf
+│   ├── mssql-auth.conf
+│   ├── murmur.conf
+│   ├── mysqld-auth.conf
+│   ├── nginx-botsearch.conf
+│   ├── slapd.conf
+│   ├── softethervpn.conf
+│   ├── sogo-auth.conf
+│   └── sshd.conf
+├── action.d/
+│   ├── bsd-ipfw.conf
+│   ├── ipfw.conf
+│   └── ipfilter.conf
+└── jail.d/
+    └── sshd.conf
+</pre>
+
+<p>
+配置文件示例为 /usr/local/etc/fail2ban/jail.conf 文件（请勿直接编辑，参见上文说明），下文仅列出本书所需内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">DEFAULT &#26159;&#20840;&#23616;&#23450;&#20041;&#30340;&#37197;&#32622;&#65292;&#20043;&#21518;&#27599;&#20010; jail &#37117;&#21487;&#20197;&#21333;&#29420;&#35206;&#30422;&#36825;&#20123;&#35774;&#32622;&#12290;
+</span>
+[DEFAULT]
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">"ignoreip" &#21487;&#20197;&#26159;&#21333;&#20010; IP &#22320;&#22336;&#12289;CIDR &#23376;&#32593;&#25110; DNS &#20027;&#26426;&#21517;&#21015;&#34920;&#12290;Fail2Ban
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#19981;&#20250;&#23553;&#31105;&#21015;&#34920;&#20013;&#21305;&#37197;&#30340;&#20027;&#26426;&#12290;&#22810;&#20010;&#22320;&#22336;&#21487;&#20197;&#20351;&#29992;&#31354;&#26684;&#25110;&#36887;&#21495;&#20998;&#38548;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">"ignoreip" &#21363;&#30333;&#21517;&#21333;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">ignoreip = 127.0.0.1/8 ::1
+</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">"maxretry" &#40664;&#35748;&#37325;&#35797;&#27425;&#25968;
+</span>maxretry = 5
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#26524;&#20027;&#26426;&#22312;&#36807;&#21435;&#30340; "findtime" &#31186;&#20869;&#20135;&#29983;&#20102; "maxretry" &#27425;&#22833;&#36133;&#65292;&#20027;&#26426;&#23558;&#34987;&#23553;&#31105;&#12290;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21363;&#23553;&#31105;&#26816;&#27979;&#30340;&#26102;&#38388;&#31383;&#21475;&#12290;
+</span>findtime = 10m
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">"bantime" &#34920;&#31034;&#20027;&#26426;&#34987;&#23553;&#31105;&#30340;&#26102;&#38388;&#65292;&#21487;&#29992;&#31186;&#20026;&#21333;&#20301;&#30340;&#25972;&#25968;&#25110;&#26102;&#38388;&#32553;&#20889;&#26684;&#24335;&#65288;m &#34920;&#31034;&#20998;&#38047;&#65292;h &#34920;&#31034;&#23567;&#26102;&#65292;d &#34920;&#31034;&#22825;&#65292;w &#34920;&#31034;&#21608;&#65292;mo &#34920;&#31034;&#26376;&#65292;y &#34920;&#31034;&#24180;&#65289;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21363;&#23553;&#31105;&#25345;&#32493;&#26102;&#38271;&#12290;
+</span>bantime  = 10m
+
+[sshd]
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">enabled = true
+</span><span style="color: #ff4500;">#</span><span style="color: #ff4500;">
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21442;&#35265; jail.conf(5)
+</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">"filter" &#23450;&#20041;&#20102; jail &#25152;&#20351;&#29992;&#30340;&#36807;&#28388;&#22120;&#12290; &#9312;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312;&#40664;&#35748;&#24773;&#20917;&#19979;&#65292;jail &#30340;&#21517;&#31216;&#19982;&#20854;&#36807;&#28388;&#22120;&#21517;&#31216;&#30456;&#21305;&#37197;&#12290;
+</span><span style="color: #ff4500;">#</span><span style="color: #ff4500;">
+</span>filter = %(__name__)s[<span style="color: #eedd82;">mode</span>=%(mode)s]
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20363;&#22914;&#65306;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">filter = sshd[mode=aggressive]
+</span><span style="color: #ff4500;">#</span><span style="color: #ff4500;">
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25805;&#20316;&#24555;&#25463;&#26041;&#24335;&#12290;&#29992;&#20110;&#23450;&#20041; action &#21442;&#25968;&#12290;
+</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Fail2Ban &#36824;&#38656;&#35201;&#38450;&#28779;&#22681;&#26469;&#25191;&#34892;&#23553;&#31105;&#21160;&#20316;&#12290;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#40664;&#35748;&#23553;&#31105;&#25805;&#20316;&#65288;&#20363;&#22914; iptables&#12289;iptables-new&#12289;iptables-multiport&#12289;shorewall &#31561;&#65289;&#12290; &#9313;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23427;&#29992;&#20110;&#23450;&#20041; action_* &#21464;&#37327;&#65292;&#21487;&#20197;&#22312; jail.local &#25991;&#20214;&#30340;&#20840;&#23616;&#25110;&#29305;&#23450;&#37096;&#20998;&#20013;&#35206;&#30422;&#12290;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">banaction = iptables-multiport
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">banaction_allports = iptables-allports</span>
+</pre>
+</div>
+
+<p>
+列出 Fail2Ban 的过滤器选项：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">ls /usr/local/etc/fail2ban/filter.d/
+</span>&#8230;&#8230;&#30465;&#30053;&#19968;&#37096;&#20998;&#36755;&#20986;&#8230;&#8230;
+bsd-sendmail.conf               mssql-auth.conf                 slapd.conf
+bsd-sshd.conf                   murmur.conf                     softethervpn.conf
+bsdftp.conf                     mysqld-auth.conf                sogo-auth.conf
+courier-auth.conf               nginx-botsearch.conf            sshd.conf
+</pre>
+</div>
+
+<pre class="example" id="org08c6a21">
+需要注意，以 bsd- 开头的文件（如 bsd-sshd.conf）是 FreeBSD Port 维护者为适配特定环境提供的变体
+
+但由于 sshd.conf 与 Fail2Ban 标准配置的兼容性更好，本节应直接使用它
+</pre>
+
+<p>
+查看 Fail2Ban 支持的防火墙：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">ls /usr/local/etc/fail2ban/action.d/
+</span>bsd-ipfw.conf                                   ipfw.conf                               ipfilter.conf                           pf.conf
+&#8230;&#8230;&#30465;&#30053;&#20854;&#20182;&#38450;&#28779;&#22681;&#8230;&#8230;
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org376b9ca" class="outline-2">
+<h2 id="org376b9ca">Fail2Ban 封禁配置</h2>
+<div class="outline-text-2" id="text-org376b9ca">
+<p>
+创建并编辑文件 <b>/usr/local/etc/fail2ban/jail.d/sshd.conf</b> ，写入如下内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">[DEFAULT]
+<span style="color: #eedd82;">ignoreip</span>=192.168.0.0/24
+maxretry = 3
+findtime = 10m
+bantime = 8h
+
+[sshd]
+<span style="color: #eedd82;">enabled</span>=true
+<span style="color: #eedd82;">filter</span>=sshd
+<span style="color: #eedd82;">action</span>=bsd-ipfw
+</pre>
+</div>
+
+<pre class="example" id="orgabefd41">
+上述示例中的 192.168.0.0/24 为占位符，须替换为实际的值
+</pre>
+
+<p>
+配置说明：
+</p>
+<ul class="org-ul">
+<li>白名单，表示不会被封禁的 IP 段。192.168.0.0/24 表示从 192.168.0.0 到 192.168.0.255</li>
+<li><p>
+bsd-ipfw 是示例防火墙，可自行选择
+</p>
+<pre class="example" id="org40b38a9">
+如果使用 IPFW 防火墙，必须选择 bsd-ipfw，而不能使用 ipfw，否则无法生效
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org06025e9" class="outline-2">
+<h2 id="org06025e9">配置防火墙</h2>
+<div class="outline-text-2" id="text-org06025e9">
+<pre class="example" id="org9240eaa">
+完成 Fail2Ban 配置后，还需配置对应防火墙，随后启动服务
+</pre>
+
+<p>
+启动 Fail2Ban 服务：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ service fail2ban start
+</pre>
+</div>
+</div>
+<div id="outline-container-orgdd889f6" class="outline-3">
+<h3 id="orgdd889f6">IPFW</h3>
+<div class="outline-text-3" id="text-orgdd889f6">
+<p>
+IPFW 是 FreeBSD 内置的防火墙。Fail2Ban 配置同上
+</p>
+</div>
+<div id="outline-container-org5400b36" class="outline-4">
+<h4 id="org5400b36">配置开机启动服务</h4>
+<div class="outline-text-4" id="text-org5400b36">
+<p>
+启用防火墙，实现开机自动启动：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">firewall_enable</span>=<span style="color: #ffa07a;">"YES"</span>
+</pre>
+</div>
+
+<pre class="example" id="orgcdcb519">
+警告：请勿立即执行 start 命令，否则可能导致无法通过 SSH 连接
+</pre>
+</div>
+</div>
+<div id="outline-container-orgff36227" class="outline-4">
+<h4 id="orgff36227">修改 IPFW 默认规则</h4>
+<div class="outline-text-4" id="text-orgff36227">
+<p>
+IPFW 规则的默认策略是“默认拒绝”，即规则 65535 会阻断所有未匹配的流量。为避免配置过程中访问被阻断，可先将其修改为“默认允许”：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ echo <span style="color: #ffa07a;">'net.inet.ip.fw.default_to_accept=1'</span> &gt;&gt; /boot/loader.conf   <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#38450;&#28779;&#22681;&#40664;&#35748;&#31574;&#30053;&#20026;&#25509;&#21463;&#65292;&#24320;&#26426;&#29983;&#25928;
+</span>$ reboot <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#37325;&#21551;&#29983;&#25928;</span>
+</pre>
+</div>
+
+<p>
+显示当前 IPFW 防火墙规则列表：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ipfw list
+&#8230;&#8230;&#30465;&#30053;&#19968;&#37096;&#20998;&#8230;&#8230;
+65535 allow ip from any to any
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org11083e8" class="outline-3">
+<h3 id="org11083e8">PF</h3>
+<div class="outline-text-3" id="text-org11083e8">
+<p>
+在 PF 中，table 用于存储需要封禁的 IP 地址列表，anchor 用于组织和管理特定的规则集
+</p>
+<pre class="example" id="org654aad1">
+Fail2Ban 向 PF 的 table 中添加 IP 地址，再通过 anchor 应用相应规则来封禁
+</pre>
+</div>
+<div id="outline-container-org5147b5d" class="outline-4">
+<h4 id="org5147b5d">Fail2Ban 配置文件</h4>
+<div class="outline-text-4" id="text-org5147b5d">
+<p>
+将上方配置文件 <b>/usr/local/etc/fail2ban/jail.d/sshd.conf</b> 中 <span class="underline">action=bsd-ipfw</span> 改为 <span class="underline">action=pf[port={22 23}, name=ssh]</span> ，其他配置项无需修改
+</p>
+</div>
+</div>
+<div id="outline-container-org60f543d" class="outline-4">
+<h4 id="org60f543d">修改 PF 配置文件</h4>
+<div class="outline-text-4" id="text-org60f543d">
+<p>
+需要先准备 PF 的配置文件，涉及的目录结构：
+</p>
+<pre class="example" id="org0467021">
+/
+├── etc
+│   ├── pf.conf
+│   ├── ipf.rules
+│   └── ipnat.rules
+├── usr
+│   └── share
+│       └── examples
+│           ├── pf
+│           │   └── pf.conf
+│           └── ipfilter
+│               ├── ipf.conf.sample
+│               └── ipnat.conf.sample
+├── var
+│   └── log
+│       ├── auth.log
+│       └── fail2ban.log
+└── boot
+    └── loader.conf.local
+</pre>
+
+<p>
+要让 PF 正常启动，需将示例 PF 配置文件复制到 /etc 目录以便修改和使用：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cp /usr/share/examples/pf/pf.conf /etc/
+</pre>
+</div>
+
+<p>
+编辑 <b>/etc/pf.conf</b> 文件，写入：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">table &lt;f2b&gt; persist   <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23450;&#20041;&#24182;&#25345;&#20037;&#21270;&#34920; f2b
+</span>anchor <span style="color: #ffa07a;">"f2b/*"</span>        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#24182;&#24341;&#29992; f2b &#30456;&#20851;&#30340; anchor
+</span>block drop<span style="color: #00ffff;"> in</span> log quick on em0 from &lt;f2b&gt; to any   <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312; em0 &#25509;&#21475;&#19978;&#24555;&#36895;&#38459;&#27490;&#24182;&#35760;&#24405;&#26469;&#33258; f2b &#34920;&#30340;&#25152;&#26377;&#27969;&#37327;</span>
+</pre>
+</div>
+
+<pre class="example" id="orgff33d70">
+em0：示例中的 em0 为网卡名称，需根据实际网卡修改
+
+可使用命令 ifconfig 查看
+</pre>
+</div>
+</div>
+<div id="outline-container-orge3d12f0" class="outline-4">
+<h4 id="orge3d12f0">服务</h4>
+<div class="outline-text-4" id="text-orge3d12f0">
+<p>
+PF 服务的启动和配置如下:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ kldload pf <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21152;&#36733;&#20869;&#26680;&#27169;&#22359;&#65292;&#21518;&#32493;&#26080;&#38656;&#20877;&#25163;&#21160;&#21152;&#36733;
+</span>$ service pf enable <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24320;&#26426;&#33258;&#21551;
+</span>$ service pf start <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#21160; PF &#38450;&#28779;&#22681;</span>
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org4ddadd8" class="outline-3">
+<h3 id="org4ddadd8">IPFILTER (IPF)</h3>
+<div class="outline-text-3" id="text-org4ddadd8">
+<p>
+略
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgb021294" class="outline-2">
+<h2 id="orgb021294">测试效果</h2>
+<div class="outline-text-2" id="text-orgb021294">
+<p>
+配置完成后，可以测试 Fail2Ban 是否能正常封禁 IP。使用 Fail2Ban 客户端手动将一个 IP 加入封禁列表以验证功能：
+</p>
+<ol class="org-ol">
+<li><p>
+为了查看效果，使用 Fail2Ban 客户端将 IP 192.168.179.1 在 sshd 监控下加入封禁列表：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ fail2ban-client set sshd banip 192.168.179.1
+</pre>
+</div></li>
+<li><p>
+TTY 输出：该输出显示 SSH 服务检测到来自 192.168.179.1 的多次认证失败
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">Mar 25 15:27:38 gkla sshd[970]: error : maximum authentication attempts exceeded for ykla from 192.168.179.1 port 8652 ssh2 [ preauth ]
+</pre>
+</div>
+<pre class="example" id="org77fed48">
+已建立的 SSH 连接也会被强制断开
+</pre></li>
+</ol>
+</div>
+<div id="outline-container-org86ed253" class="outline-3">
+<h3 id="org86ed253">查看状态</h3>
+<div class="outline-text-3" id="text-org86ed253">
+<p>
+查看 Fail2Ban 对 sshd 监控的状态，包括被封禁的 IP 列表：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ fail2ban-client status sshd
+Status for the jail: sshd
+        |- Filter
+        |  |- Currently failed: 1
+        |  |- Total failed:     4
+        |  <span style="color: #fa8072;">`- File list:        /var/log/auth.log
+`</span>- Actions
+           |- Currently banned: 1
+           |- Total banned:     1
+<span style="color: #fa8072;">`- Banned IP list:      192.168.179.1</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org9598bf1" class="outline-3">
+<h3 id="org9598bf1">解禁 IP</h3>
+<div class="outline-text-3" id="text-org9598bf1">
+<p>
+从 sshd 监控中解除对指定 IP 的封禁：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">fail2ban-client set sshd unbanip 192.168.179.1
+</span>1
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">fail2ban-client status sshd
+</span>Status for the jail: sshd
+        |- Filter
+        |  |- Currently failed: 1
+        |  |- Total failed:     4
+        |  <span style="color: #fa8072;">`- File list:        /var/log/auth.log
+`</span>- Actions
+           |- Currently banned: 0
+           |- Total banned:     1
+<span style="color: #fa8072;">`- Banned IP list:</span>
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org335eecd" class="outline-2">
+<h2 id="org335eecd">故障排除与未竟事宜</h2>
+<div class="outline-text-2" id="text-org335eecd">
+<p>
+如果遇到问题，可查看日志排查
+</p>
+<ul class="org-ul">
+<li>Fail2Ban 的日志位于 <b>/var/log/fail2ban.log</b> 文件</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="blocklistd.html">Next: blocklistd</a></td>
+<td class="org-left"><a href="pf.html">Previous: PacketFilter</a></td>
+<td class="org-left"><a href="firewall.html">Home: 防火墙</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 

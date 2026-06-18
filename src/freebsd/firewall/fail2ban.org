@@ -17,4 +17,297 @@ Fail2Ban 是一款基于日志的 *入侵防御系统* _Intrusion Prevention Sys
 
   本节适配了 FreeBSD 常见的三种防火墙（IPFW、PF 与 IPF），无需同时配置所有防火墙，只需选择其中一种即可
 #+end_example
+* 安装 Fail2Ban
+Fail2Ban 的安装过程如下，用户可选择 pkg 或 Ports 安装
++ pkg:
+  #+begin_src sh 
+    $ pkg install security/py-fail2ban
+  #+end_src
++ ports:
+  #+begin_src sh 
+    $ cd /usr/ports/security/py-fail2ban/
+    $ make install clean
+  #+end_src
 
+启用 fail2ban 服务：
+
+#+begin_src sh 
+  $ service faile2ban enable 
+#+end_src
+
+查看 Fail2Ban 安装后的说明
+#+begin_src sh 
+  $ pkg info -D security/py-fail2ban
+#+end_src
+* Fail2Ban 配置解读
+#+begin_example
+  此处的 jail 并非 BSD 系统中的 jail（容器）
+
+  在 Fail2Ban 中，jail 是指对特定服务的监控和封禁配置单元，每个 jail 对应一个需要防护的服务（如 SSH、FTP 等）
+#+end_example
+
+Fail2Ban 的工作流程分为两个部分：
+1. filter _过滤器_ : 解析日志，识别失败的登录尝试
+2. action _动作_ : 调用防火墙规则执行封禁操作
+
+涉及的文件结构：
+#+begin_example
+  /usr/local/etc/fail2ban/
+  ├── jail.conf
+  ├── filter.d/
+  │   ├── bsd-sendmail.conf
+  │   ├── bsd-sshd.conf
+  │   ├── bsdftp.conf
+  │   ├── courier-auth.conf
+  │   ├── mssql-auth.conf
+  │   ├── murmur.conf
+  │   ├── mysqld-auth.conf
+  │   ├── nginx-botsearch.conf
+  │   ├── slapd.conf
+  │   ├── softethervpn.conf
+  │   ├── sogo-auth.conf
+  │   └── sshd.conf
+  ├── action.d/
+  │   ├── bsd-ipfw.conf
+  │   ├── ipfw.conf
+  │   └── ipfilter.conf
+  └── jail.d/
+      └── sshd.conf
+#+end_example
+
+配置文件示例为 /usr/local/etc/fail2ban/jail.conf 文件（请勿直接编辑，参见上文说明），下文仅列出本书所需内容：
+
+#+begin_src sh 
+  # DEFAULT 是全局定义的配置，之后每个 jail 都可以单独覆盖这些设置。
+
+  [DEFAULT]
+
+  # "ignoreip" 可以是单个 IP 地址、CIDR 子网或 DNS 主机名列表。Fail2Ban
+  # 不会封禁列表中匹配的主机。多个地址可以使用空格或逗号分隔
+  # "ignoreip" 即白名单
+  # ignoreip = 127.0.0.1/8 ::1
+
+  # "maxretry" 默认重试次数
+  maxretry = 5
+
+  # 如果主机在过去的 "findtime" 秒内产生了 "maxretry" 次失败，主机将被封禁。
+  # 即封禁检测的时间窗口。
+  findtime = 10m
+
+  # "bantime" 表示主机被封禁的时间，可用秒为单位的整数或时间缩写格式（m 表示分钟，h 表示小时，d 表示天，w 表示周，mo 表示月，y 表示年）
+  # 即封禁持续时长。
+  bantime  = 10m
+
+  [sshd]
+  # enabled = true
+  #
+  # 参见 jail.conf(5)
+
+  # "filter" 定义了 jail 所使用的过滤器。 ①
+  # 在默认情况下，jail 的名称与其过滤器名称相匹配。
+  #
+  filter = %(__name__)s[mode=%(mode)s]
+  # 例如：
+  # filter = sshd[mode=aggressive]
+  #
+  # 操作快捷方式。用于定义 action 参数。
+
+  # Fail2Ban 还需要防火墙来执行封禁动作。
+  # 默认封禁操作（例如 iptables、iptables-new、iptables-multiport、shorewall 等）。 ②
+  # 它用于定义 action_* 变量，可以在 jail.local 文件的全局或特定部分中覆盖。
+  # banaction = iptables-multiport
+  # banaction_allports = iptables-allports
+#+end_src
+
+列出 Fail2Ban 的过滤器选项：
+
+#+begin_src sh 
+  # ls /usr/local/etc/fail2ban/filter.d/
+  ……省略一部分输出……
+  bsd-sendmail.conf		mssql-auth.conf			slapd.conf
+  bsd-sshd.conf			murmur.conf			softethervpn.conf
+  bsdftp.conf			mysqld-auth.conf		sogo-auth.conf
+  courier-auth.conf		nginx-botsearch.conf		sshd.conf
+#+end_src
+
+#+begin_example
+  需要注意，以 bsd- 开头的文件（如 bsd-sshd.conf）是 FreeBSD Port 维护者为适配特定环境提供的变体
+
+  但由于 sshd.conf 与 Fail2Ban 标准配置的兼容性更好，本节应直接使用它
+#+end_example
+
+查看 Fail2Ban 支持的防火墙：
+#+begin_src sh 
+  # ls /usr/local/etc/fail2ban/action.d/
+  bsd-ipfw.conf					ipfw.conf				ipfilter.conf				pf.conf
+  ……省略其他防火墙……
+#+end_src
+* Fail2Ban 封禁配置
+创建并编辑文件 */usr/local/etc/fail2ban/jail.d/sshd.conf* ，写入如下内容：
+
+#+begin_src sh 
+  [DEFAULT]
+  ignoreip=192.168.0.0/24
+  maxretry = 3
+  findtime = 10m
+  bantime = 8h
+
+  [sshd]
+  enabled=true
+  filter=sshd
+  action=bsd-ipfw
+#+end_src
+
+#+begin_example
+上述示例中的 192.168.0.0/24 为占位符，须替换为实际的值
+#+end_example
+
+配置说明：
++ 白名单，表示不会被封禁的 IP 段。192.168.0.0/24 表示从 192.168.0.0 到 192.168.0.255
++ bsd-ipfw 是示例防火墙，可自行选择
+  #+begin_example
+    如果使用 IPFW 防火墙，必须选择 bsd-ipfw，而不能使用 ipfw，否则无法生效
+  #+end_example
+* 配置防火墙
+#+begin_example
+完成 Fail2Ban 配置后，还需配置对应防火墙，随后启动服务
+#+end_example
+
+启动 Fail2Ban 服务：
+#+begin_src sh 
+  $ service fail2ban start
+#+end_src
+** IPFW
+IPFW 是 FreeBSD 内置的防火墙。Fail2Ban 配置同上
+*** 配置开机启动服务
+启用防火墙，实现开机自动启动：
+#+begin_src sh 
+  $ sysrc firewall_enable="YES"
+#+end_src
+
+#+begin_example
+警告：请勿立即执行 start 命令，否则可能导致无法通过 SSH 连接
+#+end_example
+*** 修改 IPFW 默认规则
+IPFW 规则的默认策略是“默认拒绝”，即规则 65535 会阻断所有未匹配的流量。为避免配置过程中访问被阻断，可先将其修改为“默认允许”：
+#+begin_src sh 
+  $ echo 'net.inet.ip.fw.default_to_accept=1' >> /boot/loader.conf   # 设置防火墙默认策略为接受，开机生效
+  $ reboot # 重启生效
+#+end_src
+
+显示当前 IPFW 防火墙规则列表：
+#+begin_src sh 
+  $ ipfw list
+  ……省略一部分……
+  65535 allow ip from any to any
+#+end_src
+** PF
+在 PF 中，table 用于存储需要封禁的 IP 地址列表，anchor 用于组织和管理特定的规则集
+#+begin_example
+Fail2Ban 向 PF 的 table 中添加 IP 地址，再通过 anchor 应用相应规则来封禁
+#+end_example
+*** Fail2Ban 配置文件
+将上方配置文件 */usr/local/etc/fail2ban/jail.d/sshd.conf* 中 _action=bsd-ipfw_ 改为 _action=pf[port={22 23}, name=ssh]_ ，其他配置项无需修改
+*** 修改 PF 配置文件
+需要先准备 PF 的配置文件，涉及的目录结构：
+#+begin_example
+  /
+  ├── etc
+  │   ├── pf.conf
+  │   ├── ipf.rules
+  │   └── ipnat.rules
+  ├── usr
+  │   └── share
+  │       └── examples
+  │           ├── pf
+  │           │   └── pf.conf
+  │           └── ipfilter
+  │               ├── ipf.conf.sample
+  │               └── ipnat.conf.sample
+  ├── var
+  │   └── log
+  │       ├── auth.log
+  │       └── fail2ban.log
+  └── boot
+      └── loader.conf.local
+#+end_example
+
+要让 PF 正常启动，需将示例 PF 配置文件复制到 /etc 目录以便修改和使用：
+#+begin_src sh 
+  $ cp /usr/share/examples/pf/pf.conf /etc/
+#+end_src
+
+编辑 */etc/pf.conf* 文件，写入：
+#+begin_src sh 
+  table <f2b> persist   # 定义并持久化表 f2b
+  anchor "f2b/*"        # 创建并引用 f2b 相关的 anchor
+  block drop in log quick on em0 from <f2b> to any   # 在 em0 接口上快速阻止并记录来自 f2b 表的所有流量
+#+end_src
+
+#+begin_example
+  em0：示例中的 em0 为网卡名称，需根据实际网卡修改
+
+  可使用命令 ifconfig 查看
+#+end_example
+*** 服务
+PF 服务的启动和配置如下:
+
+#+begin_src sh 
+  $ kldload pf # 加载内核模块，后续无需再手动加载
+  $ service pf enable # 开机自启
+  $ service pf start # 启动 PF 防火墙
+#+end_src
+** IPFILTER (IPF)
+略
+* 测试效果
+配置完成后，可以测试 Fail2Ban 是否能正常封禁 IP。使用 Fail2Ban 客户端手动将一个 IP 加入封禁列表以验证功能：
+1. 为了查看效果，使用 Fail2Ban 客户端将 IP 192.168.179.1 在 sshd 监控下加入封禁列表：
+   #+begin_src sh 
+     $ fail2ban-client set sshd banip 192.168.179.1
+   #+end_src
+2. TTY 输出：该输出显示 SSH 服务检测到来自 192.168.179.1 的多次认证失败
+   #+begin_src sh 
+     Mar 25 15:27:38 gkla sshd[970]: error : maximum authentication attempts exceeded for ykla from 192.168.179.1 port 8652 ssh2 [ preauth ]
+   #+end_src
+   #+begin_example
+     已建立的 SSH 连接也会被强制断开
+   #+end_example
+
+** 查看状态
+查看 Fail2Ban 对 sshd 监控的状态，包括被封禁的 IP 列表：
+#+begin_src sh 
+  $ fail2ban-client status sshd
+  Status for the jail: sshd
+  	|- Filter
+  	|  |- Currently failed:	1
+  	|  |- Total failed:	4
+  	|  `- File list:	/var/log/auth.log
+  `- Actions
+  	   |- Currently banned:	1
+  	   |- Total banned:	1
+  `- Banned IP list:	192.168.179.1
+#+end_src
+
+** 解禁 IP
+从 sshd 监控中解除对指定 IP 的封禁：
+#+begin_src sh 
+  # fail2ban-client set sshd unbanip 192.168.179.1
+  1
+  # fail2ban-client status sshd
+  Status for the jail: sshd
+  	|- Filter
+  	|  |- Currently failed:	1
+  	|  |- Total failed:	4
+  	|  `- File list:	/var/log/auth.log
+  `- Actions
+  	   |- Currently banned:	0
+  	   |- Total banned:	1
+  `- Banned IP list:
+#+end_src
+
+* 故障排除与未竟事宜
+如果遇到问题，可查看日志排查
++ Fail2Ban 的日志位于 */var/log/fail2ban.log* 文件
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:blocklistd.org][Next: blocklistd]] | [[file:pf.org][Previous: PacketFilter]] | [[file:firewall.org][Home: 防火墙]] |
