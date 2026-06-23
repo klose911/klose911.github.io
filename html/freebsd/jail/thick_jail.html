@@ -206,11 +206,481 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#orgb842c5b">编辑服务</a></li>
+<li><a href="#org36b241d">获取基本系统</a>
+<ul>
+<li><a href="#org7a6c146">解压安装方式</a></li>
+<li><a href="#orgb59f084">编译安装方式</a></li>
+</ul>
+</li>
+<li><a href="#org2fab6f4">配置时间</a></li>
+<li><a href="#org26f1f4d">配置宿主机网络</a></li>
+<li><a href="#org79a3888">配置容器网络</a></li>
+<li><a href="#org4b74529">启动容器</a></li>
+<li><a href="#org9957002">测试容器</a></li>
 </ul>
 </div>
 </div>
 <div id="outline-container-orgb842c5b" class="outline-2">
 <h2 id="orgb842c5b">编辑服务</h2>
+<div class="outline-text-2" id="text-orgb842c5b">
+<p>
+使用文本编辑器编辑 <b>/etc/rc.conf</b> 文件，加入以下内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">jail_enable</span>=<span style="color: #ffa07a;">"YES"</span>       <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#21160; Jail &#26381;&#21153;
+</span><span style="color: #eedd82;">jail_parallel_start</span>=<span style="color: #ffa07a;">"YES"</span> <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24182;&#34892;&#21551;&#21160; Jail &#26381;&#21153;</span>
+</pre>
+</div>
+
+<p>
+jail_parallel_start="YES" 启用 Jail 并行启动；默认情况下 Jail 串行启动，设置此选项后所有容器将并行启动。
+</p>
+
+<pre class="example" id="org2d11f05">
+网络配置（cloned_interfaces、bridge0、epair0 等）将在下文“配置宿主机网络”小节中统一设置
+</pre>
+
+<p>
+运行以下命令为 Jail 安装基本系统，建议使用 <span class="underline">base.txz</span> 解压安装，省去编译的时间
+</p>
+
+<pre class="example" id="org903a210">
+注意: Jail 的用户空间版本不能比宿主机更新（FreeBSD 内核可向后兼容旧版本的用户空间），建议与宿主机保持一致
+
+FreeBSD 的内核和用户空间是一个整体（基本系统，又称世界），用户空间不一致可能导致兼容性问题
+</pre>
+</div>
+</div>
+<div id="outline-container-org36b241d" class="outline-2">
+<h2 id="org36b241d">获取基本系统</h2>
+<div class="outline-text-2" id="text-org36b241d">
+<p>
+不建议将基本系统解压到 /usr/jail 中。应在其中创建子目录，将每个容器都单独放在其中的目录里面，如此方便管理
+</p>
+
+<pre class="example" id="orgc359ed1">
+注意下载解压和编译两种方法 任选一种方法 进行安装即可，切勿重复安装
+</pre>
+</div>
+<div id="outline-container-org7a6c146" class="outline-3">
+<h3 id="org7a6c146">解压安装方式</h3>
+<div class="outline-text-3" id="text-org7a6c146">
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314; Jail &#30446;&#24405;
+</span>$ mkdir -p /usr/jail/myjail
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#33719;&#21462;&#22522;&#26412;&#31995;&#32479; (FreeBSD 15 Release)
+</span>$ fetch https://download.freebsd.org/releases/amd64/amd64/15.0-RELEASE/base.txz
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35299;&#21387;&#25991;&#20214;&#21040;&#23481;&#22120;&#30446;&#24405;
+</span>$ tar -xf base.txz -C /usr/jail/myjail
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgb59f084" class="outline-3">
+<h3 id="orgb59f084">编译安装方式</h3>
+<div class="outline-text-3" id="text-orgb59f084">
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36827;&#20837;&#28304;&#30721;&#30446;&#24405;
+</span>$ cd /usr/src
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26500;&#24314;&#19990;&#30028;&#65288;&#32534;&#35793;&#22522;&#30784;&#31995;&#32479;&#65289;
+</span>$ make buildworld
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#32534;&#35793;&#22909;&#30340;&#31995;&#32479;&#23433;&#35013;&#21040;&#25351;&#23450; Jail &#30446;&#24405;
+</span>$ make installworld <span style="color: #eedd82;">DESTDIR</span>=/usr/jail/myjail
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#29983;&#25104;&#37197;&#22871;&#30340;&#37197;&#32622;&#25991;&#20214;
+</span>$ make distribution <span style="color: #eedd82;">DESTDIR</span>=/usr/jail/myjail
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org2fab6f4" class="outline-2">
+<h2 id="org2fab6f4">配置时间</h2>
+<div class="outline-text-2" id="text-org2fab6f4">
+<p>
+沿用宿主机的时区和 DNS 配置，确保 Jail 内部网络和时间正常：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cp /etc/resolv.conf /usr/jail/myjail/etc/
+$ cp /etc/localtime /usr/jail/myjail/etc/
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org26f1f4d" class="outline-2">
+<h2 id="org26f1f4d">配置宿主机网络</h2>
+<div class="outline-text-2" id="text-org26f1f4d">
+<pre class="example" id="org82fb235">
+必须在本地控制台执行以下网络配置操作（修改网桥、物理网卡 IP、重启网络服务等），禁止通过 SSH 远程操作
+
+若通过 SSH 执行，操作过程中网络中断将导致宿主机失联，无法继续完成配置
+
+请做好数据备份和应急手段
+</pre>
+
+<p>
+首先配置宿主机网络。创建 <b>网桥</b> <span class="underline">bridge0</span> 和 <b>虚拟以太网对</b> <span class="underline">epair</span> ，供 <b>VNET</b> <span class="underline">Virtualized Network Stack 虚拟网络栈</span> 使用，然后将 <span class="underline">虚拟网卡 epair0a</span>  <b>挂载</b> 到 <span class="underline">网桥</span> 。编辑 /etc/rc.conf 文件：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#32593;&#26725;&#21644;&#19968;&#23545; epair &#34394;&#25311;&#32593;&#21345;
+</span><span style="color: #eedd82;">cloned_interfaces</span>=<span style="color: #ffa07a;">"bridge0 epair0"</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25226;&#29289;&#29702;&#32593;&#21345; re0 &#21644;&#34394;&#25311;&#32593;&#21345;&#23487;&#20027;&#26426;&#31471; epair0a &#37117;&#21152;&#20837;&#32593;&#26725;&#24182;&#21551;&#21160;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#21407; ifconfig_re0 &#20013;&#30340; IP &#37197;&#32622;&#36801;&#31227;&#21040; bridge0 &#19978;&#65292;&#21516;&#26102;&#27880;&#37322;&#25481;&#25110;&#21024;&#38500; ifconfig_re0 &#30340;&#21407;&#26377; IP &#37197;&#32622;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21542;&#21017;&#23558;&#29289;&#29702;&#32593;&#21345;&#21152;&#20837;&#32593;&#26725;&#21518;&#65292;&#23487;&#20027;&#26426;&#20250;&#22833;&#21435;&#32593;&#32476;&#36830;&#36890;&#24615;
+</span><span style="color: #eedd82;">ifconfig_bridge0</span>=<span style="color: #ffa07a;">"inet 192.168.1.100/24 addm re0 addm epair0a up"</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#30830;&#20445; epair0a &#22788;&#20110;&#21551;&#21160;&#29366;&#24577;
+</span><span style="color: #eedd82;">ifconfig_epair0a</span>=<span style="color: #ffa07a;">"up"</span>
+</pre>
+</div>
+
+<p>
+<span class="underline">bridge0</span> 是 <b>虚拟交换机</b> <span class="underline">(Network Bridge</span>  ， <span class="underline">epair0a</span> 是虚拟交换机上的一个 <b>端口</b>
+</p>
+<pre class="example" id="org38475cb">
+可将之视为一个虚拟交换机，其上插着一根无形的网线，水晶头插在交换机上
+</pre>
+<ul class="org-ul">
+<li>网线网桥侧端口称为 epair0a</li>
+<li><p>
+容器侧称为 epair0b
+</p>
+<pre class="example" id="orgc140d61">
+epair 是由内核指定的固定前缀，后面接着代表第几对虚拟连接的数字
+
+若要更改网卡名称，可执行命令 ifconfig epair0a name newname 更改
+
+为了避免名称混淆和混乱，不建议如此
+</pre></li>
+</ul>
+
+<p>
+Jail VNET 网络拓扑结构如下：
+</p>
+
+<pre class="example" id="orge640cae">
+物理网络 (示例家用路由器 192.168.1.1)
+       │
+┌──────▼────────────────────────────────────────┐
+│ 宿主机 (Host)                                 │
+│                                               │
+│  [ 物理网卡 re0 ]                             │
+│         │                                     │
+│  [ 虚拟交换机 bridge0 ] &lt;───(桥接)            │
+│         │                                     │
+│  [ 虚拟网卡端 epair0a ]                       │
+└─────────┼─────────────────────────────────────┘
+          │ (虚拟网线)
+┌─────────┼─────────────────────────────────────┐
+│  [ 虚拟网卡端 epair0b ]                       │
+│                                               │
+│ Jail (192.168.1.120)                        │
+└───────────────────────────────────────────────┘
+</pre>
+
+<p>
+配置好网络以后重启网络服务：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ service netif restart
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org79a3888" class="outline-2">
+<h2 id="org79a3888">配置容器网络</h2>
+<div class="outline-text-2" id="text-org79a3888">
+<p>
+接下来配置容器网络，编写 Jail 配置文件 <b>/etc/jail.conf</b> （若不存在，请新建），对所有的容器生效，参考配置如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">sysvmsg</span>=new;
+<span style="color: #eedd82;">sysvsem</span>=new;
+<span style="color: #eedd82;">sysvshm</span>=new;
+
+exec.clean;
+mount.devfs;
+
+myjail {
+    host.hostname = <span style="color: #ffa07a;">"myjail.local"</span>;
+    path = <span style="color: #ffa07a;">"/usr/jail/myjail"</span>;
+    vnet;
+    vnet.interface = <span style="color: #ffa07a;">"epair0b"</span>;
+    allow.raw_sockets = 1;
+    exec.created = <span style="color: #ffa07a;">"ifconfig epair0b up"</span>;
+    exec.start = <span style="color: #ffa07a;">"/bin/sh /etc/rc"</span>;
+    exec.stop = <span style="color: #ffa07a;">"/bin/sh /etc/rc.shutdown"</span>;
+}
+</pre>
+</div>
+
+<ul class="org-ul">
+<li>配置中前三行允许在 Jail 内部使用 <b>System V IPC</b> <span class="underline">进程间通信</span> 机制，包括 <span class="underline">共享内存</span> 、 <span class="underline">信号量</span> 和 <span class="underline">消息队列</span> ；</li>
+<li><p>
+exec.clean 用于在容器启动时，让 exec.start 等命令在干净的环境中运行，而非沿用启动 Jail 时的环境变量；环境变量会被丢弃，仅保留以下变量：
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">变量</td>
+<td class="org-left">设置方式</td>
+</tr>
+
+<tr>
+<td class="org-left">HOME</td>
+<td class="org-left">设为目标登录用户的默认值</td>
+</tr>
+
+<tr>
+<td class="org-left">SHELL</td>
+<td class="org-left">设为目标登录用户的默认值</td>
+</tr>
+
+<tr>
+<td class="org-left">TERM</td>
+<td class="org-left">从当前环境中导入</td>
+</tr>
+
+<tr>
+<td class="org-left">USER</td>
+<td class="org-left">设为目标登录用户名</td>
+</tr>
+
+<tr>
+<td class="org-left">PATH</td>
+<td class="org-left">设为 /bin:/usr/bin</td>
+</tr>
+</tbody>
+</table>
+<pre class="example" id="orga355392">
+此外，目标登录用户所属登录分级的能力数据库中的环境变量也会被设置
+
+JID、JNAME、JPATH 不会被设置
+</pre></li>
+<li>mount.devfs 用于在容器的 /dev 目录挂载 devfs 文件系统，并应用默认规则集限制容器内可见的设备节点</li>
+<li>最后的 myjail {&#x2026;} 用于创建 Jail 示例 myjail：
+<ul class="org-ul">
+<li>第一行设置容器主机名</li>
+<li>第二行设置容器路径</li>
+<li>vnet: 启用 VNET 虚拟网络栈</li>
+<li>vnet.interface 设置容器网卡</li>
+<li><p>
+allow.raw_sockets = 1: 允许容器创建原始套接字，使 ping 等命令能够正常工作
+</p>
+<pre class="example" id="org13d1c05">
+FreeBSD Jail 默认的安全策略禁止容器直接创建原始套接字
+
+而 ping 命令需要利用 Raw Socket 来发送 ICMP 报文
+
+若未添加此配置，执行 ping 将提示 Operation not permitted
+</pre></li>
+<li>最后三行设定容器启动和停止时的行为；
+<ul class="org-ul">
+<li><p>
+exec.created 在宿主机环境中将 epair0b 接口设为 up 状态
+</p>
+<pre class="example" id="orgae6c733">
+此命令在 vnet.interface 将接口移入 Jail 之前执行，因此接口仍位于宿主机网络栈中
+
+接口移入 Jail 后会保留 up 状态，确保 Jail 内的网络配置能够正常工作
+</pre></li>
+<li><p>
+在容器内的 /etc/rc.conf 中设置静态 IP 地址，协议族设定为 inet (IPv4) ，将 IP 设定为 192.168.1.120，子网掩码设为 255.255.255.0，设置默认网关为 192.168.1.1，编辑容器内配置文件：*/usr/jail/myjail/etc/rc.conf* ，添加如下内容：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">ifconfig_epair0b</span>=<span style="color: #ffa07a;">"inet 192.168.1.120 netmask 255.255.255.0"</span>
+<span style="color: #eedd82;">defaultrouter</span>=<span style="color: #ffa07a;">"192.168.1.1"</span>
+</pre>
+</div></li>
+</ul></li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org4b74529" class="outline-2">
+<h2 id="org4b74529">启动容器</h2>
+<div class="outline-text-2" id="text-org4b74529">
+<p>
+配置完成以后使用 service 命令启动：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ service jail start myjail
+</pre>
+</div>
+
+<p>
+启动以后使用 <span class="underline">jls</span> 命令查看，若容器创建成功，且正在运行，该容器将出现在列表中
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ jls
+JID  IP Address      Hostname                      Path
+1                  myjail.local                  /usr/jail/myjail
+</pre>
+</div>
+
+<pre class="example" id="org94528b6">
+VNET 模式中，IP 地址由容器内部管理， Address 字段看不到 IP 是正常的
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 常用管理命令</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">命令</td>
+<td class="org-left">解释</td>
+</tr>
+
+<tr>
+<td class="org-left">service jail start myjail</td>
+<td class="org-left">启动容器 myjail</td>
+</tr>
+
+<tr>
+<td class="org-left">service jail restart myjail</td>
+<td class="org-left">重启容器</td>
+</tr>
+
+<tr>
+<td class="org-left">service jail stop myjail</td>
+<td class="org-left">停止容器</td>
+</tr>
+
+<tr>
+<td class="org-left">jls</td>
+<td class="org-left">查看运行中的容器列表</td>
+</tr>
+
+<tr>
+<td class="org-left">jexec myjail sh</td>
+<td class="org-left">进入容器命令行</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+执行 <span class="underline">jexec myjail sh</span> 进入容器命令行（此操作需要 Root 权限），成功后将看到命令提示符 #，此时可输入命令操作容器。若已按照前面的方法允许容器创建原始套接字，可使用 ping example.com 确认已经连接到互联网:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ ping example.com
+PING example.com (104.20.23.154): 56 data bytes
+64 bytes from 104.20.23.154: <span style="color: #eedd82;">icmp_seq</span>=1 <span style="color: #eedd82;">ttl</span>=47 <span style="color: #eedd82;">time</span>=95.063 ms
+64 bytes from 104.20.23.154: <span style="color: #eedd82;">icmp_seq</span>=3 <span style="color: #eedd82;">ttl</span>=47 <span style="color: #eedd82;">time</span>=94.726 ms
+^C
+--- example.com ping statistics ---
+4 packets transmitted, 2 packets received, 50.0% packet loss
+round-trip min/avg/max/stddev = 94.726/94.895/95.063/0.169 ms
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org9957002" class="outline-2">
+<h2 id="org9957002">测试容器</h2>
+<div class="outline-text-2" id="text-org9957002">
+<p>
+首先安装包管理器，执行 pkg 命令
+</p>
+<pre class="example" id="orgec4156d">
+遇到提示 Do you want to fetch and install it now? [y/N]: 选择 y
+</pre>
+
+<p>
+若安装成功，将得到类似输出：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">Bootstrapping pkg from pkg+https://pkg.FreeBSD.org/FreeBSD:15:amd64/quarterly, please wait...
+Verifying signature with trusted certificate pkg.freebsd.org.2013102301... done
+[myjail.local] Installing pkg-2.6.2_1...
+[myjail.local] Extracting pkg-2.6.2_1: 100%
+pkg: not enough arguments
+Usage: pkg [-v] [-d] [-l] [-N] [-j &lt;jail name or id&gt;|-c &lt;chroot path&gt;|-r &lt;rootdir&gt;] [-C &lt;configuration file&gt;] [-R &lt;repo config dir&gt;] [-o <span style="color: #eedd82;">var</span>=value] [-4|-6] &lt;command&gt; [&lt;args&gt;]
+
+For more information on available commands and options see <span style="color: #ffa07a;">'pkg help'</span>.
+</pre>
+</div>
+
+<pre class="example" id="orgb6b028b">
+若网络受限无法安装，可按照本书前面章节方法更换软件源，或者使用 Ports 安装
+</pre>
+
+<p>
+安装成功后:
+</p>
+<ol class="org-ol">
+<li>执行 pkg update -f 强制重新获取软件仓库目录</li>
+<li>执行 pkg ins nginx</li>
+<li>执行 service nginx onestart 单次启动 nginx，成功后将得到如下输出：</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">service nginx onestart
+</span>Performing sanity check on nginx configuration:
+nginx: the configuration file /usr/local/etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /usr/local/etc/nginx/nginx.conf test is successful
+Starting nginx.
+</pre>
+</div>
+
+<p>
+使用 ifconfig 命令确认 IP 地址，若完全按本节步骤进行，地址应为 192.168.1.120:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">ifconfig | grep 192
+</span>inet 192.168.1.120 netmask 0xffffff00 broadcast 192.168.1.255
+</pre>
+</div>
+
+<pre class="example" id="org98ff09b">
+按 Ctrl+D 或输入 exit 可退出 Jail 容器的命令行
+</pre>
+
+<p>
+回到宿主机环境，执行 fetch -o - <a href="http://192.168.1.120">http://192.168.1.120</a> | grep Welcome 可查看 NGINX 是否正常工作。若容器网络通畅，且 Nginx 正常工作，将得到如下输出：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ fetch -o - http://192.168.1.120 | grep Welcome
+-                                                      896  B 5646 kBps    00s
+&lt;title&gt;Welcome to nginx!&lt;/title&gt;
+&lt;h1&gt;Welcome to nginx!&lt;/h1&gt;
+</pre>
+</div>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="qjail.html">Next: Qjail</a></td>
+<td class="org-left"><a href="basic.html">Previous: Jail 概述</a></td>
+<td class="org-left"><a href="jail.html">Home: Jail 容器管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
