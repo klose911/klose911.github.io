@@ -206,11 +206,362 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#orgc202543">Jail 简史</a></li>
+<li><a href="#orgcf386ce">Jail 的类型</a>
+<ul>
+<li><a href="#orgb6de839">厚 Jail</a></li>
+<li><a href="#orgcf08479">瘦 Jail</a></li>
+<li><a href="#org4d01a8b">服务 Jail</a></li>
+<li><a href="#orgcdf7715">VNET Jail</a></li>
+<li><a href="#orgb7e74ca">Linux Jail</a></li>
+</ul>
+</li>
+<li><a href="#orgaf295cd">Jail 管理工具</a></li>
 </ul>
 </div>
 </div>
 <div id="outline-container-orgc202543" class="outline-2">
 <h2 id="orgc202543">Jail 简史</h2>
+<div class="outline-text-2" id="text-orgc202543">
+<pre class="example" id="orga07f4a3">
+Jail 原意为“监狱、监禁”，在 FreeBSD 术语中指一种基于 chroot 改进的容器隔离技术
+
+Jail 的发音为 [dʒeɪl]（英/美），发音接近汉语“杰尔”；“炸儿”为非标准发音
+</pre>
+
+<ol class="org-ol">
+<li>容器技术的概念出现在 2000 年：
+<ul class="org-ul">
+<li><p>
+Jail 技术于 1999 年提交到 FreeBSD 源代码树，随 2000 年 3 月发布的 FreeBSD 4.0 首次正式引入，实现了文件系统、进程空间和网络绑定的三重隔离
+</p>
+<pre class="example" id="orgc217712">
+该技术可将 FreeBSD 系统分区为多个子系统（也称 Jail）
+</pre></li>
+</ul></li>
+<li>2001 年，通过 Jacques Gélinas 的 VServer 项目，隔离环境的实施进入了 Linux 领域
+<ul class="org-ul">
+<li>此后，Linux 社区相继出现了 OpenVZ（2005 年）和 Google 工程师主导开发的 cgroups 资源控制机制（2006 年启动，2008 年合入 Linux 内核 2.6.24），以及首个通用的 Linux 容器项目 LXC（2008 年首次发布）</li>
+</ul></li>
+<li>2013 年 3 月，原名 dotCloud（2008 年成立于巴黎）的公司发布了 Docker 容器技术，同年 10 月将公司更名为 Docker Inc.
+<ul class="org-ul">
+<li>Docker 最初在 LXC 之上提供了更简洁的封装，后来发展出独立的容器运行时，极大地推动了现代容器技术的普及</li>
+</ul></li>
+</ol>
+
+<p>
+Jail 建立在 chroot(2) 的概念之上，chroot 用于更改一组进程的根目录。这种方式创建了一个与系统其余部分隔离的环境
+</p>
+<pre class="example" id="org1f4cb00">
+在 chroot 环境中创建的进程无法直接访问其外部的文件或资源
+
+因此，运行于 chroot 环境中的服务若遭攻破，攻击者通常难以借此攻破整个系统
+</pre>
+
+<p>
+chroot 存在多种限制。它只适合简单任务，无法满足需较强灵活性或高级特性的复杂场景
+</p>
+<pre class="example" id="org8c4fcd1">
+人们发现了多种从 chroot 环境中逃逸的方法，它已不是保护服务安全的理想方案
+</pre>
+
+<p>
+Jail 在多个方面改进了传统 chroot 环境的概念：
+</p>
+<ul class="org-ul">
+<li>在传统 chroot 环境中，进程只在文件系统的可访问范围内受到限制。而系统的其他资源、系统用户、运行进程及网络子系统，则由 chroot 进程与宿主系统进程共享</li>
+<li>Jail 扩展了这一模型，虚拟化了对文件系统、用户集合和网络子系统的访问。它提供了更细粒度的控制，用于调整 Jail 环境的访问权限</li>
+</ul>
+
+<pre class="example" id="orgf8ba993">
+Jail 可视为一种操作系统级虚拟化技术
+</pre>
+</div>
+</div>
+<div id="outline-container-orgcf386ce" class="outline-2">
+<h2 id="orgcf386ce">Jail 的类型</h2>
+<div class="outline-text-2" id="text-orgcf386ce">
+<p>
+管理员可根据实际需求将 Jail 分为不同类型，尽管它们在底层技术上完全相同。各管理员须根据所要解决的问题来评估应创建哪种类型的 Jail
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> Jail 的类型</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">对比维度</td>
+<td class="org-left">厚 Jail（Thick Jail）</td>
+<td class="org-left">瘦 Jail（Thin Jail）</td>
+<td class="org-left">服务 Jail（Service Jail）</td>
+</tr>
+
+<tr>
+<td class="org-left">资源效率</td>
+<td class="org-left">每个 Jail 独立包含完整基本系统，占用磁盘和内存较高</td>
+<td class="org-left">共享宿主或模板系统，占用资源更少</td>
+<td class="org-left">更高：不复制完整文件系统，仅隔离服务进程</td>
+</tr>
+
+<tr>
+<td class="org-left">部署速度</td>
+<td class="org-left">需要复制完整系统，创建和启动较慢</td>
+<td class="org-left">依赖共享系统，创建和启动更快</td>
+<td class="org-left">更快：仅配置服务即可运行</td>
+</tr>
+
+<tr>
+<td class="org-left">维护方式</td>
+<td class="org-left">每个 Jail 独立更新和维护</td>
+<td class="org-left">宿主系统更新即可影响多个 Jail，维护集中</td>
+<td class="org-left">极简：通常仅需 /etc/rc.conf 一行配置</td>
+</tr>
+
+<tr>
+<td class="org-left">资源共享</td>
+<td class="org-left">基本无共享或共享较少</td>
+<td class="org-left">共享库与二进制，磁盘缓存利用率更高</td>
+<td class="org-left">完全共享宿主系统资源（库、二进制等）</td>
+</tr>
+
+<tr>
+<td class="org-left">隔离性</td>
+<td class="org-left">隔离较强，各 Jail 环境独立</td>
+<td class="org-left">隔离较弱，共享基础系统组件</td>
+<td class="org-left">最弱：文件系统隔离度最低，但仍受 Jail 机制网络与进程限制</td>
+</tr>
+
+<tr>
+<td class="org-left">安全性</td>
+<td class="org-left">单个 Jail 被攻破影响范围较小</td>
+<td class="org-left">共享组件带来更大潜在影响范围</td>
+<td class="org-left">风险最高：可能影响宿主系统整体</td>
+</tr>
+
+<tr>
+<td class="org-left">依赖管理</td>
+<td class="org-left">每个 Jail 依赖独立，冲突较少</td>
+<td class="org-left">多 Jail 共享环境，可能出现版本冲突</td>
+<td class="org-left">无独立依赖管理，完全依赖宿主环境</td>
+</tr>
+
+<tr>
+<td class="org-left">兼容性</td>
+<td class="org-left">环境完整一致，兼容性更稳定</td>
+<td class="org-left">依赖宿主/模板环境，可能存在版本差异问题</td>
+<td class="org-left">依赖宿主系统兼容性，灵活性最低</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="outline-container-orgb6de839" class="outline-3">
+<h3 id="orgb6de839">厚 Jail</h3>
+<div class="outline-text-3" id="text-orgb6de839">
+<p>
+厚 Jail 是 FreeBSD Jail 的传统形式。厚 Jail 在自身环境中复制一整套基本系统
+</p>
+<ul class="org-ul">
+<li>即 Jail 拥有一套独立的 FreeBSD 基本系统实例，包括库、可执行文件和配置文件</li>
+<li>可将厚 Jail 视为完整的独立 FreeBSD 安装实例，运行于宿主系统的控制之下</li>
+<li>此种隔离确保 Jail 内部的进程与宿主系统及其他 Jail 相互独立</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgcf08479" class="outline-3">
+<h3 id="orgcf08479">瘦 Jail</h3>
+<div class="outline-text-3" id="text-orgcf08479">
+<p>
+瘦 Jail 使用 <span class="underline">OpenZFS 快照</span> 或 <span class="underline">NullFS</span> 挂载，从模板中共享基本系统:
+</p>
+<ul class="org-ul">
+<li>每个瘦 Jail 只复制基本系统的最小子集，因此相比厚 Jail 消耗的资源更少，隔离性和独立性也较弱</li>
+<li>共享组件的变动可能同时影响多个瘦 Jail</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org4d01a8b" class="outline-3">
+<h3 id="org4d01a8b">服务 Jail</h3>
+<div class="outline-text-3" id="text-org4d01a8b">
+<p>
+将 Jail <span class="underline">根路径</span> 直接 <b>指向</b> <span class="underline">宿主系统的某个子目录或根目录</span> ，即可实现 Jail 与宿主系统共享文件系统:
+</p>
+<ul class="org-ul">
+<li>这种配置不复制独立的基本系统，Jail 中的进程可直接访问宿主系统的库、二进制文件和配置文件，并与宿主系统共享相同的用户账户</li>
+<li>Jail 内进程的根目录受 path 参数限制，chroot 的文件系统隔离依然存在，但 Jail 内部可见的文件与宿主机高度重合</li>
+<li>此外，Jail 中的进程仍受 Jail 机制中网络隔离、进程可见性限制等其他安全机制的约束，但可配置为放开部分限制</li>
+</ul>
+
+<pre class="example" id="org01f7de9">
+此配置适用于无需了解服务或守护进程所需文件即可将其快速限制于 Jail 环境内运行的场景，配置极简
+
+但必须充分认识其文件系统隔离性弱所带来的安全风险
+</pre>
+</div>
+</div>
+<div id="outline-container-orgcdf7715" class="outline-3">
+<h3 id="orgcdf7715">VNET Jail</h3>
+<div class="outline-text-3" id="text-orgcdf7715">
+<p>
+FreeBSD 的 VNET jail 是一种虚拟化环境，允许隔离和控制 jail 中运行进程的网络资源
+</p>
+<ul class="org-ul">
+<li>它通过为 jail 中的进程创建一个独立的网络协议栈，实现了高度的网络分段与安全性，从而确保 jail 中的网络流量不会与宿主系统或其他 jail 混合</li>
+</ul>
+
+<pre class="example" id="orgd266d96">
+本质上，FreeBSD 的 VNET jail 增加了一套网络配置机制。即可作为厚 jail 或瘦 jail 创建 VNET jail
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb7e74ca" class="outline-3">
+<h3 id="orgb7e74ca">Linux Jail</h3>
+<div class="outline-text-3" id="text-orgb7e74ca">
+<p>
+FreeBSD 的 Linux Jail 是 FreeBSD 操作系统中的一项功能，可在 jail 中运行 Linux 二进制文件和应用程序
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgaf295cd" class="outline-2">
+<h2 id="orgaf295cd">Jail 管理工具</h2>
+<div class="outline-text-2" id="text-orgaf295cd">
+<p>
+常见的 Jail 管理工具包括 Qjail 和 iocage，各有侧重
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 2:</span> Jail 管理工具</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">特性</td>
+<td class="org-left">Qjail</td>
+<td class="org-left">iocage</td>
+</tr>
+
+<tr>
+<td class="org-left">开发语言</td>
+<td class="org-left">sh</td>
+<td class="org-left">Python</td>
+</tr>
+
+<tr>
+<td class="org-left">当前维护状态</td>
+<td class="org-left">持续可用</td>
+<td class="org-left">原仓库已归档，FreeBSD 项目持续维护</td>
+</tr>
+
+<tr>
+<td class="org-left">文件系统要求</td>
+<td class="org-left">UFS / ZFS 均可</td>
+<td class="org-left">必须 ZFS</td>
+</tr>
+
+<tr>
+<td class="org-left">是否依赖</td>
+<td class="org-left">ZFS 否</td>
+<td class="org-left">是</td>
+</tr>
+
+<tr>
+<td class="org-left">是否支持</td>
+<td class="org-left">UFS 支持</td>
+<td class="org-left">不支持</td>
+</tr>
+
+<tr>
+<td class="org-left">是否支持</td>
+<td class="org-left">VNET 支持</td>
+<td class="org-left">支持</td>
+</tr>
+
+<tr>
+<td class="org-left">网络隔离能力</td>
+<td class="org-left">较强</td>
+<td class="org-left">较强</td>
+</tr>
+
+<tr>
+<td class="org-left">配置方式</td>
+<td class="org-left">Shell 脚本</td>
+<td class="org-left">Python CLI</td>
+</tr>
+
+<tr>
+<td class="org-left">学习成本</td>
+<td class="org-left">中</td>
+<td class="org-left">较高</td>
+</tr>
+
+<tr>
+<td class="org-left">快照/克隆能力</td>
+<td class="org-left">有限</td>
+<td class="org-left">强（依赖 ZFS）</td>
+</tr>
+
+<tr>
+<td class="org-left">资源占用</td>
+<td class="org-left">很低</td>
+<td class="org-left">较高</td>
+</tr>
+
+<tr>
+<td class="org-left">适合新部署</td>
+<td class="org-left">推荐</td>
+<td class="org-left">推荐（仅限 ZFS）</td>
+</tr>
+
+<tr>
+<td class="org-left">典型适用场景</td>
+<td class="org-left">通用 Jail 管理</td>
+<td class="org-left">大规模 ZFS Jail 环境</td>
+</tr>
+
+<tr>
+<td class="org-left">主要限制</td>
+<td class="org-left">功能相对朴素</td>
+<td class="org-left">强依赖 ZFS</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org3c3585d">
+ezjail 曾是广泛使用的 Jail 管理工具，但目前已基本停止维护且不支持 VNET，不推荐用于新部署
+
+仅存续于老旧系统的维护场景
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="thick_jail.html">Next: 厚 Jail</a></td>
+<td class="org-left"><a href="jail.html">Home: Jail 容器管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
