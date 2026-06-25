@@ -205,7 +205,57 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org4cf1a76">准备工作</a></li>
+<li><a href="#org4cf1a76">准备工作</a>
+<ul>
+<li><a href="#orgcee4e31">准备网络接口</a></li>
+<li><a href="#org46b669e">准备 pf 防火墙</a>
+<ul>
+<li><a href="#org5a04791">方案一</a></li>
+<li><a href="#orgddeb056">方案二</a></li>
+</ul>
+</li>
+<li><a href="#orgfd6e526">启用 pf 防火墙</a></li>
+<li><a href="#org0c8ef22">加载 Linux 二进制兼容层（Linuxulator）内核模块</a></li>
+<li><a href="#orgab8ef10">准备目录</a></li>
+<li><a href="#orgcf5129f">文件结构</a></li>
+</ul>
+</li>
+<li><a href="#org47a9d85">Debian Jail</a>
+<ul>
+<li><a href="#org3cf9872">准备基本系统</a></li>
+<li><a href="#org225160a">配置挂载文件</a></li>
+<li><a href="#org4fb5f0e">管理 Jail 配置文件</a></li>
+<li><a href="#orgda88587">管理防火墙放行网络</a></li>
+<li><a href="#orga9a92cf">启用实例</a></li>
+<li><a href="#org53a4096">更新 Debian 系统</a>
+<ul>
+<li><a href="#org16e685b">在 Jail 内部更新</a></li>
+<li><a href="#orgc37a9f1">在 Jail 外部更新</a></li>
+</ul>
+</li>
+<li><a href="#orgfb84d6d">Jail 服务管理</a></li>
+</ul>
+</li>
+<li><a href="#org473e521">Alpine Jail</a>
+<ul>
+<li><a href="#org9ac72db">创建 Alpine Jail 基本系统</a></li>
+<li><a href="#org17b8065">管理挂载文件</a></li>
+<li><a href="#org7c46019">管理 Jail 模板</a></li>
+<li><a href="#org3ffe276">防火墙放行网络</a></li>
+<li><a href="#org0225edf">为基本系统配置 OpenRC</a></li>
+</ul>
+</li>
+<li><a href="#org6743a7a">Linux Jail 中的 GUI</a>
+<ul>
+<li><a href="#org206a96a">Jail 中的 GUI</a></li>
+<li><a href="#org76588f5">带 X Server 的终端</a></li>
+<li><a href="#orgc98da21">内嵌 X Server</a></li>
+<li><a href="#orgb929eb1">共享主机 socket 方式</a></li>
+<li><a href="#orgb676e47">X Server TCP 监听加 xhost 连接管理</a></li>
+<li><a href="#orgd796113">VNC</a></li>
+<li><a href="#orgf010bca">附录与补遗</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -213,13 +263,987 @@
 Linux Jail 是 FreeBSD 操作系统中的一项功能，用于在 Jail 中运行 Linux 二进制文件和应用程序。其原理是在 FreeBSD 内核中集成兼容层，将 <span class="underline">Linux 系统调用</span> 转换为对应的 <span class="underline">FreeBSD 原生系统调用</span> 
 </p>
 
-<pre class="example" id="org413c9de">
+<pre class="example" id="org94e0ecf">
 Linux Jail 旨在无需单独部署 Linux 虚拟机或运行环境的情况下，使 FreeBSD 系统能够运行 Linux 软件。
 
 以下介绍在 FreeBSD Jail 中部署 Linux Jail 的初始化配置
 </pre>
 <div id="outline-container-org4cf1a76" class="outline-2">
 <h2 id="org4cf1a76">准备工作</h2>
+<div class="outline-text-2" id="text-org4cf1a76">
+<pre class="example" id="org52f24fd">
+本节将所有 Jail 绑定到虚拟网络接口 lo1，使其构成 FreeBSD 系统下的一个局域网，其中 FreeBSD 主机充当该局域网的网关
+</pre>
+
+<p>
+所有 Jail 的网络流量必须通过网络接口 lo1，因此需要启用网络转发
+</p>
+
+<pre class="example" id="org3502d2b">
+本节使用 pf 防火墙实现此功能
+
+需要配置 pf 防火墙以实现网络访问控制
+</pre>
+</div>
+<div id="outline-container-orgcee4e31" class="outline-3">
+<h3 id="orgcee4e31">准备网络接口</h3>
+<div class="outline-text-3" id="text-orgcee4e31">
+<p>
+添加克隆网络接口 lo1 并启用：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">cloned_interfaces</span>+=<span style="color: #ffa07a;">"lo1"</span>
+$ service netif cloneup
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org46b669e" class="outline-3">
+<h3 id="org46b669e">准备 pf 防火墙</h3>
+<div class="outline-text-3" id="text-org46b669e">
+<p>
+提供两种配置方式，可根据需要选用
+</p>
+</div>
+<div id="outline-container-org5a04791" class="outline-4">
+<h4 id="org5a04791">方案一</h4>
+<div class="outline-text-4" id="text-org5a04791">
+<p>
+pf 防火墙的 <b>表</b> <span class="underline">table</span> 是一种命名结构，用于保存地址和网络的集合，表中的地址可通过 NAT 访问网络
+</p>
+
+<pre class="example" id="orgcdf003e">
+即使没有相关规则引用某表，persist 标志也使防火墙始终保留该表，从而防止防火墙规则重新加载时自动清空该表
+</pre>
+
+<p>
+编辑 <b>/etc/pf.conf</b> 文件，加入以下配置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">table &lt;jails&gt; persist
+pass out on em0 inet from &lt;jails&gt; to any nat-to (em0)
+</pre>
+</div>
+
+<pre class="example" id="org3c1c973">
+实际使用时请将接口名 em0 以及各 Jail 的 IP 地址替换为自己环境中的实际配置
+</pre>
+
+<p>
+可使用 pfctl 对 jails 表添加或删除条目，以控制网络访问。例如：
+</p>
+<ul class="org-ul">
+<li>pfctl -t jails -T add 192.168.5.1 将 192.168.5.1 加入 jails 表使其可以访问网络</li>
+<li>pfctl -t jails -T delete 192.168.5.1 将 192.168.5.1 移出 jails 表使其无法访问网络</li>
+</ul>
+
+<pre class="example" id="orgc4943b1">
+此方法需手动管理，但灵活性更高
+</pre>
+</div>
+</div>
+<div id="outline-container-orgddeb056" class="outline-4">
+<h4 id="orgddeb056">方案二</h4>
+<div class="outline-text-4" id="text-orgddeb056">
+<p>
+直接在 /etc/pf.conf 文件中写下规则：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">pass out on em0 inet from 192.168.5.1 to any nat-to (em0)
+</pre>
+</div>
+
+<pre class="example" id="orgcfe6df2">
+此方法允许 192.168.5.1 访问网络，其特点是规则固化在配置文件中，对于无特殊需求的场景较为便捷
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgfd6e526" class="outline-3">
+<h3 id="orgfd6e526">启用 pf 防火墙</h3>
+<div class="outline-text-3" id="text-orgfd6e526">
+<p>
+即使不使用防火墙规则，也需要启用 pf 服务来实现 NAT 功能
+</p>
+
+<pre class="example" id="orgba416ce">
+启用 pf 防火墙的方法请参见其他章节
+</pre>
+</div>
+</div>
+<div id="outline-container-org0c8ef22" class="outline-3">
+<h3 id="org0c8ef22">加载 Linux 二进制兼容层（Linuxulator）内核模块</h3>
+<div class="outline-text-3" id="text-org0c8ef22">
+<p>
+启用并启动 Linux 兼容层服务，该方式能够自动加载 Linux 兼容层所需的各种内核模块：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ service linux enable
+$ service linux start
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgab8ef10" class="outline-3">
+<h3 id="orgab8ef10">准备目录</h3>
+<div class="outline-text-3" id="text-orgab8ef10">
+<p>
+创建用于存放 Jail 相关文件的目录：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mkdir /usr/jails
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgcf5129f" class="outline-3">
+<h3 id="orgcf5129f">文件结构</h3>
+<div class="outline-text-3" id="text-orgcf5129f">
+<pre class="example" id="org94757f0">
+/usr/jails/
+├── debian/          # Debian 12 Jail 根目录
+│   ├── dev/         # devfs 挂载点
+│   ├── dev/shm/     # tmpfs 挂载点
+│   ├── dev/fd/      # fdescfs 挂载点
+│   ├── proc/        # linprocfs 挂载点
+│   ├── sys/         # linsysfs 挂载点
+│   └── tmp/         # nullfs 挂载点
+├── ubuntu/          # Ubuntu 22.04 Jail 根目录
+│   ├── dev/
+│   ├── dev/shm/
+│   ├── dev/fd/
+│   ├── proc/
+│   ├── sys/
+│   ├── tmp/
+│   └── tmp/.X11-unix/  # X11 socket 挂载点
+├── antix/           # antiX Linux Jail 根目录
+│   ├── dev/
+│   ├── dev/shm/
+│   ├── dev/fd/
+│   ├── proc/
+│   ├── sys/
+│   └── tmp/
+├── alpine/          # Alpine Linux Jail 根目录
+│   ├── dev/
+│   ├── dev/shm/
+│   ├── dev/fd/
+│   ├── proc/
+│   └── sys/
+└── freebsd-jail/    # FreeBSD Jail 根目录
+
+/etc/
+├── fstab.debian     # Debian Jail 的 fstab 配置
+├── fstab.ubuntu     # Ubuntu Jail 的 fstab 配置
+├── fstab.antix      # antiX Jail 的 fstab 配置
+├── fstab.alpine     # Alpine Jail 的 fstab 配置
+├── jail.conf        # Jail 主配置文件
+├── pf.conf          # PF 防火墙配置
+└── rc.conf          # 系统启动配置
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org47a9d85" class="outline-2">
+<h2 id="org47a9d85">Debian Jail</h2>
+<div class="outline-text-2" id="text-org47a9d85">
+<pre class="example" id="org9b9dd61">
+本节基于 Debian 12 配置 Jail
+</pre>
+</div>
+<div id="outline-container-org3cf9872" class="outline-3">
+<h3 id="org3cf9872">准备基本系统</h3>
+<div class="outline-text-3" id="text-org3cf9872">
+<p>
+安装用于构建 Debian/Ubuntu 基本系统的工具:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install debootstrap
+</pre>
+</div>
+
+<p>
+创建 Jail 路径：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mkdir -p /usr/jails/debian
+</pre>
+</div>
+
+<p>
+通过中国科学技术大学开源镜像站自举 Debian 12 系统：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ debootstrap bookworm /usr/jails/debian https://mirrors.ustc.edu.cn/debian/
+</pre>
+</div>
+
+<p>
+示例输出如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">I: Retrieving InRelease
+I: Retrieving Packages
+I: Validating Packages
+I: Resolving dependencies of required packages...
+I: Resolving dependencies of base packages...
+I: Checking component main on https://mirrors.ustc.edu.cn/debian...
+I: Retrieving adduser 3.130
+I: Validating adduser 3.130
+...
+I: Extracting usr-is-merged...
+I: Extracting util-linux-extra...
+I: Extracting zlib1g...
+</pre>
+</div>
+
+<pre class="example" id="org28da64d">
+输出末尾可能出现与配置相关的提示信息，这是 debootstrap 在 chroot 环境中运行服务配置脚本时的正常现象，不影响基本系统的使用
+</pre>
+
+<p>
+使用 Debian 12 基本系统创建 Jail 实例，命名为 debian
+</p>
+</div>
+</div>
+<div id="outline-container-org225160a" class="outline-3">
+<h3 id="org225160a">配置挂载文件</h3>
+<div class="outline-text-3" id="text-org225160a">
+<p>
+创建 <b>/etc/fstab.debian</b> 文件：
+</p>
+
+<pre class="example" id="orgd9e2cfc">
+devfs      /usr/jails/debian/dev      devfs       rw                      0  0
+tmpfs      /usr/jails/debian/dev/shm  tmpfs       rw,size=1g,mode=1777    0  0
+fdescfs    /usr/jails/debian/dev/fd   fdescfs     rw,linrdlnk             0  0
+linprocfs  /usr/jails/debian/proc     linprocfs   rw                      0  0
+linsysfs   /usr/jails/debian/sys      linsysfs    rw                      0  0
+/tmp       /usr/jails/debian/tmp      nullfs      rw                      0  0
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 各文件系统作用</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">文件系统</td>
+<td class="org-left">作用</td>
+</tr>
+
+<tr>
+<td class="org-left">devfs</td>
+<td class="org-left">提供设备节点访问</td>
+</tr>
+
+<tr>
+<td class="org-left">tmpfs</td>
+<td class="org-left">为共享内存提供临时文件系统</td>
+</tr>
+
+<tr>
+<td class="org-left">fdescfs</td>
+<td class="org-left">提供文件描述符访问</td>
+</tr>
+
+<tr>
+<td class="org-left">linprocfs</td>
+<td class="org-left">为 Linux 应用提供兼容的 proc 文件系统</td>
+</tr>
+
+<tr>
+<td class="org-left">linsysfs</td>
+<td class="org-left">为 Linux 应用提供兼容的 sys 文件系统</td>
+</tr>
+
+<tr>
+<td class="org-left">nullfs</td>
+<td class="org-left">挂载宿主机的 tmp 目录</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="outline-container-org4fb5f0e" class="outline-3">
+<h3 id="org4fb5f0e">管理 Jail 配置文件</h3>
+<div class="outline-text-3" id="text-org4fb5f0e">
+<p>
+在 <b>/etc/jail.conf</b> 文件中，加入以下内容（如果没有则新建）。关键配置项包括：
+</p>
+<ul class="org-ul">
+<li>devfs_ruleset 定义 devfs 的规则集</li>
+<li>enforce_statfs 控制 Jail 中挂载点的可见性，取值为 0（无限制）、1（仅根目录下可见）或 2（默认，仅根目录所在挂载点可操作）</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-sh">debian {                               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#21517;&#31216;
+</span>    host.hostname = <span style="color: #ffa07a;">"debian"</span>;             <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622; Jail &#30340;&#20027;&#26426;&#21517;
+</span>    mount.fstab = <span style="color: #ffa07a;">"/etc/fstab.debian"</span>;    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#20351;&#29992;&#30340; fstab &#25991;&#20214;&#65306;&#21551;&#21160;&#25110;&#20851;&#38381; Jail &#26102;&#65292;&#25346;&#36733;&#25110;&#21368;&#36733;&#23545;&#24212;&#30340;&#25991;&#20214;&#31995;&#32479;
+</span>    path = <span style="color: #ffa07a;">"/usr/jails/debian"</span>;           <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#30340;&#26681;&#30446;&#24405;&#36335;&#24452;
+</span>    devfs_ruleset = 4;                     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#25346;&#36733; devfs &#30340;&#35268;&#21017;&#38598;&#65292;0 &#34920;&#31034;&#26080;&#35268;&#21017;&#38598;&#65292;Jail &#20250;&#32487;&#25215;&#19978;&#32423;&#35268;&#21017;&#38598;&#65307;
+</span>    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20165;&#22312;&#21551;&#29992; allow.mount &#21644; allow.mount.devfs &#19988; enforce_statfs &#23567;&#20110; 2 &#26102;&#21487;&#25346;&#36733; devfs
+</span>    enforce_statfs = 1;                    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#20026; 0&#65306;&#25152;&#26377;&#25346;&#36733;&#28857;&#21487;&#29992;&#65292;&#26080;&#38480;&#21046;
+</span>    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#20026; 1&#65306;&#20165; Jail &#26681;&#30446;&#24405;&#19979;&#30340;&#25346;&#36733;&#28857;&#21487;&#35265;&#65292;&#19988;&#36335;&#24452;&#21069;&#32512;&#20013;&#30340; Jail &#26681;&#30446;&#24405;&#37096;&#20998;&#20250;&#34987;&#21093;&#31163;&#65288;&#20363;&#22914; /usr/jails/debian/mnt &#22312; Jail &#20869;&#26174;&#31034;&#20026; /mnt&#65289;
+</span>    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#20026; 2&#65288;&#40664;&#35748;&#65289;&#65306;&#21482;&#33021;&#22312; Jail &#26681;&#30446;&#24405;&#25152;&#22312;&#25346;&#36733;&#28857;&#25805;&#20316;&#65292;&#26080;&#27861;&#25346;&#36733; devfs&#12289;tmpfs &#31561;
+</span>    allow.mount;                          <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#25346;&#36733;&#25991;&#20214;&#31995;&#32479;
+</span>    allow.mount.devfs;                     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#25346;&#36733; devfs
+</span>    exec.start = <span style="color: #ffa07a;">"/bin/true"</span>;              <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#21551;&#21160;&#26102;&#25191;&#34892;&#30340;&#21629;&#20196;
+</span>    exec.stop = <span style="color: #ffa07a;">"/bin/true"</span>;               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#20572;&#27490;&#26102;&#25191;&#34892;&#30340;&#21629;&#20196;
+</span>    persist;                               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768; Jail &#22312;&#26080;&#20219;&#20309;&#36827;&#31243;&#24773;&#20917;&#19979;&#20173;&#28982;&#23384;&#22312;
+</span>    allow.raw_sockets;                      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20351;&#29992; raw Socket&#65292;&#20363;&#22914; ping
+</span>    interface = <span style="color: #ffa07a;">"lo1"</span>;                      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20351;&#29992; lo1 &#20316;&#20026;&#32593;&#32476;&#25509;&#21475;
+</span>    ip4.addr = 192.168.5.1;                 <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25351;&#23450; IPv4 &#22320;&#22336;
+</span>    ip6 = <span style="color: #ffa07a;">"disable"</span>;                        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#31105;&#29992; IPv6
+</span>}
+</pre>
+</div>
+
+<p>
+exec.start 指定启动 Jail 时运行的命令
+</p>
+
+<pre class="example" id="org45cd6db">
+在 FreeBSD 中创建 Jail 时，一般使用 exec.start = 'sh /etc/rc' 来调用 rc 系统启动服务
+
+Debian 使用 systemd 作为初始化系统，而 Jail 缺少必要的 cgroup 挂载和系统权限，无法使用 systemd，因此无法直接运行相应命令（但 service 命令仍可使用）
+</pre>
+
+<p>
+此处使用 /bin/true 安全返回 true（成功状态），不执行任何操作
+</p>
+
+<pre class="example" id="orgfba3280">
+例如，在 debian Jail 中启用 sshd 服务后（执行 service ssh start），重启 Jail 时 sshd 服务不会随 Jail 自动启动
+
+此时可设置 exec.start = 'service ssh start'，以确保启动 Jail 时自动启动 sshd 服务
+</pre>
+
+<p>
+要启用更多服务，可按如下方式编写。要启用更多服务，可按如下方式编写：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">exec.start += <span style="color: #ffa07a;">'service ssh start'</span>
+exec.start += <span style="color: #ffa07a;">'service dbus start'</span>
+</pre>
+</div>
+
+<p>
+exec.stop 指定停止 Jail 时运行的命令
+</p>
+<pre class="example" id="org515fd2b">
+FreeBSD Jail 通常使用 sh /etc/rc.shutdown
+
+同样由于 systemd 的限制，此处使用 /bin/true 安全返回 true
+</pre>
+</div>
+</div>
+<div id="outline-container-orgda88587" class="outline-3">
+<h3 id="orgda88587">管理防火墙放行网络</h3>
+<div class="outline-text-3" id="text-orgda88587">
+<p>
+在 pf 防火墙中的 jails 表中加入 Jail 的地址，以允许 Jail 访问网络：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pfctl -t jails -T add 192.168.5.1
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orga9a92cf" class="outline-3">
+<h3 id="orga9a92cf">启用实例</h3>
+<div class="outline-text-3" id="text-orga9a92cf">
+<p>
+启动 Jail：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ jail -c debian
+</pre>
+</div>
+
+<p>
+停止 Jail：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ jail -r debian
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org53a4096" class="outline-3">
+<h3 id="org53a4096">更新 Debian 系统</h3>
+<div class="outline-text-3" id="text-org53a4096">
+</div>
+<div id="outline-container-org16e685b" class="outline-4">
+<h4 id="org16e685b">在 Jail 内部更新</h4>
+<div class="outline-text-4" id="text-org16e685b">
+<p>
+执行以下命令进入 Jail 并更新系统：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ jexec debian /bin/bash <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#27492;&#26102;&#20301;&#20110; FreeBSD
+</span>Debian <span style="color: #ff4500;"># </span><span style="color: #ff4500;">apt remove rsyslog  # &#27492;&#26102;&#20301;&#20110; Debian Jail
+</span>Debian <span style="color: #ff4500;"># </span><span style="color: #ff4500;">apt update # &#27492;&#26102;&#20301;&#20110; Debian Jail</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc37a9f1" class="outline-4">
+<h4 id="orgc37a9f1">在 Jail 外部更新</h4>
+<div class="outline-text-4" id="text-orgc37a9f1">
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312; debian Jail &#20869;&#25191;&#34892;&#21629;&#20196;&#65292;&#21368;&#36733; rsyslog
+</span>$ jexec -l debian /bin/bash -c <span style="color: #ffa07a;">"apt remove rsyslog"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312; debian Jail &#20869;&#25191;&#34892;&#21629;&#20196;&#65292;&#26356;&#26032;&#36719;&#20214;&#21253;&#32034;&#24341;
+</span>$ jexec -l debian /bin/bash -c <span style="color: #ffa07a;">"apt update"</span>
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orgfb84d6d" class="outline-3">
+<h3 id="orgfb84d6d">Jail 服务管理</h3>
+<div class="outline-text-3" id="text-orgfb84d6d">
+<p>
+开机时启动 jail 服务：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ service jail enable
+</pre>
+</div>
+
+<pre class="example" id="orgfd9db6d">
+默认情况下会启动 /etc/jail.conf 文件中配置的所有 Jail
+</pre>
+
+<p>
+也可在 /etc/rc.conf 文件中用 jail_list 变量指定在开机时启动的 Jail 的名称，编辑 /etc/rc.conf 文件写入：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">jail_list</span>=<span style="color: #ffa07a;">"debian"</span>
+</pre>
+</div>
+
+<p>
+或执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">jail_list</span>+=debian
+</pre>
+</div>
+
+<p>
+如果 jail_list 变量为空，则会启动所有在 <b>/etc/jail.conf</b> 文件中配置的 Jail
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org473e521" class="outline-2">
+<h2 id="org473e521">Alpine Jail</h2>
+<div class="outline-text-2" id="text-org473e521">
+</div>
+<div id="outline-container-org9ac72db" class="outline-3">
+<h3 id="org9ac72db">创建 Alpine Jail 基本系统</h3>
+<div class="outline-text-3" id="text-org9ac72db">
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#19979;&#36733; Alpine Linux 3.17.1 minirootfs &#38236;&#20687;
+</span>$ fetch https://mirrors.ustc.edu.cn/alpine/v3.17/releases/x86_64/alpine-minirootfs-3.17.1-x86_64.tar.gz
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314; Alpine Jail &#26681;&#30446;&#24405;
+</span>$ mkdir -p /usr/jails/alpine
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35299;&#21387; minirootfs &#21040; Jail &#26681;&#30446;&#24405;
+</span>$ tar zxf alpine-minirootfs-3.17.1-x86_64.tar.gz -C /usr/jails/alpine/
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#24517;&#35201;&#30340;&#35774;&#22791;&#33410;&#28857;
+</span>$ touch /usr/jails/alpine/dev/shm
+$ touch /usr/jails/alpine/dev/fd
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org17b8065" class="outline-3">
+<h3 id="org17b8065">管理挂载文件</h3>
+<div class="outline-text-3" id="text-org17b8065">
+<p>
+创建 <b>/etc/fstab.alpine</b> 文件。其中 /tmp 挂载已被注释，避免将整个宿主机 /tmp 目录暴露给 Jail，以提高安全性：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">devfs      /usr/jails/alpine/dev      devfs       rw                      0  0
+tmpfs      /usr/jails/alpine/dev/shm  tmpfs       rw,<span style="color: #eedd82;">size</span>=1g,<span style="color: #eedd82;">mode</span>=1777    0  0
+fdescfs    /usr/jails/alpine/dev/fd   fdescfs     rw,linrdlnk             0  0
+linprocfs  /usr/jails/alpine/proc     linprocfs   rw                      0  0
+linsysfs   /usr/jails/alpine/sys      linsysfs    rw                      0  0
+<span style="color: #ff4500;">#</span><span style="color: #ff4500;">/tmp       /usr/jails/alpine/tmp      nullfs      rw                      0  0  # &#27880;&#37322;&#25481;&#21487;&#36991;&#20813;&#23558;&#25972;&#20010;&#23487;&#20027;&#26426; /tmp &#30446;&#24405;&#26292;&#38706;&#32473; Jail</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org7c46019" class="outline-3">
+<h3 id="org7c46019">管理 Jail 模板</h3>
+<div class="outline-text-3" id="text-org7c46019">
+<p>
+在 <b>/etc/jail.conf</b> 文件中写入：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">alpine {                               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#21517;&#31216;
+</span>    host.hostname = <span style="color: #ffa07a;">"alpine"</span>;             <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622; Jail &#30340;&#20027;&#26426;&#21517;
+</span>    mount.fstab = <span style="color: #ffa07a;">"/etc/fstab.alpine"</span>;    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#20351;&#29992;&#30340; fstab &#25991;&#20214;
+</span>    path = <span style="color: #ffa07a;">"/usr/jails/alpine"</span>;           <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#26681;&#30446;&#24405;&#36335;&#24452;
+</span>    devfs_ruleset = 4;                     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">devfs &#25346;&#36733;&#35268;&#21017;&#38598;
+</span>    enforce_statfs = 1;                    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#25346;&#36733;&#28857;&#21487;&#35265;&#24615;
+</span>    allow.mount;                          <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#25346;&#36733;&#25991;&#20214;&#31995;&#32479;
+</span>    allow.mount.devfs;                     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#25346;&#36733; devfs
+</span>    exec.start = <span style="color: #ffa07a;">"/bin/true"</span>;              <span style="color: #ff4500;"># </span><span style="color: #ff4500;">minirootfs &#20013;&#26410;&#21021;&#22987;&#21270;&#31995;&#32479;&#65292;&#26242;&#26102;&#20351;&#29992; /bin/true&#65292;&#21518;&#32493;&#20250;&#35774;&#32622; openrc
+</span>    exec.stop = <span style="color: #ffa07a;">"/bin/true"</span>;               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20572;&#27490;&#26102;&#20351;&#29992; /bin/true
+</span>    persist;                               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21363;&#20351;&#26080;&#36827;&#31243;&#20063;&#20445;&#25345; Jail &#23384;&#27963;
+</span>    allow.raw_sockets;                      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20351;&#29992; raw Socket
+</span>    interface = <span style="color: #ffa07a;">"lo1"</span>;                      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25351;&#23450;&#32593;&#32476;&#25509;&#21475;
+</span>    ip4.addr = 192.168.5.4;                 <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20998;&#37197; IPv4 &#22320;&#22336;
+</span>    ip6 = <span style="color: #ffa07a;">"disable"</span>;                        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#31105;&#29992; IPv6
+</span>}
+</pre>
+</div>
+
+<p>
+设置开机时启动，随后立即启动：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ sysrc <span style="color: #eedd82;">jail_list</span>+=<span style="color: #ffa07a;">"alpine"</span>
+$ jail -c alpine
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org3ffe276" class="outline-3">
+<h3 id="org3ffe276">防火墙放行网络</h3>
+<div class="outline-text-3" id="text-org3ffe276">
+<p>
+在 pf 防火墙中允许网络访问，与前述方法相同：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pfctl -t jails -T add 192.168.5.4
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org0225edf" class="outline-3">
+<h3 id="org0225edf">为基本系统配置 OpenRC</h3>
+<div class="outline-text-3" id="text-org0225edf">
+<p>
+进入 Jail。minirootfs 仅提供基础环境，安装 OpenRC 可获得完整的服务管理能力：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">freebsd $ jexec alpine /bin/sh        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21021;&#22987;&#20165;&#26377; sh&#65292;&#35831;&#30041;&#24847; Shell &#25552;&#31034;&#31526;&#30340;&#21464;&#21270;
+</span>alpine <span style="color: #ff4500;"># </span><span style="color: #ff4500;">sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/' /etc/apk/repositories    # &#20462;&#25913;&#38236;&#20687;&#22320;&#22336;
+</span>alpine <span style="color: #ff4500;"># </span><span style="color: #ff4500;">echo 'nameserver 223.5.5.5' &gt;&gt; /etc/resolv.conf      # &#21021;&#22987;&#27809;&#26377;&#27492;&#25991;&#20214;&#65292;&#38656;&#33258;&#34892;&#21019;&#24314;
+</span>alpine <span style="color: #ff4500;"># </span><span style="color: #ff4500;">apk update             # minirootfs &#21487;&#30452;&#25509;&#36816;&#34892;&#31243;&#24207;&#65292;&#20294;&#26080;&#27861;&#31649;&#29702;&#26381;&#21153;&#65292;&#38656;&#23433;&#35013; OpenRC &#20197;&#33719;&#24471;&#23436;&#25972;&#30340;&#26381;&#21153;&#31649;&#29702;&#33021;&#21147;
+</span>alpine <span style="color: #ff4500;"># </span><span style="color: #ff4500;">apk add openrc         # &#23433;&#35013; OpenRC &#20316;&#20026;&#21021;&#22987;&#21270;&#31995;&#32479;
+</span>alpine <span style="color: #ff4500;"># </span><span style="color: #ff4500;">mkdir /run/openrc  # &#21019;&#24314; OpenRC &#36816;&#34892;&#30446;&#24405;
+</span>alpine <span style="color: #ff4500;"># </span><span style="color: #ff4500;">touch /run/openrc/softlevel      # &#22312; Docker&#12289;Chroot &#25110; Jail &#29615;&#22659;&#20013;&#20351;&#29992; OpenRC &#26102;&#24314;&#35758;&#21019;&#24314;&#27492;&#25991;&#20214;
+</span>alpine <span style="color: #ff4500;"># </span><span style="color: #ff4500;">exit    # &#30041;&#24847; Shell &#25552;&#31034;&#31526;&#30340;&#21464;&#21270;
+</span>FreeBSD $ jail -r alpine    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20808;&#20851;&#38381; Alpine Jail&#65292;&#20197;&#20415;&#22312; FreeBSD &#23487;&#20027;&#26426;&#20013;&#37197;&#32622; OpenRC</span>
+</pre>
+</div>
+
+<p>
+修改 <b>/etc/jail.conf</b> 文件中 Alpine 的配置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">alpine {                               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#21517;&#31216;
+</span>    host.hostname = <span style="color: #ffa07a;">"alpine"</span>;             <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622; Jail &#30340;&#20027;&#26426;&#21517;
+</span>    mount.fstab = <span style="color: #ffa07a;">"/etc/fstab.alpine"</span>;    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#20351;&#29992;&#30340; fstab &#25991;&#20214;
+</span>    path = <span style="color: #ffa07a;">"/usr/jails/alpine"</span>;           <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#26681;&#30446;&#24405;&#36335;&#24452;
+</span>    devfs_ruleset = 4;                     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">devfs &#25346;&#36733;&#35268;&#21017;&#38598;
+</span>    enforce_statfs = 1;                    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#25346;&#36733;&#28857;&#21487;&#35265;&#24615;
+</span>    allow.mount;                          <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#25346;&#36733;&#25991;&#20214;&#31995;&#32479;
+</span>    allow.mount.devfs;                     <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#25346;&#36733; devfs
+</span>    exec.start = <span style="color: #ffa07a;">"/sbin/openrc default"</span>;   <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20351;&#29992; OpenRC &#21021;&#22987;&#21270;&#31995;&#32479;&#65292;&#21551;&#21160; default &#36816;&#34892;&#32423;&#21035;
+</span>    exec.stop = <span style="color: #ffa07a;">"/sbin/openrc shutdown"</span>;   <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20351;&#29992; OpenRC &#21021;&#22987;&#21270;&#31995;&#32479;&#65292;&#25191;&#34892; shutdown &#36816;&#34892;&#32423;&#21035;&#20219;&#21153;
+</span>    persist;                               <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21363;&#20351;&#26080;&#36827;&#31243;&#20063;&#20445;&#25345; Jail &#23384;&#27963;
+</span>    allow.raw_sockets;                      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20801;&#35768;&#20351;&#29992; raw Socket
+</span>    interface = <span style="color: #ffa07a;">"lo1"</span>;                      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25351;&#23450;&#32593;&#32476;&#25509;&#21475;
+</span>    ip4.addr = 192.168.5.4;                 <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20998;&#37197; IPv4 &#22320;&#22336;
+</span>    ip6 = <span style="color: #ffa07a;">"disable"</span>;                        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#31105;&#29992; IPv6
+</span>}
+</pre>
+</div>
+
+<p>
+重启 alpine Jail：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ jail -c alpine
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org6743a7a" class="outline-2">
+<h2 id="org6743a7a">Linux Jail 中的 GUI</h2>
+<div class="outline-text-2" id="text-org6743a7a">
+</div>
+<div id="outline-container-org206a96a" class="outline-3">
+<h3 id="org206a96a">Jail 中的 GUI</h3>
+<div class="outline-text-3" id="text-org206a96a">
+<pre class="example" id="org474ea24">
+本节示例环境为 Windows 10 物理机，在 VirtualBox 中安装了 FreeBSD 13.1 虚拟机
+
+在 FreeBSD 虚拟机中已部署 4 个 Jail。其中包含一个 FreeBSD Jail，为区别于 VirtualBox 中的 FreeBSD 虚拟机，称其为 freebsd-jail
+</pre>
+
+<p>
+Windows 10 物理机 → FreeBSD 13.1 虚拟机 → FreeBSD Jail（freebsd-jail）+ debian Jail + Ubuntu Jail + Alpine Jail
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ jls
+JID  IP Address      Hostname                      Path
+1  192.168.5.1     debian                      /usr/jails/debian
+2  192.168.5.2     ubuntu                    /usr/jails/ubuntu
+3  192.168.5.4     alpine                        /usr/jails/alpine
+4  192.168.5.5     freebsd-jail                  /usr/jails/freebsd-jail
+</pre>
+</div>
+<p>
+目录结构：
+</p>
+<pre class="example" id="org55f8f6d">
+/usr/jails/
+├── debian/          # JID 1, IP 192.168.5.1
+├── ubuntu/          # JID 2, IP 192.168.5.2
+├── alpine/          # JID 3, IP 192.168.5.4
+└── freebsd-jail/    # JID 4, IP 192.168.5.5
+</pre>
+
+<p>
+在 4 个 Jail 中分别安装 xclock、Firefox、Chrome 和 jwm，其中 jwm 用于界面管理。Alpine 中 VNC 方法未能调试成功，Firefox 和 Chrome 也未能运行，但 xclock、xterm 等可正常运行
+</p>
+<pre class="example" id="org8e657ad">
+无需安装 xorg
+</pre>
+
+<p>
+在 Ubuntu 22.04 中，Firefox 默认以 snap 包形式分发，snap 依赖 systemd，无法在 Jail 中使用，因此需使用 deb 包安装。Chrome 在 Ubuntu 中仅提供 deb 包，不依赖 snap，可直接安装。方法如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#19979;&#36733; Google Chrome &#31283;&#23450;&#29256;&#23433;&#35013;&#21253;
+</span>$ wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20351;&#29992; dpkg &#23433;&#35013;&#19979;&#36733;&#30340; deb &#21253;
+</span>$ dpkg -i google-chrome-stable_current_amd64.deb
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#26524; dpkg &#23433;&#35013;&#26377;&#20381;&#36182;&#38382;&#39064;&#65292;&#21487;&#20351;&#29992; apt &#23433;&#35013;&#26412;&#22320; deb &#21253;&#24182;&#33258;&#21160;&#22788;&#29702;&#20381;&#36182;
+</span>$ apt install ./google-chrome-stable_current_amd64.deb
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org76588f5" class="outline-3">
+<h3 id="org76588f5">带 X Server 的终端</h3>
+<div class="outline-text-3" id="text-org76588f5">
+<p>
+使用 MobaXterm。MobaXterm 采用默认配置，无需额外配置
+</p>
+
+
+<div id="orgc28aa3b" class="figure">
+<p><img src="../pic/moba_xterm.png" alt="moba_xterm.png" width="90%" /> 
+</p>
+</div>
+
+<p>
+确保 X server 已经启用，记录 DISPLAY 值，格式是 <span class="underline">hostname:displaynumber.screennumber</span>
+</p>
+<pre class="example" id="org490299a">
+这里是 192.168.56.1:0.0
+</pre>
+
+<p>
+登录 Jail（登录方式不限、用户不限）：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ export <span style="color: #eedd82;">DISPLAY</span>=192.168.56.1:0.0  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Jail &#20013;&#65292;&#27492;&#22788;&#20026; sh/zsh/bash&#12290;csh/tcsh &#26159; setenv DISPLAY 192.168.56.1:0.0&#65292;&#19979;&#21516;
+</span>$ xclock&amp;  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22312;&#21518;&#21488;&#36816;&#34892; xclock</span>
+</pre>
+</div>
+
+
+<div id="org19e79be" class="figure">
+<p><img src="../pic/clock.png" alt="clock.png" width="90%" /> 
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc98da21" class="outline-3">
+<h3 id="orgc98da21">内嵌 X Server</h3>
+<div class="outline-text-3" id="text-orgc98da21">
+<p>
+<span class="underline">Xnest/Xephyr</span> 是嵌套式 X Server 技术
+</p>
+<ul class="org-ul">
+<li>对 X11 应用而言是 X Server</li>
+<li>对宿主 X Server 而言是 X Client</li>
+</ul>
+
+<p>
+这种嵌套结构可在一个 X 窗口中运行另一个完整的 X 会话
+</p>
+
+<div id="orge576aeb" class="figure">
+<p><img src="../pic/xephyr.png" alt="xephyr.png" width="70%" /> 
+</p>
+</div>
+
+<p>
+在 FreeBSD 虚拟机里安装 Xnest 或 Xephyr。选择其中一种即可：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install xorg-nestserver
+</pre>
+</div>
+
+<p>
+或：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install xephyr
+</pre>
+</div>
+
+<p>
+在 FreeBSD 中启用：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ Xephyr :1 -listen tcp
+</pre>
+</div>
+
+<p>
+参数说明：
+</p>
+<ul class="org-ul">
+<li><p>
+:1 即 DISPLAY 值中的 displaynumber
+</p>
+<pre class="example" id="orgb812263">
+FreeBSD 系统 IP 为 10.0.2.15，故完整的 DISPLAY 值为 10.0.2.15:1.0
+
+因为 FreeBSD 系统 X Server 的 displaynumber 值为 0，故从 1 开始
+</pre></li>
+<li>-listen tcp 监听 TCP 端口</li>
+</ul>
+
+<p>
+在 Jail 中，使用与前述相同的方法：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ export <span style="color: #eedd82;">DISPLAY</span>=10.0.2.15:1.0
+$ xclock&amp;
+</pre>
+</div>
+
+<pre class="example" id="org793fbed">
+四个 Jail 可以同时在 FreeBSD 开启的一个 Xnest/Xephyr 窗口中打开 xclock
+
+但此时没有窗口管理器，xclock 缺少窗口装饰和基本交互功能
+</pre>
+<p>
+可在执行 xclock 前先执行 jwm，如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ export <span style="color: #eedd82;">DISPLAY</span>=10.0.2.15:1.0
+$ jwm &amp;
+$ xclock&amp;
+</pre>
+</div>
+
+<pre class="example" id="org6668269">
+jwm 执行一次即可，无需在每个 Jail 中分别执行
+
+此处使用 jwm 是因为其轻量级，Xfce 等桌面环境也可使用，可根据需要选用
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb929eb1" class="outline-3">
+<h3 id="orgb929eb1">共享主机 socket 方式</h3>
+<div class="outline-text-3" id="text-orgb929eb1">
+<p>
+先在 FreeBSD 系统上执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ xhost +
+</pre>
+</div>
+
+<pre class="example" id="org4d2fb1c">
+xhost + 将关闭访问控制，存在安全风险
+
+更安全的方式是指定允许访问的 IP 地址
+</pre>
+
+<p>
+随后在 Jail 的 fstab 文件中加入下面内容，以 ubuntu Jail 的 fstab 为例，其他 Jail 参照修改即可：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">/tmp/.X11-unix   /usr/jails/ubuntu/tmp/.X11-unix    nullfs   ro   0  0
+</pre>
+</div>
+
+<pre class="example" id="orgfb829f5">
+必要时先 mkdir -p /usr/jails/ubuntu/tmp/.X11-unix，确保有挂载点
+</pre>
+
+<p>
+重启 jail 后，在 jail 中执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ export <span style="color: #eedd82;">DISPLAY</span>=:0.0
+$ xclock &amp;
+</pre>
+</div>
+
+<p>
+前文提到 fstab 文件中有下面这样一行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">/tmp   /usr/jails/ubuntu/tmp   nullfs  rw    0  0</span>
+</pre>
+</div>
+<pre class="example" id="org3ee138c">
+该写法将 FreeBSD 的 /tmp 目录暴露给 Jail 并且可读写，破坏隔离性，因此予以注释
+</pre>
+
+<p>
+而仅挂载 <i>tmp</i>.X11-unix 可显著提高安全性
+</p>
+</div>
+</div>
+<div id="outline-container-orgb676e47" class="outline-3">
+<h3 id="orgb676e47">X Server TCP 监听加 xhost 连接管理</h3>
+<div class="outline-text-3" id="text-orgb676e47">
+<pre class="example" id="org9629df7">
+此处使用 SDDM 桌面管理器，如果使用其他桌面管理器，请参考相应文档，原理相同
+</pre>
+
+<p>
+在 FreeBSD 内编辑或新建 <b>/usr/local/etc/sddm.conf</b> 文件，修改 ServerArguments 内容如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">[X11]
+<span style="color: #eedd82;">ServerArguments</span>=-listen tcp
+</pre>
+</div>
+
+<p>
+重启后，在 FreeBSD 上用以下方式加入 Jail IP 以允许访问：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ xhost + 192.168.5.1
+</pre>
+</div>
+
+<pre class="example" id="org1a36352">
+这种方式比 xhost + 更安全，仅允许指定 IP 访问
+</pre>
+
+<p>
+随后在 Jail 中，执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ export <span style="color: #eedd82;">DISPLAY</span>=:0.0
+$ xclock &amp;
+</pre>
+</div>
+
+<pre class="example" id="orgb78d21b">
+将 DISPLAY 设为 :0.0、127.0.0.1:0.0、10.0.2.15:0.0 均可正常使用，上述几种方法均可尝试
+</pre>
+</div>
+</div>
+<div id="outline-container-orgd796113" class="outline-3">
+<h3 id="orgd796113">VNC</h3>
+<div class="outline-text-3" id="text-orgd796113">
+<pre class="example" id="org053def1">
+在 Debian Jail 中安装 VNC 服务器，可使用 tightvncserver
+</pre>
+<p>
+以 Debian Jail 为例，在 Jail 中执行：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">apt install tightvncserver
+</span>$ vncpasswd
+Password:
+Verify:
+Would you like to enter a view-only password (y/n)? n
+A view-only password is not used
+$ vncserver :0
+</pre>
+</div>
+
+<pre class="example" id="org5f23d32">
+vncserver 的端口号为 5900 加上冒号后的数字，此处为 5900，:1 端口号为 5901，以此类推
+</pre>
+
+<p>
+使用 VNC 客户端登录 Jail：
+</p>
+
+<div id="org2699507" class="figure">
+<p><img src="../pic/vnc-1.png" alt="vnc-1.png" width="70%" /> 
+</p>
+</div>
+
+
+
+<div id="org6838903" class="figure">
+<p><img src="../pic/vnc-2.png" alt="vnc-2.png" width="70%" /> 
+</p>
+</div>
+
+
+<div id="org9bb0b15" class="figure">
+<p><img src="../pic/vnc-3.png" alt="vnc-3.png" width="70%" /> 
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgf010bca" class="outline-3">
+<h3 id="orgf010bca">附录与补遗</h3>
+<div class="outline-text-3" id="text-orgf010bca">
+<ul class="org-ul">
+<li>TCP 监听默认关闭的原因之一是宿主机 X Server 通过 TCP 监听配合 xhost 连接管理的方式安全性较差</li>
+<li><p>
+共享宿主机 Socket 的方式，需注意仅挂载 <i>tmp</i>.X11-unix 而非整个 /tmp，并使用 xhost +指定 IP 而非 xhost +
+</p>
+<pre class="example" id="org285a798">
+满足这两点即可保障安全性
+</pre></li>
+<li><p>
+带 X Server 的终端、共享主机 Socket、VNC 这三种方式值得推荐
+</p>
+<pre class="example" id="org7380954">
+无论采用哪种方式，Linux Jail 中的兼容性均存在一定限制，并非所有 X 应用都能运行
+
+相比之下，FreeBSD Jail 的兼容性则更好
+</pre></li>
+</ul>
+
+<pre class="example" id="orga62f0ac">
+除共享宿主机 Socket 的方法外，其余方法同样可在非 Jail 环境中使用
+</pre>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
