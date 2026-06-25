@@ -206,6 +206,16 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org7f4b4a9">准备 Windows 镜像</a></li>
+<li><a href="#org7daf97c">加载内核模块</a></li>
+<li><a href="#org1d95c48">安装 vm-bhyve 相关软件</a></li>
+<li><a href="#org8c133bd">配置 vm-bhyve</a></li>
+<li><a href="#orgba8948a">配置虚拟机模板</a></li>
+<li><a href="#org151e3bf">安装 Windows 系统</a>
+<ul>
+<li><a href="#orgd06a465">故障排除与未竟事宜</a></li>
+<li><a href="#org217cf2b">可选配置</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
@@ -213,7 +223,7 @@
 <span class="underline">vm-bhyve</span> 是 <b>bhyve</b> 的命令行管理工具，封装了 bhyve 底层命令，可简化虚拟机的配置管理
 </p>
 
-<pre class="example" id="org1268888">
+<pre class="example" id="org9ada33b">
 本节基于 FreeBSD 14.2-RELEASE 与 Windows 11 IoT Enterprise LTSC
 
 涵盖 bhyve 虚拟机管理工具的安装、环境配置与系统镜像准备
@@ -224,12 +234,523 @@ bhyve 虚拟化架构层次如下图所示：
 </p>
 
 
-<div id="org1357abf" class="figure">
+<div id="org53dd02a" class="figure">
 <p><img src="../pic/bhyve.png" alt="bhyve.png" width="70%" /> 
 </p>
 </div>
 <div id="outline-container-org7f4b4a9" class="outline-2">
 <h2 id="org7f4b4a9">准备 Windows 镜像</h2>
+<div class="outline-text-2" id="text-org7f4b4a9">
+<p>
+Windows 11 IoT Enterprise LTSC，版本 24H2 (x64) - DVD (英文) 
+</p>
+<pre class="example" id="orgf31cc6a">
+IoT 版本将可信平台模块（TPM）列为可选要求，内存大小等安装限制也较为宽松，降低了部署门槛
+
+SHA-256 校验和：4F59662A96FC1DA48C1B415D6C369D08AF55DDD64E8F1C84E0166D9E50405D7A
+
+磁力链接：magnet:?xt=urn:btih:7352bd2db48c3381dffa783763dc75aa4a6f1cff&amp;dn=en-us_windows_11_iot_enterprise_ltsc_2024_x64_dvd_f6b14814.iso&amp;xl=5144817664
+</pre>
+</div>
+</div>
+<div id="outline-container-org7daf97c" class="outline-2">
+<h2 id="org7daf97c">加载内核模块</h2>
+<div class="outline-text-2" id="text-org7daf97c">
+<p>
+首先需要加载虚拟机管理相关的内核模块。 <span class="underline">vmm</span> 是 FreeBSD <b>内核提供的虚拟机监控程序</b> ，为 bhyve 提供硬件辅助虚拟化支持。该模块只需加载一次，之后 vm-bhyve 会自动管理
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ kldload vmm   <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21152;&#36733; FreeBSD &#34394;&#25311;&#26426;&#31649;&#29702;&#27169;&#22359;&#65288;vmm&#65289;</span>
+</pre>
+</div>
+
+<pre class="example" id="org558cc4b">
+系统重启后无需手动加载，vm-bhyve 会自动加载该模块
+</pre>
+
+<p>
+查看已加载的 vmm 相关内核模块。其中 <span class="underline">vmm.ko</span> 为 bhyve 虚拟机监控程序模块
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ kldstat | grep vmm
+7    1 0xffffffff83320000     44b0 vmmemctl.ko
+10    1 0xffffffff83400000   33e438 vmm.ko
+</pre>
+</div>
+
+<pre class="example" id="org6f5ca88">
+注意：vmmemctl.ko 为 VMware 内存气球驱动，与 bhyve 无关
+</pre>
+</div>
+</div>
+<div id="outline-container-org1d95c48" class="outline-2">
+<h2 id="org1d95c48">安装 vm-bhyve 相关软件</h2>
+<div class="outline-text-2" id="text-org1d95c48">
+<p>
+接下来安装 <b>统一可扩展固件接口</b> <span class="underline">UEFI</span> 固件、虚拟网络计算 <span class="underline">VNC</span> 客户端与 <span class="underline">vm-bhyve</span> 管理工具。UEFI 固件为虚拟机提供现代启动支持，VNC 客户端用于访问虚拟机图形界面。
+</p>
+<ul class="org-ul">
+<li><p>
+pkg:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install bhyve-firmware vm-bhyve tigervnc-viewer
+</pre>
+</div></li>
+<li><p>
+ports:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23433;&#35013; bhyve &#22266;&#20214;
+</span>$ cd /usr/ports/sysutils/bhyve-firmware &amp;&amp; make install clean
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23433;&#35013; vm-bhyve &#31649;&#29702;&#24037;&#20855;
+</span>$ cd /usr/ports/sysutils/vm-bhyve &amp;&amp; make install clean
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23433;&#35013; TigerVNC Viewer
+</span>$ cd /usr/ports/net/tigervnc-viewer &amp;&amp; make install clean
+</pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org8c133bd" class="outline-2">
+<h2 id="org8c133bd">配置 vm-bhyve</h2>
+<div class="outline-text-2" id="text-org8c133bd">
+<p>
+编辑 <b>/etc/rc.conf</b> 文件，启用 vm 服务并指定虚拟机存放目录：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#29992; vm-bhyve &#26381;&#21153;
+</span><span style="color: #eedd82;">vm_enable</span>=<span style="color: #ffa07a;">"YES"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#25351;&#23450;&#34394;&#25311;&#26426;&#23384;&#25918;&#30446;&#24405;&#65292;&#21518;&#32493;&#25805;&#20316;&#22343;&#20351;&#29992;&#27492;&#36335;&#24452;
+</span><span style="color: #eedd82;">vm_dir</span>=<span style="color: #ffa07a;">"/home/ykla/vm"</span>
+</pre>
+</div>
+
+<pre class="example" id="org374d11b">
+本节示例中出现的 /home/ykla 为示例路径，请根据自身环境替换为实际用户主目录
+</pre>
+
+<p>
+创建模板路径：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mkdir -p /home/ykla/vm/.templates
+</pre>
+</div>
+
+<p>
+复制模板到虚拟机模板位置：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cp /usr/local/share/examples/vm-bhyve/* /home/ykla/vm/.templates
+</pre>
+</div>
+
+<p>
+随后配置虚拟网络:
+</p>
+<ul class="org-ul">
+<li>public: 是模板指定的虚拟交换机名称</li>
+<li><p>
+ue0 :为当前宿主机的物理网络接口名称
+</p>
+<pre class="example" id="orga924f60">
+请根据实际网卡修改（可通过 ifconfig 命令查看）
+</pre></li>
+</ul>
+
+<p>
+虚拟交换机借助 <span class="underline">bridge(4)</span> 完成 <b>网络桥接</b> ，将虚拟机网络栈与宿主机物理网络接口相连，使虚拟机可直接访问物理网络
+</p>
+
+<pre class="example" id="orgbdf2658">
+物理网络
+   │
+   ▼
+物理网卡 ue0
+   │
+   │  bridge(4) 桥接
+   ▼
+虚拟交换机 vm-public
+   │
+   ├── tap0 ──► 虚拟机 winguest
+   │
+   └── tapN ──► 其他虚拟机
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21019;&#24314;&#34394;&#25311;&#20132;&#25442;&#26426; public
+</span>$ vm switch create public
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#29289;&#29702;&#32593;&#21345; ue0 &#28155;&#21152;&#21040; public &#34394;&#25311;&#20132;&#25442;&#26426;
+</span>$ vm switch add public ue0
+</pre>
+</div>
+
+<p>
+创建后查看新增的 <span class="underline">vm-public</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ ifconfig
+
+&#8230;&#8230;&#8230;&#30465;&#30053;&#19968;&#37096;&#20998;&#8230;&#8230;
+
+vm-public: <span style="color: #eedd82;">flags</span>=1008843&lt;UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST,LOWER_UP&gt; metric 0 mtu 1500
+<span style="color: #eedd82;">options</span>=0
+ether 62:bc:e8:9f:f7:e1
+id 00:00:00:00:00:00 priority 32768 hellotime 2 fwddelay 15
+maxage 20 holdcnt 6 proto rstp maxaddr 2000 timeout 1200
+root id 00:00:00:00:00:00 priority 32768 ifcost 0 port 0
+member: ue0 <span style="color: #eedd82;">flags</span>=143&lt;LEARNING,DISCOVER,AUTOEDGE,AUTOPTP&gt;
+ifmaxaddr 0 port 3 priority 128 path cost 20000
+groups: bridge vm-switch viid-4c918@
+nd6 <span style="color: #eedd82;">options</span>=9&lt;PERFORMNUD,IFDISABLED&gt;
+</pre>
+</div>
+
+<p>
+如创建错误，可使用以下命令删除该虚拟交换机：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ vm switch destroy public
+</pre>
+</div>
+
+<p>
+查看分配的虚拟交换机：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ vm switch list
+NAME    TYPE      IFACE      ADDRESS  PRIVATE  MTU  VLAN  PORTS
+public  standard  vm-public  -        no       -    -     ue0
+</pre>
+</div>
+
+<p>
+在 FreeBSD 13.0 及以上版本的宿主机中使用 xHCI 鼠标，需启用 <span class="underline">USB HID</span> 子系统，请在 <b>/boot/loader.conf</b> 文件中添加：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#29992; USB HID &#25903;&#25345;
+</span>hw.usb.usbhid.enable=<span style="color: #ffa07a;">"1"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24320;&#26426;&#33258;&#21160;&#21152;&#36733; usbhid &#20869;&#26680;&#27169;&#22359;
+</span><span style="color: #eedd82;">usbhid_load</span>=<span style="color: #ffa07a;">"YES"</span>
+</pre>
+</div>
+
+<p>
+相关文件结构：
+</p>
+<pre class="example" id="orgd8a63c5">
+/
+├── boot/
+│   └── loader.conf # 内核模块加载配置
+├── etc/
+│   └── rc.conf # 系统启动配置
+├── home/
+│   └── ykla/
+│       ├── vm/ # 虚拟机存放目录
+│       │   ├── .templates/ # 虚拟机模板目录
+│       │   └── winguest/
+│       │       ├── winguest.conf # 虚拟机配置文件
+│       │       └── disk0.img # 虚拟机磁盘镜像
+│       └── en-us_windows_11_iot_enterprise_ltsc_2024_x64_dvd_f6b14814.iso # Windows ISO 镜像
+└── usr/
+    ├── local/
+    │   └── share/
+    │       └── examples/
+    │           └── vm-bhyve/ # vm-bhyve 示例文件
+    └── ports/
+        ├── sysutils/
+        │   ├── bhyve-firmware/ # bhyve 固件 Ports 目录
+        │   └── vm-bhyve/ # vm-bhyve Ports 目录
+        └── net/
+            └── tigervnc-viewer/ # TigerVNC Viewer Ports 目录
+</pre>
+</div>
+</div>
+<div id="outline-container-orgba8948a" class="outline-2">
+<h2 id="orgba8948a">配置虚拟机模板</h2>
+<div class="outline-text-2" id="text-orgba8948a">
+<p>
+虚拟机模板是创建虚拟机的基础配置文件。以下演示如何创建并配置 Windows 虚拟机模板
+</p>
+
+<pre class="example" id="org0a66dc5">
+如运行的是 Windows 10 之前的版本，或在 Windows 系统上安装 Microsoft SQL Server 时
+
+需要使用参数 disk0_opts="sectorsize=512" 将磁盘扇区大小设置为 512
+</pre>
+
+<p>
+根据模板创建 Windows 虚拟机，磁盘占用 40 GB：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ vm create -t windows -s 40G winguest
+</pre>
+</div>
+
+<p>
+销毁虚拟机的命令：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ vm destroy winguest
+
+Are you sure you want to completely remove this virtual machine (y/n)? <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36755;&#20837; y &#24182;&#25353;&#22238;&#36710;&#38190;&#21363;&#21487;&#21024;&#38500;</span>
+</pre>
+</div>
+
+<p>
+默认模板存在问题，需要修改。配置文件路径为 <b>/home/ykla/vm/winguest/winguest.conf</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622;&#34394;&#25311;&#26426;&#20351;&#29992; UEFI &#21551;&#21160;&#65292;&#19981;&#25903;&#25345; UEFI &#30340; Windows &#26080;&#27861;&#21551;&#21160;&#65288;&#22914; Windows XP&#65289;&#65292;Windows 7 64 &#20301;&#29256;&#26412;&#25903;&#25345; UEFI
+</span><span style="color: #eedd82;">loader</span>=<span style="color: #ffa07a;">"uefi"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#29992;&#22270;&#24418;&#30028;&#38754;&#65292;&#34394;&#25311;&#26426;&#21551;&#21160;&#26102;&#26242;&#20572;&#65292;&#30452;&#21040; VNC &#23458;&#25143;&#31471;&#36830;&#25509;
+</span><span style="color: #eedd82;">graphics</span>=<span style="color: #ffa07a;">"yes"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#29992; USB 3.0 &#40736;&#26631;&#25903;&#25345;
+</span><span style="color: #eedd82;">xhci_mouse</span>=<span style="color: #ffa07a;">"yes"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20998;&#37197; CPU &#25968;&#37327;&#65292;&#24314;&#35758;&#26681;&#25454;&#23487;&#20027;&#26426;&#24615;&#33021;&#36866;&#24403;&#35843;&#25972;
+</span><span style="color: #eedd82;">cpu</span>=2
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20998;&#37197;&#20869;&#23384;&#22823;&#23567;
+</span><span style="color: #eedd82;">memory</span>=4G
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#40664;&#35748;&#24773;&#20917;&#19979; bhyve &#19981;&#21551;&#29992; -H&#65292;&#34394;&#25311;&#26426;&#31354;&#38386;&#26102;&#20250;&#21344;&#28385;&#23487;&#20027;&#26426; CPU&#65288;&#21344;&#29992; 100% &#23487;&#20027;&#26426; CPU&#65289;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#22914;&#38656;&#21551;&#29992; HLT &#35753;&#20986; CPU&#65292;&#21487;&#20351;&#29992; bhyve_options &#23383;&#27573;&#21521; bhyve &#20256;&#36882; -H &#21442;&#25968;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">bhyve_options="-H"  # &#23458;&#25143;&#26426;&#25191;&#34892; HLT &#26102;&#35753;&#20986;&#23487;&#20027;&#26426; CPU&#65292;&#21487;&#38477;&#20302;&#31354;&#38386;&#34394;&#25311;&#26426; CPU &#21344;&#29992;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">cpu_hlt="yes"  # &#35813;&#36873;&#39033;&#24182;&#38750; vm-bhyve &#23448;&#26041;&#37197;&#32622;&#21442;&#25968;
+</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#38480;&#21046;&#21333;&#20010; AHCI &#25511;&#21046;&#22120;&#25346;&#36733;&#30340;&#35774;&#22791;&#25968;&#37327;&#65292;&#36991;&#20813;&#28155;&#21152;&#30913;&#30424;&#21518; PCI &#25554;&#27133;&#32534;&#21495;&#21464;&#21270;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23548;&#33268; Windows &#23558;&#32593;&#32476;&#35774;&#22791;&#35782;&#21035;&#20026;&#26032;&#32593;&#21345;
+</span><span style="color: #eedd82;">ahci_device_limit</span>=<span style="color: #ffa07a;">"8"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#32593;&#32476;&#37197;&#32622;
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24314;&#35758;&#25913;&#20026; virtio-net &#24182;&#22312; guest &#23433;&#35013;&#39537;&#21160;&#65292;e1000 &#24320;&#31665;&#21363;&#29992;
+</span><span style="color: #eedd82;">network0_type</span>=<span style="color: #ffa07a;">"e1000"</span>
+<span style="color: #eedd82;">network0_switch</span>=<span style="color: #ffa07a;">"public"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#30913;&#30424;&#37197;&#32622;
+</span><span style="color: #eedd82;">disk0_type</span>=<span style="color: #ffa07a;">"ahci-hd"</span>
+<span style="color: #eedd82;">disk0_name</span>=<span style="color: #ffa07a;">"disk0.img"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Windows &#40664;&#35748;&#20351;&#29992;&#26412;&#22320;&#26102;&#38388;&#32780;&#38750; UTC
+</span><span style="color: #eedd82;">utctime</span>=<span style="color: #ffa07a;">"no"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">VNC &#26174;&#31034;&#20998;&#36776;&#29575;
+</span><span style="color: #eedd82;">graphics_res</span>=<span style="color: #ffa07a;">"1920x1080"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#34394;&#25311;&#26426;&#21807;&#19968;&#26631;&#35782;&#31526;
+</span><span style="color: #eedd82;">uuid</span>=<span style="color: #ffa07a;">"af86e094-56da-11ed-958f-208984999cc9"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#32593;&#32476; MAC &#22320;&#22336;
+</span><span style="color: #eedd82;">network0_mac</span>=<span style="color: #ffa07a;">"58:9c:fc:0c:5e:bb"</span>
+</pre>
+</div>
+
+<pre class="example" id="org0b22542">
+旧版 FreeBSD 中（FreeBSD 14.0 以前），/home/ 是 /usr/home/ 的软链接，两者相同
+
+自 FreeBSD 14 以降，不再使用软链接，而是直接使用 /home/ 目录
+</pre>
+</div>
+</div>
+<div id="outline-container-org151e3bf" class="outline-2">
+<h2 id="org151e3bf">安装 Windows 系统</h2>
+<div class="outline-text-2" id="text-org151e3bf">
+<p>
+安装模式下，vm-bhyve 将等待 VNC 客户端连接后才启动虚拟机，以捕捉 Windows 可能弹出的“Press any key to boot from a CD/DVD”提示。此时 vm list 中可看到虚拟机显示为锁定状态：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ vm install winguest /home/ykla/en-us_windows_11_iot_enterprise_ltsc_2024_x64_dvd_f6b14814.iso <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35831;&#26367;&#25442;&#20026;&#23454;&#38469;&#36335;&#24452;
+</span>Starting winguest
+* found guest<span style="color: #00ffff;"> in</span> /home/ykla/vm/winguest
+* booting...
+</pre>
+</div>
+
+<pre class="example" id="org96203cd">
+虚拟机启动后，需以 VNC 客户端连接才能完成系统安装
+</pre>
+
+<p>
+终止虚拟机：优先使用 vm stop 命令向虚拟机发送 ACPI 关机信号，实现关闭。如果虚拟机阻碍宿主机关机，可在 tty 中按 Ctrl+C 跳过等待并强制关机
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ vm list
+NAME      DATASTORE  LOADER  CPU  MEMORY  VNC           AUTO  STATE
+winguest  default    uefi    2    4G      0.0.0.0:5900  No    Running (2072)
+
+$ vm stop winguest
+Sending ACPI shutdown to winguest
+</pre>
+</div>
+
+<p>
+如 vm stop 无效，使用 SIGTERM 信号：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ps -el | grep bhyve
+UID  PID PPID C PRI NI     VSZ    RSS MWCHAN STAT TT     TIME COMMAND
+0 1858    1 1  68  0   16388      4 wait   IW    3  0:00.00 () /bin/sh /usr/local/sbin/vm _run winguest /home/ykla/zh-cn_windows_11_business_editions_version_24h2_x64_dvd
+
+$ kill 1858
+</pre>
+</div>
+<p>
+等待约 10-30 秒后确认进程已退出，再运行 bhyvectl &#x2013;destroy &#x2013;vm=winguest 清理
+</p>
+
+<pre class="example" id="orgc86a20c">
+仅在 SIGTERM 多次尝试仍无效时，方可使用 kill -9 作为最后手段
+
+警告：可能导致虚拟机磁盘数据损坏
+</pre>
+</div>
+<div id="outline-container-orgd06a465" class="outline-3">
+<h3 id="orgd06a465">故障排除与未竟事宜</h3>
+<div class="outline-text-3" id="text-orgd06a465">
+<p>
+如遇问题，请先重启宿主机；如果问题仍然存在，可借助 ifconfig 检查并删除多余网卡
+</p>
+
+<pre class="example" id="org936679a">
+如果虚拟机长时间保持 stopped 状态，请检查网络配置
+</pre>
+
+<p>
+查看网络配置（虚拟机关闭状态）：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ifconfig
+alc0: <span style="color: #eedd82;">flags</span>=8802&lt;BROADCAST,SIMPLEX,MULTICAST&gt; metric 0 mtu 1500
+<span style="color: #eedd82;">options</span>=c319a&lt;TXCSUM,VLAN_MTU,VLAN_HWTAGGING,VLAN_HWCSUM,TSO4,WOL_MCAST,WOL_MAGIC,VLAN_HWTSO,LINKSTATE&gt;
+ether 20:89:82:94:7c:c9
+media: Ethernet autoselect
+nd6 <span style="color: #eedd82;">options</span>=29&lt;PERFORMNUD,IFDISABLED,AUTO_LINKLOCAL&gt;
+lo0: <span style="color: #eedd82;">flags</span>=8049&lt;UP,LOOPBACK,RUNNING,MULTICAST&gt; metric 0 mtu 16384
+<span style="color: #eedd82;">options</span>=680003&lt;RXCSUM,TXCSUM,LINKSTATE,RXCSUM_IPV6,TXCSUM_IPV6&gt;
+inet6 ::1 prefixlen 128
+inet6 fe80::1%lo0 prefixlen 64 scopeid 0x2
+inet 127.0.0.1 netmask 0xff000000
+groups: lo
+nd6 <span style="color: #eedd82;">options</span>=21&lt;PERFORMNUD,AUTO_LINKLOCAL&gt;
+ue0: <span style="color: #eedd82;">flags</span>=8943&lt;UP,BROADCAST,RUNNING,PROMISC,SIMPLEX,MULTICAST&gt; metric 0 mtu 1500
+<span style="color: #eedd82;">options</span>=8000b&lt;RXCSUM,TXCSUM,VLAN_MTU,LINKSTATE&gt;
+ether f8:e2:3b:3f:ea:4c
+inet 192.168.31.169 netmask 0xffffff00 broadcast 192.168.31.255
+media: Ethernet autoselect (1000baseT &lt;full-duplex&gt;)
+status: active
+nd6 <span style="color: #eedd82;">options</span>=29&lt;PERFORMNUD,IFDISABLED,AUTO_LINKLOCAL&gt;
+vm-public: <span style="color: #eedd82;">flags</span>=8843&lt;UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST&gt; metric 0 mtu 1500
+ether 3a:e1:fa:98:33:b4
+id 00:00:00:00:00:00 priority 32768 hellotime 2 fwddelay 15
+maxage 20 holdcnt 6 proto rstp maxaddr 2000 timeout 1200
+root id 00:00:00:00:00:00 priority 32768 ifcost 0 port 0
+member: ue0 <span style="color: #eedd82;">flags</span>=143&lt;LEARNING,DISCOVER,AUTOEDGE,AUTOPTP&gt;
+ifmaxaddr 0 port 3 priority 128 path cost 20000
+groups: bridge vm-switch viid-4c918@
+nd6 <span style="color: #eedd82;">options</span>=9&lt;PERFORMNUD,IFDISABLED&gt;
+</pre>
+</div>
+
+<p>
+查看网络配置（虚拟机开启状态），此时会多出一个网络接口 tap0：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">tap0: <span style="color: #eedd82;">flags</span>=8943&lt;UP,BROADCAST,RUNNING,PROMISC,SIMPLEX,MULTICAST&gt; metric 0 mtu 1500
+description: vmnet/winguest/0/public
+<span style="color: #eedd82;">options</span>=80000&lt;LINKSTATE&gt;
+ether 58:9c:fc:10:ff:d6
+groups: tap vm-port
+media: Ethernet autoselect
+status: active
+nd6 <span style="color: #eedd82;">options</span>=29&lt;PERFORMNUD,IFDISABLED,AUTO_LINKLOCAL&gt;
+Opened by PID 2519
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org217cf2b" class="outline-3">
+<h3 id="org217cf2b">可选配置</h3>
+<div class="outline-text-3" id="text-org217cf2b">
+<p>
+以下为额外的虚拟机管理命令：
+</p>
+<ol class="org-ol">
+<li><p>
+查看所有虚拟机状态：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ vm list
+NAME      DATASTORE  LOADER  CPU  MEMORY  VNC  AUTO  STATE
+winguest  default    uefi    2    4G      -    No    Stopped
+</pre>
+</div></li>
+<li><p>
+查看指定的虚拟机状态：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ vm info winguest
+------------------------
+Virtual Machine: winguest
+------------------------
+state: stopped
+datastore: default
+loader: uefi
+uuid: af86e094-56da-11ed-958f-208984999cc9
+cpu: 2
+memory: 4G
+
+network-interface
+number: 0
+emulation: e1000
+virtual-switch: public
+fixed-mac-address: 58:9c:fc:0c:5e:bb
+fixed-device: -
+
+virtual-disk
+number: 0
+device-type: file
+emulation: ahci-hd
+options: -
+system-path: /home/ykla/vm/winguest/disk0.img
+bytes-size: 42949672960 (40.000G)
+bytes-used: 23557898240 (21.940G)
+</pre>
+</div></li>
+</ol>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="bvcp.html">Next: BVCP</a></td>
+<td class="org-left"><a href="virtualization.html">Home: 虚拟化和容器管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
