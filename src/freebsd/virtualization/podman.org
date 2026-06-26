@@ -44,3 +44,221 @@ Podman 是由红帽（Red Hat）主导开发的开源容器运行时，是 Docke
 #+end_example
 * 安装 Podman
 
+安装 sysutils/podman-suite 元包时，会同时安装 sysutils/buildah _用于构建容器镜像_ 、sysutils/podman _容器运行时_ 、sysutils/skopeo _用于操作容器镜像_ 和 sysutils/catatonit _容器初始化进程_
++ pkg:
+  #+begin_src sh 
+    $ pkg install podman-suite
+  #+end_src
++ port:
+  #+begin_src sh 
+    $ cd /usr/ports/sysutils/podman-suite/
+    $ make install clean
+  #+end_src
+
+查看安装后的配置信息：
+#+begin_src sh 
+  $ pkg info -D podman
+#+end_src
+* 配置 fstab 文件
+#+begin_example
+在 FreeBSD 上使用 Podman，需要配置文件系统挂载点
+#+end_example
+_fdescfs_ 是 FreeBSD 提供的 *文件描述符文件系统* ，可将进程的文件描述符映射为文件系统节点，Podman 依赖该文件系统在容器内部传递文件描述符。将下列行写入 /etc/fstab 文件：
+
+#+begin_src sh 
+  fdesc   /dev/fd         fdescfs         rw      0       0
+#+end_src
+
+随后执行下列命令使之立即生效：
+#+begin_src sh 
+  $ mount -t fdescfs fdesc /dev/fd
+#+end_src
+* 配置网络
+#+begin_example
+  Podman 借助 PF（Packet Filter）防火墙完成容器网络的地址转换与流量控制
+
+  容器可以通过宿主机网络接口访问外部网络
+#+end_example
+
+若系统此前未配置过 PF，可直接复制 Podman 提供的配置示例：
+
+#+begin_src sh 
+  $ cp /usr/local/etc/containers/pf.conf.sample /etc/pf.conf
+#+end_src
+
+编辑 /etc/pf.conf 文件，将 ix0 替换为当前使用的网卡，可使用命令 ifconfig 查看：
+
+#+begin_src sh 
+  # 设置 IPv4 出口网络接口
+  v4egress_if = "ix0"
+
+  # 设置 IPv6 出口网络接口
+  v6egress_if = "ix0"
+#+end_src
+
+若系统已运行 PF 且存在自定义规则集，直接复制示例文件将覆盖现有配置。此时应只提取与容器网络相关的规则追加到现有 /etc/pf.conf 中，核心需要添加以下内容：
+
+#+begin_src sh 
+  # Podman 容器网络 NAT 锚点与规则
+  nat-anchor "cni-rdr/*"
+  rdr-anchor "cni-rdr/*"
+  nat on $ext_if inet from 10.88.0.0/16 to any -> ($ext_if)
+#+end_src
+
+#+begin_example
+其中 $ext_if 需替换为实际网卡名称，网段 10.88.0.0/16 为 Podman 默认网桥子网
+#+end_example
+添加规则后执行 _pfctl -f /etc/pf.conf_ 重新加载配置即可生效
+
+接下来启动 PF 防火墙
+#+begin_src sh 
+  $ kldload pf # 加载内核模块，仅需执行一次，以后会自动加载
+  $ echo 'net.pf.filter_local=1' >> /etc/sysctl.conf # 将容器主机的连接重定向到容器内部
+  $ sysctl net.pf.filter_local=1 # 立即生效
+  $ service pf enable # 启用 pf 防火墙服务
+  $ service pf start # 启动 pf 防火墙
+#+end_src
+net.pf.filter_local=1 参数的作用是启用 PF 对发往本机地址的数据包的过滤处理，启用后 PF 可以对这类数据包应用 NAT/rdr 等规则，从而实现容器与宿主机之间的网络通信
+* 创建 ZFS 存储池
+#+begin_example
+  管理容器的存储资源，建议创建专用的 ZFS 文件系统
+#+end_example
+
+创建 ZFS 文件系统 zroot/containers，并将挂载点设置为 */var/db/containers* ：
+
+#+begin_src sh 
+  $ zfs create -o mountpoint=/var/db/containers zroot/containers
+#+end_src
+* 启动服务
+启动相关服务：
+#+begin_src sh 
+  $ service linux enable # 设置 Linux 兼容服务开机自启
+  $ service linux start # 启动 Linux 兼容服务
+  $ service podman enable # 设置 Podman 服务开机自启
+  $ service podman start # 启动 Podman 服务
+#+end_src
+
+文件结构：
+#+begin_example
+  /
+  ├── etc/
+  │   ├── fstab # 文件系统挂载配置
+  │   ├── pf.conf # PF 防火墙配置
+  │   └── sysctl.conf # sysctl 配置
+  ├── run/
+  │   └── containers/
+  │       └── 0/
+  │           └── auth.json # 运行时认证凭据位置（默认读写位置，重启后可能丢失）
+  ├── root/
+  │   └── .config/
+  │       └── containers/
+  │           └── auth.json # 持久化认证凭据位置（备用读取位置，重启后保留）
+  ├── var/
+  │   └── db/
+  │       └── containers/ # 容器数据库目录
+  └── usr/
+      └── local/
+           └── etc/
+             └── containers/
+                  └── pf.conf.sample # PF 防火墙配置示例
+
+#+end_example
+* 测试 Ubuntu 镜像
+服务启动完成后，可测试拉取 Ubuntu 镜像验证 Podman 是否正常工作：
+1. 测试拉取 Ubuntu 镜像：
+   #+begin_src sh 
+     $ podman pull --os=linux docker.io/library/ubuntu:latest
+
+     Trying to pull docker.io/library/ubuntu:latest...
+     Getting image source signatures
+     Copying blob 0622fac788ed done   |
+         Copying config a0e45e2ce6 done   |
+         Writing manifest to image destination
+     a0e45e2ce6e6e22e73185397d162a64fcf2f80a41c597015cab05d9a7b5913ce
+   #+end_src
+2. 查看当前拉取的镜像：
+   #+begin_src sh 
+     $ podman images
+
+     REPOSITORYTAG IMAGE ID  CREATED  SIZE
+     docker.io/library/ubuntu  latest  a0e45e2ce6e6  3 weeks ago  80.6 MB
+   #+end_src
+3. 打印系统版本（仅打印前 5 行）：
+   #+begin_src sh 
+     $ podman run --os=linux ubuntu /usr/bin/cat "/etc/os-release" | head -5
+
+     PRETTY_NAME="Ubuntu 24.04.2 LTS"
+     NAME="Ubuntu"
+     VERSION_ID="24.04"
+     VERSION="24.04.2 LTS (Noble Numbat)"
+     VERSION_CODENAME=noble
+   #+end_src
+4. 进入容器：
+   #+begin_src sh 
+     $ podman run -it --os=linux ubuntu /bin/bash # 进入容器
+
+     root@3b6d47dea81e:/# apt update # 当前已进入容器内部
+     Get:1 http://archive.ubuntu.com/ubuntu noble InRelease [256 kB]
+     Get:2 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+
+     ……以下省略……
+
+     root@3b6d47dea81e:/# exit # 退出容器
+     exit
+
+     $ # 已返回宿主机
+   #+end_src
+
+* 测试 FreeBSD 维护者打包的 Nginx 容器
+除了 Linux 镜像外，Podman 也可以运行 FreeBSD 原生容器。本节测试 FreeBSD 维护者打包的 Nginx 容器：
+#+begin_src sh 
+  # 从 quay.io 拉取 nginx 镜像
+  $ podman pull quay.io/dougrabson/nginx
+
+  # 使用该镜像创建并后台运行容器 mynginx，将宿主机 8080 端口映射到容器 80 端口
+  $ podman run -d --name mynginx -p 8080:80 quay.io/dougrabson/nginx
+#+end_src
+
+#+begin_example
+在浏览器中打开 http://ip:8080 即可访问 Nginx 测试页面
+#+end_example
+
+* 更多用法
+查看日志：
+#+begin_src sh 
+  $ podman logs 容器名称
+#+end_src
+
+查看容器运行状态：
+#+begin_src sh 
+  $ podman ps # 查看当前运行的容器
+
+  CONTAINER ID  IMAGECOMMAND   CREATED STATUSPORTS NAMES
+  ca088c9c56fc  quay.io/dougrabson/nginx:latest  /usr/local/sbin/n...  3 minutes agoUp 3 minutes  0.0.0.0:8080->80/tcp  mynginx
+
+  $ podman ps -a # 查看所有状态，包括运行失败的容器
+
+  CONTAINER ID  IMAGECOMMAND   CREATED STATUS PORTS  NAMES
+  e8ea65b7e6c9  docker.io/library/nginx:latest   nginx -g daemon o...  17 minutes ago Exited (0) 292 years ago   0.0.0.0:8080->80/tcp   nginx-test
+  ca088c9c56fc  quay.io/dougrabson/nginx:latest  /usr/local/sbin/n...  3 minutes ago Up 3 minutes   0.0.0.0:8080->80/tcp   mynginx
+#+end_src
+
+停止并删除容器：
+#+begin_src sh 
+  $ podman stop 容器名称 # 停止容器
+  $ podman rm 容器名称  # 删除容器
+#+end_src
+
+删除镜像（必须先删除引用该镜像的容器）：
+#+begin_src sh 
+  $ podman rmi 镜像名称
+#+end_src
+
+* FreeBSD 容器
+除了第三方维护者提供的容器外，也可以直接从 Docker Hub 拉取官方的 FreeBSD 镜像：
+#+begin_src sh 
+  $ podman pull docker://freebsd/freebsd-runtime:15.0
+#+end_src
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:virtual_box.org][Next: VirtualBox]] | [[file:bvcp.org][Previous: BVCP]] | [[file:virtualization.org][Home: 虚拟化和容器管理]] |

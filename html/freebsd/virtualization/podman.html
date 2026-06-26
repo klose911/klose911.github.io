@@ -206,13 +206,21 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org420d9ca">安装 Podman</a></li>
+<li><a href="#orgd62b546">配置 fstab 文件</a></li>
+<li><a href="#org585bf37">配置网络</a></li>
+<li><a href="#orgada0b8c">创建 ZFS 存储池</a></li>
+<li><a href="#org7e6b66d">启动服务</a></li>
+<li><a href="#org5b56a0d">测试 Ubuntu 镜像</a></li>
+<li><a href="#orgbc48725">测试 FreeBSD 维护者打包的 Nginx 容器</a></li>
+<li><a href="#orgc4bdd3c">更多用法</a></li>
+<li><a href="#org5957842">FreeBSD 容器</a></li>
 </ul>
 </div>
 </div>
 <p>
 Podman 是由红帽（Red Hat）主导开发的开源容器运行时，是 Docker 的替代方案，命令行接口与 Docker 高度兼容
 </p>
-<pre class="example" id="orgbeb28a2">
+<pre class="example" id="orgccc9d0f">
 Podman 采用 无守护进程 daemonless 架构，每个容器作为独立进程运行
 
 无需始终运行后台守护进程，提高了系统安全性，降低了单点故障风险
@@ -225,20 +233,20 @@ Podman 采用 无守护进程 daemonless 架构，每个容器作为独立进程
 <li><p>
 运行 Linux 容器时依赖 <b>Linux 兼容层</b> <span class="underline">Linuxulator</span>
 </p>
-<pre class="example" id="orgb0ab1af">
+<pre class="example" id="orgf727b2b">
 对于通过 Linux 兼容层运行的容器，可使用命令 jls 查看其底层 Jail 结构
 </pre></li>
 <li><p>
 运行 FreeBSD 原生容器时则基于 Jail 机制实现隔离
 </p>
-<pre class="example" id="org3fc405f">
+<pre class="example" id="orgd916118">
 通过 sysctl -d security.jail.param 可列出所有可供查询的 Jail 内核参数
 
 这些参数反映了每个容器对应的底层 Jail 属性
 </pre></li>
 </ul>
 
-<pre class="example" id="org845e428">
+<pre class="example" id="org9ab3775">
 Podman 容器运行时
    │
    ├── Linux 容器
@@ -259,6 +267,348 @@ Podman 容器运行时
 </pre>
 <div id="outline-container-org420d9ca" class="outline-2">
 <h2 id="org420d9ca">安装 Podman</h2>
+<div class="outline-text-2" id="text-org420d9ca">
+<p>
+安装 sysutils/podman-suite 元包时，会同时安装 sysutils/buildah <span class="underline">用于构建容器镜像</span> 、sysutils/podman <span class="underline">容器运行时</span> 、sysutils/skopeo <span class="underline">用于操作容器镜像</span> 和 sysutils/catatonit <span class="underline">容器初始化进程</span>
+</p>
+<ul class="org-ul">
+<li><p>
+pkg:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg install podman-suite
+</pre>
+</div></li>
+<li><p>
+port:
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ cd /usr/ports/sysutils/podman-suite/
+$ make install clean
+</pre>
+</div></li>
+</ul>
+
+<p>
+查看安装后的配置信息：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ pkg info -D podman
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgd62b546" class="outline-2">
+<h2 id="orgd62b546">配置 fstab 文件</h2>
+<div class="outline-text-2" id="text-orgd62b546">
+<pre class="example" id="orgcc0ab58">
+在 FreeBSD 上使用 Podman，需要配置文件系统挂载点
+</pre>
+<p>
+<span class="underline">fdescfs</span> 是 FreeBSD 提供的 <b>文件描述符文件系统</b> ，可将进程的文件描述符映射为文件系统节点，Podman 依赖该文件系统在容器内部传递文件描述符。将下列行写入 /etc/fstab 文件：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">fdesc   /dev/fd         fdescfs         rw      0       0
+</pre>
+</div>
+
+<p>
+随后执行下列命令使之立即生效：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ mount -t fdescfs fdesc /dev/fd
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org585bf37" class="outline-2">
+<h2 id="org585bf37">配置网络</h2>
+<div class="outline-text-2" id="text-org585bf37">
+<pre class="example" id="org643c425">
+Podman 借助 PF（Packet Filter）防火墙完成容器网络的地址转换与流量控制
+
+容器可以通过宿主机网络接口访问外部网络
+</pre>
+
+<p>
+若系统此前未配置过 PF，可直接复制 Podman 提供的配置示例：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ cp /usr/local/etc/containers/pf.conf.sample /etc/pf.conf
+</pre>
+</div>
+
+<p>
+编辑 /etc/pf.conf 文件，将 ix0 替换为当前使用的网卡，可使用命令 ifconfig 查看：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622; IPv4 &#20986;&#21475;&#32593;&#32476;&#25509;&#21475;
+</span>v4egress_if = <span style="color: #ffa07a;">"ix0"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622; IPv6 &#20986;&#21475;&#32593;&#32476;&#25509;&#21475;
+</span>v6egress_if = <span style="color: #ffa07a;">"ix0"</span>
+</pre>
+</div>
+
+<p>
+若系统已运行 PF 且存在自定义规则集，直接复制示例文件将覆盖现有配置。此时应只提取与容器网络相关的规则追加到现有 /etc/pf.conf 中，核心需要添加以下内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">Podman &#23481;&#22120;&#32593;&#32476; NAT &#38170;&#28857;&#19982;&#35268;&#21017;
+</span>nat-anchor <span style="color: #ffa07a;">"cni-rdr/*"</span>
+rdr-anchor <span style="color: #ffa07a;">"cni-rdr/*"</span>
+nat on $<span style="color: #eedd82;">ext_if</span> inet from 10.88.0.0/16 to any -&gt; ($<span style="color: #eedd82;">ext_if</span>)
+</pre>
+</div>
+
+<pre class="example" id="org2c5bfc2">
+其中 $ext_if 需替换为实际网卡名称，网段 10.88.0.0/16 为 Podman 默认网桥子网
+</pre>
+<p>
+添加规则后执行 <span class="underline">pfctl -f /etc/pf.conf</span> 重新加载配置即可生效
+</p>
+
+<p>
+接下来启动 PF 防火墙
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ kldload pf <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21152;&#36733;&#20869;&#26680;&#27169;&#22359;&#65292;&#20165;&#38656;&#25191;&#34892;&#19968;&#27425;&#65292;&#20197;&#21518;&#20250;&#33258;&#21160;&#21152;&#36733;
+</span>$ echo <span style="color: #ffa07a;">'net.pf.filter_local=1'</span> &gt;&gt; /etc/sysctl.conf <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#23558;&#23481;&#22120;&#20027;&#26426;&#30340;&#36830;&#25509;&#37325;&#23450;&#21521;&#21040;&#23481;&#22120;&#20869;&#37096;
+</span>$ sysctl net.pf.filter_local=1 <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#31435;&#21363;&#29983;&#25928;
+</span>$ service pf enable <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#29992; pf &#38450;&#28779;&#22681;&#26381;&#21153;
+</span>$ service pf start <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#21160; pf &#38450;&#28779;&#22681;</span>
+</pre>
+</div>
+<p>
+net.pf.filter_local=1 参数的作用是启用 PF 对发往本机地址的数据包的过滤处理，启用后 PF 可以对这类数据包应用 NAT/rdr 等规则，从而实现容器与宿主机之间的网络通信
+</p>
+</div>
+</div>
+<div id="outline-container-orgada0b8c" class="outline-2">
+<h2 id="orgada0b8c">创建 ZFS 存储池</h2>
+<div class="outline-text-2" id="text-orgada0b8c">
+<pre class="example" id="orge10e6b9">
+管理容器的存储资源，建议创建专用的 ZFS 文件系统
+</pre>
+
+<p>
+创建 ZFS 文件系统 zroot/containers，并将挂载点设置为 <b>/var/db/containers</b> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ zfs create -o <span style="color: #eedd82;">mountpoint</span>=/var/db/containers zroot/containers
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org7e6b66d" class="outline-2">
+<h2 id="org7e6b66d">启动服务</h2>
+<div class="outline-text-2" id="text-org7e6b66d">
+<p>
+启动相关服务：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ service linux enable <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622; Linux &#20860;&#23481;&#26381;&#21153;&#24320;&#26426;&#33258;&#21551;
+</span>$ service linux start <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#21160; Linux &#20860;&#23481;&#26381;&#21153;
+</span>$ service podman enable <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#35774;&#32622; Podman &#26381;&#21153;&#24320;&#26426;&#33258;&#21551;
+</span>$ service podman start <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21551;&#21160; Podman &#26381;&#21153;</span>
+</pre>
+</div>
+
+<p>
+文件结构：
+</p>
+<pre class="example" id="org1a47442">
+/
+├── etc/
+│   ├── fstab # 文件系统挂载配置
+│   ├── pf.conf # PF 防火墙配置
+│   └── sysctl.conf # sysctl 配置
+├── run/
+│   └── containers/
+│       └── 0/
+│           └── auth.json # 运行时认证凭据位置（默认读写位置，重启后可能丢失）
+├── root/
+│   └── .config/
+│       └── containers/
+│           └── auth.json # 持久化认证凭据位置（备用读取位置，重启后保留）
+├── var/
+│   └── db/
+│       └── containers/ # 容器数据库目录
+└── usr/
+    └── local/
+         └── etc/
+           └── containers/
+                └── pf.conf.sample # PF 防火墙配置示例
+
+</pre>
+</div>
+</div>
+<div id="outline-container-org5b56a0d" class="outline-2">
+<h2 id="org5b56a0d">测试 Ubuntu 镜像</h2>
+<div class="outline-text-2" id="text-org5b56a0d">
+<p>
+服务启动完成后，可测试拉取 Ubuntu 镜像验证 Podman 是否正常工作：
+</p>
+<ol class="org-ol">
+<li><p>
+测试拉取 Ubuntu 镜像：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman pull --os=linux docker.io/library/ubuntu:latest
+
+Trying to pull docker.io/library/ubuntu:latest...
+Getting image source signatures
+Copying blob 0622fac788ed done   |
+    Copying config a0e45e2ce6 done   |
+    Writing manifest to image destination
+a0e45e2ce6e6e22e73185397d162a64fcf2f80a41c597015cab05d9a7b5913ce
+</pre>
+</div></li>
+<li><p>
+查看当前拉取的镜像：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman images
+
+REPOSITORYTAG IMAGE ID  CREATED  SIZE
+docker.io/library/ubuntu  latest  a0e45e2ce6e6  3 weeks ago  80.6 MB
+</pre>
+</div></li>
+<li><p>
+打印系统版本（仅打印前 5 行）：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman run --os=linux ubuntu /usr/bin/cat <span style="color: #ffa07a;">"/etc/os-release"</span> | head -5
+
+<span style="color: #eedd82;">PRETTY_NAME</span>=<span style="color: #ffa07a;">"Ubuntu 24.04.2 LTS"</span>
+<span style="color: #eedd82;">NAME</span>=<span style="color: #ffa07a;">"Ubuntu"</span>
+<span style="color: #eedd82;">VERSION_ID</span>=<span style="color: #ffa07a;">"24.04"</span>
+<span style="color: #eedd82;">VERSION</span>=<span style="color: #ffa07a;">"24.04.2 LTS (Noble Numbat)"</span>
+<span style="color: #eedd82;">VERSION_CODENAME</span>=noble
+</pre>
+</div></li>
+<li><p>
+进入容器：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman run -it --os=linux ubuntu /bin/bash <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36827;&#20837;&#23481;&#22120;
+</span>
+root@3b6d47dea81e:/# apt update <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24403;&#21069;&#24050;&#36827;&#20837;&#23481;&#22120;&#20869;&#37096;
+</span>Get:1 http://archive.ubuntu.com/ubuntu noble InRelease [256 kB]
+Get:2 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+
+&#8230;&#8230;&#20197;&#19979;&#30465;&#30053;&#8230;&#8230;
+
+root@3b6d47dea81e:/# exit <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#36864;&#20986;&#23481;&#22120;
+</span><span style="color: #00ffff;">exit</span>
+
+$ <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#24050;&#36820;&#22238;&#23487;&#20027;&#26426;</span>
+</pre>
+</div></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgbc48725" class="outline-2">
+<h2 id="orgbc48725">测试 FreeBSD 维护者打包的 Nginx 容器</h2>
+<div class="outline-text-2" id="text-orgbc48725">
+<p>
+除了 Linux 镜像外，Podman 也可以运行 FreeBSD 原生容器。本节测试 FreeBSD 维护者打包的 Nginx 容器：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20174; quay.io &#25289;&#21462; nginx &#38236;&#20687;
+</span>$ podman pull quay.io/dougrabson/nginx
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20351;&#29992;&#35813;&#38236;&#20687;&#21019;&#24314;&#24182;&#21518;&#21488;&#36816;&#34892;&#23481;&#22120; mynginx&#65292;&#23558;&#23487;&#20027;&#26426; 8080 &#31471;&#21475;&#26144;&#23556;&#21040;&#23481;&#22120; 80 &#31471;&#21475;
+</span>$ podman run -d --name mynginx -p 8080:80 quay.io/dougrabson/nginx
+</pre>
+</div>
+
+<pre class="example" id="orgd590116">
+在浏览器中打开 http://ip:8080 即可访问 Nginx 测试页面
+</pre>
+</div>
+</div>
+<div id="outline-container-orgc4bdd3c" class="outline-2">
+<h2 id="orgc4bdd3c">更多用法</h2>
+<div class="outline-text-2" id="text-orgc4bdd3c">
+<p>
+查看日志：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman logs &#23481;&#22120;&#21517;&#31216;
+</pre>
+</div>
+
+<p>
+查看容器运行状态：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman ps <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26597;&#30475;&#24403;&#21069;&#36816;&#34892;&#30340;&#23481;&#22120;
+</span>
+CONTAINER ID  IMAGECOMMAND   CREATED STATUSPORTS NAMES
+ca088c9c56fc  quay.io/dougrabson/nginx:latest  /usr/local/sbin/n...  3 minutes agoUp 3 minutes  0.0.0.0:8080-&gt;80/tcp  mynginx
+
+$ podman ps -a <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26597;&#30475;&#25152;&#26377;&#29366;&#24577;&#65292;&#21253;&#25324;&#36816;&#34892;&#22833;&#36133;&#30340;&#23481;&#22120;
+</span>
+CONTAINER ID  IMAGECOMMAND   CREATED STATUS PORTS  NAMES
+e8ea65b7e6c9  docker.io/library/nginx:latest   nginx -g daemon o...  17 minutes ago Exited (0) 292 years ago   0.0.0.0:8080-&gt;80/tcp   nginx-test
+ca088c9c56fc  quay.io/dougrabson/nginx:latest  /usr/local/sbin/n...  3 minutes ago Up 3 minutes   0.0.0.0:8080-&gt;80/tcp   mynginx
+</pre>
+</div>
+
+<p>
+停止并删除容器：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman stop &#23481;&#22120;&#21517;&#31216; <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20572;&#27490;&#23481;&#22120;
+</span>$ podman rm &#23481;&#22120;&#21517;&#31216;  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#21024;&#38500;&#23481;&#22120;</span>
+</pre>
+</div>
+
+<p>
+删除镜像（必须先删除引用该镜像的容器）：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman rmi &#38236;&#20687;&#21517;&#31216;
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org5957842" class="outline-2">
+<h2 id="org5957842">FreeBSD 容器</h2>
+<div class="outline-text-2" id="text-org5957842">
+<p>
+除了第三方维护者提供的容器外，也可以直接从 Docker Hub 拉取官方的 FreeBSD 镜像：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ podman pull docker://freebsd/freebsd-runtime:15.0
+</pre>
+</div>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="virtual_box.html">Next: VirtualBox</a></td>
+<td class="org-left"><a href="bvcp.html">Previous: BVCP</a></td>
+<td class="org-left"><a href="virtualization.html">Home: 虚拟化和容器管理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
