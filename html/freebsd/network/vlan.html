@@ -201,6 +201,155 @@
  <a accesskey="H" href="./network.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">VLAN</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org5c3ad80">定义 VLAN</a></li>
+<li><a href="#org505f472">为接口指定符号名称</a></li>
+</ul>
+</div>
+</div>
+<p>
+<b>VLAN</b> <span class="underline">虚拟局域网</span> 是一个局域网的逻辑分段（每个段都拥有自己的广播域）
+</p>
+
+<pre class="example" id="org0ac8154">
+VLAN 与局域网的其他分段隔离，其他分段上的计算机仅能通过具有过滤功能的连接单元对其进行访问
+</pre>
+
+<p>
+VLAN 逻辑分割示意图：
+</p>
+
+
+<div id="org57fe67f" class="figure">
+<p><img src="../pic/vlan.png" alt="vlan.png" width="70%" />
+</p>
+</div>
+
+<pre class="example" id="orgddcc9e0">
+VLAN 之间是二层隔离的，不同 VLAN 之间的通信必须通过路由器或三层交换机进行转发
+</pre>
+
+<p>
+在 FreeBSD 上，VLAN 硬件卸载功能需网卡驱动程序支持；若驱动不支持，VLAN 标签处理将由软件完成，但性能可能受影响
+</p>
+
+<pre class="example" id="org5be91b3">
+要查看哪些驱动程序支持 VLAN 硬件卸载，可参阅 vlan(4) 手册页
+</pre>
+
+<p>
+配置 VLAN 时，需了解以下信息：
+</p>
+<ol class="org-ol">
+<li>所用的网络接口</li>
+<li>VLAN 标签</li>
+</ol>
+<div id="outline-container-org5c3ad80" class="outline-2">
+<h2 id="org5c3ad80">定义 VLAN</h2>
+<div class="outline-text-2" id="text-org5c3ad80">
+<p>
+假设使用的网卡为 em0，VLAN 标签为 5，则命令如下：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ifconfig em0.5 create vlan 5 vlandev em0 inet 192.168.20.20/24
+</pre>
+</div>
+
+<pre class="example" id="org038dada">
+须注意，接口名称包括网卡驱动程序名称和 VLAN 标签，并通过点号分隔
+
+这是最佳实践，尤其在机器上配置了多个 VLAN 时，能方便地管理 VLAN 配置
+</pre>
+
+<p>
+定义 VLAN 时，须确保同时配置和启用了父网络接口。上面的示例中，最简单的配置为：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ifconfig em0 up
+</pre>
+</div>
+
+<p>
+要在启动时配置 VLAN，必须更新 /etc/rc.conf。若需复现上述配置，需添加以下内容：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">vlans_em0</span>=<span style="color: #ffa07a;">"5"</span>
+<span style="color: #eedd82;">ifconfig_em0_5</span>=<span style="color: #ffa07a;">"inet 192.168.20.20/24"</span>
+</pre>
+</div>
+
+<p>
+只需将标签添加到 vlans_em0 字段，并为该 VLAN 标签的接口配置网络，即可添加更多 VLAN
+</p>
+
+<pre class="example" id="org263e374">
+在 /etc/rc.conf 中定义 VLAN 时，须确保同时配置和启用了父网络接口。上面的示例中，最简单配置为：
+
+ifconfig_em0="up"
+</pre>
+</div>
+</div>
+<div id="outline-container-org505f472" class="outline-2">
+<h2 id="org505f472">为接口指定符号名称</h2>
+<div class="outline-text-2" id="text-org505f472">
+<p>
+为接口指定符号名称具有实用价值：当更换关联的硬件时，只需更新少数几个配置变量
+</p>
+
+<pre class="example" id="org320ebd6">
+例如，安全摄像头需在 em0 上运行 VLAN 1
+
+若日后将 em0 网卡替换为使用 ixgbe(4) 驱动程序的网卡，则无需将所有指向 em0.1 的引用更改为 ixgbe0.1
+</pre>
+
+<p>
+要在网卡em0 上配置 VLAN 5，并为接口指定名称 cameras，为其分配 IP 地址 192.168.20.20/24，使用以下命令：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ ifconfig em0.5 create vlan 5 vlandev em0 name cameras inet 192.168.20.20/24
+</pre>
+</div>
+
+<p>
+如果父接口使用的是其他网卡（例如 video，代表系统中另一块物理网卡），则使用以下命令：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ ifconfig video.5 create vlan 5 vlandev video name cameras inet 192.168.20.20/24
+</pre>
+</div>
+
+<p>
+在 /etc/rc.conf 中添加以下内容以在启动时应用更改：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">vlans_video</span>=<span style="color: #ffa07a;">"cameras"</span>
+<span style="color: #eedd82;">create_args_cameras</span>=<span style="color: #ffa07a;">"vlan 5"</span>
+<span style="color: #eedd82;">ifconfig_cameras</span>=<span style="color: #ffa07a;">"inet 192.168.20.20/24"</span>
+</pre>
+</div>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="lagg.html">Previous：链路聚合</a></td>
+<td class="org-left"><a href="network.html">Home: 高级网络</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
