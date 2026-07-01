@@ -31,7 +31,7 @@
 	        ;; These are static files (images, pdf, etc)
         ("claude-pic"
          :base-directory "~/Documents/programming/html/klose911.github.io/src/claude/pic" ;; Change this to your local dir
-         :base-extension "css\\|js\\|png\\|jpg\\|gif"
+         :base-extension "css\\|js\\|png\\|jpg\\|gif\\|svg"
          :publishing-directory "~/Documents/programming/html/klose911.github.io/html/claude/pic"
          :recursive t
          :publishing-function org-publish-attachment
