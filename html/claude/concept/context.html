@@ -196,7 +196,7 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="./concept.html"> UP </a>
+ <a accesskey="h" href="./config.html"> UP </a>
  |
  <a accesskey="H" href="./concept.html"> HOME </a>
 </div><div id="content" class="content">
@@ -206,10 +206,13 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org65ba7cf">时间线显示的内容</a></li>
+<li><a href="#org3f82bd6">压缩后保留的内容</a></li>
+<li><a href="#orgc4fe5df">当上下文填满时</a></li>
+<li><a href="#org2a383e6">检查自己的会话</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org9dd137e">
+<pre class="example" id="org6798972">
 Claude Code 上下文窗口在会话期间如何填充的交互式模拟
 
 查看自动加载的内容、每个文件读取的成本以及规则和 hooks 何时触发
@@ -228,13 +231,193 @@ Claude Code 的上下文窗口包含 Claude 在您的会话中了解的所有内
 下面的时间线展示了从启动到压缩的完整会话：在输入之前加载的内容、每个文件读取、规则和 hook 在 Claude 工作时添加的内容，以及子代理如何将大型读取保留在您的上下文之外
 <a href="https://code.claude.com/docs/zh-CN/context-window">https://code.claude.com/docs/zh-CN/context-window</a>
 </p>
-<pre class="example" id="org94d4ee6">
+<pre class="example" id="org39149ba">
 有关相同内容的列表形式，请参阅书面分解
 
 https://code.claude.com/docs/zh-CN/context-window#what-the-timeline-shows
 </pre>
 <div id="outline-container-org65ba7cf" class="outline-2">
 <h2 id="org65ba7cf">时间线显示的内容</h2>
+<div class="outline-text-2" id="text-org65ba7cf">
+<p>
+该会话通过具有代表性的令牌计数演示了一个现实的流程：
+</p>
+<ul class="org-ul">
+<li><p>
+在输入任何内容之前： <span class="underline">CLAUDE.md</span> 、 <span class="underline">自动内存</span> 、 <span class="underline">MCP 工具</span> 名称和 <span class="underline">技能描述</span> 都加载到上下文中
+</p>
+<pre class="example" id="orgdd80fd7">
+自己的设置可能会在此处添加更多内容
+
+例如输出样式或来自 --append-system-prompt 的文本，两者都以相同的方式进入系统提示
+</pre></li>
+<li>当 Claude 工作时： <span class="underline">每个文件读取</span> 都会添加到上下文中，路径范围的规则会自动与匹配的文件一起加载，并且 <span class="underline">PostToolUse hook</span> 在每次编辑后触发</li>
+<li>后续提示： <span class="underline">子代理</span> 在其自己的单独上下文窗口中处理研究，因此大文件读取不会进入您的窗口。只有 <span class="underline">摘要</span> 和一个小的 <span class="underline">元数据预告片</span> 返回</li>
+<li><p>
+最后： <span class="underline">/compact</span> 用结构化摘要替换对话。大多数启动内容会自动重新加载
+</p>
+<pre class="example" id="org89630e2">
+下表显示了每个机制会发生什么
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org3f82bd6" class="outline-2">
+<h2 id="org3f82bd6">压缩后保留的内容</h2>
+<div class="outline-text-2" id="text-org3f82bd6">
+<p>
+当长会话压缩时，Claude Code 会总结对话历史以适应上下文窗口
+</p>
+<pre class="example" id="org9f4a8b3">
+从 v2.1.198 开始，总结请求继承会话的扩展思考配置
+
+因此当会话启用思考时，它会在启用思考的情况下进行推理，否则保持关闭
+
+思考仅影响摘要的生成方式；您的会话设置之后保持不变
+</pre>
+
+<p>
+指令会发生什么取决于它们的加载方式：
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">机制</td>
+<td class="org-left">压缩后</td>
+</tr>
+
+<tr>
+<td class="org-left">系统提示和输出样式</td>
+<td class="org-left">不变；不是消息历史的一部分</td>
+</tr>
+
+<tr>
+<td class="org-left">项目根目录 CLAUDE.md 和无范围规则</td>
+<td class="org-left">从磁盘重新注入</td>
+</tr>
+
+<tr>
+<td class="org-left">自动内存</td>
+<td class="org-left">从磁盘重新注入</td>
+</tr>
+
+<tr>
+<td class="org-left">带有 paths: frontmatter 的规则</td>
+<td class="org-left">丢失，直到再次读取匹配的文件</td>
+</tr>
+
+<tr>
+<td class="org-left">子目录中的嵌套 CLAUDE.md</td>
+<td class="org-left">丢失，直到再次读取该子目录中的文件</td>
+</tr>
+
+<tr>
+<td class="org-left">调用的技能主体</td>
+<td class="org-left">重新注入，每个技能上限为 5,000 个令牌，总计 25,000 个令牌；最旧的首先删除</td>
+</tr>
+
+<tr>
+<td class="org-left">Hooks</td>
+<td class="org-left">不适用；hooks 作为代码运行，不是上下文</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+路径范围的规则和嵌套的 CLAUDE.md 文件在读取其触发文件时加载到消息历史中，因此压缩会将它们与其他所有内容一起总结
+</p>
+<ul class="org-ul">
+<li><p>
+下次 Claude 读取匹配的文件时，它们会重新加载
+</p>
+<pre class="example" id="orgdeb463a">
+如果规则必须在压缩过程中保持不变，请删除 paths: frontmatter 或将其移动到项目根目录 CLAUDE.md
+</pre></li>
+</ul>
+<p>
+技能主体在压缩后重新注入，但大型技能会被截断以适应每个技能的上限，一旦超过总预算，最旧的调用技能就会被删除
+</p>
+<pre class="example" id="org973d0e3">
+截断保留文件的开头，因此请将最重要的指令放在 SKILL.md 的顶部附近
+</pre>
+</div>
+</div>
+<div id="outline-container-orgc4fe5df" class="outline-2">
+<h2 id="orgc4fe5df">当上下文填满时</h2>
+<div class="outline-text-2" id="text-orgc4fe5df">
+<p>
+Claude Code 在接近限制时自动压缩，因此完整的上下文窗口不会结束您的会话。自动传递的工作方式与时间线中的 /compact 步骤相同
+</p>
+
+<p>
+也可以在自动传递运行之前采取行动：
+</p>
+<ul class="org-ul">
+<li><p>
+带有焦点的压缩：在开始长时间的新任务之前，运行带有指令的 <span class="underline">/compact</span> 
+</p>
+<pre class="example" id="org646b533">
+例如 /compact focus on the auth bug fix
+
+摘要保留您选择的内容，而不是自动传递猜测的重要内容
+</pre></li>
+<li><p>
+在任务之间清除：切换到不相关的工作时运行 <span class="underline">/clear</span>
+</p>
+<pre class="example" id="orgca57912">
+旧对话会挤出接下来需要的文件，并在每条消息上花费令牌
+</pre></li>
+<li>委托大型读取：将研究发送给 <span class="underline">子代理</span> ，以便文件内容保留在其上下文窗口中</li>
+</ul>
+
+<pre class="example" id="org749e170">
+如果需要更大的窗口而不是更小的对话，Fable 5、Sonnet 5、Opus 4.6 及更高版本以及 Sonnet 4.6 支持 100 万令牌的上下文窗口
+
+有关按计划的可用性以及如何选择 [1m] 模型变体，请参阅扩展上下文
+
+Sonnet 5 以 1M 运行，无需选择 [1m] 变体
+
+有关其自动压缩阈值和 LLM 网关异常，请参阅Sonnet 5 上下文窗口
+
+压缩在更大的限制下以相同的方式工作
+</pre>
+</div>
+</div>
+<div id="outline-container-org2a383e6" class="outline-2">
+<h2 id="org2a383e6">检查自己的会话</h2>
+<div class="outline-text-2" id="text-org2a383e6">
+<ul class="org-ul">
+<li>要在任何时刻查看实际上下文使用情况，请运行 <span class="underline">/context</span> 以获取按类别的实时分解和优化建议</li>
+<li>运行 <span class="underline">/memory</span> 以检查在启动时加载了哪些 CLAUDE.md 和自动内存文件</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="prompt_caching.html">Next：Prompt Caching</a></td>
+<td class="org-left"><a href="config.html">Previous: Claude 配置</a></td>
+<td class="org-left"><a href="concept.html">Home: 核心概念</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
