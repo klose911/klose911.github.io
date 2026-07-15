@@ -89,9 +89,9 @@ CLAUDE.md 文件可以位于多个位置，每个位置有不同的范围。下�
 
 
 注意：创建此文件并添加适用于在项目上工作的任何人的指令：构建和测试命令、编码标准、架构决策、命名约定和常见工作流
-  #+begin_example
-    这些指令通过版本控制与你的团队共享，因此请关注项目级标准而不是个人偏好
-  #+end_example
+#+begin_example
+  这些指令通过版本控制与你的团队共享，因此请关注项目级标准而不是个人偏好
+#+end_example
 ** 编写有效的指令
 CLAUDE.md 文件在每个会话开始时加载到上下文窗口中，与对话一起消耗令牌。上下文窗口可视化显示 CLAUDE.md 相对于其余启动上下文的加载位置
 #+begin_example
@@ -323,7 +323,7 @@ claudeMd key 让你将托管 CLAUDE.md 内容直接放入 _managed-settings.json
   + 下面的示例直接在托管设置文件中添加行为指令：
     #+begin_src js 
       {
-        "claudeMd": "Always run `make lint` before committing.\nNever push directly to main."
+          "claudeMd": "Always run `make lint` before committing.\nNever push directly to main."
       }
     #+end_src
 
@@ -353,10 +353,10 @@ claudeMdExcludes 设置让你按路径或 glob 模式跳过特定文件。此示
 
 #+begin_src js 
   {
-    "claudeMdExcludes": [
-      "**/monorepo/CLAUDE.md",
-      "/home/user/monorepo/other-team/.claude/rules/**"
-    ]
+      "claudeMdExcludes": [
+  	"**/monorepo/CLAUDE.md",
+  	"/home/user/monorepo/other-team/.claude/rules/**"
+      ]
   }
 #+end_src
 
@@ -367,4 +367,135 @@ claudeMdExcludes 设置让你按路径或 glob 模式跳过特定文件。此示
   这确保组织范围指令始终适用，无论个人设置如何
 #+end_example
 * 自动记忆
+自动记忆让 Claude 跨会话积累知识，无需你编写任何内容
++ Claude 在工作时为自己保存笔记：构建命令、调试见解、架构笔记、代码样式偏好和工作流习惯
++ Claude 不会每个会话都保存内容。它根据信息在未来对话中是否有用来决定什么值得记住
 
+** 启用或禁用自动记忆
+自动记忆默认开启。要切换它，在会话中打开 _/memory_ 并使用自动记忆切换，或在项目设置中设置 _autoMemoryEnabled_ ：
+
+#+begin_src js 
+  {
+      "autoMemoryEnabled": false
+  }
+#+end_src
+
+要通过环境变量禁用自动记忆，设置:
+
+#+begin_src sh 
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+#+end_src
+
+** 存储位置
+每个项目在 ~/.claude/projects/<project>/memory/ 获得自己的记忆目录
++ <project> 路径来自 git 存储库，因此同一存储库中的所有 worktrees 和子目录共享一个自动记忆目录
+  #+begin_example
+    在 git 存储库外，改用项目根目录
+  #+end_example
+
+要将自动记忆存储在不同位置，在 _settings.json_ 中设置 autoMemoryDirectory。它从任何设置范围读取：用户、项目、本地、策略或 --settings:
+
+#+begin_src js 
+  {
+      "autoMemoryDirectory": "~/my-custom-memory-dir"
+  }
+#+end_src
+
+该值必须是绝对路径或以 ~/ 开头
+#+begin_example
+  当在项目的 .claude/settings.json 或 .claude/settings.local.json 中设置时，该值仅在接受该文件夹的工作区信任对话后才被采用
+
+  这与管理 hooks 的门相同
+#+end_example
+
+目录包含一个 MEMORY.md 入口点和可选的主题文件：
+#+begin_example
+  ~/.claude/projects/<project>/memory/
+  ├── MEMORY.md          # 简洁索引，加载到每个会话
+  ├── debugging.md       # 关于调试模式的详细笔记
+  ├── api-conventions.md # API 设计决策
+  └── ...                # Claude 创建的任何其他主题文件
+#+end_example
+
+MEMORY.md 充当记忆目录的索引
+#+begin_example
+Claude 在会话中读取和写入此目录中的文件，使用 MEMORY.md 跟踪存储的内容
+#+end_example
+自动记忆是机器本地的。同一 git 存储库中的所有 worktrees 和子目录共享一个自动记忆目录。文件不在机器或云环境之间共享
+
+** 它如何工作
+MEMORY.md 的前 200 行或前 25KB（以先到者为准）在每次对话开始时加载
++ 超过该阈值的内容在会话开始时不加载
++ Claude 通过将详细笔记移到单独的主题文件中来保持 MEMORY.md 简洁 
+
+#+begin_example
+  此限制仅适用于 MEMORY.md
+
+  CLAUDE.md 文件无论长度如何都完整加载，尽管较短的文件产生更好的遵守度
+#+end_example
+
+主题文件如 debugging.md 或 patterns.md 在启动时不加载。Claude 在需要信息时使用其标准文件工具按需读取它们
+
+Claude 在会话中读取和写入记忆文件
+#+begin_example
+  当你在 Claude Code 界面中看到”Writing memory”或”Recalled memory”时，Claude 正在主动更新或读取 ~/.claude/projects/<project>/memory/
+#+end_example
+
+** 审计和编辑你的记忆
+自动记忆文件是纯 markdown，可以随时编辑或删除。运行 _/memory_ 从会话中浏览和打开记忆文件
+
+* 使用 /memory 查看和编辑
+/memory 命令列出在当前会话中加载的所有 CLAUDE.md、CLAUDE.local.md 和规则文件，让你切换自动记忆开或关，并提供打开自动记忆文件夹的链接。选择任何文件在你的编辑器中打开它
+
+#+begin_example
+  当你要求 Claude 记住某些内容时，如”总是使用 pnpm，而不是 npm”或”记住 API 测试需要本地 Redis 实例”，Claude 将其保存到自动记忆
+
+  要改为添加指令到 CLAUDE.md，直接要求 Claude，如”将其添加到 CLAUDE.md”，或通过 /memory 自己编辑文件
+#+end_example
+
+* 故障排除记忆问题
+这些是 CLAUDE.md 和自动记忆最常见的问题，以及调试步骤
+
+** Claude 不遵循我的 CLAUDE.md
+CLAUDE.md 内容作为用户消息在系统提示之后传递，而不是系统提示本身的一部分。Claude 读取它并尝试遵循它，但没有严格遵守的保证，特别是对于模糊或冲突的指令。要调试：
++ 运行 /memory 验证你的 CLAUDE.md 和 CLAUDE.local.md 文件被加载。如果文件未列出，Claude 看不到它
++ 检查相关 CLAUDE.md 是否在为你的会话加载的位置（参见 选择 CLAUDE.md 文件的位置）
++ 使指令更具体。“使用 2 空格缩进”比”格式化代码很好”效果更好
++ 查找跨 CLAUDE.md 文件的冲突指令。如果两个文件为相同行为提供不同的指导，Claude 可能会任意选择一个
+
+如果指令是必须在特定点运行的内容，例如在每次提交之前或每次文件编辑之后，请将其写成 *hook* 代替
+#+begin_example
+  Hooks 在固定的生命周期事件处作为 shell 命令执行，并且无论 Claude 决定做什么都适用
+#+end_example
+对于想要在系统提示级别的指令，使用 _--append-system-prompt_
++ 这必须在每次调用时传递，因此它更适合脚本和自动化而不是交互式使用
+
+#+begin_example
+  使用 InstructionsLoaded hook 记录确切加载了哪些指令文件、何时加载以及为什么
+
+  这对于调试特定路径规则或子目录中的延迟加载文件很有用
+#+end_example
+** 我不知道自动记忆保存了什么
+运行 /memory 并选择自动记忆文件夹来浏览 Claude 保存的内容。一切都是纯 markdown，你可以读取、编辑或删除
+** 我的 CLAUDE.md 太大了
+超过 200 行的文件消耗更多上下文并可能降低遵守度。使用 路径范围规则 仅在 Claude 处理匹配文件时加载指令，或修剪不是每个会话都需要的内容
+
+#+begin_example
+  分割到 @path 导入 有助于组织，但不会减少上下文，因为导入的文件在启动时加载
+#+end_example
+** 在 /compact 后指令似乎丢失了
+项目根 CLAUDE.md 在压缩中存活：在 /compact 之后
++ Claude 从磁盘重新读取它并将其重新注入到会话中
++ 子目录中的嵌套 CLAUDE.md 文件不会自动重新注入；它们在 Claude 下次读取该子目录中的文件时重新加载。
+
+如果指令在压缩后消失，它要么仅在对话中给出，要么位于尚未重新加载的嵌套 CLAUDE.md 中
+#+begin_example
+  将仅对话的指令添加到 CLAUDE.md 以使其持久化
+
+  有关完整的细分，请参阅 什么在压缩中存活
+
+  https://code.claude.com/docs/zh-CN/context-window#what-survives-compaction
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:permission.org][Next：权限模式]] | [[file:usage.org][Home: 使用 Claude]] |
