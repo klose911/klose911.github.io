@@ -206,6 +206,37 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#orgd7976cc">可用模式</a></li>
+<li><a href="#org89a181d">切换权限模式</a>
+<ul>
+<li><a href="#org450ebd6">CLI</a></li>
+<li><a href="#org997229d">VS Code</a></li>
+<li><a href="#org2fca997">Jetbrains</a></li>
+</ul>
+</li>
+<li><a href="#orga79a18e">使用 acceptEdits 模式自动批准文件编辑</a></li>
+<li><a href="#orge821bdf">使用 plan mode 在编辑前进行分析</a>
+<ul>
+<li><a href="#org62ad771">审查并批准计划</a></li>
+<li><a href="#orgb208c1a">将 plan mode 设置为默认值</a></li>
+</ul>
+</li>
+<li><a href="#org5e2d636">使用自动模式消除权限提示</a>
+<ul>
+<li><a href="#org3c6ad02">Bedrock、Agent Platform 或 Foundry 上的自动模式</a></li>
+<li><a href="#orgef6d1e6">分类器默认阻止的内容</a></li>
+<li><a href="#orga9b9323">您在对话中陈述的边界</a></li>
+<li><a href="#orga32a5ed">自动模式何时回退</a>
+<ul>
+<li><a href="#org6b17855">分类器如何评估操作</a></li>
+<li><a href="#org269c5d1">自动模式如何处理子代理</a></li>
+<li><a href="#org3ffa4be">成本和延迟</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org0d0ccb3">使用 dontAsk 模式仅允许预先批准的工具</a></li>
+<li><a href="#org3a74487">使用 bypassPermissions 模式跳过所有检查</a></li>
+<li><a href="#orgd00ab1c">受保护的路径</a></li>
 </ul>
 </div>
 </div>
@@ -217,7 +248,7 @@
 <li>在 VS Code、Desktop 和 claude.ai 中使用模式选择器</li>
 </ul>
 
-<pre class="example" id="orgffd0d22">
+<pre class="example" id="org6df2ed8">
 当 Claude 想要编辑文件、运行 shell 命令或发起网络请求时，它会暂停并要求您批准该操作
 
 权限模式控制暂停发生的频率
@@ -232,11 +263,862 @@
 <li>更宽松的模式让 Claude 能够进行更长时间的不间断工作，并在完成后报告结果</li>
 </ul>
 
-<pre class="example" id="org9577290">
+<pre class="example" id="orgdf14af9">
 对于敏感工作选择更多的监督，或在您信任工作方向时选择更少的中断
 </pre>
 <div id="outline-container-orgd7976cc" class="outline-2">
 <h2 id="orgd7976cc">可用模式</h2>
+<div class="outline-text-2" id="text-orgd7976cc">
+<p>
+每种模式在便利性和监督之间做出不同的权衡。下表显示了在每种模式下 Claude 无需权限提示即可执行的操作
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 权限模式</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">模式</td>
+<td class="org-left">无需询问即可运行</td>
+<td class="org-left">最适合</td>
+</tr>
+
+<tr>
+<td class="org-left">default</td>
+<td class="org-left">仅读取</td>
+<td class="org-left">入门、敏感工作</td>
+</tr>
+
+<tr>
+<td class="org-left">acceptEdits</td>
+<td class="org-left">读取、文件编辑和常见文件系统命令（mkdir、touch、mv、cp 等）</td>
+<td class="org-left">迭代审查的代码</td>
+</tr>
+
+<tr>
+<td class="org-left">plan</td>
+<td class="org-left">仅读取</td>
+<td class="org-left">在更改前探索代码库</td>
+</tr>
+
+<tr>
+<td class="org-left">auto</td>
+<td class="org-left">所有操作，带有后台安全检查</td>
+<td class="org-left">长任务、减少提示疲劳</td>
+</tr>
+
+<tr>
+<td class="org-left">dontAsk</td>
+<td class="org-left">仅预先批准的工具</td>
+<td class="org-left">锁定的 CI 和脚本</td>
+</tr>
+
+<tr>
+<td class="org-left">bypassPermissions</td>
+<td class="org-left">所有操作</td>
+<td class="org-left">仅限隔离容器和虚拟机</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+在 CLI 中、claude &#x2013;help 中、VS Code 和 JetBrains 扩展中以及桌面应用中，审查每个操作的模式被命名为 <span class="underline">Manual</span> 。其配置值为 default
+</p>
+<pre class="example" id="orgb5607c9">
+这是 hooks 和 SDK 集成使用的值
+
+CLI 在任何地方都接受 manual 作为别名，例如 claude --permission-mode manual 或 "defaultMode": "manual"
+
+Manual 标签和 manual 别名需要 Claude Code v2.1.200 或更高版本。桌面应用的标签不依赖于您的 CLI 版本
+</pre>
+<p>
+在除 <span class="underline">bypassPermissions</span> 之外的每种模式中，对受保护路径的写入永远不会自动批准，保护存储库状态和 Claude 自己的配置免受意外损坏
+</p>
+
+
+<ul class="org-ul">
+<li>拒绝规则和显式询问规则适用于每种模式，包括 bypassPermission</li>
+<li>允许规则在该模式中无效，因为其他所有内容都已被批准</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org89a181d" class="outline-2">
+<h2 id="org89a181d">切换权限模式</h2>
+<div class="outline-text-2" id="text-org89a181d">
+<p>
+可以在会话中途、启动时或作为持久默认值切换模式。模式通过这些控件设置，而不是通过在聊天中询问 Claude。选择下面的界面以查看如何更改它
+</p>
+</div>
+<div id="outline-container-org450ebd6" class="outline-3">
+<h3 id="org450ebd6">CLI</h3>
+<div class="outline-text-3" id="text-org450ebd6">
+<p>
+在会话期间：按 <span class="underline">Shift+Tab</span> 循环切换 default → acceptEdits → plan。当前模式显示在状态栏中
+</p>
+<pre class="example" id="org44b438d">
+手动模式（该循环中的 default）显示灰色的 ⏸ manual mode on 徽章
+
+在 v2.1.203 之前，状态栏在手动模式下不显示徽章
+</pre>
+<p>
+并非每个模式都在默认循环中：
+</p>
+<ul class="org-ul">
+<li>auto：当您的账户满足 auto 模式要求 时出现
+<ul class="org-ul">
+<li>循环切换到它会在没有确认提示的情况下切换模式</li>
+</ul></li>
+<li>bypassPermissions：在使用 &#x2013;permission-mode bypassPermissions、&#x2013;dangerously-skip-permissions 或 &#x2013;allow-dangerously-skip-permissions 启动后出现
+<ul class="org-ul">
+<li>&#x2013;allow- 变体会将模式添加到循环中而不激活它</li>
+</ul></li>
+<li>dontAsk：永远不会在循环中出现
+<ul class="org-ul">
+<li>使用 &#x2013;permission-mode dontAsk 设置它</li>
+</ul></li>
+</ul>
+
+<p>
+启用的可选模式在 plan 之后插入，bypassPermissions 优先，auto 最后
+</p>
+<pre class="example" id="orgab7675f">
+如果同时启用了两者，将在循环到 auto 的途中循环通过 bypassPermissions
+</pre>
+
+<p>
+在启动时：将模式作为标志传递
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">claude --permission-mode plan
+</pre>
+</div>
+
+<p>
+作为默认值：在 设置 中设置 <span class="underline">defaultMode</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"permissions"</span>: {
+        <span style="color: #ffa07a;">"defaultMode"</span>: <span style="color: #ffa07a;">"acceptEdits"</span>
+    }
+}
+</pre>
+</div>
+
+<p>
+相同的 &#x2013;permission-mode 标志适用于 -p 用于 非交互式运行
+</p>
+</div>
+</div>
+<div id="outline-container-org997229d" class="outline-3">
+<h3 id="org997229d">VS Code</h3>
+<div class="outline-text-3" id="text-org997229d">
+<p>
+在会话期间：点击提示框底部的模式指示器
+</p>
+<ul class="org-ul">
+<li>作为默认值：在 VS Code 设置中设置 claudeCode.initialPermissionMode，或使用 Claude Code 扩展设置面板</li>
+</ul>
+
+<p>
+模式指示器显示这些标签，映射到每个标签应用的模式：
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">UI 标签</td>
+<td class="org-left">模式</td>
+</tr>
+
+<tr>
+<td class="org-left">Manual</td>
+<td class="org-left">default</td>
+</tr>
+
+<tr>
+<td class="org-left">Edit automatically</td>
+<td class="org-left">acceptEdits</td>
+</tr>
+
+<tr>
+<td class="org-left">Plan</td>
+<td class="org-left">plan</td>
+</tr>
+
+<tr>
+<td class="org-left">Auto</td>
+<td class="org-left">auto</td>
+</tr>
+
+<tr>
+<td class="org-left">Bypass permissions</td>
+<td class="org-left">bypassPermissions</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org5d109d8">
+在 v2.1.205 之前，扩展将 plan 标记为 Plan mode，将 auto 标记为 Auto mode
+</pre>
+
+<ul class="org-ul">
+<li>当您的账户满足 auto 模式部分 中列出的每项要求时，Auto 模式会在模式指示器中出现
+<ul class="org-ul">
+<li>claudeCode.initialPermissionMode 设置不接受 auto</li>
+<li><p>
+要默认以 auto 模式启动，请改为在您的 用户设置 中设置 defaultMode
+</p>
+<pre class="example" id="org2fa6bd4">
+Claude Code 忽略项目和本地设置中的 defaultMode: "auto"
+</pre></li>
+</ul></li>
+<li>绕过权限需要扩展设置中的 Allow dangerously skip permissions 切换，然后才能在模式指示器中出现</li>
+</ul>
+
+<pre class="example" id="org2e68b1a">
+有关扩展特定的详细信息，请参阅 VS Code 指南
+
+https://code.claude.com/docs/zh-CN/vs-code
+</pre>
+</div>
+</div>
+<div id="outline-container-org2fca997" class="outline-3">
+<h3 id="org2fca997">Jetbrains</h3>
+<div class="outline-text-3" id="text-org2fca997">
+<pre class="example" id="orge1e43bc">
+JetBrains 插件在 IDE 终端中运行 Claude Code，因此切换模式的工作方式与 CLI 中相同
+</pre>
+<p>
+按 Shift+Tab 循环切换，或在启动时传递 &#x2013;permission-mode
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orga79a18e" class="outline-2">
+<h2 id="orga79a18e">使用 acceptEdits 模式自动批准文件编辑</h2>
+<div class="outline-text-2" id="text-orga79a18e">
+<p>
+<span class="underline">acceptEdits</span> 模式让 Claude 在工作目录中创建和编辑文件，无需提示
+</p>
+
+<pre class="example" id="orgff51b4f">
+当此模式处于活动状态时，状态栏显示 accept edits on
+</pre>
+
+<p>
+除了文件编辑外，acceptEdits 模式还自动批准常见的文件系统 Bash 命令：mkdir、touch、rm、rmdir、mv、cp 和 sed
+</p>
+
+<pre class="example" id="org83968cb">
+当这些命令带有安全环境变量（如 LANG=C 或 NO_COLOR=1）或
+
+进程包装器（如 timeout、nice 或 nohup）作为前缀时，也会自动批准
+</pre>
+
+<p>
+与文件编辑一样，自动批准仅适用于工作目录或 additionalDirectories 内的路径
+</p>
+<pre class="example" id="org72fac0b">
+超出该范围的路径、对受保护路径的写入以及所有其他 Bash 命令（除了内置只读集合）仍然会提示
+</pre>
+
+<p>
+当启用 PowerShell tool 时，acceptEdits 模式还会自动批准 Set-Content、Add-Content、Clear-Content 和 Remove-Item 在范围内路径上的操作，以及它们的常见别名。相同的范围和受保护路径规则适用
+</p>
+
+<pre class="example" id="org612adeb">
+当你想在编辑器中或通过 git diff 事后查看更改，而不是逐个批准每个编辑时，使用 acceptEdits
+</pre>
+<p>
+从 Manual 模式按一次 Shift+Tab 进入它，或直接启动它：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">claude --permission-mode acceptEdits
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orge821bdf" class="outline-2">
+<h2 id="orge821bdf">使用 plan mode 在编辑前进行分析</h2>
+<div class="outline-text-2" id="text-orge821bdf">
+<p>
+Plan mode 告诉 Claude 研究并提议更改，但不进行实际编辑
+</p>
+<ul class="org-ul">
+<li>Claude 读取文件、运行 shell 命令进行探索并编写计划，但不编辑您的源代码</li>
+<li><p>
+权限提示的应用方式与手动模式相同，除非 auto mode 可用且 useAutoModeDuringPlan 已启用（这是默认设置）
+</p>
+<pre class="example" id="orga6394b6">
+启用 auto mode 后，分类器会批准只读命令（如搜索和文件读取）而无需提示
+
+无论哪种方式，编辑都会保持阻止状态，直到您批准计划
+</pre></li>
+</ul>
+<p>
+通过按 Shift+Tab 或在单个提示前加上 /plan 来进入 plan mode。也可以从 CLI 启动 plan mode：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">claude --permission-mode plan
+</pre>
+</div>
+
+<p>
+再次按 Shift+Tab 以退出 plan mode 而不批准计划
+</p>
+</div>
+<div id="outline-container-org62ad771" class="outline-3">
+<h3 id="org62ad771">审查并批准计划</h3>
+<div class="outline-text-3" id="text-org62ad771">
+<p>
+当计划准备好时，Claude 会呈现它并询问如何继续。从该提示中，可以：
+</p>
+<ul class="org-ul">
+<li>批准并在 auto mode 中启动</li>
+<li>批准并接受编辑</li>
+<li>批准并手动审查每个编辑</li>
+<li>继续规划并提供反馈</li>
+<li>使用 Ultraplan 进行基于浏览器的审查</li>
+</ul>
+
+<p>
+批准计划会退出 plan mode 并将会话切换到每个批准选项描述的权限模式
+</p>
+<pre class="example" id="orgd363984">
+因此 Claude 开始编辑。要再次规划，使用 Shift+Tab 循环回到 plan mode，或在下一个提示前加上 /plan
+</pre>
+
+<p>
+按 Ctrl+G 在默认文本编辑器中打开建议的计划并在 Claude 继续之前直接编辑它
+</p>
+<ul class="org-ul">
+<li>当启用 showClearContextOnPlanAccept 时，每个批准选项也会提供在首先清除规划上下文的选项</li>
+</ul>
+
+<p>
+接受计划也会根据计划内容自动命名会话，除非您已经使用 &#x2013;name 或 /rename 设置了名称
+</p>
+</div>
+</div>
+<div id="outline-container-orgb208c1a" class="outline-3">
+<h3 id="orgb208c1a">将 plan mode 设置为默认值</h3>
+<div class="outline-text-3" id="text-orgb208c1a">
+<p>
+要使 plan mode 成为项目的默认值，请在 .claude/settings.json 中设置 defaultMode：
+</p>
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"permissions"</span>: {
+        <span style="color: #ffa07a;">"defaultMode"</span>: <span style="color: #ffa07a;">"plan"</span>
+    }
+}
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org5e2d636" class="outline-2">
+<h2 id="org5e2d636">使用自动模式消除权限提示</h2>
+<div class="outline-text-2" id="text-org5e2d636">
+<p>
+自动模式让 Claude 无需例行权限提示即可执行。一个独立的分类器模型在操作运行前审查它们，阻止任何超出您请求范围、针对无法识别的基础设施或看起来由 Claude 读取的恶意内容驱动的操作
+</p>
+<pre class="example" id="orgd8836a8">
+显式的询问规则仍然会强制显示提示
+
++针对文件系统根目录或主目录的删除操作，如 rm -rf / 和 rm -rf ~，会提示批准而不是进入分类器
++
+当命令包含带有 $(...) 或反引号的命令替换，或带有 &lt;(...) 的进程替换时，此提示也会触发
+
+无论删除是在替换内部（如 echo "$(rm -rf ~)"），还是在同一命令的其他地方
+
+在 v2.1.208 之前，包含这些形式的命令进入分类器而不是提示
+</pre>
+
+<p>
+自动模式还会促使 Claude 继续工作而不停下来提出澄清问题，尽管当您的提示或技能明确依赖它时，Claude 仍然会询问。为了获得更强的自主行为同时保持权限提示，请改为设置 <b>主动</b> <a href="https://code.claude.com/docs/zh-CN/output-styles">输出风格</a>
+</p>
+
+<pre class="example" id="orge8e9f32">
+自动模式减少权限提示，但不保证安全
+
+将其用于您信任总体方向的任务，而不是作为敏感操作审查的替代品
+</pre>
+
+<p>
+如果 Claude Code 报告自动模式不可用，则其中一个要求未满足；这不是暂时性中断
+</p>
+<pre class="example" id="orgfafbf6a">
+一条单独的消息，其中命名了一个模型并说自动模式”无法确定”操作的安全性，是暂时性分类器中断
+
+请参阅错误参考 https://code.claude.com/docs/zh-CN/errors#auto-mode-cannot-determine-the-safety-of-an-action
+</pre>
+
+<p>
+如果在设置中设置 defaultMode: "auto"，并且会话以 default 模式启动且没有错误，则该设置可能在 .claude/settings.json 或 .claude/settings.local.json 中
+</p>
+<pre class="example" id="org82716a1">
+Claude Code v2.1.142 及更高版本忽略来自这些文件的 auto
+
+因此存储库无法授予自己自动模式，将其移至 ~/.claude/settings.json
+</pre>
+</div>
+<div id="outline-container-org3c6ad02" class="outline-3">
+<h3 id="org3c6ad02">Bedrock、Agent Platform 或 Foundry 上的自动模式</h3>
+<div class="outline-text-3" id="text-org3c6ad02">
+<p>
+在 Amazon Bedrock、Google Cloud 的 Agent Platform、Microsoft Foundry 和已登录的 Claude apps gateway 会话上，自动模式默认出现在 Shift+Tab 循环中。出现在循环中不会改变会话启动的模式：会话仍然以您的 defaultMode 启动，除非您更改它，否则为 Manual
+</p>
+<pre class="example" id="org2553ac8">
+这些提供商上仅支持 Claude Sonnet 5、Opus 4.7 和 Opus 4.8
+</pre>
+<p>
+要使自动模式成为默认启动模式，请在用户或托管设置中设置
+</p>
+<div class="org-src-container">
+<pre class="src src-js"><span style="color: #ffa07a;">"permissions"</span>: {<span style="color: #ffa07a;">"defaultMode"</span>: <span style="color: #ffa07a;">"auto"</span>}
+</pre>
+</div>
+
+<p>
+要防止开发人员使用自动模式，请在<a href="https://code.claude.com/docs/zh-CN/permissions#managed-settings">托管设置</a>中将 disableAutoMode 设置为 "disable"。这会从 Shift+Tab 循环中移除 auto，并在启动时拒绝 &#x2013;permission-mode auto
+</p>
+
+<pre class="example" id="org3f31721">
+在 v2.1.158 到 v2.1.206 中，自动模式在这些提供商上是关闭的，直到设置 CLAUDE_CODE_ENABLE_AUTO_MODE=1，并且 Claude Code 在这些提供商上忽略 defaultMode: "auto"，除非也设置了该变量
+
+该变量仍然被接受以保持兼容性，从 v2.1.207 开始没有效果
+</pre>
+</div>
+</div>
+<div id="outline-container-orgef6d1e6" class="outline-3">
+<h3 id="orgef6d1e6">分类器默认阻止的内容</h3>
+<div class="outline-text-3" id="text-orgef6d1e6">
+<p>
+分类器信任您的工作目录和为其配置的远程，这些远程在会话启动时被配置
+</p>
+<pre class="example" id="org83d4199">
+在会话期间使用 git remote add 或 git remote set-url 添加或重新指向的远程不受信任
+
+其他所有内容都被视为外部，直到您配置受信任的基础设施
+
+在 v2.1.200 之前，中途添加的远程也受信任
+</pre>
+
+<p>
+默认阻止：
+</p>
+<ul class="org-ul">
+<li>下载和执行代码，如 curl | bash</li>
+<li>向外部端点发送敏感数据</li>
+<li>生产部署和迁移</li>
+<li>云存储上的大规模删除</li>
+<li>授予 IAM 或存储库权限</li>
+<li>修改共享基础设施</li>
+<li>不可逆地销毁会话前存在的文件</li>
+<li>强制推送</li>
+<li><p>
+当推送包含敏感内容（如秘密或个人或受托数据）、包含相对于您要求的隐藏或描述错误的更改、包含从存储库外部移植或首次读取的内容，或绕过您要求的拉取请求、审查或检查时，推送到存储库的默认分支
+</p>
+<pre class="example" id="org0cd3ca4">
+普通推送到默认分支本身不会被阻止，清除标记的推送需要命名标记的内容或绕过的审查，而不仅仅是推送
+
+分类器是一个层：permissions.deny 规则在每种模式下都适用，可以完全阻止推送到默认分支，远程自己的分支保护仍然适用
+
+在 v2.1.203 之前，任何直接推送到默认分支都被阻止
+</pre></li>
+<li>git reset &#x2013;hard、git checkout &#x2013; .、git restore .、git clean -fd、git stash drop 或 git stash clear，分类器假设会丢弃未提交的更改</li>
+<li>当 HEAD 处的提交不是在此会话中创建的时，git commit &#x2013;amend</li>
+<li>从 v2.1.198 开始，当 HEAD 处的提交已经被推送时，git commit &#x2013;amend。仅消息重述不被阻止：&#x2013;amend -m，没有新暂存的内容，在 Claude 在此会话期间创建的提交上</li>
+<li>terraform destroy、pulumi destroy、cdk destroy 或 terragrunt destroy，以及应用销毁资源的计划</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orga9b9323" class="outline-3">
+<h3 id="orga9b9323">您在对话中陈述的边界</h3>
+<div class="outline-text-3" id="text-orga9b9323">
+<p>
+分类器将您在对话中陈述的边界视为阻止信号
+</p>
+<pre class="example" id="org45701de">
+如果您告诉 Claude”不要推送”或”等待我审查后再部署”，分类器会阻止匹配的操作，即使默认规则会允许它们
+</pre>
+
+<p>
+边界保持有效，直到您在后续消息中解除它
+</p>
+<pre class="example" id="org7fc26d2">
+Claude 自己的判断条件已满足不会解除它
+</pre>
+<p>
+边界不作为规则存储。分类器在每次检查时从记录中重新读取它们，因此如果上下文压缩移除陈述它的消息，边界可能会丢失
+</p>
+<pre class="example" id="orgb298329">
+为了获得硬保证，请改为添加拒绝规则
+
+https://code.claude.com/docs/zh-CN/permissions#permission-rule-syntax
+</pre>
+</div>
+</div>
+<div id="outline-container-orga32a5ed" class="outline-3">
+<h3 id="orga32a5ed">自动模式何时回退</h3>
+<div class="outline-text-3" id="text-orga32a5ed">
+<p>
+每个被拒绝的操作显示通知并出现在 /permissions 下的”最近拒绝”选项卡中
+</p>
+<pre class="example" id="org3f23da2">
+您可以按 r 使用手动批准重试它
+</pre>
+<p>
+如果分类器连续 3 次或总共 20 次阻止操作，自动模式暂停，Claude Code 恢复提示
+</p>
+<pre class="example" id="org3a1417b">
+批准提示的操作恢复自动模式。这些阈值不可配置
+
+任何允许的操作重置连续计数器，而总计数器在会话期间持续
+
+仅当其自己的限制触发回退时重置
+</pre>
+<p>
+在非交互模式中使用 <span class="underline">-p</span> 标志，重复阻止会中止会话，因为没有用户可以提示
+</p>
+
+<p>
+重复阻止通常意味着分类器缺少关于您的基础设施的上下文。使用 <span class="underline">/feedback</span> 报告误报，或让管理员配置受信任的基础设施
+</p>
+</div>
+<div id="outline-container-org6b17855" class="outline-4">
+<h4 id="org6b17855">分类器如何评估操作</h4>
+<div class="outline-text-4" id="text-org6b17855">
+<p>
+每个操作都经过固定的决策顺序。第一个匹配的步骤获胜：
+</p>
+<ol class="org-ol">
+<li>与您的 <b>允许、询问或拒绝规则</b> 匹配的操作立即解决
+<ul class="org-ul">
+<li>写入 <b>受保护路径</b> 的操作即使允许规则匹配也会路由到分类器</li>
+<li><p>
+组织设置为 ask 的连接器工具和标记为 requiresUserInteraction 的 MCP 工具即使允许规则匹配也会直接提示您
+</p>
+<pre class="example" id="org0083d45">
+内容范围的询问规则回退到权限提示
+</pre></li>
+</ul></li>
+<li>只读操作和工作目录中的文件编辑被自动批准，除了 <b>受保护路径的写入</b></li>
+<li>其他所有内容都进入分类器
+<ul class="org-ul">
+<li><p>
+组织设置为 ask 的连接器工具跳过分类器并直接提示您，因此组织要求的批准从不被自动批准
+</p>
+<pre class="example" id="org85e38cc">
+从 v2.1.199 开始，标记有 _meta["anthropic/requiresUserInteraction"] 的 MCP 工具也跳过分类器并直接提示您
+
+因此同意步骤从不代表工具作者自动批准
+</pre></li>
+</ul></li>
+<li>如果分类器阻止，Claude 接收原因并尝试替代方案</li>
+</ol>
+
+<p>
+进入自动模式时，授予任意代码执行的广泛允许规则被丢弃：
+</p>
+<ul class="org-ul">
+<li>笼统的 Bash* 或 PowerShell*</li>
+<li>通配符解释器，如 Bash(python *)</li>
+<li>包管理器运行命令</li>
+<li>Agent 允许规则</li>
+</ul>
+
+<pre class="example" id="org8d2133c">
+窄规则如 Bash(npm test) 保留。丢弃的规则在您离开自动模式时恢复
+</pre>
+<p>
+分类器看到用户消息、工具调用和您的 CLAUDE.md 内容。工具结果被剥离，因此文件或网页中的恶意内容无法直接操纵它
+</p>
+<pre class="example" id="orgb0b473e">
+一个单独的服务器端探针扫描传入的工具结果，并在 Claude 读取之前标记可疑内容
+
+有关这些层如何协同工作的更多信息，请参阅自动模式公告和工程深潜
+
+https://claude.com/blog/auto-mode
+
+https://www.anthropic.com/engineering/claude-code-auto-mode
+</pre>
+</div>
+</div>
+<div id="outline-container-org269c5d1" class="outline-4">
+<h4 id="org269c5d1">自动模式如何处理子代理</h4>
+<div class="outline-text-4" id="text-org269c5d1">
+<p>
+分类器在三个点检查子代理工作：
+</p>
+<ol class="org-ol">
+<li>在子代理启动前，委托的任务描述被评估，因此危险看起来的任务在生成时被阻止</li>
+<li>当子代理运行时，其每个操作都通过分类器，使用与父会话相同的规则，子代理前言中的任何 permissionMode 被忽略</li>
+<li>当子代理完成时，分类器审查其完整操作历史；如果该返回检查标记了关注，安全警告被前置到子代理的结果</li>
+</ol>
+<pre class="example" id="org7ca6148">
+步骤 1 需要 Claude Code v2.1.178 或更高版本
+
+较早的版本在步骤 2 和 3 应用分类器，但在子代理启动前没有评估任务描述
+</pre>
+</div>
+</div>
+<div id="outline-container-org3ffa4be" class="outline-4">
+<h4 id="org3ffa4be">成本和延迟</h4>
+<div class="outline-text-4" id="text-org3ffa4be">
+<p>
+分类器在独立于您的 /model 选择的服务器配置模型上运行，因此切换模型不会改变分类器可用性，分类器调用计入您的令牌使用
+</p>
+<ul class="org-ul">
+<li>每次检查发送记录的一部分加上待处理操作，在执行前添加往返</li>
+<li>受保护路径外的读取和工作目录编辑跳过分类器，因此开销主要来自 shell 命令和网络操作</li>
+</ul>
+<pre class="example" id="org09956e5">
+从 v2.1.198 开始，主机和端口的沙箱网络判决被重用，而不是在每次连接时重新分类
+
+因此到同一主机的重复连接不会各自添加检查
+
+分类器默认阻止的内容描述允许和拒绝持续多长时间
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org0d0ccb3" class="outline-2">
+<h2 id="org0d0ccb3">使用 dontAsk 模式仅允许预先批准的工具</h2>
+<div class="outline-text-2" id="text-org0d0ccb3">
+<p>
+如果设置 dontAsk 模式，Claude Code 会自动拒绝所有原本会提示的工具调用。Claude 仅运行与 <span class="underline">permissions.allow</span> 规则、 <span class="underline">只读 Bash 命令</span> 匹配的操作，以及由 <a href="https://code.claude.com/docs/zh-CN/permissions#extend-permissions-with-hooks">PreToolUse hook</a> 批准的调用。当此模式处于活动状态时，状态栏显示 ⏵⏵ don't ask on
+</p>
+
+<pre class="example" id="org68e6265">
+在 CI 管道或受限环境中使用此模式，可以预先定义 Claude 可以执行的操作；会话永远不会等待输入
+</pre>
+
+<p>
+Claude Code 拒绝与 显式 <a href="https://code.claude.com/docs/zh-CN/permissions#manage-permissions">ask 规则</a> 匹配的调用，而不是提示。它还拒绝内置的 AskUserQuestion 工具和连接器工具组织设置为 <a href="https://code.claude.com/docs/zh-CN/mcp#organization-controls-on-connector-tools">ask</a>，即使 allow 规则与其匹配
+</p>
+
+<pre class="example" id="orgaabc4eb">
+它以相同的方式拒绝标记有 _meta["anthropic/requiresUserInteraction"] 的 MCP 工具
+
+因为其批准卡需要此模式永远不会收集的答案；这需要 Claude Code v2.1.199 或更高版本
+</pre>
+
+<p>
+Claude Code on the web 上的云会话会忽略 defaultMode: "dontAsk"
+</p>
+<pre class="example" id="orgd675e88">
+有关详细信息，请参阅 bypassPermissions
+
+https://code.claude.com/docs/zh-CN/permission-modes#skip-all-checks-with-bypasspermissions-mode
+</pre>
+
+<p>
+在启动时使用标志设置它：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">claude --permission-mode dontAsk
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org3a74487" class="outline-2">
+<h2 id="org3a74487">使用 bypassPermissions 模式跳过所有检查</h2>
+<div class="outline-text-2" id="text-org3a74487">
+<p>
+bypassPermissions 模式禁用权限提示和安全检查，以便工具调用立即执行，包括对<a href="https://code.claude.com/docs/zh-CN/permission-modes#protected-paths">受保护路径</a>的写入
+</p>
+<pre class="example" id="org5bae931">
+在 v2.1.126 之前，受保护路径的写入在此模式下仍会提示
+</pre>
+
+<p>
+显式的询问规则和连接器工具您的组织设置为 ask仍会在此模式下强制提示
+</p>
+<pre class="example" id="org036bc3e">
+标记有 _meta["anthropic/requiresUserInteraction"] 的 MCP 工具也仍会提示；这需要 Claude Code v2.1.199 或更高版本
+</pre>
+
+<p>
+针对文件系统根目录或主目录的删除操作，如 rm -rf / 和 rm -rf ~，仍会作为针对模型错误的断路器进行提示
+</p>
+<ul class="org-ul">
+<li>当命令包含使用 $(&#x2026;) 或反引号的命令替换</li>
+<li>使用 &lt;(&#x2026;) 的进程替换时，断路器也会触发</li>
+</ul>
+<pre class="example" id="org8324dae">
+无论删除操作位于替换内部（如 echo "$(rm -rf ~)"），还是位于同一命令中的其他位置
+
+纯形式（作为其自己的命令输入）自断路器引入以来在此模式下已提示
+
+在 v2.1.208 之前，包含这些形式的命令不会提示
+</pre>
+
+<p>
+无法从未使用启用标志启动的会话进入 bypassPermissions；使用以下标志重新启动以启用它：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">claude --permission-mode bypassPermissions
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">--dangerously-skip-permissions &#26631;&#24535;&#26159;&#31561;&#25928;&#30340;</span>
+</pre>
+</div>
+
+<p>
+在 Linux 和 macOS 上，当以 root 身份或在 sudo 下运行时，Claude Code 拒绝以此模式启动：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons
+</pre>
+</div>
+
+<p>
+该检查在识别的沙箱内自动跳过。要在容器中自主运行，请使用<a href="https://code.claude.com/docs/zh-CN/devcontainer">开发容器</a>配置，该配置以非 root 用户身份运行 Claude Code
+</p>
+
+<pre class="example" id="org7d60c69">
+仅在隔离环境（如容器、虚拟机或没有互联网访问的开发容器）中使用此模式
+
+其中 Claude Code 无法损害您的主机系统
+</pre>
+
+<p>
+网络上的 Claude Code 不遵守设置文件中的 defaultMode: "bypassPermissions" 或 "dontAsk"，因此存储库的签入设置无法在绕过权限模式下启动云会话。该设置被静默忽略，会话改为以模式下拉菜单中显示的模式启动。有关云会话提供的模式，请参阅<a href="https://code.claude.com/docs/zh-CN/permission-modes#switch-permission-modes">切换权限模式</a>
+</p>
+
+<pre class="example" id="orgf7c7739">
+bypassPermissions 不提供针对提示注入或意外操作的保护
+
+为了获得背景安全检查且权限提示大幅减少，请改用自动模式
+
+管理员可以通过在托管设置中将 permissions.disableBypassPermissionsMode 设置为 "disable" 来阻止此模式
+</pre>
+</div>
+</div>
+<div id="outline-container-orgd00ab1c" class="outline-2">
+<h2 id="orgd00ab1c">受保护的路径</h2>
+<div class="outline-text-2" id="text-orgd00ab1c">
+<p>
+在除 bypassPermissions 之外的所有模式中，对一小组路径的写入永远不会自动批准。这可以防止意外损坏存储库状态和 Claude 自己的配置
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">模式</td>
+<td class="org-left">受保护路径写入</td>
+</tr>
+
+<tr>
+<td class="org-left">default、acceptEdits、plan</td>
+<td class="org-left">提示</td>
+</tr>
+
+<tr>
+<td class="org-left">auto</td>
+<td class="org-left">路由到分类器</td>
+</tr>
+
+<tr>
+<td class="org-left">dontAsk</td>
+<td class="org-left">拒绝</td>
+</tr>
+
+<tr>
+<td class="org-left">bypassPermissions</td>
+<td class="org-left">允许</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+设置文件中的 <a href="https://code.claude.com/docs/zh-CN/permissions#manage-permissions">permissions.allow</a> 规则不会预先批准受保护路径的写入
+</p>
+<ul class="org-ul">
+<li>安全检查在 Claude Code 评估设置中的允许规则之前运行，因此 <span class="underline">~/.claude/settings.json</span> 或 <span class="underline">.claude/settings.json</span> 中的条目（如 Edit(.claude/**)）不会改变上表中的每个模式结果</li>
+<li>在提示的模式中，.claude/ 写入的提示，*允许 Claude 在此会话中编辑其自己的设置* ，这会在该会话中批准后续的 .claude/ 写入而无需再次提示</li>
+</ul>
+
+<p>
+受保护的目录：
+</p>
+<ul class="org-ul">
+<li>.git</li>
+<li>.config/git</li>
+<li>.vscode</li>
+<li>.idea</li>
+<li>.husky</li>
+<li>.cargo</li>
+<li>.devcontainer</li>
+<li>.yarn</li>
+<li>.mvn</li>
+<li><p>
+.claude
+</p>
+<pre class="example" id="orgf50e078">
+除了 .claude/worktrees，Claude 在其中存储自己的 git worktrees
+</pre></li>
+</ul>
+
+<p>
+受保护的文件：
+</p>
+<ul class="org-ul">
+<li>.gitconfig、.gitmodules</li>
+<li>.bashrc、.bash_profile、.bash_login、.bash_aliases、.bash_logout、.zshrc、.zprofile、.zshenv、.zlogin、.zlogout、.profile、.envrc</li>
+<li>.npmrc、.yarnrc、.yarnrc.yml、.pnp.cjs、.pnp.loader.mjs、.pnpmfile.cjs、bunfig.toml、.bunfig.toml</li>
+<li>.bazelrc、.bazelversion、.bazeliskrc</li>
+<li>.pre-commit-config.yaml、lefthook.yml、lefthook.yaml、.lefthook.yml、.lefthook.yaml</li>
+<li>gradle-wrapper.properties、maven-wrapper.properties</li>
+<li>.devcontainer.json</li>
+<li>.ripgreprc、pyrightconfig.json</li>
+<li>.mcp.json、.claude.json</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="session.html">Next：管理会话</a></td>
+<td class="org-left"><a href="memory.html">Previous: 指令和记忆</a></td>
+<td class="org-left"><a href="usage.html">Home: 使用 Claude</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
