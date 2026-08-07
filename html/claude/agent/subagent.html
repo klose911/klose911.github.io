@@ -201,9 +201,2415 @@
  <a accesskey="H" href="./agent.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">创建自定义 subagents</h1>
-<pre class="example" id="orgf45ee77">
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgb55c598">内置 subagents</a>
+<ul>
+<li><a href="#org0f3b529">Explore</a></li>
+<li><a href="#orge6a7605">Plan</a></li>
+<li><a href="#orgd8f151e">General-Purpose</a></li>
+<li><a href="#org762e8db">Other</a></li>
+</ul>
+</li>
+<li><a href="#orgb24ada6">快速入门：创建第一个 subagent</a></li>
+<li><a href="#org7b0a7ae">配置 subagents</a>
+<ul>
+<li><a href="#org0081f45">选择 subagent 范围</a>
+<ul>
+<li><a href="#orge1313b3">项目 subagents（.claude/agents/）</a></li>
+<li><a href="#org643db9d">用户 subagents（~/.claude/agents/）</a></li>
+<li><a href="#org1a545d5">CLI 定义的 subagents</a></li>
+<li><a href="#org84904f8">托管 subagents</a></li>
+<li><a href="#org5d59fbb">Plugin subagents</a></li>
+</ul>
+</li>
+<li><a href="#orgff28ee3">编写 subagent 文件</a>
+<ul>
+<li><a href="#org23cd4bf">支持的 frontmatter 字段</a></li>
+</ul>
+</li>
+<li><a href="#org25312af">选择模型</a></li>
+<li><a href="#orge86389b">控制 subagent 能力</a>
+<ul>
+<li><a href="#org43f6271">可用工具</a></li>
+<li><a href="#org15351fd">限制可以生成哪些 subagents</a></li>
+<li><a href="#orgeed1e9e">将 MCP 服务器限定于 subagent</a></li>
+<li><a href="#org59d37a7">权限模式</a></li>
+<li><a href="#org0d843d6">将技能预加载到 subagents</a></li>
+<li><a href="#orga0f2f15">启用持久内存</a></li>
+<li><a href="#orgaece078">使用 hooks 的条件规则</a></li>
+<li><a href="#orga9b41c3">禁用特定 subagents</a></li>
+</ul>
+</li>
+<li><a href="#org8cce566">为 subagents 定义 hooks</a>
+<ul>
+<li><a href="#orgfcd5a43">Subagent frontmatter 中的 Hooks</a></li>
+<li><a href="#org2f1dece">用于 subagent 事件的项目级 hooks</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orgfd3015a">使用 subagents</a>
+<ul>
+<li><a href="#orge8a4c2d">理解自动委托</a></li>
+<li><a href="#org3f34b47">显式调用 subagents</a></li>
+<li><a href="#org982c3ec">在前台或后台运行 subagents</a></li>
+<li><a href="#orgca38345">Subagents 中的 API 错误</a></li>
+<li><a href="#org5b84386">常见模式</a>
+<ul>
+<li><a href="#orgd1784ac">隔离高容量操作</a></li>
+<li><a href="#org56ed0f6">运行并行研究</a></li>
+<li><a href="#org117a80b">链接 subagents</a></li>
+</ul>
+</li>
+<li><a href="#org1e8b1fa">在 subagents 和主对话之间选择</a></li>
+<li><a href="#org295a16b">生成嵌套 subagents</a></li>
+<li><a href="#orge141bd6">管理 subagent 上下文</a>
+<ul>
+<li><a href="#org182fe8c">启动时加载的内容</a></li>
+<li><a href="#orgf609294">恢复 subagents</a></li>
+<li><a href="#org8615298">自动压缩</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org7bc42a1">分叉当前对话</a>
+<ul>
+<li><a href="#org979bae8">观察和引导运行中的分叉</a></li>
+<li><a href="#org192a24e">分叉与命名 subagents 的区别</a></li>
+<li><a href="#org7953ceb">限制</a></li>
+</ul>
+</li>
+<li><a href="#orgdf0393d">示例 subagents</a>
+<ul>
+<li><a href="#org2ebdb5d">代码审查者</a></li>
+<li><a href="#orgceabec0">调试器</a></li>
+<li><a href="#org8fd04cd">数据科学家</a></li>
+<li><a href="#orgd18a6db">数据库查询验证器</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org9e534af">
 在 Claude Code 中创建和使用专门的 AI subagents，用于特定任务的工作流和改进的上下文管理
 </pre>
+
+<p>
+Subagents 是处理特定类型任务的专门 AI 助手，该 subagent 在自己的上下文中完成这项工作，仅返回摘要
+</p>
+<ul class="org-ul">
+<li>当一个辅助任务会用搜索结果、日志或文件内容充斥主对话，而不会再次引用这些内容时，请使用一个 subagent</li>
+<li>当不断生成相同类型的工作者并使用相同的指令时，定义一个自定义 subagent</li>
+</ul>
+
+<p>
+每个 subagent 在自己的 context window 中运行，具有自定义系统提示、特定的工具访问权限和独立的权限。当 Claude 遇到与 subagent 描述相匹配的任务时，它会委托给该 subagent，该 subagent 独立工作并返回结果
+</p>
+<pre class="example" id="orgda9557e">
+要在实践中看到上下文节省，context window 可视化 演示了一个 subagent 在自己的独立窗口中处理研究的会话
+
+https://code.claude.com/docs/zh-CN/context-window
+</pre>
+
+<p>
+Subagents 帮助：
+</p>
+<ul class="org-ul">
+<li>保留上下文：通过将探索和实现保持在主对话之外</li>
+<li>强制执行约束：通过限制 subagent 可以使用的工具</li>
+<li>跨项目重用配置：使用用户级 subagents</li>
+<li>专门化行为：为特定领域使用专注的系统提示</li>
+<li>控制成本：通过将任务路由到更快、更便宜的模型（如 Haiku）</li>
+</ul>
+
+<pre class="example" id="orgee41294">
+Subagents 在单个会话中工作。要在并行运行许多独立会话并从一个地方监控它们，请参阅 background agents
+https://code.claude.com/docs/zh-CN/agent-view
+
+对于相互通信的会话，请参阅 agent teams
+https://code.claude.com/docs/zh-CN/agent-teams
+</pre>
+
+<p>
+Claude 使用每个 subagent 的描述来决定何时委托任务。创建 subagent 时，请编写清晰的描述，以便 Claude 知道何时使用它
+</p>
+
+<pre class="example" id="org5480566">
+Claude Code 包括几个内置 subagents，如 Explore、Plan 和 general-purpose
+
+也可以创建自定义 subagents 来处理特定任务
+</pre>
+<div id="outline-container-orgb55c598" class="outline-2">
+<h2 id="orgb55c598">内置 subagents</h2>
+<div class="outline-text-2" id="text-orgb55c598">
+<p>
+Claude Code 包括内置 subagents，Claude 在适当时自动使用。每个都继承父对话的权限，并有额外的工具限制
+</p>
+
+<pre class="example" id="orga646ff3">
+Explore 和 Plan 会跳过您的 CLAUDE.md 文件和父会话的 git 状态，以保持研究快速且成本低廉
+
+所有其他内置和自定义 subagent 都会加载两者
+
+有关到达 subagent 的内容的完整分解，请参阅启动时加载的内容
+
+https://code.claude.com/docs/zh-CN/sub-agents#what-loads-at-startup
+</pre>
+</div>
+<div id="outline-container-org0f3b529" class="outline-3">
+<h3 id="org0f3b529">Explore</h3>
+<div class="outline-text-3" id="text-org0f3b529">
+<p>
+一个快速的、只读的代理，针对搜索和分析代码库进行了优化
+</p>
+<ul class="org-ul">
+<li>Model: 从主对话继承，在 Claude API 上限制为 Opus，因此 Explore 永远不会在比您为会话选择的模型更昂贵的模型上运行</li>
+<li>Tools: 只读工具；拒绝访问 Write 和 Edit</li>
+<li>Purpose: 文件发现、代码搜索、代码库探索</li>
+</ul>
+
+<pre class="example" id="org5ef89bf">
+从 v2.1.198 开始，Explore 继承主对话的模型，而不是始终在 Haiku 上运行
+</pre>
+<p>
+在 Claude API 上，继承的模型限制为 Opus：主对话在更高层级上运行 Explore 时使用 Opus，主对话在 Sonnet 或 Haiku 上运行 Explore 时使用相同的模型
+</p>
+<pre class="example" id="org683d611">
+在任何其他提供商上，例如 Amazon Bedrock、Google Cloud 的 Agent Platform、Microsoft Foundry 或 AWS 上的 Claude Platform，Explore 直接继承主对话的模型
+</pre>
+
+<p>
+当 Claude 需要搜索或理解代码库而不进行更改时，它会委托给 Explore。这样可以将探索结果保持在主对话上下文之外。
+</p>
+
+<p>
+调用 Explore 时，Claude 指定一个彻底程度级别：
+</p>
+<ul class="org-ul">
+<li>quick 用于有针对性的查找</li>
+<li>medium 用于平衡的探索</li>
+<li>very thorough 用于全面分析</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orge6a7605" class="outline-3">
+<h3 id="orge6a7605">Plan</h3>
+<div class="outline-text-3" id="text-orge6a7605">
+<p>
+一个研究代理，在 <span class="underline">plan mode</span> 期间使用，以在呈现计划之前收集上下文
+</p>
+<ul class="org-ul">
+<li>Model: 从主对话继承</li>
+<li>Tools: 只读工具；拒绝访问 Write 和 Edit</li>
+<li>Purpose: 用于规划的代码库研究</li>
+</ul>
+
+<pre class="example" id="org2bcd303">
+当处于 plan mode 并且 Claude 需要理解您的代码库时，它会将研究委托给 Plan subagent
+
+以便探索输出保持在单独的上下文窗口中，而主对话保持只读
+</pre>
+</div>
+</div>
+<div id="outline-container-orgd8f151e" class="outline-3">
+<h3 id="orgd8f151e">General-Purpose</h3>
+<div class="outline-text-3" id="text-orgd8f151e">
+<p>
+一个能够处理复杂、多步骤任务的代理，需要探索和操作
+</p>
+<ul class="org-ul">
+<li>Model: 从主对话继承</li>
+<li>Tools: 所有工具</li>
+<li>Purpose: 复杂研究、多步骤操作、代码修改</li>
+</ul>
+
+<pre class="example" id="orgdae9f64">
+当任务需要探索和修改、复杂推理来解释结果或多个依赖步骤时，Claude 会委托给 general-purpose
+</pre>
+</div>
+</div>
+<div id="outline-container-org762e8db" class="outline-3">
+<h3 id="org762e8db">Other</h3>
+<div class="outline-text-3" id="text-org762e8db">
+<p>
+Claude Code 包括用于特定任务的其他辅助代理。这些通常会自动调用，因此不需要直接使用它们
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Agent</td>
+<td class="org-left">Model</td>
+<td class="org-left">Claude 何时使用它</td>
+</tr>
+
+<tr>
+<td class="org-left">statusline-setup</td>
+<td class="org-left">Sonnet</td>
+<td class="org-left">当运行 /statusline 来配置状态行时</td>
+</tr>
+
+<tr>
+<td class="org-left">claude-code-guide</td>
+<td class="org-left">Haiku</td>
+<td class="org-left">当提出关于 Claude Code 功能的问题时</td>
+</tr>
+</tbody>
+</table>
+
+
+<p>
+内置 subagents 在交互式会话中默认被注册。要限制它们：
+</p>
+<ul class="org-ul">
+<li>要阻止特定的内置类型，请将其添加到 permissions.deny，如禁用特定 subagents 中所示</li>
+<li>要防止 Claude 委托给任何 subagent，请使用 permissions.deny 拒绝 Agent 工具本身</li>
+<li><p>
+要仅移除内置的 Explore 和 Plan subagents，请设置 CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1。Claude 直接读取和探索文件，而不是委托给它们
+</p>
+<pre class="example" id="org0dd32e5">
+需要 Claude Code v2.1.198 或更高版本
+</pre></li>
+<li>在非交互模式 和 Agent SDK 中，设置 CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1 以移除所有内置类型并仅提供您自己的</li>
+</ul>
+
+<p>
+除了这些内置 subagents，可以创建自己的，具有自定义提示、工具限制、权限模式、hooks 和 skills
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgb24ada6" class="outline-2">
+<h2 id="orgb24ada6">快速入门：创建第一个 subagent</h2>
+<div class="outline-text-2" id="text-orgb24ada6">
+<p>
+Subagents 是带有 <span class="underline">YAML frontmatter</span> 的 <span class="underline">Markdown</span> 文件。要创建一个，请要求 Claude 为您编写，或者 自己编写文件
+</p>
+<pre class="example" id="orgb59ed8c">
+从 v2.1.198 开始，/agents 命令不再打开交互式创建向导；运行它会打印一个提醒，要求询问 Claude 或直接编辑 .claude/agents/
+
+Subagent 文件、frontmatter 字段以及 .claude/agents/ 和 ~/.claude/agents/ 位置保持不变；仅删除了终端向导
+</pre>
+<p>
+本演练创建一个用户级 subagent，用于审查代码并建议改进：
+</p>
+<ol class="org-ol">
+<li><p>
+要求 Claude 创建 subagent, 在 Claude Code 中，描述想要的 subagent 及其保存位置：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">Create a personal code-improver subagent<span style="color: #00ffff;"> in</span> ~/.claude/agents/ that scans
+files and suggests improvements for readability, performance, and best
+practices. It should explain each issue, show the current code, and
+provide an improved version. Make it read-only and have it use Sonnet.
+</pre>
+</div>
+<pre class="example" id="org088d71d">
+Claude 使用 name、description、tools 列表、model 和系统提示来编写文件
+</pre></li>
+<li><p>
+审查文件, 打开 ~/.claude/agents/code-improver.md 并确认 frontmatter 与要求相符。结果如下所示：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">code-improver</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Scans files and suggests improvements for readability, performance, and best practices. Use after writing or modifying code.</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Read, Grep, Glob</span>
+<span style="color: #eedd82;">model</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">sonnet</span>
+<span style="color: #b3b3b3;">---</span>
+
+You are a code improvement specialist. For each issue you find, explain
+the problem, show the current code, and provide an improved version.
+</pre>
+</div>
+<pre class="example" id="orga29923c">
+因为该文件位于 ~/.claude/agents/，所以 subagent 在机器上的每个项目中都可用
+
+要将其范围限制在一个项目中，请将其移动到该项目的 .claude/agents/ 目录
+</pre></li>
+<li><p>
+尝试一下, 要求 Claude 委托给新的 subagent：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">Use the code-improver agent to suggest improvements<span style="color: #00ffff;"> in</span> this project
+</pre>
+</div>
+<pre class="example" id="orgba0a6aa">
+Claude 委托给您的新 subagent，它扫描代码库并返回改进建议
+
+如果 Claude 找不到新的 subagent，请重新启动 Claude Code 并重试
+
+这仅在会话开始前 ~/.claude/agents/ 不存在时发生，因为运行中的会话不会检测到新创建的 agents 目录
+</pre></li>
+</ol>
+
+<pre class="example" id="orgf8fd8ee">
+现在有了一个 subagent，可以在您机器上的任何项目中使用它来分析代码库并建议改进
+</pre>
+
+<p>
+也可以手动编写 subagent 文件、通过 CLI 标志定义它们，或通过 plugins 分发它们。以下部分涵盖所有配置选项
+</p>
+</div>
+</div>
+<div id="outline-container-org7b0a7ae" class="outline-2">
+<h2 id="org7b0a7ae">配置 subagents</h2>
+<div class="outline-text-2" id="text-org7b0a7ae">
+<p>
+一个 subagent 的文件位置决定了谁可以使用它，其 frontmatter 决定了它可以做什么
+</p>
+<pre class="example" id="org43f370f">
+本节涵盖 subagent 文件的位置以及它们支持的每个字段
+</pre>
+</div>
+<div id="outline-container-org0081f45" class="outline-3">
+<h3 id="org0081f45">选择 subagent 范围</h3>
+<div class="outline-text-3" id="text-org0081f45">
+<p>
+根据范围将 subagent 文件存储在不同的位置。当多个 subagents 共享相同的名称时，Claude Code 使用来自更高优先级位置的那个
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-right" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Location</td>
+<td class="org-left">Scope</td>
+<td class="org-right">Priority</td>
+<td class="org-left">如何创建</td>
+</tr>
+
+<tr>
+<td class="org-left">托管设置</td>
+<td class="org-left">组织范围</td>
+<td class="org-right">1（最高）</td>
+<td class="org-left">通过 managed settings 部署</td>
+</tr>
+
+<tr>
+<td class="org-left">&#x2013;agents CLI 标志</td>
+<td class="org-left">当前会话</td>
+<td class="org-right">2</td>
+<td class="org-left">启动 Claude Code 时传递 JSON</td>
+</tr>
+
+<tr>
+<td class="org-left">.claude/agents/</td>
+<td class="org-left">当前项目</td>
+<td class="org-right">3</td>
+<td class="org-left">询问 Claude，或手动创建文件</td>
+</tr>
+
+<tr>
+<td class="org-left">~/.claude/agents/</td>
+<td class="org-left">所有您的项目</td>
+<td class="org-right">4</td>
+<td class="org-left">询问 Claude，或手动创建文件</td>
+</tr>
+
+<tr>
+<td class="org-left">Plugin 的 agents/ 目录</td>
+<td class="org-left">启用 plugin 的位置</td>
+<td class="org-right">5（最低）</td>
+<td class="org-left">与 plugins 一起安装</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="outline-container-orge1313b3" class="outline-4">
+<h4 id="orge1313b3">项目 subagents（.claude/agents/）</h4>
+<div class="outline-text-4" id="text-orge1313b3">
+<pre class="example" id="org7258705">
+非常适合特定于代码库的 subagents。将它们检入版本控制，以便您的团队可以协作使用和改进它们
+</pre>
+<p>
+项目 subagents 通过从当前工作目录向上遍历来发现，因此会扫描那里和存储库根目录之间的每个 .claude/agents/
+</p>
+<pre class="example" id="org86b9f1c">
+从 v2.1.178 开始，当这些嵌套目录中的多个目录定义相同的 name 时，Claude Code 使用最接近工作目录的定义
+</pre>
+
+<p>
+使用 &#x2013;add-dir 添加的目录也会被扫描：添加目录内的 .claude/agents/ 文件夹与项目 subagents 一起加载
+</p>
+
+<pre class="example" id="org7d32e8d">
+有关哪些其他配置类型从 --add-dir 加载，请参阅 Additional directories
+
+要在没有 --add-dir 的情况下跨项目共享 subagents，请使用 ~/.claude/agents/ 或 plugin
+</pre>
+</div>
+</div>
+<div id="outline-container-org643db9d" class="outline-4">
+<h4 id="org643db9d">用户 subagents（~/.claude/agents/）</h4>
+<div class="outline-text-4" id="text-org643db9d">
+<pre class="example" id="orgd6c303b">
+是在所有项目中可用的个人 subagents
+</pre>
+<p>
+Claude Code 递归扫描 .claude/agents/ 和 ~/.claude/agents/，因此可以将定义组织到子文件夹中
+</p>
+<pre class="example" id="org55fc34c">
+例如 agents/review/ 或 agents/research/
+
+子目录路径不会影响 subagent 的识别或调用方式，因为身份仅来自 name frontmatter 字段
+</pre>
+<p>
+在整个树中保持 name 值唯一：如果同一 .claude/agents/ 目录下的两个文件（包括其子文件夹）声明相同的名称，Claude Code 仅加载其中一个，由文件系统读取顺序选择，而不是有文档记录的优先级。在嵌套项目目录中，最接近工作目录的定义获胜
+</p>
+<pre class="example" id="orgee6fd3b">
+如上所述。/doctor 设置检查报告同一目录中共享名称的文件，并建议重命名或删除除一个之外的所有文件
+
+在 v2.1.205 之前，/doctor 打开一个诊断屏幕，列出重复项并显示哪个定义是活跃的
+</pre>
+<p>
+Plugin agents/ 目录也会被递归扫描。与项目和用户范围不同，plugin 的 agents/ 目录内的子文件夹成为 scoped identifier 的一部分
+</p>
+<pre class="example" id="orgc49ff57">
+plugin my-plugin 中位于 agents/review/security.md 的文件注册为 my-plugin:review:security
+</pre>
+</div>
+</div>
+<div id="outline-container-org1a545d5" class="outline-4">
+<h4 id="org1a545d5">CLI 定义的 subagents</h4>
+<div class="outline-text-4" id="text-org1a545d5">
+<p>
+在启动 Claude Code 时作为 JSON 传递。它们仅存在于该会话中，不会保存到磁盘，使其对快速测试或自动化脚本很有用。可以在单个 &#x2013;agents 调用中定义多个 subagents：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">claude --agents <span style="color: #ffa07a;">'{
+  "code-reviewer": {
+    "description": "Expert code reviewer. Use proactively after code changes.",
+    "prompt": "You are a senior code reviewer. Focus on code quality, security, and best practices.",
+    "tools": ["Read", "Grep", "Glob", "Bash"],
+    "model": "sonnet"
+  },
+  "debugger": {
+    "description": "Debugging specialist for errors and test failures.",
+    "prompt": "You are an expert debugger. Analyze errors, identify root causes, and provide fixes."
+  }
+}'</span>
+</pre>
+</div>
+
+<p>
+&#x2013;agents 标志接受 JSON，具有与基于文件的 subagents 相同的 frontmatter 字段：description、prompt、tools、disallowedTools、model、permissionMode、mcpServers、hooks、maxTurns、skills、initialPrompt、memory、effort、background、isolation 和 color
+</p>
+<pre class="example" id="orgeac8c34">
+对系统提示使用 prompt，等同于基于文件的 subagents 中的 markdown 正文
+</pre>
+</div>
+</div>
+<div id="outline-container-org84904f8" class="outline-4">
+<h4 id="org84904f8">托管 subagents</h4>
+<div class="outline-text-4" id="text-org84904f8">
+<pre class="example" id="orgdce9610">
+由组织管理员部署
+</pre>
+<p>
+在 managed settings directory 内的 .claude/agents/ 中放置 markdown 文件，使用与项目和用户 subagents 相同的 frontmatter 格式
+</p>
+<pre class="example" id="org5c39254">
+托管定义优先于具有相同名称的项目和用户 subagents
+</pre>
+</div>
+</div>
+<div id="outline-container-org5d59fbb" class="outline-4">
+<h4 id="org5d59fbb">Plugin subagents</h4>
+<div class="outline-text-4" id="text-org5d59fbb">
+<pre class="example" id="org3b0638f">
+自您已安装的 plugins
+</pre>
+<p>
+它们与您的自定义 subagents 一起加载，并在 @-mention 类型提前中以其范围名称出现。有关创建 plugin subagents 的详细信息，请参阅 <a href="https://code.claude.com/docs/zh-CN/plugins-reference#agents">plugin 组件参考</a>
+</p>
+
+<pre class="example" id="org40e5f91">
+出于安全原因，plugin subagents 不支持 hooks、mcpServers 或 permissionMode frontmatter 字段
+
+加载来自 plugin 的代理时，这些字段被忽略
+
+如果您需要它们，请将代理文件复制到 .claude/agents/ 或 ~/.claude/agents/
+
+也可以在 settings.json 或 settings.local.json 中向 permissions.allow 添加规则
+
+但这些规则适用于整个会话，而不仅仅是 plugin subagent
+</pre>
+
+<p>
+来自任何这些范围的 subagent 定义也可用于 agent teams：当生成一个队友时，可以引用一个 subagent 类型，队友使用其 tools 和 model，定义的正文作为额外指令附加到队友的系统提示
+</p>
+<pre class="example" id="org2bc1af9">
+有关哪些 frontmatter 字段适用于该路径，请参阅 agent teams
+
+https://code.claude.com/docs/zh-CN/agent-teams#use-subagent-definitions-for-teammates
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgff28ee3" class="outline-3">
+<h3 id="orgff28ee3">编写 subagent 文件</h3>
+<div class="outline-text-3" id="text-orgff28ee3">
+<p>
+Subagent 文件使用 YAML frontmatter 进行配置，然后是 Markdown 中的系统提示：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">code-reviewer</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Reviews code for quality and best practices</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Read, Glob, Grep</span>
+<span style="color: #eedd82;">model</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">sonnet</span>
+<span style="color: #b3b3b3;">---</span>
+
+You are a code reviewer. When invoked, analyze the code and provide
+specific, actionable feedback on quality, security, and best practices.
+</pre>
+</div>
+
+<pre class="example" id="org1c2b88d">
+Claude Code 监视 ~/.claude/agents/ 和 .claude/agents/。当在磁盘上添加或编辑 subagent 文件，或要求 Claude 为您编写一个时，Claude Code 会在几秒内检测到更改，下一次委托使用更新的定义，无需重启
+
+两种情况仍然需要重启：
+监视器仅涵盖会话启动时存在的目录，因此在新 agents 目录中创建范围的第一个代理文件后，重启以加载它
+使用 --disable-slash-commands 启动的会话根本不监视这些目录
+</pre>
+
+<p>
+<span class="underline">Frontmatter</span> 定义了 subagent 的 <b>元数据</b> 和 <b>配置</b> 。 <span class="underline">正文</span> 成为指导 subagent 行为的 <b>系统提示</b>
+</p>
+<pre class="example" id="orge4d91cf">
+Subagents 仅接收此系统提示（加上基本环境详细信息，如工作目录），而不是完整的 Claude Code 系统提示
+</pre>
+<p>
+在 non-interactive mode 中，&#x2013;append-subagent-system-prompt 标志将您提供的文本附加到每个 subagent 的系统提示末尾，包括嵌套 subagents
+</p>
+<pre class="example" id="org3b588e1">
+需要 Claude Code v2.1.205 或更高版本
+</pre>
+<p>
+一个 subagent 在主对话的当前工作目录中启动。在 subagent 中，cd 命令不会在 Bash 或 PowerShell 工具调用之间持续，也不会影响主对话的工作目录
+</p>
+<pre class="example" id="orgb19d728">
+要给 subagent 一个隔离的存储库副本，请改为设置 isolation: worktree
+
+具有 isolation: worktree 的 subagent 在其 worktree 内运行其 Bash 和 PowerShell 命令
+</pre>
+<p>
+一个工作目录解析到您的主检出的命令
+</p>
+<pre class="example" id="org7cd84e2">
+例如因为 worktree 目录在 subagent 运行时被删除，会失败并出现错误
+
+在 v2.1.203 之前，这样的命令可能在主检出中运行
+</pre>
+</div>
+<div id="outline-container-org23cd4bf" class="outline-4">
+<h4 id="org23cd4bf">支持的 frontmatter 字段</h4>
+<div class="outline-text-4" id="text-org23cd4bf">
+<p>
+以下字段可以在 YAML frontmatter 中使用。只有 name 和 description 是必需的
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Field</td>
+<td class="org-left">必需</td>
+<td class="org-left">Description</td>
+</tr>
+
+<tr>
+<td class="org-left">name</td>
+<td class="org-left">是</td>
+<td class="org-left">使用小写字母和连字符的唯一标识符。Hooks 将此值作为 agent_type 接收。文件名不必匹配</td>
+</tr>
+
+<tr>
+<td class="org-left">description</td>
+<td class="org-left">是</td>
+<td class="org-left">Claude 何时应该委托给此 subagent</td>
+</tr>
+
+<tr>
+<td class="org-left">tools</td>
+<td class="org-left">否</td>
+<td class="org-left">Tools subagent 可以使用。如果省略，继承所有工具。要将 Skills 预加载到上下文中，请使用 skills 字段而不是在此处列出 Skill</td>
+</tr>
+
+<tr>
+<td class="org-left">disallowedTools</td>
+<td class="org-left">否</td>
+<td class="org-left">要拒绝的工具，从继承或指定的列表中删除</td>
+</tr>
+
+<tr>
+<td class="org-left">model</td>
+<td class="org-left">否</td>
+<td class="org-left">Model 使用：sonnet、opus、haiku、fable、完整模型 ID（例如，claude-opus-4-8）或 inherit。默认为 inherit</td>
+</tr>
+
+<tr>
+<td class="org-left">permissionMode</td>
+<td class="org-left">否</td>
+<td class="org-left">Permission mode：default、acceptEdits、auto、dontAsk、bypassPermissions、plan 或 manual 作为 default 的别名。manual 别名需要 Claude Code v2.1.200 或更高版本。对于 plugin subagents 被忽略</td>
+</tr>
+
+<tr>
+<td class="org-left">maxTurns</td>
+<td class="org-left">否</td>
+<td class="org-left">subagent 停止前的最大代理轮数</td>
+</tr>
+
+<tr>
+<td class="org-left">skills</td>
+<td class="org-left">否</td>
+<td class="org-left">Skills 在启动时加载到 subagent 的上下文中。注入完整的技能内容，而不仅仅是描述。Subagents 仍然可以通过 Skill 工具调用未列出的项目、用户和 plugin 技能</td>
+</tr>
+
+<tr>
+<td class="org-left">mcpServers</td>
+<td class="org-left">否</td>
+<td class="org-left">MCP servers 对此 subagent 可用。每个条目要么是引用已配置服务器的服务器名称（例如，"slack"），要么是内联定义，其中服务器名称为键，完整的 MCP server config 为值。对于 plugin subagents 被忽略</td>
+</tr>
+
+<tr>
+<td class="org-left">hooks</td>
+<td class="org-left">否</td>
+<td class="org-left">Lifecycle hooks 限定于此 subagent。对于 plugin subagents 被忽略</td>
+</tr>
+
+<tr>
+<td class="org-left">memory</td>
+<td class="org-left">否</td>
+<td class="org-left">Persistent memory scope：user、project 或 local。启用跨会话学习</td>
+</tr>
+
+<tr>
+<td class="org-left">background</td>
+<td class="org-left">否</td>
+<td class="org-left">设置为 true 以始终将此 subagent 作为 background task 运行，即使 Claude 需要其结果。未设置时，Claude 选择，从 v2.1.198 开始，它默认在后台运行 subagents</td>
+</tr>
+
+<tr>
+<td class="org-left">effort</td>
+<td class="org-left">否</td>
+<td class="org-left">此 subagent 活跃时的努力级别。覆盖会话努力级别。默认：从会话继承。选项：low、medium、high、xhigh、max；可用级别取决于模型</td>
+</tr>
+
+<tr>
+<td class="org-left">isolation</td>
+<td class="org-left">否</td>
+<td class="org-left">设置为 worktree 以在临时 git worktree 中运行 subagent，为其提供存储库的隔离副本，默认从您的 default branch 分支，而不是父会话的 HEAD。如果 subagent 不进行任何更改，worktree 会自动清理</td>
+</tr>
+
+<tr>
+<td class="org-left">color</td>
+<td class="org-left">否</td>
+<td class="org-left">Subagent 在任务列表和转录中的显示颜色。接受 red、blue、green、yellow、purple、orange、pink 或 cyan</td>
+</tr>
+
+<tr>
+<td class="org-left">initialPrompt</td>
+<td class="org-left">否</td>
+<td class="org-left">当此代理作为主会话代理运行时（通过 &#x2013;agent 或 agent 设置），自动提交为第一个用户轮次。Commands 和 skills 被处理。前置于任何用户提供的提示</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div id="outline-container-org25312af" class="outline-3">
+<h3 id="org25312af">选择模型</h3>
+<div class="outline-text-3" id="text-org25312af">
+<p>
+<span class="underline">model</span> 字段控制 subagent 使用的 <b>AI model</b> ：
+</p>
+<ul class="org-ul">
+<li>Model alias: 使用可用的别名之一：sonnet、opus、haiku 或 fable</li>
+<li>Full model ID: 使用完整的模型 ID，如 claude-opus-4-8 或 claude-sonnet-5。接受与 &#x2013;model 标志相同的值</li>
+<li>inherit: 使用与主对话相同的模型</li>
+<li>Omitted: 默认为 inherit 并使用与主对话相同的模型</li>
+</ul>
+
+<p>
+当 Claude 调用 subagent 时，它也可以为该特定调用传递 model 参数。Claude Code 按以下顺序解析 subagent 的模型：
+</p>
+<ol class="org-ol">
+<li>CLAUDE_CODE_SUBAGENT_MODEL 环境变量，当设置为模型别名或模型 ID 时</li>
+<li>每次调用的 model 参数</li>
+<li>Subagent 定义的 model frontmatter</li>
+<li>主对话的模型</li>
+</ol>
+
+<pre class="example" id="org1a1c6f1">
+从 v2.1.196 开始，将 CLAUDE_CODE_SUBAGENT_MODEL 设置为 inherit 与不设置它相同
+
+解析继续使用每次调用的 model 参数，然后是 frontmatter
+
+在早期版本中，inherit 强制 subagents 使用主对话的模型，并忽略这两个来源
+</pre>
+
+<p>
+环境变量、每次调用的参数和 frontmatter 值会根据您组织的 availableModels 允许列表进行检查。解析为排除模型的值不会被使用，subagent 会改为在继承的模型上运行
+</p>
+
+<pre class="example" id="org759faf3">
+从 v2.1.198 开始，subagents 也继承主对话的 extended thinking 配置
+
+如果在您的会话中启用了思考，对于 subagent 也启用
+
+如果关闭，则保持关闭，没有每个 subagent 的思考设置
+
+在 v2.1.198 之前，subagents 运行时禁用了扩展思考，无论主对话的设置如何
+</pre>
+</div>
+</div>
+<div id="outline-container-orge86389b" class="outline-3">
+<h3 id="orge86389b">控制 subagent 能力</h3>
+<div class="outline-text-3" id="text-orge86389b">
+<p>
+可以通过工具访问、权限模式和条件规则来控制 subagents 可以做什么
+</p>
+</div>
+<div id="outline-container-org43f6271" class="outline-4">
+<h4 id="org43f6271">可用工具</h4>
+<div class="outline-text-4" id="text-org43f6271">
+<p>
+Subagents 默认继承主对话中可用的 internal tools 和 MCP 工具。以下工具取决于主对话的 UI 或会话状态，即使在 tools 字段中列出也不可用于 subagents：
+</p>
+<ul class="org-ul">
+<li>AskUserQuestion</li>
+<li>EnterPlanMode</li>
+<li>ExitPlanMode，除非 subagent 的 permissionMode 是 plan</li>
+<li>ScheduleWakeup</li>
+<li>WaitForMcpServers</li>
+</ul>
+
+<p>
+要限制工具，使用 <span class="underline">tools</span> 字段 <b>允许列表</b> 或 <span class="underline">disallowedTools</span> 字段 <b>拒绝列表</b> 。此示例使用 tools 来专门允许 Read、Grep、Glob 和 Bash。Subagent 无法编辑文件、写入文件或使用任何 MCP 工具：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">safe-researcher</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Research agent with restricted capabilities</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Read, Grep, Glob, Bash</span>
+<span style="color: #b3b3b3;">---</span>
+</pre>
+</div>
+
+<p>
+此示例使用 disallowedTools 来继承主对话的每个工具，除了 Write 和 Edit。Subagent 保留 Bash、MCP 工具和其他所有内容：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">no-writes</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Inherits every tool except file writes</span>
+<span style="color: #eedd82;">disallowedTools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Write, Edit</span>
+<span style="color: #b3b3b3;">---</span>
+</pre>
+</div>
+
+<pre class="example" id="org72324d8">
+如果两者都设置，disallowedTools 首先应用，然后 tools 针对剩余的池进行解析
+
+同时列在两者中的工具被删除
+</pre>
+
+<p>
+当 tools 列表中没有任何内容解析为工具时，例如因为每个条目都拼写错误或命名了对 subagents 不可用的工具，Claude Code 拒绝启动 subagent，Agent 工具返回一个错误，命名未解析的条目
+</p>
+<pre class="example" id="orgde6c821">
+在 v2.1.208 之前，该 subagent 启动时没有工具，可能返回空的或令人困惑的结果
+</pre>
+
+<p>
+两个字段都接受 MCP 服务器级别的模式，除了精确的工具名称： mcp__&lt;server&gt; 或 mcp__&lt;server&gt;__* 授予或删除来自命名服务器的每个工具。在 disallowedTools 中，mcp__* 也删除来自任何服务器的每个 MCP 工具。此示例删除来自 github MCP 服务器的每个工具，同时保留来自其他服务器的工具和每个内置工具：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">local-only</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Inherits every tool except those from the github MCP server</span>
+<span style="color: #eedd82;">disallowedTools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">mcp__github</span>
+<span style="color: #b3b3b3;">---</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org15351fd" class="outline-4">
+<h4 id="org15351fd">限制可以生成哪些 subagents</h4>
+<div class="outline-text-4" id="text-org15351fd">
+<p>
+当代理作为主线程运行时，使用 claude &#x2013;agent，它可以使用 Agent 工具生成 subagents。要限制它可以生成的 subagent 类型，在 <b>tools</b> 字段中使用 <span class="underline">Agent(agent_type)</span> 语法
+</p>
+
+<pre class="example" id="org704a6ea">
+在版本 2.1.63 中，Task 工具被重命名为 Agent
+
+设置和代理定义中的现有 Task(...) 引用仍然作为别名工作
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">coordinator</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Coordinates work across specialized agents</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Agent(worker, researcher), Read, Bash</span>
+<span style="color: #b3b3b3;">---</span>
+</pre>
+</div>
+
+<p>
+这是一个允许列表：只有 worker 和 researcher subagents 可以被生成。如果代理尝试生成任何其他类型，请求失败，代理在其提示中仅看到允许的类型
+</p>
+<pre class="example" id="orge0fffc9">
+要在允许所有其他类型的同时阻止特定代理，请改用 permissions.deny
+</pre>
+
+<p>
+要允许生成任何 subagent 而不受限制，使用不带括号的 Agent：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Agent, Read, Bash</span>
+</pre>
+</div>
+
+<pre class="example" id="org90a2b08">
+如果 Agent 完全从 tools 列表中省略，代理无法生成任何 subagents
+</pre>
+
+<p>
+Agent(agent_type) 允许列表语法仅适用于作为主线程运行的代理，使用 claude &#x2013;agent。在 subagent 定义中，在 tools 中列出 Agent 让该 subagent 生成<a href="https://code.claude.com/docs/zh-CN/sub-agents#spawn-nested-subagents">嵌套 subagents</a>，但括号内的任何类型列表都被忽略
+</p>
+</div>
+</div>
+<div id="outline-container-orgeed1e9e" class="outline-4">
+<h4 id="orgeed1e9e">将 MCP 服务器限定于 subagent</h4>
+<div class="outline-text-4" id="text-orgeed1e9e">
+<p>
+使用 mcpServers 字段为 subagent 提供对主对话中不可用的 MCP 服务器的访问。此处定义的内联服务器在 subagent 启动时连接，在完成时断开连接。字符串引用共享父会话的连接
+</p>
+
+<pre class="example" id="orgdea58ff">
+mcpServers 字段适用于代理文件可以运行的两个上下文：
+  作为 subagent，通过 Agent 工具或 @-mention 生成
+  作为主会话，使用 --agent 或 agent 设置启动
+
+当代理是主会话时，内联服务器定义与来自 .mcp.json 和设置文件的服务器一起在启动时连接
+</pre>
+
+<p>
+列表中的每个条目要么是内联服务器定义，要么是引用会话中已配置的 MCP 服务器的字符串：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">browser-tester</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Tests features in a real browser using Playwright</span>
+<span style="color: #eedd82;">mcpServers</span><span style="color: #b3b3b3;">:</span>
+  # Inline definition: scoped to this subagent only
+  - <span style="color: #eedd82;">playwright</span><span style="color: #b3b3b3;">:</span>
+      <span style="color: #eedd82;">type</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">stdio</span>
+      <span style="color: #eedd82;">command</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">npx</span>
+      <span style="color: #eedd82;">args</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">["-y", "@playwright/mcp@latest"]</span>
+  # Reference by name: reuses an already-configured server
+  - github
+<span style="color: #b3b3b3;">---</span>
+
+Use the Playwright tools to navigate, screenshot, and interact with pages.
+</pre>
+</div>
+
+<pre class="example" id="org929f986">
+内联定义使用与 .mcp.json 服务器条目相同的架构，由服务器名称键入，并支持 stdio、http、sse 和 ws 类型
+
+要将 MCP 服务器保持在主对话之外，并避免其工具描述消耗那里的上下文，请在此处内联定义它，而不是在 .mcp.json 中
+
+Subagent 获得工具；父对话不获得
+</pre>
+
+<p>
+从 v2.1.153 开始，适用于主会话的 MCP 限制也涵盖在 subagent frontmatter 中声明的服务器：
+</p>
+<ul class="org-ul">
+<li>&#x2013;strict-mcp-config 和 &#x2013;bare</li>
+<li>Enterprise managed MCP configuration</li>
+<li>allowedMcpServers 和 deniedMcpServers 策略</li>
+</ul>
+
+<p>
+当其中之一阻止服务器时，Claude Code 会跳过它并显示一个警告，命名被阻止的服务器
+</p>
+
+<pre class="example" id="org7665519">
+托管设置限制适用于每个 subagent，无论如何定义
+
+--strict-mcp-config 不会过滤通过 --agents 或 SDK agents 选项内联传递的服务器，因为这些是显式调用者输入
+</pre>
+</div>
+</div>
+<div id="outline-container-org59d37a7" class="outline-4">
+<h4 id="org59d37a7">权限模式</h4>
+<div class="outline-text-4" id="text-org59d37a7">
+<p>
+permissionMode 字段控制 subagent 如何处理权限提示。Subagents 从主对话继承权限上下文，并可以覆盖模式，除非父模式优先，如下所述
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Mode</td>
+<td class="org-left">Behavior</td>
+</tr>
+
+<tr>
+<td class="org-left">default</td>
+<td class="org-left">标准权限检查，带有提示</td>
+</tr>
+
+<tr>
+<td class="org-left">acceptEdits</td>
+<td class="org-left">自动接受文件编辑和工作目录或 additionalDirectories 中路径的常见文件系统命令</td>
+</tr>
+
+<tr>
+<td class="org-left">auto</td>
+<td class="org-left">Auto mode：后台分类器审查命令和受保护目录的写入</td>
+</tr>
+
+<tr>
+<td class="org-left">dontAsk</td>
+<td class="org-left">自动拒绝权限提示。显式允许的工具仍然工作；AskUserQuestion、connector 工具 您的组织设置为 ask 和标记为 requiresUserInteraction 的 MCP 工具被拒绝，即使您已允许它们</td>
+</tr>
+
+<tr>
+<td class="org-left">bypassPermissions</td>
+<td class="org-left">跳过权限提示</td>
+</tr>
+
+<tr>
+<td class="org-left">plan</td>
+<td class="org-left">Plan mode（只读探索）</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org648343c">
+谨慎使用 bypassPermissions，它跳过权限提示，允许 subagent 在没有批准的情况下执行操作
+包括对 .git、.config/git、.claude、.vscode、.idea、.husky、.cargo、.devcontainer、.yarn 和 .mvn 的写入
+
+显式 ask 规则、connector 工具 您的组织设置为 ask、标记为 requiresUserInteraction 的 MCP 工具以及根目录和主目录删除（如 rm -rf /）仍然会提示
+有关详细信息，请参阅 permission modes
+https://code.claude.com/docs/zh-CN/permission-modes#skip-all-checks-with-bypasspermissions-mode
+</pre>
+<ul class="org-ul">
+<li>如果父级使用 bypassPermissions 或 acceptEdits，这优先并且无法被覆盖</li>
+<li>如果父级使用 auto mode，subagent 继承 auto mode，其 frontmatter 中的任何 permissionMode 被忽略
+<ul class="org-ul">
+<li>分类器使用与父会话相同的块和允许规则评估 subagent 的工具调用</li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org0d843d6" class="outline-4">
+<h4 id="org0d843d6">将技能预加载到 subagents</h4>
+<div class="outline-text-4" id="text-org0d843d6">
+<p>
+使用 skills 字段在启动时将技能内容注入到 subagent 的上下文中
+</p>
+<pre class="example" id="orgac3f8f8">
+这为 subagent 提供领域知识，而无需在执行期间发现和加载技能
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">api-developer</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Implement API endpoints following team conventions</span>
+<span style="color: #eedd82;">skills</span><span style="color: #b3b3b3;">:</span>
+  - api-conventions
+  - error-handling-patterns
+<span style="color: #b3b3b3;">---</span>
+
+Implement API endpoints. Follow the conventions and patterns from the preloaded skills.
+</pre>
+</div>
+
+<p>
+每个列出的技能的完整内容被注入到 subagent 的上下文中。此字段控制哪些技能被预加载，而不是 subagent 可以访问哪些技能：没有它，subagent 仍然可以在执行期间通过 Skill 工具发现和调用项目、用户和 plugin 技能
+</p>
+<pre class="example" id="orga060080">
+要防止 subagent 完全调用技能，请从 tools 列表中省略 Skill 或将其添加到 disallowedTools
+</pre>
+
+<p>
+无法预加载设置了 <span class="underline">disable-model-invocation: true</span> 的技能，因为预加载来自 Claude 可以调用的相同技能集
+</p>
+<ul class="org-ul">
+<li><p>
+如果列出的技能缺失或被禁用，Claude Code 会跳过它并向调试日志记录警告
+</p>
+<pre class="example" id="org4ad9405">
+这与 在 subagent 中运行技能 相反
+
+使用 subagent 中的 skills，subagent 控制系统提示并加载技能内容
+
+使用技能中的 context: fork，技能内容被注入到您指定的代理中
+
+两者都使用相同的底层系统
+</pre></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orga0f2f15" class="outline-4">
+<h4 id="orga0f2f15">启用持久内存</h4>
+<div class="outline-text-4" id="text-orga0f2f15">
+<p>
+<span class="underline">memory</span> 字段为 subagent 提供一个在对话中幸存的持久目录
+</p>
+<pre class="example" id="orgf7cb4e9">
+Subagent 使用此目录随时间积累知识，例如代码库模式、调试见解和架构决策
+</pre>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">code-reviewer</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Reviews code for quality and best practices</span>
+<span style="color: #eedd82;">memory</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">user</span>
+<span style="color: #b3b3b3;">---</span>
+
+You are a code reviewer. As you review code, update your agent memory with
+patterns, conventions, and recurring issues you discover.
+</pre>
+</div>
+
+<p>
+根据内存应该应用的广泛程度选择范围：
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Scope</td>
+<td class="org-left">Location</td>
+<td class="org-left">使用时机</td>
+</tr>
+
+<tr>
+<td class="org-left">user</td>
+<td class="org-left">~/.claude/agent-memory/&lt;name-of-agent&gt;/</td>
+<td class="org-left">subagent 应该在所有项目中记住学习</td>
+</tr>
+
+<tr>
+<td class="org-left">project</td>
+<td class="org-left">.claude/agent-memory/&lt;name-of-agent&gt;/</td>
+<td class="org-left">subagent 的知识是特定于项目的并可通过版本控制共享</td>
+</tr>
+
+<tr>
+<td class="org-left">local</td>
+<td class="org-left">.claude/agent-memory-local/&lt;name-of-agent&gt;/</td>
+<td class="org-left">subagent 的知识是特定于项目的但不应检入版本控制</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+启用内存时：
+</p>
+<ul class="org-ul">
+<li>Subagent 的系统提示包括读取和写入内存目录的说明</li>
+<li>Subagent 的系统提示还包括内存目录中 MEMORY.md 的前 200 行或 25KB，以先到者为准，以及如果 MEMORY.md 超过该限制则策划 MEMORY.md 的说明</li>
+<li>Read、Write 和 Edit 工具会自动启用，以便 subagent 可以管理其内存文件</li>
+<li>project 是推荐的默认范围。它使 subagent 知识可通过版本控制共享</li>
+<li><p>
+要求 subagent 在开始工作前查阅其内存
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown">&#8220;Review this PR, and check your memory for patterns you&#8217;ve seen before.&#8221;
+</pre>
+</div></li>
+<li><p>
+要求 subagent 在完成任务后更新其内存
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown">&#8220;Now that you&#8217;re done, save what you learned to your memory.&#8221; 
+</pre>
+</div>
+<pre class="example" id="org3995e50">
+随着时间的推移，这会建立一个知识库，使 subagent 更有效
+</pre></li>
+<li><p>
+直接在 subagent 的 markdown 文件中包含内存说明，以便它主动维护自己的知识库：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown">Update your agent memory as you discover codepaths, patterns, library
+locations, and key architectural decisions. This builds up institutional
+knowledge across conversations. Write concise notes about what you found
+and where.
+</pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgaece078" class="outline-4">
+<h4 id="orgaece078">使用 hooks 的条件规则</h4>
+<div class="outline-text-4" id="text-orgaece078">
+<p>
+为了更动态地控制工具使用，使用 <span class="underline">PreToolUse hooks</span> 在执行前验证操作
+</p>
+<pre class="example" id="org1a5349a">
+当需要允许工具的某些操作同时阻止其他操作时，这很有用
+</pre>
+
+<p>
+此示例创建一个仅允许只读数据库查询的 subagent。PreToolUse hook 在每个 Bash 命令执行前运行 command 中指定的脚本：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">db-reader</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Execute read-only database queries</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Bash</span>
+<span style="color: #eedd82;">hooks</span><span style="color: #b3b3b3;">:</span>
+  <span style="color: #eedd82;">PreToolUse</span><span style="color: #b3b3b3;">:</span>
+    - <span style="color: #eedd82;">matcher</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">"Bash"</span>
+      <span style="color: #eedd82;">hooks</span><span style="color: #b3b3b3;">:</span>
+        - <span style="color: #eedd82;">type</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">command</span>
+          <span style="color: #eedd82;">command</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">"./scripts/validate-readonly-query.sh"</span>
+<span style="color: #b3b3b3;">---</span>
+</pre>
+</div>
+
+<p>
+Claude Code 通过 <a href="https://code.claude.com/docs/zh-CN/hooks#pretooluse-input">stdin 将 hook 输入作为 JSON 传递</a> 给 hook 命令。验证脚本读取此 JSON，提取 Bash 命令，并 以代码 2 退出 以阻止写入操作：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown">#!/bin/bash
+<span style="color: #b3b3b3;"># </span><span style="color: #87cefa; font-weight: bold;">./scripts/validate-readonly-query.sh</span>
+
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+<span style="color: #b3b3b3;"># </span><span style="color: #87cefa; font-weight: bold;">Block SQL write operations (case-insensitive)</span>
+if echo "$COMMAND" | grep -iE '<span style="color: #b3b3b3;">\</span>b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE)<span style="color: #b3b3b3;">\</span>b' &gt; /dev/null; then
+echo "Blocked: Only SELECT queries are allowed" &gt;&amp;2
+exit 2
+fi
+
+exit 0
+</pre>
+</div>
+
+<pre class="example" id="org140861d">
+有关完整的输入架构，请参阅 Hook input
+
+有关退出代码如何影响行为，请参阅 exit codes
+
+在 Windows 上，在 PowerShell 中编写 hook 脚本，并在 hook 条目中添加 shell: powershell
+
+如 https://code.claude.com/docs/zh-CN/hooks#windows-powershell-tool
+</pre>
+</div>
+</div>
+<div id="outline-container-orga9b41c3" class="outline-4">
+<h4 id="orga9b41c3">禁用特定 subagents</h4>
+<div class="outline-text-4" id="text-orga9b41c3">
+<p>
+可以通过将 subagents 添加到 settings 中的 deny 数组来防止 Claude 使用特定 subagents。使用格式 <span class="underline">Agent(subagent-name)</span> ，其中 subagent-name 与 subagent 的 name 字段匹配
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"permissions"</span>: {
+        <span style="color: #ffa07a;">"deny"</span>: [<span style="color: #ffa07a;">"Agent(Explore)"</span>, <span style="color: #ffa07a;">"Agent(my-custom-agent)"</span>]
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="org4a05e57">
+这对内置和自定义 subagents 都有效
+</pre>
+<p>
+也可以使用 &#x2013;disallowedTools CLI 标志：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">claude --disallowedTools <span style="color: #ffa07a;">"Agent(Explore)"</span>
+</pre>
+</div>
+
+<pre class="example" id="org5318cdc">
+有关权限规则的更多详细信息
+
+请参阅 https://code.claude.com/docs/zh-CN/permissions#tool-specific-permission-rules
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org8cce566" class="outline-3">
+<h3 id="org8cce566">为 subagents 定义 hooks</h3>
+<div class="outline-text-3" id="text-org8cce566">
+<p>
+Subagents 可以定义在 subagent 的生命周期中运行的 hooks。有两种方式来配置 hooks：
+</p>
+<ul class="org-ul">
+<li>在 subagent 的 frontmatter 中：定义仅在该 subagent 活跃时运行的 hooks</li>
+<li>在 settings.json 中：定义在 subagents 启动或停止时在主会话中运行的 hooks</li>
+</ul>
+</div>
+<div id="outline-container-orgfcd5a43" class="outline-4">
+<h4 id="orgfcd5a43">Subagent frontmatter 中的 Hooks</h4>
+<div class="outline-text-4" id="text-orgfcd5a43">
+<p>
+直接在 subagent 的 markdown 文件中定义 hooks。这些 hooks 仅在该特定 subagent 活跃时运行，并在完成时清理
+</p>
+<pre class="example" id="org4dffcb6">
+Frontmatter hooks 在代理通过 Agent 工具或 @-mention 作为 subagent 生成时触发，以及当代理通过 --agent 或 agent 设置作为主会话运行时触发
+
+在主会话情况下，它们与在 settings.json 中定义的任何 hooks 一起运行
+</pre>
+
+<p>
+所有 hook events 都被支持。subagents 最常见的事件是：
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Event</td>
+<td class="org-left">Matcher input</td>
+<td class="org-left">何时触发</td>
+</tr>
+
+<tr>
+<td class="org-left">PreToolUse</td>
+<td class="org-left">Tool name</td>
+<td class="org-left">在 subagent 使用工具之前</td>
+</tr>
+
+<tr>
+<td class="org-left">PostToolUse</td>
+<td class="org-left">Tool name</td>
+<td class="org-left">在 subagent 使用工具之后</td>
+</tr>
+
+<tr>
+<td class="org-left">Stop</td>
+<td class="org-left">(none)</td>
+<td class="org-left">当 subagent 完成时（在运行时转换为 SubagentStop）</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+使用 PreToolUse hook 验证 Bash 命令，并在文件编辑后使用 PostToolUse 运行 linter：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">code-reviewer</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Review code changes with automatic linting</span>
+<span style="color: #eedd82;">hooks</span><span style="color: #b3b3b3;">:</span>
+  <span style="color: #eedd82;">PreToolUse</span><span style="color: #b3b3b3;">:</span>
+    - <span style="color: #eedd82;">matcher</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">"Bash"</span>
+      <span style="color: #eedd82;">hooks</span><span style="color: #b3b3b3;">:</span>
+        - <span style="color: #eedd82;">type</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">command</span>
+          <span style="color: #eedd82;">command</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">"./scripts/validate-command.sh $TOOL_INPUT"</span>
+  <span style="color: #eedd82;">PostToolUse</span><span style="color: #b3b3b3;">:</span>
+    - <span style="color: #eedd82;">matcher</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">"Edit|Write"</span>
+      <span style="color: #eedd82;">hooks</span><span style="color: #b3b3b3;">:</span>
+        - <span style="color: #eedd82;">type</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">command</span>
+          <span style="color: #eedd82;">command</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">"./scripts/run-linter.sh"</span>
+<span style="color: #b3b3b3;">---</span>
+</pre>
+</div>
+
+<pre class="example" id="orgbffc489">
+Frontmatter 中的 Stop hooks 会自动转换为 SubagentStop 事件
+</pre>
+</div>
+</div>
+<div id="outline-container-org2f1dece" class="outline-4">
+<h4 id="org2f1dece">用于 subagent 事件的项目级 hooks</h4>
+<div class="outline-text-4" id="text-org2f1dece">
+<p>
+在 settings.json 中配置 hooks，以响应主会话中的 subagent 生命周期事件
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Event</td>
+<td class="org-left">Matcher input</td>
+<td class="org-left">何时触发</td>
+</tr>
+
+<tr>
+<td class="org-left">SubagentStart</td>
+<td class="org-left">Agent type name</td>
+<td class="org-left">当 subagent 开始执行时</td>
+</tr>
+
+<tr>
+<td class="org-left">SubagentStop</td>
+<td class="org-left">Agent type name</td>
+<td class="org-left">当 subagent 完成时</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+两个事件都支持匹配器以按名称针对特定代理类型。匹配器值是项目级和用户级 subagents 的代理 frontmatter name，或 plugin subagents 的 plugin 范围标识符
+</p>
+<pre class="example" id="org12d66d9">
+例如 my-plugin:db-agent。范围名称包含冒号，因此它被评估为 unanchored regular expression
+
+使用 ^ 和 $ 锚定它，如 ^my-plugin:db-agent$，以仅匹配该代理
+</pre>
+
+<p>
+仅在 db-agent subagent 启动时运行设置脚本，并在任何 subagent 停止时运行清理脚本：
+</p>
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"hooks"</span>: {
+        <span style="color: #ffa07a;">"SubagentStart"</span>: [
+            {
+                <span style="color: #ffa07a;">"matcher"</span>: <span style="color: #ffa07a;">"db-agent"</span>,
+                <span style="color: #ffa07a;">"hooks"</span>: [
+                    { <span style="color: #ffa07a;">"type"</span>: <span style="color: #ffa07a;">"command"</span>, <span style="color: #ffa07a;">"command"</span>: <span style="color: #ffa07a;">"./scripts/setup-db-connection.sh"</span> }
+                ]
+            }
+        ],
+        <span style="color: #ffa07a;">"SubagentStop"</span>: [
+            {
+                <span style="color: #ffa07a;">"hooks"</span>: [
+                    { <span style="color: #ffa07a;">"type"</span>: <span style="color: #ffa07a;">"command"</span>, <span style="color: #ffa07a;">"command"</span>: <span style="color: #ffa07a;">"./scripts/cleanup-db-connection.sh"</span> }
+                ]
+            }
+        ]
+    }
+}
+</pre>
+</div>
+
+<p>
+一个带连字符的匹配器，如 db-agent，在 Claude Code v2.1.195 或更高版本上精确匹配
+</p>
+<pre class="example" id="org81a85b4">
+在早期版本上，它被评估为 unanchored regular expression，也会为任何包含它的代理类型触发
+
+例如 prod-db-agent；在这些版本上使用 ^db-agent$ 锚定它
+</pre>
+
+<p>
+有关完整的 hook 配置格式，请参阅<a href="https://code.claude.com/docs/zh-CN/hooks">Hooks</a>
+</p>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orgfd3015a" class="outline-2">
+<h2 id="orgfd3015a">使用 subagents</h2>
+<div class="outline-text-2" id="text-orgfd3015a">
+</div>
+<div id="outline-container-orge8a4c2d" class="outline-3">
+<h3 id="orge8a4c2d">理解自动委托</h3>
+<div class="outline-text-3" id="text-orge8a4c2d">
+<p>
+Claude 根据请求中的任务描述、subagent 配置中的 description 字段和当前上下文自动委托任务
+</p>
+<pre class="example" id="orgbd0e0cf">
+要鼓励主动委托，在 subagent 的 description 字段中包含”use proactively”之类的短语
+</pre>
+</div>
+</div>
+<div id="outline-container-org3f34b47" class="outline-3">
+<h3 id="org3f34b47">显式调用 subagents</h3>
+<div class="outline-text-3" id="text-org3f34b47">
+<p>
+当自动委托不够时，您可以自己请求 subagent。三种模式从一次性建议升级到会话范围的默认值：
+</p>
+<ul class="org-ul">
+<li>自然语言：在提示中命名 subagent；Claude 决定是否委托</li>
+<li>@-mention：保证 subagent 为一个任务运行</li>
+<li>会话范围：整个会话使用该 subagent 的系统提示、工具限制和模型，通过 &#x2013;agent 标志或 agent 设置</li>
+</ul>
+
+<p>
+对于自然语言，没有特殊语法。命名 subagent，Claude 通常会委托：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">Use the test-runner subagent to fix failing tests
+Have the code-reviewer subagent look at my recent changes
+</pre>
+</div>
+
+<p>
+@-mention subagent。 输入 @ 并从类型提前中选择 subagent，就像您 @-mention 文件一样。这确保特定 subagent 运行，而不是将选择留给 Claude：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">@<span style="color: #ffa07a;">"code-reviewer (agent)"</span> look at the auth changes
+</pre>
+</div>
+
+<pre class="example" id="org5d73e93">
+您的完整消息仍然发送给 Claude，它根据您的要求为 subagent 编写任务提示
+
+@-mention 控制调用哪个 subagent，而不是它接收什么提示
+</pre>
+
+<p>
+由启用的 plugin 提供的 Subagents 在类型提前中显示为其作用域名称
+</p>
+<pre class="example" id="org8e57f5f">
+例如 my-plugin:code-reviewer 或 my-plugin:review:security，当 plugin 将 agents 组织到子文件夹中
+
+命名背景 subagents 当前在会话中运行也出现在类型提前中，在名称旁边显示其状态
+</pre>
+
+<p>
+也可以手动输入提及而不使用选择器：@agent-&lt;name&gt; 用于本地 subagents，或 @agent- 后跟 plugin subagents 的作用域名称
+</p>
+<pre class="example" id="org6a82327">
+例如 @agent-my-plugin:code-reviewer
+</pre>
+
+<p>
+将整个会话作为 subagent 运行。 传递 &#x2013;agent &lt;name&gt; 以启动一个会话，其中主线程本身采用该 subagent 的系统提示、工具限制和模型：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">claude --agent code-reviewer
+</pre>
+</div>
+
+<p>
+Subagent 的系统提示完全替换默认 Claude Code 系统提示，就像 &#x2013;system-prompt 一样。CLAUDE.md 文件和项目内存仍然通过正常消息流加载。代理名称在启动标题中显示为 @&lt;name&gt;，以便可以确认它是活跃的
+</p>
+
+<pre class="example" id="orgb939659">
+这适用于内置和自定义 subagents，当您恢复会话时选择会持续
+</pre>
+
+<p>
+对于 plugin 提供的 subagent，可以仅传递代理名称，Claude Code 会找到它：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">claude --agent security-reviewer
+</pre>
+</div>
+
+<p>
+如果多个 plugins 提供具有相同名称的 agents，传递作用域名称以消除歧义：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">claude --agent my-plugin:security-reviewer
+</pre>
+</div>
+
+<p>
+如果 plugin 将 agent 放在其 agents/ 目录的子文件夹中，请在作用域名称中包含子文件夹
+</p>
+<pre class="example" id="org69c9294">
+例如 claude --agent my-plugin:review:security
+</pre>
+
+<p>
+要使其成为项目中每个会话的默认值，在 .claude/settings.json 中设置 agent：
+</p>
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"agent"</span>: <span style="color: #ffa07a;">"code-reviewer"</span>
+}
+</pre>
+</div>
+
+<pre class="example" id="orgf0688f4">
+如果两者都存在，CLI 标志覆盖设置
+</pre>
+</div>
+</div>
+<div id="outline-container-org982c3ec" class="outline-3">
+<h3 id="org982c3ec">在前台或后台运行 subagents</h3>
+<div class="outline-text-3" id="text-org982c3ec">
+<p>
+Subagents 可以在前台或后台运行：
+</p>
+<ul class="org-ul">
+<li>前台 subagents： 阻塞主对话直到完成。权限提示会在出现时传递给您</li>
+<li><p>
+后台 subagents： 在继续工作时并发运行。从 v2.1.186 开始，当后台 subagent 到达需要权限的工具调用时，提示会在您的主会话中显示，并命名正在请求的 subagent。批准以让 subagent 继续，或按 Esc 拒绝该单个工具调用而不停止 subagent
+</p>
+<pre class="example" id="org45543e7">
+在 v2.1.186 之前，后台 subagents 自动拒绝任何会提示的工具调用
+</pre></li>
+</ul>
+
+<pre class="example" id="org8179a4d">
+从 v2.1.198 开始，subagents 默认在后台运行。Claude 在需要结果才能继续时在前台运行 subagent
+
+默认值改变 subagent 运行的位置，而不是它被允许做什么：后台 subagents 仍然在您的主会话中显示每个权限提示
+
+在 v2.1.198 之前，Claude 根据任务在前台和后台之间选择
+</pre>
+
+<p>
+也可以自己控制这个：
+</p>
+<ul class="org-ul">
+<li>要求 Claude 在后台或前台运行任务</li>
+<li>按 Ctrl+B 将运行中的任务放在后台</li>
+</ul>
+
+<p>
+完成的后台 subagent 在 /tasks 中保持列出，标记为完成并排序在运行工作下方，直到会话清理其任务列表。当 subagent 完成时，其详情视图保持打开。失败或您停止的 Subagents 离开列表
+</p>
+<pre class="example" id="org5780877">
+在 v2.1.208 之前，完成的 subagent 在完成时立即离开列表，其详情视图关闭
+</pre>
+
+<ul class="org-ul">
+<li>要禁用所有后台任务功能，请将 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS 环境变量设置为 1</li>
+<li><p>
+当 CLAUDE_CODE_FORK_SUBAGENT 设置为 1 时，每个 subagent 生成都在后台运行
+</p>
+<pre class="example" id="org2aa8078">
+frontmatter background 字段无效，因为 fork 模式从 Agent 工具中移除了 run_in_background 参数
+</pre></li>
+<li>CLAUDE_CODE_DISABLE_BACKGROUND_TASKS 优先于 fork 模式，并将 subagent 生成保持在前台</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgca38345" class="outline-3">
+<h3 id="orgca38345">Subagents 中的 API 错误</h3>
+<div class="outline-text-3" id="text-orgca38345">
+<pre class="example" id="org480902c">
+从 v2.1.199 开始，subagent 的运行因 API 错误（例如使用限制或重复的服务器错误）而结束时，会向 Claude 报告该失败
+
+而不是返回错误文本，就像它是 subagent 的发现一样
+</pre>
+<p>
+Claude 接收的内容取决于 subagent 运行的位置：
+</p>
+<ul class="org-ul">
+<li><p>
+前台：如果速率限制、过载或服务器错误切断已经产生输出的 subagent，Agent 工具返回该部分输出，并注明 subagent 被切断且未完成其任务。未产生任何内容的 subagent，或其唯一输出是工具调用的 subagent，失败并出现 Agent terminated early due to an API error，后跟错误详情
+</p>
+<pre class="example" id="orgca76aa0">
+在 v2.1.199 中，切断仅工具调用形状的速率限制、过载或服务器错误返回了仅包含切断注记的空部分结果
+</pre></li>
+<li>后台：subagent 被标记为失败，Claude 在其结束时接收的消息命名 API 错误并包括 subagent 的最后输出，所以部分工作不会丢失</li>
+</ul>
+
+<p>
+一旦底层 API 错误清除，要求 Claude 重试任务或 <a href="https://code.claude.com/docs/zh-CN/sub-agents#resume-subagents">恢复 subagent</a>
+</p>
+</div>
+</div>
+<div id="outline-container-org5b84386" class="outline-3">
+<h3 id="org5b84386">常见模式</h3>
+<div class="outline-text-3" id="text-org5b84386">
+</div>
+<div id="outline-container-orgd1784ac" class="outline-4">
+<h4 id="orgd1784ac">隔离高容量操作</h4>
+<div class="outline-text-4" id="text-orgd1784ac">
+<p>
+subagents 最有效的用途之一是隔离产生大量输出的操作。运行测试、获取文档或处理日志文件可能会消耗大量上下文
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">Use a subagent to run the test suite and report only the failing tests with their error messages
+</pre>
+</div>
+
+<pre class="example" id="org052d0b8">
+通过将这些委托给 subagent，详细输出保留在 subagent 的上下文中，而只有相关摘要返回到您的主对话
+</pre>
+</div>
+</div>
+<div id="outline-container-org56ed0f6" class="outline-4">
+<h4 id="org56ed0f6">运行并行研究</h4>
+<div class="outline-text-4" id="text-org56ed0f6">
+<p>
+对于独立的调查，生成多个 subagents 以同时工作：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">Research the authentication, database, and API modules<span style="color: #00ffff;"> in</span> parallel using separate subagents
+</pre>
+</div>
+
+<p>
+每个 subagent 独立探索其区域，然后 Claude 综合这些发现。当研究路径彼此不依赖时，这效果最好
+</p>
+
+<pre class="example" id="org91669ef">
+当 subagents 完成时，它们的结果返回到您的主对话
+
+运行许多 subagents，每个都返回详细结果，可能会消耗大量上下文
+</pre>
+
+<p>
+对于需要持续并行性或超过 context window 的任务，<a href="https://code.claude.com/docs/zh-CN/agent-teams">agent teams</a> 为每个工作者提供自己的独立上下文
+</p>
+</div>
+</div>
+<div id="outline-container-org117a80b" class="outline-4">
+<h4 id="org117a80b">链接 subagents</h4>
+<div class="outline-text-4" id="text-org117a80b">
+<p>
+对于多步骤工作流，要求 Claude 按顺序使用 subagents。每个 subagent 完成其任务并将结果返回给 Claude，然后将相关上下文传递给下一个 subagent
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">Use the code-reviewer subagent to find performance issues, then use the optimizer subagent to fix them
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org1e8b1fa" class="outline-3">
+<h3 id="org1e8b1fa">在 subagents 和主对话之间选择</h3>
+<div class="outline-text-3" id="text-org1e8b1fa">
+<p>
+在以下情况下使用 <b>主对话</b> ：
+</p>
+<ul class="org-ul">
+<li>任务需要频繁的来回或迭代细化</li>
+<li>多个阶段共享重要上下文，例如规划、实现和测试</li>
+<li>正在进行快速、有针对性的更改</li>
+<li>延迟很重要。Subagents 从头开始，可能需要时间来收集上下文</li>
+</ul>
+
+<p>
+在以下情况下使用 <b>subagents</b> ：
+</p>
+<ul class="org-ul">
+<li>任务产生不需要在主上下文中的详细输出</li>
+<li>想强制执行特定的工具限制或权限</li>
+<li>工作是自包含的，可以返回摘要</li>
+</ul>
+
+<p>
+当想要可重用的提示或在主对话上下文中运行的工作流而不是隔离的 subagent 上下文时，请改为考虑 <a href="https://code.claude.com/docs/zh-CN/skills">Skills</a>
+</p>
+
+<p>
+对于关于对话中已有内容的快速问题，使用 <span class="underline">/btw</span> 而不是 subagent
+</p>
+<pre class="example" id="org0e864bf">
+它看到您的完整上下文但没有工具访问，答案被丢弃而不是添加到历史记录
+</pre>
+</div>
+</div>
+<div id="outline-container-org295a16b" class="outline-3">
+<h3 id="org295a16b">生成嵌套 subagents</h3>
+<div class="outline-text-3" id="text-org295a16b">
+<pre class="example" id="org04f709d">
+从 Claude Code v2.1.172 开始，subagent 可以生成自己的 subagents
+
+当委托的任务本身分裂成并行子任务时使用这个
+
+例如审查者 subagent 为每个发现分派一个验证者，所以中间输出永远不会到达您的主对话
+
+只有顶级 subagent 的摘要返回给您
+</pre>
+
+<p>
+嵌套 subagent 的配置方式与顶级 subagent 相同，并从相同的 <a href="https://code.claude.com/docs/zh-CN/sub-agents#choose-the-subagent-scope">scopes</a> 解析
+</p>
+
+<pre class="example" id="org01d032d">
+subagent 面板在提示输入下方显示完整的树：每行显示一个 (+N) 后代计数
+
+从 v2.1.193 开始，打开一行显示该 subagent 的兄弟和直接子代，以及返回到 main 的路径
+</pre>
+<p>
+深度计算为主对话下方的 subagent 级别数，无论每个级别是否在 前台或后台 运行
+</p>
+<pre class="example" id="orgc16d1b3">
+深度为五的 subagent 不接收 Agent 工具，无法进一步生成。限制是固定的且不可配置
+</pre>
+<p>
+从 Claude Code v2.1.187 开始，后台 subagent 的深度在首次生成时是固定的，恢复它稍后不会改变该深度
+</p>
+<pre class="example" id="org8913205">
+例如，如果您的主对话生成 subagent A，而 A 在深度二生成后台 subagent B
+
+当您直接从主对话恢复 B 时，B 仍然在深度二
+
+从更浅的上下文恢复 subagent 不会让它生成深度限制已经阻止的额外级别
+</pre>
+<p>
+要防止特定 subagent 生成其他 subagents，从其 tools 列表中省略 Agent 或将其添加到 disallowedTools
+</p>
+
+<pre class="example" id="org0e55df7">
+fork 仍然无法生成另一个 fork。它可以生成其他 subagent 类型，这些计入深度限制
+</pre>
+</div>
+</div>
+<div id="outline-container-orge141bd6" class="outline-3">
+<h3 id="orge141bd6">管理 subagent 上下文</h3>
+<div class="outline-text-3" id="text-orge141bd6">
+</div>
+<div id="outline-container-org182fe8c" class="outline-4">
+<h4 id="org182fe8c">启动时加载的内容</h4>
+<div class="outline-text-4" id="text-org182fe8c">
+<p>
+每个 subagent 都以新鲜的隔离上下文窗口开始。它看不到您的对话历史、已经调用的技能或 Claude 已经读取的文件。Claude 编写一条委托消息来总结任务，subagent 从那里开始工作
+</p>
+<pre class="example" id="orga611cd7">
+例外是 fork，它继承父对话而不是从头开始
+</pre>
+
+<p>
+非 fork subagent 的初始上下文包含：
+</p>
+<ul class="org-ul">
+<li>系统提示：代理自己的提示加上 Claude Code 附加的环境详情，而不是完整的 Claude Code 系统提示
+<ul class="org-ul">
+<li>自定义 subagents 在 markdown 正文 或 prompt 字段中定义它们</li>
+<li>内置代理有预定义的提示</li>
+</ul></li>
+<li>任务消息：Claude 在移交工作时编写的委托提示</li>
+<li>CLAUDE.md 和内存：主对话加载的 内存层次结构 的每个级别，包括 ~/.claude/CLAUDE.md、项目规则、CLAUDE.local.md 和托管策略文件
+<ul class="org-ul">
+<li>内置的 Explore 和 Plan 代理跳过这个</li>
+</ul></li>
+<li>Git 状态：在父会话开始时拍摄的快照
+<ul class="org-ul">
+<li>当工作目录不是 Git 存储库或 includeGitInstructions 为 false 时不存在</li>
+<li>Explore 和 Plan 无论如何都跳过它</li>
+</ul></li>
+<li>预加载的技能：代理的 skills 字段 中命名的任何技能的完整内容
+<ul class="org-ul">
+<li>内置代理不预加载技能</li>
+</ul></li>
+<li><p>
+兄弟名单：系统提醒，列出 main 和会话中的每个其他命名代理，每个都是 SendMessage 的有效 to 值
+</p>
+<pre class="example" id="orgf3e243c">
+需要 Claude Code v2.1.206 或更高版本
+
+名单仅在 subagent 的工具包括 SendMessage 且至少有一个其他代理有名称时出现
+
+无论 Claude 在生成时命名它还是它作为 agent team 队友运行
+
+它是 subagent 启动时拍摄的快照，所以稍后命名的代理不会出现
+</pre></li>
+</ul>
+
+<p>
+Explore 和 Plan 是仅有的省略 CLAUDE.md 和 git 状态的 subagents
+</p>
+<pre class="example" id="org59f7225">
+没有 frontmatter 字段或按代理设置来改变哪些代理跳过它们
+</pre>
+
+<p>
+主对话使用完整的 CLAUDE.md 上下文读取 Explore 和 Plan 结果，所以大多数规则不需要到达 subagent 本身
+</p>
+<pre class="example" id="org95c260e">
+如果规则必须，例如”忽略 vendor/ 目录”，在您给 Claude 委托时的提示中重新陈述它
+</pre>
+</div>
+</div>
+<div id="outline-container-orgf609294" class="outline-4">
+<h4 id="orgf609294">恢复 subagents</h4>
+<div class="outline-text-4" id="text-orgf609294">
+<pre class="example" id="org7e88a2c">
+每个 subagent 调用都会创建一个具有新鲜上下文的新实例
+
+要继续现有 subagent 的工作而不是重新开始，要求 Claude 恢复它
+</pre>
+
+<p>
+恢复的 subagents 保留其完整的对话历史，包括所有以前的工具调用、结果和推理。Subagent 从它停止的地方继续，而不是从头开始
+</p>
+
+<pre class="example" id="orgbed7beb">
+当 subagent 完成时，Claude 接收其代理 ID。内置的 Explore 和 Plan 代理是一次性的，不返回代理 ID，所以它们无法恢复
+
+当需要继续工作时，使用 general-purpose 或自定义 subagent
+</pre>
+
+<p>
+Claude 使用 SendMessage 工具，将代理的 ID 或名称作为 to 字段来恢复它。SendMessage 不需要启用 agent teams
+</p>
+<pre class="example" id="org1b07b52">
+只有结构化的团队协议消息，例如 shutdown_request 和 plan_approval_response，才需要启用
+</pre>
+
+<p>
+要恢复 subagent，要求 Claude 继续之前的工作：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown">Use the code-reviewer subagent to review the authentication module
+[Agent completes]
+
+Continue that code review and now analyze the authorization logic
+[Claude resumes the subagent with full context from previous conversation]
+</pre>
+</div>
+
+<p>
+完成的 subagent 如果接收 SendMessage，会在后台自动恢复，无需新的 Agent 调用。同样适用于 Claude 用 TaskStop 工具停止的 subagent
+</p>
+
+<pre class="example" id="orga2e2160">
+从 v2.1.191 开始，自己停止的 subagent，使用 /tasks 中的 x 或 SDK stop_task 请求，不会自动恢复
+
+SendMessage 调用返回拒绝，告诉 Claude 代理已被取消
+
+在 subagent 面板中输入到该 subagent 的转录以自己恢复它，这会清除停止，以便稍后 SendMessage 调用可以再次自动恢复它
+</pre>
+
+<p>
+恢复在相同 ID 下启动代理的新运行，所以已经失败或完成的 subagent 在任务列表和 Agent SDK 的任务事件中再次显示为运行
+</p>
+<pre class="example" id="orgb836f36">
+在 v2.1.205 之前，它在恢复的运行工作时保持显示其早期的失败或完成状态
+</pre>
+
+<p>
+可以要求 Claude 提供代理 ID，如果想明确引用它，或在 ~/.claude/projects/{project}/{sessionId}/subagents/ 的转录文件中找到 ID。每个转录存储为 <span class="underline">agent-{agentId}.jsonl</span>
+</p>
+
+<p>
+Subagent 转录独立于主对话持久化：
+</p>
+<ul class="org-ul">
+<li>主对话压缩：当主对话压缩时，subagent 转录不受影响。它们存储在单独的文件中</li>
+<li>会话持久性：Subagent 转录在其会话中持久化。可以通过恢复相同的会话在重启 Claude Code 后 恢复 subagent</li>
+<li>自动清理：转录根据 cleanupPeriodDays 设置（默认为 30 天）进行清理</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org8615298" class="outline-4">
+<h4 id="org8615298">自动压缩</h4>
+<div class="outline-text-4" id="text-org8615298">
+<p>
+Subagents 支持使用与主对话相同的逻辑进行自动压缩。压缩在相同条件下触发，CLAUDE_AUTOCOMPACT_PCT_OVERRIDE 也适用于 subagents
+</p>
+
+<p>
+压缩事件记录在 subagent 转录文件中：
+</p>
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"type"</span>: <span style="color: #ffa07a;">"system"</span>,
+    <span style="color: #ffa07a;">"subtype"</span>: <span style="color: #ffa07a;">"compact_boundary"</span>,
+    <span style="color: #ffa07a;">"compactMetadata"</span>: {
+        <span style="color: #ffa07a;">"trigger"</span>: <span style="color: #ffa07a;">"auto"</span>,
+        <span style="color: #ffa07a;">"preTokens"</span>: 167189
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="org30a1222">
+preTokens 值显示压缩发生前使用了多少令牌
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org7bc42a1" class="outline-2">
+<h2 id="org7bc42a1">分叉当前对话</h2>
+<div class="outline-text-2" id="text-org7bc42a1">
+<pre class="example" id="org348f92f">
+分叉 subagents 需要 Claude Code v2.1.117 或更高版本
+
+从 v2.1.161 开始，/fork 命令默认启用；在早期版本中，它需要将 CLAUDE_CODE_FORK_SUBAGENT 环境变量设置为 1
+
+让 Claude 本身生成分叉是实验性的，可能在未来版本中更改
+
+此功能也可以在交互式会话中启用，作为分阶段推出的一部分
+</pre>
+
+<p>
+分叉是一个 subagent，它继承到目前为止的整个对话，而不是从头开始。这消除了 subagents 通常提供的输入隔离：分叉看到与主会话相同的系统提示、工具、模型和消息历史
+</p>
+<pre class="example" id="org885c90b">
+因此可以将其交给一个辅助任务而无需重新解释情况
+</pre>
+<p>
+分叉自己的工具调用仍然保持在您的对话之外，只有其最终结果返回，因此主 context window 保持干净
+</p>
+<pre class="example" id="org3a42639">
+当命名 subagent 需要太多 context 才能有用时，或当想从相同的起点并行尝试多种方法时，使用分叉
+</pre>
+
+<p>
+要控制分叉模式而不管分阶段推出，将 CLAUDE_CODE_FORK_SUBAGENT 设置为 1 以显式启用它，或设置为 0 以禁用它
+</p>
+<pre class="example" id="orge755f61">
+该变量在交互模式以及通过 SDK 或 claude -p 中被遵守
+</pre>
+
+<p>
+启用分叉模式以两种方式改变 Claude Code：
+</p>
+<ul class="org-ul">
+<li>Claude 可以通过显式请求 fork subagent 类型来生成分叉
+<ul class="org-ul">
+<li>没有 subagent 类型的生成仍然使用 general-purpose subagent</li>
+<li>命名 subagents 如 Explore 仍然像以前一样生成</li>
+</ul></li>
+<li>每个 subagent 生成都在 background 中运行，无论它是分叉还是命名 subagent
+<ul class="org-ul">
+<li>设置 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS 为 1 以保持生成同步</li>
+</ul></li>
+</ul>
+
+<p>
+可以使用 <span class="underline">/fork</span> 后跟指令自己启动分叉，无论是否设置了变量。Claude Code 从指令的前几个单词命名分叉。以下示例分叉对话以在继续主会话中的实现时草拟测试用例：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">/fork draft unit tests for the parser changes so far
+</pre>
+</div>
+
+<p>
+分叉出现在提示下方的面板中，并在您继续工作时在后台运行。完成后，其结果作为消息到达您的主对话
+</p>
+
+<pre class="example" id="org142de85">
+下一部分涵盖了在分叉运行时观察和引导它们的面板控制
+</pre>
+</div>
+<div id="outline-container-org979bae8" class="outline-3">
+<h3 id="org979bae8">观察和引导运行中的分叉</h3>
+<div class="outline-text-3" id="text-org979bae8">
+<p>
+运行中的分叉出现在提示输入下方的面板中，主会话有一行，每个分叉有一行。使用这些键与面板交互：
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Key</td>
+<td class="org-left">Action</td>
+</tr>
+
+<tr>
+<td class="org-left">↑ / ↓</td>
+<td class="org-left">在行之间移动</td>
+</tr>
+
+<tr>
+<td class="org-left">Enter</td>
+<td class="org-left">打开所选分叉的转录并向其发送后续消息</td>
+</tr>
+
+<tr>
+<td class="org-left">x</td>
+<td class="org-left">关闭完成的分叉或停止运行中的分叉</td>
+</tr>
+
+<tr>
+<td class="org-left">Esc</td>
+<td class="org-left">将焦点返回到提示输入</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+打开分叉或 subagent 的转录后，后续消息和 skills 会发送到该代理，但内置命令仍在主对话中运行
+</p>
+
+<pre class="example" id="org3bc7b4f">
+从 v2.1.199 开始，在该视图中键入 /model 或 /fast 会显示一条通知
+
+说明它改变主对话的模型或快速模式，而不是所查看代理的，而不是静默运行它
+</pre>
+</div>
+</div>
+<div id="outline-container-org192a24e" class="outline-3">
+<h3 id="org192a24e">分叉与命名 subagents 的区别</h3>
+<div class="outline-text-3" id="text-org192a24e">
+<p>
+分叉继承主会话在生成时拥有的一切。命名 subagent 从自己的定义开始
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">&#xa0;</td>
+<td class="org-left">分叉</td>
+<td class="org-left">命名 subagent</td>
+</tr>
+
+<tr>
+<td class="org-left">上下文</td>
+<td class="org-left">完整的对话历史</td>
+<td class="org-left">新鲜上下文，带有传递的提示</td>
+</tr>
+
+<tr>
+<td class="org-left">系统提示和工具</td>
+<td class="org-left">与主会话相同</td>
+<td class="org-left">来自 subagent 的 definition file</td>
+</tr>
+
+<tr>
+<td class="org-left">模型</td>
+<td class="org-left">与主会话相同</td>
+<td class="org-left">来自 subagent 的 model 字段</td>
+</tr>
+
+<tr>
+<td class="org-left">权限</td>
+<td class="org-left">提示在您的终端中出现</td>
+<td class="org-left">提示在后台运行时在您的主会话中出现</td>
+</tr>
+
+<tr>
+<td class="org-left">Prompt cache</td>
+<td class="org-left">与主会话共享</td>
+<td class="org-left">单独的缓存</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+因为分叉的系统提示和工具定义与父级相同，其第一个请求重用父级的 <a href="https://code.claude.com/docs/zh-CN/prompt-caching#subagents-and-the-cache">prompt cache</a>
+</p>
+
+<pre class="example" id="org9736775">
+这使得分叉比为需要相同上下文的任务生成新 subagent 更便宜
+</pre>
+
+<p>
+当 Claude 通过 Agent 工具生成分叉时，它可以传递 <span class="underline">isolation: "worktree"</span> 以便分叉的文件编辑被写入单独的 git worktree 而不是检出
+</p>
+</div>
+</div>
+<div id="outline-container-org7953ceb" class="outline-3">
+<h3 id="org7953ceb">限制</h3>
+<div class="outline-text-3" id="text-org7953ceb">
+<p>
+设置 <span class="underline">CLAUDE_CODE_FORK_SUBAGENT=1</span> 在交互式会话、<a href="https://code.claude.com/docs/zh-CN/headless">non-interactive mode</a> 和 Agent SDK 中启用分叉模式
+</p>
+<ul class="org-ul">
+<li>将其设置为 0 会在所有地方禁用分叉模式，包括任何服务器端推出。分叉无法生成进一步的分叉</li>
+</ul>
+</div>
+</div>
+</div>
+<div id="outline-container-orgdf0393d" class="outline-2">
+<h2 id="orgdf0393d">示例 subagents</h2>
+<div class="outline-text-2" id="text-orgdf0393d">
+<p>
+这些示例演示了构建 subagents 的有效模式。将它们用作起点，或使用 Claude 生成自定义版本
+</p>
+<pre class="example" id="orgd1e1233">
+最佳实践：
+
+1. 设计专注的 subagents： 每个 subagent 应该在一个特定任务中表现出色
+2. 编写详细的描述： Claude 使用描述来决定何时委托
+3. 限制工具访问： 仅授予必要的权限以确保安全和专注
+4. 检入版本控制： 与您的团队共享项目 subagents
+</pre>
+</div>
+<div id="outline-container-org2ebdb5d" class="outline-3">
+<h3 id="org2ebdb5d">代码审查者</h3>
+<div class="outline-text-3" id="text-org2ebdb5d">
+<p>
+一个只读 subagent，审查代码而不修改它。此示例展示了如何设计一个专注的 subagent，具有有限的工具访问（无 Edit 或 Write）和详细的提示，指定确切要查找的内容以及如何格式化输出
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">code-reviewer</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Expert code review specialist. Proactively reviews code for quality, security, and maintainability. Use immediately after writing or modifying code.</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Read, Grep, Glob, Bash</span>
+<span style="color: #eedd82;">model</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">inherit</span>
+<span style="color: #b3b3b3;">---</span>
+
+You are a senior code reviewer ensuring high standards of code quality and security.
+
+When invoked:
+<span style="color: #b3b3b3;">1.</span> Run git diff to see recent changes
+<span style="color: #b3b3b3;">2.</span> Focus on modified files
+<span style="color: #b3b3b3;">3.</span> Begin review immediately
+
+Review checklist:
+<span style="color: #b3b3b3;">-</span> Code is clear and readable
+<span style="color: #b3b3b3;">-</span> Functions and variables are well-named
+<span style="color: #b3b3b3;">-</span> No duplicated code
+<span style="color: #b3b3b3;">-</span> Proper error handling
+<span style="color: #b3b3b3;">-</span> No exposed secrets or API keys
+<span style="color: #b3b3b3;">-</span> Input validation implemented
+<span style="color: #b3b3b3;">-</span> Good test coverage
+<span style="color: #b3b3b3;">-</span> Performance considerations addressed
+
+Provide feedback organized by priority:
+<span style="color: #b3b3b3;">-</span> Critical issues (must fix)
+<span style="color: #b3b3b3;">-</span> Warnings (should fix)
+<span style="color: #b3b3b3;">-</span> Suggestions (consider improving)
+
+Include specific examples of how to fix issues.
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgceabec0" class="outline-3">
+<h3 id="orgceabec0">调试器</h3>
+<div class="outline-text-3" id="text-orgceabec0">
+<p>
+一个可以分析和修复问题的 subagent。与代码审查者不同，这个包括 Edit，因为修复错误需要修改代码。提示提供了从诊断到验证的清晰工作流
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">debugger</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Debugging specialist for errors, test failures, and unexpected behavior. Use proactively when encountering any issues.</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Read, Edit, Bash, Grep, Glob</span>
+<span style="color: #b3b3b3;">---</span>
+
+You are an expert debugger specializing in root cause analysis.
+
+When invoked:
+<span style="color: #b3b3b3;">1.</span> Capture error message and stack trace
+<span style="color: #b3b3b3;">2.</span> Identify reproduction steps
+<span style="color: #b3b3b3;">3.</span> Isolate the failure location
+<span style="color: #b3b3b3;">4.</span> Implement minimal fix
+<span style="color: #b3b3b3;">5.</span> Verify solution works
+
+Debugging process:
+<span style="color: #b3b3b3;">-</span> Analyze error messages and logs
+<span style="color: #b3b3b3;">-</span> Check recent code changes
+<span style="color: #b3b3b3;">-</span> Form and test hypotheses
+<span style="color: #b3b3b3;">-</span> Add strategic debug logging
+<span style="color: #b3b3b3;">-</span> Inspect variable states
+
+For each issue, provide:
+<span style="color: #b3b3b3;">-</span> Root cause explanation
+<span style="color: #b3b3b3;">-</span> Evidence supporting the diagnosis
+<span style="color: #b3b3b3;">-</span> Specific code fix
+<span style="color: #b3b3b3;">-</span> Testing approach
+<span style="color: #b3b3b3;">-</span> Prevention recommendations
+
+Focus on fixing the underlying issue, not the symptoms.
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org8fd04cd" class="outline-3">
+<h3 id="org8fd04cd">数据科学家</h3>
+<div class="outline-text-3" id="text-org8fd04cd">
+<p>
+一个用于数据分析工作的特定领域 subagent。此示例展示了如何为典型编码任务之外的专门工作流创建 subagents。它明确设置 model: sonnet 以获得更强大的分析能力
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">data-scientist</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Data analysis expert for SQL queries, BigQuery operations, and data insights. Use proactively for data analysis tasks and queries.</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Bash, Read, Write</span>
+<span style="color: #eedd82;">model</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">sonnet</span>
+<span style="color: #b3b3b3;">---</span>
+
+You are a data scientist specializing in SQL and BigQuery analysis.
+
+When invoked:
+<span style="color: #b3b3b3;">1.</span> Understand the data analysis requirement
+<span style="color: #b3b3b3;">2.</span> Write efficient SQL queries
+<span style="color: #b3b3b3;">3.</span> Use BigQuery command line tools (bq) when appropriate
+<span style="color: #b3b3b3;">4.</span> Analyze and summarize results
+<span style="color: #b3b3b3;">5.</span> Present findings clearly
+
+Key practices:
+<span style="color: #b3b3b3;">-</span> Write optimized SQL queries with proper filters
+<span style="color: #b3b3b3;">-</span> Use appropriate aggregations and joins
+<span style="color: #b3b3b3;">-</span> Include comments explaining complex logic
+<span style="color: #b3b3b3;">-</span> Format results for readability
+<span style="color: #b3b3b3;">-</span> Provide data-driven recommendations
+
+For each analysis:
+<span style="color: #b3b3b3;">-</span> Explain the query approach
+<span style="color: #b3b3b3;">-</span> Document any assumptions
+<span style="color: #b3b3b3;">-</span> Highlight key findings
+<span style="color: #b3b3b3;">-</span> Suggest next steps based on data
+
+Always ensure queries are efficient and cost-effective.
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgd18a6db" class="outline-3">
+<h3 id="orgd18a6db">数据库查询验证器</h3>
+<div class="outline-text-3" id="text-orgd18a6db">
+<p>
+一个允许 Bash 访问但验证命令以仅允许只读 SQL 查询的 subagent。此示例展示了当您需要比 tools 字段提供的更精细的控制时如何使用 PreToolUse hooks
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">db-reader</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Execute read-only database queries. Use when analyzing data or generating reports.</span>
+<span style="color: #eedd82;">tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Bash</span>
+<span style="color: #eedd82;">hooks</span><span style="color: #b3b3b3;">:</span>
+  <span style="color: #eedd82;">PreToolUse</span><span style="color: #b3b3b3;">:</span>
+    - <span style="color: #eedd82;">matcher</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">"Bash"</span>
+      <span style="color: #eedd82;">hooks</span><span style="color: #b3b3b3;">:</span>
+        - <span style="color: #eedd82;">type</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">command</span>
+          <span style="color: #eedd82;">command</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">"./scripts/validate-readonly-query.sh"</span>
+<span style="color: #b3b3b3;">---</span>
+
+You are a database analyst with read-only access. Execute SELECT queries to answer questions about the data.
+
+When asked to analyze data:
+<span style="color: #b3b3b3;">1.</span> Identify which tables contain the relevant data
+<span style="color: #b3b3b3;">2.</span> Write efficient SELECT queries with appropriate filters
+<span style="color: #b3b3b3;">3.</span> Present results clearly with context
+
+You cannot modify data. If asked to INSERT, UPDATE, DELETE, or modify schema, explain that you only have read access.
+</pre>
+</div>
+
+<p>
+Claude Code 通过 <b>stdin 将 hook 输入作为 JSON 传递</b> 给 hook 命令。验证脚本读取此 JSON，提取正在执行的命令，并根据 SQL 写入操作列表检查它
+</p>
+<pre class="example" id="orgf004da2">
+如果检测到写入操作，脚本 以代码 2 退出 以阻止执行，并通过 stderr 向 Claude 返回错误消息
+</pre>
+
+<p>
+在项目中的任何位置创建验证脚本。路径必须与hook 配置中的 command 字段匹配：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #ff4500;">#</span><span style="color: #ff4500;">!/bin/</span><span style="color: #00ffff;">bash</span><span style="color: #ff4500;">
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">Blocks SQL write operations, allows SELECT queries
+</span>
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Read JSON input from stdin
+</span><span style="color: #eedd82;">INPUT</span>=$(cat)
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Extract the command field from tool_input using jq
+</span><span style="color: #eedd82;">COMMAND</span>=$(<span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"$INPUT"</span> | jq -r <span style="color: #ffa07a;">'.tool_input.command // empty'</span>)
+
+<span style="color: #00ffff;">if</span> [ -z <span style="color: #ffa07a;">"$COMMAND"</span> ]; <span style="color: #00ffff;">then</span>
+    <span style="color: #00ffff;">exit</span> 0
+<span style="color: #00ffff;">fi</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">Block write operations (case-insensitive)
+</span><span style="color: #00ffff;">if </span><span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"$COMMAND"</span> | grep -iE <span style="color: #ffa07a;">'\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|REPLACE|MERGE)\b'</span> &gt; /dev/null; <span style="color: #00ffff;">then</span>
+    <span style="color: #b0c4de;">echo</span> <span style="color: #ffa07a;">"Blocked: Write operations not allowed. Use SELECT queries only."</span> &gt;&amp;2
+    <span style="color: #00ffff;">exit</span> 2
+<span style="color: #00ffff;">fi</span>
+
+<span style="color: #00ffff;">exit</span> 0
+</pre>
+</div>
+
+<pre class="example" id="org4139f3d">
+有关退出代码和输出的详细信息，请参阅 Hooks
+https://code.claude.com/docs/zh-CN/hooks#exit-code-output
+
+有关完整的输入架构，请参阅 Hook input
+https://code.claude.com/docs/zh-CN/hooks#pretooluse-input
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="agent-view.html">Next：Agent View</a></td>
+<td class="org-left"><a href="introduction.html">Previous：代理概述</a></td>
+<td class="org-left"><a href="agent.html">Home: 代理与并行</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
