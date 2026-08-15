@@ -205,11 +205,21 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#orga0d241c">在 worktree 中启动 Claude</a></li>
+<li><a href="#orga0d241c">在 worktree 中启动 Claude</a>
+<ul>
+<li><a href="#orgf7ca41b">选择基础分支</a></li>
+<li><a href="#orgbc65253">重用 worktree 名称</a></li>
+</ul>
+</li>
+<li><a href="#orgef0ed67">将 gitignored 文件复制到 worktrees</a></li>
+<li><a href="#org2f16ddd">使用 worktrees 隔离子代理</a></li>
+<li><a href="#orgd5e7972">清理 worktrees</a></li>
+<li><a href="#orgb45c861">手动管理 worktrees</a></li>
+<li><a href="#orgda83f0c">非 git 版本控制</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org3593c28">
+<pre class="example" id="orgc0adc3a">
 在单独的 git worktrees 中隔离并行 Claude Code 会话，以便更改不会相互冲突
 
 涵盖 --worktree 标志、子代理隔离、.worktreeinclude、清理和非 git VCS hooks
@@ -218,7 +228,7 @@
 <p>
 <a href="https://git-scm.com/docs/git-worktree">git worktree</a> 是一个单独的工作目录，具有自己的文件和分支，但与主检出共享相同的存储库历史和远程
 </p>
-<pre class="example" id="org6312329">
+<pre class="example" id="orgc0fc6ec">
 在自己的 worktree 中运行每个 Claude Code 会话意味着一个会话中的编辑永远不会触及另一个会话中的文件
 
 因此可以让 Claude 在一个终端中构建功能，同时在第二个终端中修复错误
@@ -228,7 +238,7 @@
 本页涵盖 CLI 中的 worktree 隔离。下面的所有内容都假设使用 git 存储库
 </p>
 
-<pre class="example" id="org3d7f45d">
+<pre class="example" id="orgff4791b">
 对于其他版本控制系统，请参阅非 git 版本控制
 
 桌面应用会为每个新会话自动创建一个 worktree
@@ -238,7 +248,7 @@
 Worktrees 是运行 Claude 并行的几种方式之一。它们隔离文件编辑，而子代理和代理团队协调工作本身
 </p>
 
-<pre class="example" id="org9153ca2">
+<pre class="example" id="org1c0f053">
 请参阅并行运行代理来比较这些方法 https://code.claude.com/docs/zh-CN/agents
 
 或跳到使用 worktrees 隔离子代理以同时使用 worktrees 和子代理
@@ -247,6 +257,389 @@ https://code.claude.com/docs/zh-CN/worktrees#isolate-subagents-with-worktrees
 </pre>
 <div id="outline-container-orga0d241c" class="outline-2">
 <h2 id="orga0d241c">在 worktree 中启动 Claude</h2>
+<div class="outline-text-2" id="text-orga0d241c">
+<p>
+传递 <span class="underline">&#x2013;worktree</span> 或 <span class="underline">-w</span> 来创建隔离的 worktree 并在其中启动 Claude。默认情况下，worktree 在存储库根目录下的 <b>.claude/worktrees/&lt;value&gt;/</b> 下创建，在名为 <b>worktree-&lt;value&gt;</b> 的新分支上：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ claude --worktree feature-auth
+</pre>
+</div>
+
+<pre class="example" id="org2daa492">
+要将 worktrees 放在其他地方，请配置 WorktreeCreate hook
+
+https://code.claude.com/docs/zh-CN/worktrees#non-git-version-control
+</pre>
+<p>
+在另一个终端中使用不同的名称再次运行该命令以启动第二个隔离会话：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ claude --worktree bugfix-123
+</pre>
+</div>
+
+<p>
+如果省略名称，Claude 会生成一个名称，例如 bright-running-fox：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">$ claude --worktree
+</pre>
+</div>
+
+<p>
+也可以在会话期间要求 Claude “在 worktree 中工作”，它将使用 EnterWorktree 工具创建一个
+</p>
+<pre class="example" id="org676efb4">
+一旦进入 worktree，Claude 可以通过调用 EnterWorktree 并指定目标路径，直接切换到 .claude/worktrees/ 下的另一个 worktree
+
+之前的 worktree 保留在磁盘上不变
+</pre>
+
+<p>
+进入存储库的 .claude/worktrees/ 目录之外的路径首先会要求您的批准，因为它会移动会话的工作目录、写入访问权限和项目配置
+</p>
+<pre class="example" id="orgb81767c">
+例如 CLAUDE.md 和设置到该位置
+</pre>
+
+<p>
+EnterWorktree 权限规则或选择”不再询问”不会抑制此提示；只有 bypassPermissions 模式会跳过它
+</p>
+<pre class="example" id="org4a6f09f">
+在 v2.1.206 之前，Claude 可以进入任何现有的 worktree 路径而无需询问
+</pre>
+
+<p>
+从 v2.1.198 开始，进入或退出 worktree 也会将会话记录重新定位到该目录的项目存储，与 /cd 的方式相同，因此 /desktop 和 &#x2013;resume 之后会在那里找到会话
+</p>
+
+<pre class="example" id="orgc27ca00">
+由 WorktreeCreate hook 创建的 Worktrees 被排除在外，并将记录保留在启动目录中
+</pre>
+
+<p>
+Worktrees 在启用<a href="https://code.claude.com/docs/zh-CN/sandboxing#filesystem-isolation">沙箱</a>的情况下工作：沙箱允许写入主存储库的共享 .git 目录，以便 git commit 等命令可以从链接的 worktree 内部更新引用和索引
+</p>
+
+<pre class="example" id="orgde42227">
+将 .claude/worktrees/ 添加到 .gitignore，以便 worktree 内容不会在主检出中显示为未跟踪的文件
+</pre>
+
+<p>
+在首次在目录中使用 &#x2013;worktree 之前，请通过在该目录中运行一次 claude 来接受工作区信任对话框
+</p>
+<pre class="example" id="orgaf92f1e">
+如果尚未接受信任，--worktree 将以错误退出并提示您首先在目录中运行 claude
+
+使用 -p 的非交互式运行会跳过信任检查，因此 claude -p --worktree 会在没有信任检查的情况下进行
+</pre>
+
+<p>
+如果 Claude Code 在启动时无法进入 worktree 目录
+</p>
+<pre class="example" id="orge0f16d7">
+例如因为 WorktreeCreate hook 打印了除了它创建的目录之外的其他内容，或者因为目录在设置后被删除
+</pre>
+
+<p>
+Claude Code 会打印一个错误，命名该路径并以代码 1 退出
+</p>
+
+<pre class="example" id="org0ef9bee">
+在 v2.1.205 之前，这会导致会话崩溃，使用 -p 时会在大约 30 秒后停滞，然后以代码 0 退出
+</pre>
+
+<p>
+从 Claude Code v2.1.200 开始，在主检出处从项目范围安装的插件也会在同一存储库的 worktrees 中加载，因此无需为每个 worktree 重新安装它们
+</p>
+<pre class="example" id="orgf091e94">
+这适用于是使用 --worktree 还是使用 git worktree add 创建 worktree
+
+需要 Claude Code v2.1.200 或更高版本
+</pre>
+</div>
+<div id="outline-container-orgf7ca41b" class="outline-3">
+<h3 id="orgf7ca41b">选择基础分支</h3>
+<div class="outline-text-3" id="text-orgf7ca41b">
+<p>
+Worktrees 从存储库的默认分支 origin/HEAD 分支，因此它们从与远程匹配的干净树开始
+</p>
+<ul class="org-ul">
+<li>当在过去 24 小时内没有任何内容获取存储库时，Claude Code 会使用默认分支的获取来刷新 origin/HEAD，上限为 5 秒
+<ul class="org-ul">
+<li>如果获取失败，则使用本地缓存的引用</li>
+</ul></li>
+<li>如果未配置远程，或 origin/HEAD 未在本地缓存且无法获取，worktree 会回退到当前的本地 HEAD</li>
+</ul>
+
+<pre class="example" id="org390693c">
+刷新需要 Claude Code v2.1.208 或更高版本
+
+在此之前，新的 worktree 使用已经本地缓存的任何 origin/HEAD
+</pre>
+
+<p>
+要始终从本地 HEAD 分支，请在设置中将 worktree.baseRef 设置为 "head"
+</p>
+<pre class="example" id="orgf8fa9ad">
+将 baseRef 设置为 "head" 会使新 worktrees 携带您未推送的提交和功能分支状态
+
+这在隔离需要在进行中的工作上操作的子代理时很有用
+</pre>
+<p>
+当会话在链接的 worktree 内运行时，"head" 解析为该 worktree 的 HEAD，而不是主检出的。该设置仅接受 "fresh" 或 "head"，不接受任意 git refs：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"worktree"</span>: {
+        <span style="color: #ffa07a;">"baseRef"</span>: <span style="color: #ffa07a;">"head"</span>
+    }
+}
+</pre>
+</div>
+
+<p>
+要从特定的拉取请求分支，请传递以 # 为前缀的 PR 编号或完整的 GitHub 拉取请求 URL。Claude Code 从 origin 获取 pull/&lt;number&gt;/head 并在 .claude/worktrees/pr-&lt;number&gt; 创建 worktree：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">claude --worktree <span style="color: #ffa07a;">"#1234"</span>
+</pre>
+</div>
+
+<pre class="example" id="orgc792f8a">
+要完全控制 worktrees 的创建方式，请配置WorktreeCreate hook
+
+它完全替代默认的 git worktree 逻辑
+</pre>
+</div>
+</div>
+<div id="outline-container-orgbc65253" class="outline-3">
+<h3 id="orgbc65253">重用 worktree 名称</h3>
+<div class="outline-text-3" id="text-orgbc65253">
+<p>
+重用已存在目录的 worktree 名称会恢复该 worktree
+</p>
+
+<p>
+当以下所有条件都成立时，恢复的 worktree 会重置为当前基础，而不是在其旧提示处恢复：
+</p>
+<ul class="org-ul">
+<li>它没有未提交的更改或未跟踪的文件</li>
+<li>它仍然在 Claude Code 为其创建的分支上</li>
+<li>它从未提交，或其拉取请求已合并且其远程分支已删除。</li>
+</ul>
+
+<pre class="example" id="orgd549c93">
+在 v2.1.208 之前，重用名称总是在其旧提示处恢复旧的 worktree
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgef0ed67" class="outline-2">
+<h2 id="orgef0ed67">将 gitignored 文件复制到 worktrees</h2>
+<div class="outline-text-2" id="text-orgef0ed67">
+<pre class="example" id="org3029927">
+Worktree 是一个新的检出，因此来自您主存储库的未跟踪文件（如 .env 或 .env.local）不存在
+</pre>
+<p>
+要在 Claude 创建 worktree 时自动复制它们，请将 .worktreeinclude 文件添加到项目根目录。该文件使用 .gitignore 语法。只有匹配模式且也被 gitignored 的文件才会被复制，因此跟踪的文件永远不会被重复
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">.env
+.env.local
+config/secrets.json
+</pre>
+</div>
+
+<pre class="example" id="org1448f3d">
+此 .worktreeinclude 将两个 env 文件和一个 secrets 配置复制到每个新 worktree
+
+这适用于使用 --worktree 创建的 worktrees、子代理 worktrees 和桌面应用中的并行会话
+</pre>
+</div>
+</div>
+<div id="outline-container-org2f16ddd" class="outline-2">
+<h2 id="org2f16ddd">使用 worktrees 隔离子代理</h2>
+<div class="outline-text-2" id="text-org2f16ddd">
+<p>
+子代理可以在自己的 worktrees 中运行，以便并行编辑不会冲突。要求 Claude “为您的代理使用 worktrees”，或通过向 frontmatter 添加 <span class="underline">isolation: worktree</span> 在自定义子代理上永久设置它
+</p>
+
+<pre class="example" id="orgd6f9c3c">
+每个子代理都会获得一个临时 worktree，当子代理完成且没有更改时会自动删除
+</pre>
+
+<p>
+子代理 worktrees 使用与 &#x2013;worktree 相同的基础分支，因此它们从您的存储库的默认分支分支，除非 worktree.baseRef 设置为 <span class="underline">head</span>
+</p>
+</div>
+</div>
+<div id="outline-container-orgd5e7972" class="outline-2">
+<h2 id="orgd5e7972">清理 worktrees</h2>
+<div class="outline-text-2" id="text-orgd5e7972">
+<p>
+当退出 worktree 会话时，清理取决于您是否进行了更改：
+</p>
+<ul class="org-ul">
+<li>无未提交的更改、无未跟踪的文件且无新提交：worktree 及其分支会自动删除
+<ul class="org-ul">
+<li>如果会话有名称，Claude 会提示您，以便可以稍后保留 worktree</li>
+</ul></li>
+<li>存在未提交的更改、未跟踪的文件或新提交：Claude 提示保留或删除 worktree
+<ul class="org-ul">
+<li>保留会保留目录和分支，以便稍后可以返回</li>
+<li>删除会删除 worktree 目录及其分支，丢弃所有未提交的更改、未跟踪的文件和提交</li>
+</ul></li>
+<li>非交互式运行：使用 &#x2013;worktree 和 -p 创建的 worktrees 不会自动清理，因为没有退出提示
+<ul class="org-ul">
+<li>使用 git worktree remove 删除它们</li>
+</ul></li>
+</ul>
+
+<p>
+Claude 为子代理和后台会话创建的 worktrees 一旦超过 <span class="underline">cleanupPeriodDays</span> 设置，就会自动删除，前提是它们没有未提交的更改、没有未跟踪的文件和没有未推送的提交
+</p>
+<pre class="example" id="orged8dea3">
+使用 --worktree 创建的 Worktrees 永远不会被此扫描删除
+</pre>
+
+<p>
+当代理运行时，Claude 在其 worktree 上运行 git worktree lock，以便并发清理无法将其删除。当代理完成时，锁会被释放
+</p>
+<ul class="org-ul">
+<li>要清理扫描保留的 worktree，请运行 git worktree remove，如果 worktree 有未提交的更改或未跟踪的文件，请添加 &#x2013;force</li>
+</ul>
+
+<pre class="example" id="orga3a57ea">
+在 Windows 上，删除 worktree 之前，Claude Code 会将其内部任何深度的 NTFS 接合点或目录符号链接作为链接条目删除，以便删除 worktree 不会删除链接指向的文件
+
+在 v2.1.205 之前，Claude Code 仅将顶级链接作为链接条目删除，删除包含嵌套在子目录中的接合点的 worktree 可能会删除 worktree 外链接指向的目录的内容
+</pre>
+</div>
+</div>
+<div id="outline-container-orgb45c861" class="outline-2">
+<h2 id="orgb45c861">手动管理 worktrees</h2>
+<div class="outline-text-2" id="text-orgb45c861">
+<p>
+要完全控制 worktree 位置和分支配置，请直接使用 Git 创建 worktrees
+</p>
+<pre class="example" id="org9b87bf5">
+当需要检出特定的现有分支或将 worktree 放在存储库外时，这很有用
+</pre>
+
+<p>
+在新分支上创建 worktree：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">git worktree add ../project-feature-a -b feature-a
+</pre>
+</div>
+
+<p>
+从现有分支创建 worktree：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">git worktree add ../project-bugfix bugfix-123
+</pre>
+</div>
+
+<p>
+在 worktree 中启动 Claude：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #b0c4de;">cd</span> ../project-feature-a &amp;&amp; claude
+</pre>
+</div>
+
+<p>
+列出 worktrees：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">git worktree list
+</pre>
+</div>
+
+<p>
+完成后删除一个：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">git worktree remove ../project-feature-a
+</pre>
+</div>
+
+<p>
+有关完整的命令参考，请参阅 <a href="https://git-scm.com/docs/git-worktree">Git worktree 文档</a>
+</p>
+
+<pre class="example" id="org07df823">
+记住在每个新 worktree 中初始化开发环境：安装依赖项、设置虚拟环境或运行项目设置所需的任何内容
+</pre>
+</div>
+</div>
+<div id="outline-container-orgda83f0c" class="outline-2">
+<h2 id="orgda83f0c">非 git 版本控制</h2>
+<div class="outline-text-2" id="text-orgda83f0c">
+<pre class="example" id="org4da3783">
+Worktree 隔离默认使用 git
+</pre>
+<p>
+对于 SVN、Perforce、Mercurial 或其他系统，请配置 <b>WorktreeCreate</b> 和 <b>WorktreeRemove</b> hooks 以提供自定义创建和清理逻辑
+</p>
+<pre class="example" id="orgd7edcae">
+因为 hook 替代了默认的 git 行为，当使用 --worktree 时，.worktreeinclude 不会被处理
+
+改为在 hook 脚本内复制任何本地配置文件
+</pre>
+
+<p>
+下面的 WorktreeCreate hook 从 stdin 读取 worktree 名称，检出一个新的 SVN 工作副本，并打印目录路径，以便 Claude Code 可以将其用作会话的工作目录：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"hooks"</span>: {
+        <span style="color: #ffa07a;">"WorktreeCreate"</span>: [
+            {
+                <span style="color: #ffa07a;">"hooks"</span>: [
+                    {
+                        <span style="color: #ffa07a;">"type"</span>: <span style="color: #ffa07a;">"command"</span>,
+                        <span style="color: #ffa07a;">"command"</span>: <span style="color: #ffa07a;">"bash -c 'NAME=$(jq -r .name); DIR=\"$HOME/.claude/worktrees/$NAME\"; svn checkout https://svn.example.com/repo/trunk \"$DIR\" &gt;&amp;2 &amp;&amp; echo \"$DIR\"'"</span>
+                    }
+                ]
+            }
+        ]
+    }
+}
+</pre>
+</div>
+
+<p>
+将其与 WorktreeRemove hook 配对以在会话结束时进行清理。有关输入架构和删除示例，请参阅 <a href="https://code.claude.com/docs/zh-CN/hooks#worktreecreate">hooks 参考</a>
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="agent-view.html">Previous：Agent View</a></td>
+<td class="org-left"><a href="agent.html">Home: 代理与并行</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
