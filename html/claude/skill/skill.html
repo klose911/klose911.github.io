@@ -205,11 +205,48 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org343c33c">捆绑 skills</a></li>
+<li><a href="#org343c33c">捆绑 skills</a>
+<ul>
+<li><a href="#org5a06094">运行并验证你的应用</a></li>
+</ul>
+</li>
+<li><a href="#org24c7b9e">入门</a>
+<ul>
+<li><a href="#org6dc02f5">创建第一个 skill</a></li>
+<li><a href="#org7374ca3">Skills 的位置</a>
+<ul>
+<li><a href="#orga821367">实时变更检测</a></li>
+<li><a href="#orgf510698">从父目录和嵌套目录自动发现</a></li>
+<li><a href="#org6007b6b">来自其他目录的 skills</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orge201379">配置 skills</a>
+<ul>
+<li><a href="#org6176aca">Skill 内容的类型</a></li>
+<li><a href="#org5197686">Frontmatter 参考</a>
+<ul>
+<li><a href="#org2f8eacd">Skill 如何获得其命令名称</a></li>
+<li><a href="#org02e0590">可用的字符串替换</a></li>
+</ul>
+</li>
+<li><a href="#orgd453909">添加支持文件</a></li>
+<li><a href="#org23a84f7">控制谁调用 skill</a></li>
+<li><a href="#org045cdc6">Skill 内容生命周期</a></li>
+<li><a href="#orgf462b35">为 skill 预先批准工具</a></li>
+<li><a href="#org33c6625">将参数传递给 skills</a></li>
+</ul>
+</li>
+<li><a href="#org88b1f87">高级模式</a>
+<ul>
+<li><a href="#org0aa16bc">注入动态上下文</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
-<pre class="example" id="orgf7da494">
+<pre class="example" id="org142f452">
 创建、管理和共享 skills 以在 Claude Code 中扩展 Claude 的功能
 
 包括自定义命令和捆绑 skills
@@ -218,7 +255,7 @@
 Skills 扩展了 Claude 能做的事情。创建一个 SKILL.md 文件，其中包含说明，Claude 会将其添加到其工具包中。Claude 在相关时使用 skills，或者可以使用 /skill-name 直接调用一个
 </p>
 
-<pre class="example" id="org6d26ced">
+<pre class="example" id="org25f58e0">
 当不断将相同的说明、检查清单或多步骤程序粘贴到聊天中时，或者当 CLAUDE.md 的一部分已经演变成程序而不是事实时，创建一个 skill
 
 与 CLAUDE.md 内容不同，skill 的正文仅在使用时加载，因此长参考资料在需要它之前几乎不花费任何成本
@@ -228,7 +265,7 @@ Skills 扩展了 Claude 能做的事情。创建一个 SKILL.md 文件，其中�
 Claude Code skills 遵循 <a href="https://agentskills.io/">Agent Skills</a> 开放标准，该标准适用于多个 AI 工具。Claude Code 使用额外功能扩展了该标准，如<a href="https://code.claude.com/docs/zh-CN/skills#control-who-invokes-a-skill">调用控制</a>、<a href="https://code.claude.com/docs/zh-CN/skills#run-skills-in-a-subagent">subagent 执行</a>和<a href="https://code.claude.com/docs/zh-CN/skills#inject-dynamic-context">动态上下文注入</a>
 </p>
 
-<pre class="example" id="org052c6bf">
+<pre class="example" id="orgd595f9b">
 对于内置命令（如 /help 和 /compact）以及捆绑 skills（如 /debug 和 /code-review），请参阅命令参考
 https://code.claude.com/docs/zh-CN/commands
 
@@ -240,6 +277,1044 @@ Skills 添加了可选功能：支持文件的目录、控制你或 Claude 是�
 </pre>
 <div id="outline-container-org343c33c" class="outline-2">
 <h2 id="org343c33c">捆绑 skills</h2>
+<div class="outline-text-2" id="text-org343c33c">
+<p>
+Claude Code 包括一组捆绑 skills，在每个会话中都可用，除非通过 <span class="underline">disableBundledSkills</span> 设置禁用，包括 /doctor、/code-review、/batch、/debug、/loop 和 /claude-api
+</p>
+<ul class="org-ul">
+<li>与大多数内置命令不同，内置命令直接执行固定逻辑，捆绑 skills 是基于提示的：它们为 Claude 提供详细的说明，让它使用其工具来编排工作</li>
+<li>调用捆绑 skills 的方式与调用任何其他 skill 相同，输入 / 后跟 skill 名称</li>
+</ul>
+
+<p>
+/doctor 设置检查是 Claude Code v2.1.205 及更高版本中 disableBundledSkills 的一个例外：当设置打开时，它仍然可以输入。要隐藏它，请设置 <span class="underline">DISABLE_DOCTOR_COMMAND</span> 环境变量或 skillOverrides 条目 "doctor": "off"
+</p>
+<pre class="example" id="orgd2ce65b">
+在 v2.1.205 之前，/doctor 是一个内置命令而不是捆绑 skill
+</pre>
+
+<p>
+捆绑 skills 在<a href="https://code.claude.com/docs/zh-CN/commands">命令参考</a>中与内置命令一起列出，在”目的”列中标记为 Skill
+</p>
+</div>
+<div id="outline-container-org5a06094" class="outline-3">
+<h3 id="org5a06094">运行并验证你的应用</h3>
+<div class="outline-text-3" id="text-org5a06094">
+<p>
+三个捆绑 skills 协同工作来启动你的应用，并根据运行中的应用而不仅仅是测试来确认更改：
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Skill</td>
+<td class="org-left">目的</td>
+</tr>
+
+<tr>
+<td class="org-left">/run</td>
+<td class="org-left">启动并驱动你的应用以查看更改是否有效</td>
+</tr>
+
+<tr>
+<td class="org-left">/verify</td>
+<td class="org-left">构建并运行你的应用以确认代码更改是否按预期工作，无需回退到测试或类型检查</td>
+</tr>
+
+<tr>
+<td class="org-left">/run-skill-generator</td>
+<td class="org-left">教 /run 和 /verify 如何构建和启动你的项目</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org2f712c8">
+所有三个 skills 都需要 Claude Code v2.1.145 或更高版本
+</pre>
+
+<p>
+/run 和 /verify 无需设置即可工作。它们根据你的项目类型（CLI、服务器、TUI、浏览器驱动）以及 README、package.json 或 Makefile 中的内容推断启动方式
+</p>
+<pre class="example" id="org0ae0607">
+对于需要标准启动之外的任何东西的项目，该推断变得不可靠：数据库、env 文件、图形会话、多步骤构建
+</pre>
+
+<p>
+/run-skill-generator 记录配方。它从干净的环境中让应用运行，捕获有效的内容（安装命令、env 变量、启动脚本），并将其作为每个项目的 skill 提交到 .claude/skills/run-&lt;name&gt;
+</p>
+<pre class="example" id="orgdda0d74">
+之后，/run、/verify 和仓库中的任何其他代理都遵循记录的配方，而不是重新发现它
+
+每个项目运行一次 /run-skill-generator，如果构建或启动过程更改，则再次运行
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org24c7b9e" class="outline-2">
+<h2 id="org24c7b9e">入门</h2>
+<div class="outline-text-2" id="text-org24c7b9e">
+</div>
+<div id="outline-container-org6dc02f5" class="outline-3">
+<h3 id="org6dc02f5">创建第一个 skill</h3>
+<div class="outline-text-3" id="text-org6dc02f5">
+<p>
+此示例创建一个 skill，用于总结 git 仓库中未提交的更改，并标记任何风险的内容
+</p>
+<pre class="example" id="org237720c">
+它在 Claude 读取之前将实时 diff 拉入提示中，因此响应基于你的实际工作树，而不是 Claude 从打开的文件中猜测的内容
+</pre>
+<p>
+当询问你的更改时，Claude 会自动加载该 skill，或者可以使用 /summarize-changes 直接调用它
+</p>
+
+<ol class="org-ol">
+<li><p>
+创建 skill 目录，在个人 skills 文件夹中为 skill 创建一个目录。个人 skills 在所有项目中都可用
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">mkdir -p ~/.claude/skills/summarize-changes
+</pre>
+</div></li>
+<li>编写 SKILL.md，每个 skill 都需要一个 SKILL.md 文件，包含两部分：
+<ul class="org-ul">
+<li>YAML frontmatter（在 &#x2014; 标记之间）告诉 Claude 何时使用该 skill</li>
+<li>包含 Claude 在调用该 skill 时遵循的说明的 markdown 内容</li>
+<li>目录名称变成输入的命令</li>
+<li><p>
+description 帮助 Claude 决定何时自动加载该 skill
+将此保存到 ~/.claude/skills/summarize-changes/SKILL.md：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Summarizes uncommitted changes and flags anything risky. Use when the user asks what changed, wants a commit message, or asks to review their diff.</span>
+<span style="color: #b3b3b3;">---</span>
+
+<span style="color: #b3b3b3;">## </span><span style="color: #87cefa; font-weight: bold;">Current changes</span>
+
+!<span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">git diff HEAD</span><span style="color: #b3b3b3;">`</span>
+
+<span style="color: #b3b3b3;">## </span><span style="color: #87cefa; font-weight: bold;">Instructions</span>
+
+Summarize the changes above in two or three bullet points, then list any risks you notice such as missing error handling, hardcoded values, or tests that need updating. If the diff is empty, say there are no uncommitted changes.
+</pre>
+</div>
+<pre class="example" id="org088dd51">
+!`git diff HEAD` 这一行使用动态上下文注入：Claude Code 运行该命令，并在 Claude 看到 skill 内容之前将该行替换为其输出
+
+因此说明会随着当前 diff 已内联而到达
+</pre></li>
+</ul></li>
+<li>测试 skill，打开一个 git 项目，对任何文件进行小的编辑，并通过运行 claude 启动 Claude Code。可以通过两种方式测试该 skill
+<ul class="org-ul">
+<li><p>
+让 Claude 自动调用它，通过询问与描述匹配的内容：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">What did I change?
+</pre>
+</div></li>
+<li><p>
+或直接使用 skill 名称调用它：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">/summarize-changes
+</pre>
+</div>
+<pre class="example" id="org557fc3a">
+无论哪种方式，Claude 都应该用编辑的简短摘要和风险列表来响应
+</pre></li>
+</ul></li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org7374ca3" class="outline-3">
+<h3 id="org7374ca3">Skills 的位置</h3>
+<div class="outline-text-3" id="text-org7374ca3">
+<p>
+存储 skill 的位置决定了谁可以使用它：
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">位置</td>
+<td class="org-left">路径</td>
+<td class="org-left">适用于</td>
+</tr>
+
+<tr>
+<td class="org-left">企业</td>
+<td class="org-left">请参阅托管设置</td>
+<td class="org-left">你的组织中的所有用户</td>
+</tr>
+
+<tr>
+<td class="org-left">个人</td>
+<td class="org-left">~/.claude/skills/&lt;skill-name&gt;/SKILL.md</td>
+<td class="org-left">你的所有项目</td>
+</tr>
+
+<tr>
+<td class="org-left">项目</td>
+<td class="org-left">.claude/skills/&lt;skill-name&gt;/SKILL.md</td>
+<td class="org-left">仅此项目</td>
+</tr>
+
+<tr>
+<td class="org-left">插件</td>
+<td class="org-left">&lt;plugin&gt;/skills/&lt;skill-name&gt;/SKILL.md</td>
+<td class="org-left">启用插件的位置</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+当 skills 在各个级别共享相同的名称时，企业覆盖个人，个人覆盖项目。一个任何级别的 skill 也会覆盖具有相同名称的捆绑 skill
+</p>
+<pre class="example" id="org69c547a">
+例如，你的项目的 .claude/skills/ 中的 code-review skill 会替换捆绑的 /code-review
+
+插件 skills 使用 plugin-name:skill-name 命名空间，因此它们不能与其他级别冲突
+
+如果在 .claude/commands/ 中有文件，它们的工作方式相同，但如果 skill 和命令共享相同的名称，skill 优先
+</pre>
+<p>
+Skills 也从工作目录下方的嵌套 .claude/skills/ 目录加载。当 Claude 读取或编辑子目录中的文件时，该子目录的 .claude/skills/ 中的 skills 变得可用
+</p>
+<pre class="example" id="orgaaee863">
+这让 monorepo 包提供自己的 skills，这些 skills 在处理该包时适用，即使会话从仓库根目录开始
+</pre>
+
+<p>
+如果嵌套 skill 与另一个 skill 共享名称，两者都保持可用。例如，在项目根目录和 apps/web/.claude/skills/ 中都有一个 deploy skill：
+</p>
+<ul class="org-ul">
+<li>嵌套的一个出现在目录限定的名称下，apps/web:deploy</li>
+<li>其描述说明它适用于哪个目录</li>
+<li>Claude 选择与它正在处理的文件匹配的变体</li>
+</ul>
+
+<p>
+输入 /deploy 运行项目根目录 skill。输入限定名称 /apps/web:deploy 来显式运行嵌套变体
+</p>
+
+<p>
+当你或 Claude 调用非限定名称时，项目根目录 skill 加载，Claude Code 将目录限定变体列表附加到其内容中，并指示也调用任何目录包含 Claude 正在处理的文件的变体
+</p>
+
+<pre class="example" id="orge4ead18">
+因此，嵌套 skill 在仅调用非限定名称时仍然适用于其目录中的工作
+
+需要 Claude Code v2.1.203 或更高版本
+</pre>
+<p>
+一个 &lt;skill-name&gt; 条目在企业、个人或项目位置可以是指向磁盘上其他位置的目录的 <span class="underline">符号链接</span> 。Claude Code 跟随符号链接并从目标目录读取 SKILL.md，如果同一目标可从多个位置访问，Claude Code 只加载一次该 skill
+</p>
+
+<pre class="example" id="orga37b15f">
+插件 skills 以不同的方式处理符号链接；请参阅使用符号链接在市场中共享文件
+
+https://code.claude.com/docs/zh-CN/plugins-reference#share-files-within-a-marketplace-with-symlinks
+</pre>
+
+<p>
+将 .claude-plugin/plugin.json 添加到 skill 文件夹中，它会作为插件加载，名称为 &lt;name&gt;@skills-dir，因此它可以捆绑 agents、hooks 和 MCP servers
+</p>
+
+<pre class="example" id="org4d76ad3">
+在项目的 .claude/skills/ 中，这需要首先接受工作区信任对话框
+</pre>
+</div>
+<div id="outline-container-orga821367" class="outline-4">
+<h4 id="orga821367">实时变更检测</h4>
+<div class="outline-text-4" id="text-orga821367">
+<p>
+Claude Code 监视 skill 目录的文件变更：
+</p>
+<ul class="org-ul">
+<li>在 ~/.claude/skills/、项目 .claude/skills/ 或 &#x2013;add-dir 目录内的 .claude/skills/ 中添加、编辑或删除 skill 会在当前会话中生效，无需重新启动</li>
+<li>创建在会话启动时不存在的顶级 skills 目录需要重新启动 Claude Code，以便可以监视新目录</li>
+</ul>
+
+<pre class="example" id="orge0a6ba0">
+实时变更检测仅涵盖 SKILL.md 文本
+
+对于也是插件的 skill 文件夹，对 hooks/、.mcp.json、agents/ 和 output-styles/ 的更改需要 /reload-plugins 才能生效
+</pre>
+</div>
+</div>
+<div id="outline-container-orgf510698" class="outline-4">
+<h4 id="orgf510698">从父目录和嵌套目录自动发现</h4>
+<div class="outline-text-4" id="text-orgf510698">
+<p>
+项目 skills 从起始目录中的 .claude/skills/ 以及从起始目录到仓库根目录的每个父目录中加载，因此在子目录中启动 Claude 仍然会拾取在根目录定义的 skills。当在起始目录下方的子目录中处理文件时，Claude Code 也会按需从嵌套的 .claude/skills/ 目录中发现 skills
+</p>
+
+<pre class="example" id="orgd8d6a58">
+例如，如果你正在编辑 packages/frontend/ 中的文件，Claude Code 也会在 packages/frontend/.claude/skills/ 中查找 skills
+
+这支持 monorepo 设置，其中包有自己的 skills
+</pre>
+
+<p>
+每个 skill 都是一个以 SKILL.md 作为入口点的目录：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">my-skill/
+&#9500;&#9472;&#9472; SKILL.md           <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#20027;&#35201;&#35828;&#26126;&#65288;&#24517;&#38656;&#65289;
+</span>&#9500;&#9472;&#9472; template.md        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Claude &#35201;&#22635;&#20889;&#30340;&#27169;&#26495;
+</span>&#9500;&#9472;&#9472; examples/
+&#9474;   &#9492;&#9472;&#9472; sample.md      <span style="color: #ff4500;"># </span><span style="color: #ff4500;">&#26174;&#31034;&#39044;&#26399;&#26684;&#24335;&#30340;&#31034;&#20363;&#36755;&#20986;
+</span>&#9492;&#9472;&#9472; scripts/
+&#9492;&#9472;&#9472; validate.sh    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Claude &#21487;&#20197;&#25191;&#34892;&#30340;&#33050;&#26412;</span>
+</pre>
+</div>
+
+<p>
+SKILL.md 包含主要说明，是必需的。其他文件是可选的，为了构建更强大的 skills：Claude 要填写的模板、显示预期格式的示例输出、Claude 可以执行的脚本或详细的参考文档。从你的 SKILL.md 中引用这些文件，以便 Claude 知道它们包含什么以及何时加载它们。有关更多详细信息，请参阅<a href="https://code.claude.com/docs/zh-CN/skills#add-supporting-files">添加支持文件</a>
+</p>
+
+<pre class="example" id="orgabe4e4a">
+.claude/commands/ 中的文件仍然有效，并支持相同的 frontmatter
+
+建议使用 Skills，因为它们支持额外的功能，如支持文件
+</pre>
+</div>
+</div>
+<div id="outline-container-org6007b6b" class="outline-4">
+<h4 id="org6007b6b">来自其他目录的 skills</h4>
+<div class="outline-text-4" id="text-org6007b6b">
+<p>
+&#x2013;add-dir 标志和 <i>add-dir 命令授予文件访问权限而不是配置发现，但 skills 是一个例外：添加目录中的 .claude/skills</i> 会自动加载
+</p>
+<pre class="example" id="org520bcba">
+此例外仅适用于 --add-dir 和 /add-dir
+
+settings.json 中的 permissions.additionalDirectories 设置仅授予文件访问权限，不加载 skills
+
+请参阅实时变更检测了解编辑如何在会话期间被拾取
+
+https://code.claude.com/docs/zh-CN/skills#live-change-detection
+</pre>
+<p>
+其他 .claude/ 配置（如命令和输出样式）不会从其他目录加载。有关加载和不加载的完整列表以及跨项目共享配置的推荐方式，请参阅<a href="https://code.claude.com/docs/zh-CN/permissions#additional-directories-grant-file-access-not-configuration">例外表</a>
+</p>
+
+<pre class="example" id="org9540322">
+来自 --add-dir 目录的 CLAUDE.md 文件默认不加载
+
+要加载它们，请设置 CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1
+
+请参阅从其他目录加载
+
+https://code.claude.com/docs/zh-CN/memory#load-from-additional-directories
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orge201379" class="outline-2">
+<h2 id="orge201379">配置 skills</h2>
+<div class="outline-text-2" id="text-orge201379">
+<p>
+Skills 通过 <span class="underline">SKILL.md</span> 顶部的 <b>YAML frontmatter</b> 和随后的 <b>markdown</b> 内容进行配置
+</p>
+</div>
+<div id="outline-container-org6176aca" class="outline-3">
+<h3 id="org6176aca">Skill 内容的类型</h3>
+<div class="outline-text-3" id="text-org6176aca">
+<p>
+Skill 文件可以包含任何说明，但思考想如何调用它们有助于指导要包含的内容
+</p>
+<ul class="org-ul">
+<li><p>
+<b>参考内容</b> 添加 Claude 应用于当前工作的知识。约定、模式、风格指南、领域知识
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">api-conventions</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">API design patterns for this codebase</span>
+<span style="color: #b3b3b3;">---</span>
+
+When writing API endpoints:
+<span style="color: #b3b3b3;">-</span> Use RESTful naming conventions
+<span style="color: #b3b3b3;">-</span> Return consistent error formats
+<span style="color: #b3b3b3;">-</span> Include request validation
+</pre>
+</div>
+<pre class="example" id="org8a43d95">
+此内容内联运行，以便 Claude 可以将其与你的对话上下文一起使用
+</pre></li>
+
+<li><p>
+<b>任务内容</b> 为 Claude 提供特定操作的分步说明，如部署、提交或代码生成
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">deploy</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Deploy the application to production</span>
+<span style="color: #eedd82;">context</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">fork</span>
+<span style="color: #eedd82;">disable-model-invocation</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">true</span>
+<span style="color: #b3b3b3;">---</span>
+
+Deploy the application:
+<span style="color: #b3b3b3;">1.</span> Run the test suite
+<span style="color: #b3b3b3;">2.</span> Build the application
+<span style="color: #b3b3b3;">3.</span> Push to the deployment target
+</pre>
+</div>
+<pre class="example" id="org254132e">
+这些通常是想使用 /skill-name 直接调用的操作，而不是让 Claude 决定何时运行它们
+
+添加 disable-model-invocation: true 以防止 Claude 自动触发它
+</pre></li>
+</ul>
+
+<p>
+SKILL.md 可以包含任何内容，但思考：
+</p>
+<ul class="org-ul">
+<li>如何调用该 skill（由你、由 Claude 或两者）</li>
+<li>想在哪里运行它（内联或在 subagent 中）有助于指导要包含的内容</li>
+</ul>
+
+<pre class="example" id="orga0f9b3a">
+对于复杂的 skills，也可以添加支持文件以保持主 skill 的专注
+</pre>
+<p>
+保持主体本身简洁。一旦 skill 加载，其内容在整个会话中保持在上下文中，因此每一行都是一个重复的令牌成本
+</p>
+<pre class="example" id="org482a9e6">
+说明要做什么而不是叙述如何或为什么，并应用与 CLAUDE.md 内容相同的简洁性测试
+</pre>
+</div>
+</div>
+<div id="outline-container-org5197686" class="outline-3">
+<h3 id="org5197686">Frontmatter 参考</h3>
+<div class="outline-text-3" id="text-org5197686">
+<p>
+除了 markdown 内容外，可以使用 SKILL.md 文件顶部 &#x2014; 标记之间的 YAML frontmatter 字段来配置 skill 行为
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">my-skill</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">What this skill does</span>
+<span style="color: #eedd82;">disable-model-invocation</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">true</span>
+<span style="color: #eedd82;">allowed-tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Read Grep</span>
+<span style="color: #b3b3b3;">---</span>
+
+Your skill instructions here...
+</pre>
+</div>
+
+<p>
+所有字段都是可选的。建议使用 description，以便 Claude 知道何时使用该 skill
+</p>
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> Skill Frontmatter</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">字段</td>
+<td class="org-left">必需</td>
+<td class="org-left">描述</td>
+</tr>
+
+<tr>
+<td class="org-left">name</td>
+<td class="org-left">否</td>
+<td class="org-left">Skill 列表中显示的显示名称。默认为目录名称。请参阅Skill 如何获得其命令名称以了解这与你输入的名称在 / 后的调用方式有何不同。</td>
+</tr>
+
+<tr>
+<td class="org-left">description</td>
+<td class="org-left">推荐</td>
+<td class="org-left">Skill 的功能以及何时使用它。Claude 使用它来决定何时应用该 skill。如果省略，使用 markdown 内容的第一段。将关键用例放在前面：组合的 description 和 when_to_use 文本在 skill 列表中被截断为 1,536 个字符以减&gt;少上下文使用。</td>
+</tr>
+
+<tr>
+<td class="org-left">when_to_use</td>
+<td class="org-left">否</td>
+<td class="org-left">关于 Claude 何时应该调用该 skill 的额外上下文，例如触发短语或示例请求。附加到 skill 列表中的 description，并计入 1,536 个字符的上限。</td>
+</tr>
+
+<tr>
+<td class="org-left">argument-hint</td>
+<td class="org-left">否</td>
+<td class="org-left">自动完成期间显示的提示，指示预期的参数。示例：[issue-number] 或 [filename] [format]。</td>
+</tr>
+
+<tr>
+<td class="org-left">arguments</td>
+<td class="org-left">否</td>
+<td class="org-left">用于 skill 内容中$name 替换的命名位置参数。接受空格分隔的字符串或 YAML 列表。名称按顺序映射到参数位置。</td>
+</tr>
+
+<tr>
+<td class="org-left">disable-model-invocation</td>
+<td class="org-left">否</td>
+<td class="org-left">设置为 true 以防止 Claude 自动加载此 skill。用于你想使用 /name 手动触发的工作流。也防止该 skill 被预加载到 subagents 中。从 v2.1.196 开始，也防止该 skill 在计划任务使用该 skill 作为其提示时运行。默认值&gt;：false。</td>
+</tr>
+
+<tr>
+<td class="org-left">user-invocable</td>
+<td class="org-left">否</td>
+<td class="org-left">设置为 false 以从 / 菜单中隐藏。用于用户不应直接调用的背景知识。默认值：true。</td>
+</tr>
+
+<tr>
+<td class="org-left">allowed-tools</td>
+<td class="org-left">否</td>
+<td class="org-left">当此 skill 处于活动状态时，Claude 可以使用而无需请求权限的工具。接受空格分隔的字符串或 YAML 列表。</td>
+</tr>
+
+<tr>
+<td class="org-left">disallowed-tools</td>
+<td class="org-left">否</td>
+<td class="org-left">当此 skill 处于活动状态时从 Claude 的可用工具池中移除的工具。用于不应该调用某些工具的自主 skills，例如用于后台循环的 AskUserQuestion。接受空格分隔的字符串或 YAML 列表。当你发送下一条消息时，限制会清除。</td>
+</tr>
+
+<tr>
+<td class="org-left">&#xa0;</td>
+<td class="org-left">&#xa0;</td>
+<td class="org-left">&#xa0;</td>
+</tr>
+
+<tr>
+<td class="org-left">model</td>
+<td class="org-left">否</td>
+<td class="org-left">当此 skill 处于活动状态时要使用的模型。覆盖适用于当前轮的其余部分，不保存到设置；会话模型在你的下一个提示时恢复。接受与 /model 相同的值，或 inherit 以保持活动模型。被你的组织的 availableModels 允许列表&gt;排除的值不会被使用，会话保持其当前模型。</td>
+</tr>
+
+<tr>
+<td class="org-left">effort</td>
+<td class="org-left">否</td>
+<td class="org-left">当此 skill 处于活动状态时的工作量级别。覆盖会话工作量级别。默认值：继承自会话。选项：low、medium、high、xhigh、max；可用级别取决于模型。</td>
+</tr>
+
+<tr>
+<td class="org-left">context</td>
+<td class="org-left">否</td>
+<td class="org-left">设置为 fork 以在分叉的 subagent 上下文中运行。</td>
+</tr>
+
+<tr>
+<td class="org-left">agent</td>
+<td class="org-left">否</td>
+<td class="org-left">当设置 context: fork 时要使用的 subagent 类型。</td>
+</tr>
+
+<tr>
+<td class="org-left">hooks</td>
+<td class="org-left">否</td>
+<td class="org-left">限定于此 skill 生命周期的 hooks。有关配置格式，请参阅 Skills 和代理中的 Hooks。</td>
+</tr>
+
+<tr>
+<td class="org-left">paths</td>
+<td class="org-left">否</td>
+<td class="org-left">Glob 模式，限制何时激活此 skill。接受逗号分隔的字符串或 YAML 列表。设置后，Claude 仅在处理与模式匹配的文件时自动加载该 skill。使用与路径特定规则相同的格式。</td>
+</tr>
+
+<tr>
+<td class="org-left">shell</td>
+<td class="org-left">否</td>
+<td class="org-left">用于此 skill 中 !`command` 和 ```! 块的 shell。接受 bash（默认）或 powershell。设置 powershell 在 Windows 上通过 PowerShell 运行内联 shell 命令。需要 CLAUDE_CODE_USE_POWERSHELL_TOOL=1。</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="outline-container-org2f8eacd" class="outline-4">
+<h4 id="org2f8eacd">Skill 如何获得其命令名称</h4>
+<div class="outline-text-4" id="text-org2f8eacd">
+<p>
+输入的命令来自 skill 文件所在的位置。frontmatter name 字段设置在 skill 列表中显示的显示标签，除了插件根 SKILL.md 外，不会改变在 / 后输入的内容。
+</p>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 2:</span> 每种布局的命令名称来自何处</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Skill 位置</td>
+<td class="org-left">命令名称来源</td>
+<td class="org-left">示例</td>
+</tr>
+
+<tr>
+<td class="org-left">~/.claude/skills/ 或 .claude/skills/ 下的 Skill 目录</td>
+<td class="org-left">目录名称</td>
+<td class="org-left">.claude/skills/deploy-staging/SKILL.md → /deploy-staging</td>
+</tr>
+
+<tr>
+<td class="org-left">嵌套 .claude/skills/ 目录，当名称与另一个 skill 冲突时</td>
+<td class="org-left">相对于工作目录的子目录路径，然后是 skill 目录名称</td>
+<td class="org-left">apps/web/.claude/skills/deploy/SKILL.md → /apps/web:deploy</td>
+</tr>
+
+<tr>
+<td class="org-left">.claude/commands/ 下的文件</td>
+<td class="org-left">文件名称（不含扩展名）</td>
+<td class="org-left">.claude/commands/deploy.md → /deploy</td>
+</tr>
+
+<tr>
+<td class="org-left">插件 skills/ 子目录</td>
+<td class="org-left">目录名称，由插件命名空间</td>
+<td class="org-left">my-plugin/skills/review/SKILL.md → /my-plugin:review</td>
+</tr>
+
+<tr>
+<td class="org-left">插件根 SKILL.md</td>
+<td class="org-left">Frontmatter name，以插件目录名称作为后备</td>
+<td class="org-left">my-plugin/SKILL.md 带有 name: review → /my-plugin:review。请参阅路径行为规则</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+插件根情况是 name 设置命令名称的唯一地方，因为没有 skill 目录可以从中获取。如果 frontmatter 中未设置 name，则使用插件的目录名称
+</p>
+</div>
+</div>
+<div id="outline-container-org02e0590" class="outline-4">
+<h4 id="org02e0590">可用的字符串替换</h4>
+<div class="outline-text-4" id="text-org02e0590">
+<p>
+Skills 支持 skill 内容中动态值的字符串替换：
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">变量</td>
+<td class="org-left">描述</td>
+</tr>
+
+<tr>
+<td class="org-left">$ARGUMENTS</td>
+<td class="org-left">调用 skill 时传递的所有参数。如果内容中不存在 $ARGUMENTS，参数将作为 ARGUMENTS: &lt;value&gt; 追加。</td>
+</tr>
+
+<tr>
+<td class="org-left">$ARGUMENTS[N]</td>
+<td class="org-left">按 0 基索引访问特定参数，如 $ARGUMENTS[0] 表示第一个参数。</td>
+</tr>
+
+<tr>
+<td class="org-left">$N</td>
+<td class="org-left">$ARGUMENTS[N] 的简写，如 $0 表示第一个参数或 $1 表示第二个参数。</td>
+</tr>
+
+<tr>
+<td class="org-left">$name</td>
+<td class="org-left">在 arguments frontmatter 列表中声明的命名参数。名称按顺序映射到位置，因此使用 arguments: [issue, branch] 时，占位符 $issue 扩展为第一个参数，$branch 扩展为第二个参数。</td>
+</tr>
+
+<tr>
+<td class="org-left">${CLAUDE_SESSION_ID}</td>
+<td class="org-left">当前会话 ID。适用于日志记录、创建会话特定文件或将 skill 输出与会话关联。</td>
+</tr>
+
+<tr>
+<td class="org-left">${CLAUDE_EFFORT}</td>
+<td class="org-left">当前工作量级别：low、medium、high、xhigh 或 max。Ultracode 不是一个不同的级别，报告为 xhigh。使用此来根据活动工作量设置调整 skill 说明。</td>
+</tr>
+
+<tr>
+<td class="org-left">${CLAUDE_SKILL_DIR}</td>
+<td class="org-left">包含 skill 的 SKILL.md 文件的目录。对于插件 skills，这是插件内 skill 的子目录，而不是插件根目录。在 bash 注入命令中使用它来引用与 skill 捆绑的脚本或文件，无论当前工作目录如何。</td>
+</tr>
+
+<tr>
+<td class="org-left">${CLAUDE_PROJECT_DIR}</td>
+<td class="org-left">项目根目录。这是与 hooks 和 MCP 服务器相同的路径，作为 CLAUDE_PROJECT_DIR 接收。使用此来引用项目本地脚本或文件，例如 ${CLAUDE_PROJECT_DIR}/.claude/hooks/helper.sh，独立于 skill 的安装位置。</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+${CLAUDE_PROJECT_DIR} 替换需要 Claude Code v2.1.196 或更高版本。它适用于 skill 主体和 allowed-tools frontmatter
+</p>
+<pre class="example" id="org33b4763">
+因此权限规则如 Bash(${CLAUDE_PROJECT_DIR}/scripts/lint.sh *) 解析为 skill 主体使用的相同路径
+</pre>
+
+<p>
+索引参数使用 shell 风格的引用，因此用引号包装多词值以将其作为单个参数传递
+</p>
+<pre class="example" id="orgcd7c161">
+例如，/my-skill "hello world" second 使 $0 扩展为 hello world，$1 扩展为 second
+</pre>
+
+<p>
+$ARGUMENTS 占位符始终扩展为完整的参数字符串，如输入的那样
+</p>
+
+<p>
+要包含文字 $ 在数字、ARGUMENTS 或声明的参数名称之前
+</p>
+<pre class="example" id="orge8b7a52">
+例如 $1.00，用反斜杠转义它：\$1.00
+</pre>
+
+<p>
+反斜杠在任何其他 $ 之前保持不变。只有直接在令牌之前的单个反斜杠才能转义它。双反斜杠（如 \\$1）保留两个反斜杠，$1 仍然扩展为参数值
+</p>
+
+<p>
+使用替换的示例：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">session-logger</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Log activity for this session</span>
+<span style="color: #b3b3b3;">---</span>
+
+Log the following to logs/${CLAUDE<span style="color: #b3b3b3;">_</span><span style="font-style: italic;">SESSION</span><span style="color: #b3b3b3;">_</span>ID}.log:
+
+$ARGUMENTS
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orgd453909" class="outline-3">
+<h3 id="orgd453909">添加支持文件</h3>
+<div class="outline-text-3" id="text-orgd453909">
+<p>
+Skills 可以在其目录中包含多个文件。这使 SKILL.md 专注于要点，同时让 Claude 仅在需要时访问详细的参考资料
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown">my-skill/
+&#9500;&#9472;&#9472; SKILL.md (required - overview and navigation)
+&#9500;&#9472;&#9472; reference.md (detailed API docs - loaded when needed)
+&#9500;&#9472;&#9472; examples.md (usage examples - loaded when needed)
+&#9492;&#9472;&#9472; scripts/
+    &#9492;&#9472;&#9472; helper.py (utility script - executed, not loaded)
+</pre>
+</div>
+
+<pre class="example" id="orgc887014">
+大型参考文档、API 规范或示例集合不需要在每次 skill 运行时加载到上下文中
+</pre>
+
+<p>
+从 SKILL.md 中引用支持文件，以便 Claude 知道每个文件包含什么以及何时加载它：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">## </span><span style="color: #87cefa; font-weight: bold;">Additional resources</span>
+
+<span style="color: #b3b3b3;">-</span> For complete API details, see <span style="color: #b3b3b3;">[</span><span style="color: #00ffff; text-decoration: underline;">reference.md</span><span style="color: #b3b3b3;">](</span><span style="color: #ffa07a;">reference.md</span><span style="color: #b3b3b3;">)</span>
+<span style="color: #b3b3b3;">-</span> For usage examples, see <span style="color: #b3b3b3;">[</span><span style="color: #00ffff; text-decoration: underline;">examples.md</span><span style="color: #b3b3b3;">](</span><span style="color: #ffa07a;">examples.md</span><span style="color: #b3b3b3;">)</span>
+</pre>
+</div>
+
+<pre class="example" id="orgf1cf760">
+将 SKILL.md 保持在 500 行以下。将详细的参考资料移到单独的文件中
+</pre>
+</div>
+</div>
+<div id="outline-container-org23a84f7" class="outline-3">
+<h3 id="org23a84f7">控制谁调用 skill</h3>
+<div class="outline-text-3" id="text-org23a84f7">
+<p>
+默认情况下，你和 Claude 都可以调用任何 skill。你可以输入 /skill-name 直接调用它，Claude 可以在与你的对话相关时自动加载它。两个 frontmatter 字段限制这一点：
+</p>
+<ul class="org-ul">
+<li><p>
+disable-model-invocation: true：只有你可以调用该 skill。用于有副作用的工作流或你想控制时间的工作流
+</p>
+<pre class="example" id="org6edcf6c">
+如 /commit、/deploy 或 /send-slack-message
+
+不希望 Claude 因为你的代码看起来准备好了就决定部署
+</pre></li>
+<li><p>
+user-invocable: false：只有 Claude 可以调用该 skill。用于不可作为命令操作的背景知识
+</p>
+<pre class="example" id="org408c2f6">
+legacy-system-context skill 解释了旧系统的工作原理
+
+Claude 在相关时应该知道这一点，但 /legacy-system-context 对用户来说不是一个有意义的操作
+</pre></li>
+</ul>
+
+<p>
+创建一个只有你可以触发的部署 skill。如果你设置 disable-model-invocation: true，Claude 无法自动运行该 skill：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">deploy</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Deploy the application to production</span>
+<span style="color: #eedd82;">disable-model-invocation</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">true</span>
+<span style="color: #b3b3b3;">---</span>
+
+Deploy $ARGUMENTS to production:
+
+<span style="color: #b3b3b3;">1.</span> Run the test suite
+<span style="color: #b3b3b3;">2.</span> Build the application
+<span style="color: #b3b3b3;">3.</span> Push to the deployment target
+<span style="color: #b3b3b3;">4.</span> Verify the deployment succeeded
+</pre>
+</div>
+
+<p>
+以下是两个字段如何影响调用和上下文加载：
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Frontmatter</td>
+<td class="org-left">你可以调用</td>
+<td class="org-left">Claude 可以调用</td>
+<td class="org-left">何时加载到上下文中</td>
+</tr>
+
+<tr>
+<td class="org-left">（默认）</td>
+<td class="org-left">是</td>
+<td class="org-left">是</td>
+<td class="org-left">描述始终在上下文中，调用时加载完整 skill</td>
+</tr>
+
+<tr>
+<td class="org-left">disable-model-invocation: true</td>
+<td class="org-left">是</td>
+<td class="org-left">否</td>
+<td class="org-left">描述不在上下文中，你调用时加载完整 skill</td>
+</tr>
+
+<tr>
+<td class="org-left">user-invocable: false</td>
+<td class="org-left">否</td>
+<td class="org-left">是</td>
+<td class="org-left">描述始终在上下文中，调用时加载完整 skill</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org52455cd">
+在常规会话中，skill 描述被加载到上下文中，以便 Claude 知道什么可用，但完整 skill 内容仅在调用时加载
+
+预加载 skills 的 Subagents 的工作方式不同：完整 skill 内容在启动时注入
+
+https://code.claude.com/docs/zh-CN/sub-agents#preload-skills-into-subagents
+</pre>
+</div>
+</div>
+<div id="outline-container-org045cdc6" class="outline-3">
+<h3 id="org045cdc6">Skill 内容生命周期</h3>
+<div class="outline-text-3" id="text-org045cdc6">
+<p>
+当你或 Claude 调用一个 skill 时，呈现的 SKILL.md 内容作为单个消息进入对话，并在会话的其余部分保持在那里
+</p>
+<pre class="example" id="orgf33416d">
+Claude Code 不会在后续轮次重新读取 skill 文件
+
+因此将应该在整个任务中应用的指导写成常设说明，而不是一次性步骤
+</pre>
+<p>
+当 Claude 重新调用一个 skill 且其呈现的内容与已在上下文中的副本相同时，Claude Code 添加一个简短的说明，表示该 skill 已加载，而不是内容的第二份副本。当呈现的内容不同时，因为参数改变或动态上下文命令产生了新输出，Claude Code 会再次附加完整内容
+</p>
+<pre class="example" id="org45bf07f">
+在 v2.1.202 之前，每次重新调用都会附加 skill 说明的另一份完整副本
+</pre>
+
+<p>
+<a href="https://code.claude.com/docs/zh-CN/how-claude-code-works#when-context-fills-up">自动压缩</a>在令牌预算内转发调用的 skills。当对话被总结以释放上下文时，Claude Code 在总结后重新附加每个 skill 的最新调用，保留前 5,000 个令牌。重新附加的 skills 共享 25,000 个令牌的组合预算
+</p>
+<pre class="example" id="orga36c954">
+Claude Code 从最近调用的 skill 开始填充此预算，因此如果你在一个会话中调用了许多 skills，较旧的 skills 可能会在压缩后完全删除
+</pre>
+
+<p>
+如果一个 skill 似乎在第一个响应后停止影响行为，内容通常仍然存在，模型正在选择其他工具或方法。加强 skill 的 description 和说明，以便模型继续偏好它，或使用 hooks 来确定性地强制行为
+</p>
+<pre class="example" id="org74365c2">
+如果 skill 很大或你在它之后调用了其他几个，在压缩后重新调用它以恢复完整内容
+</pre>
+</div>
+</div>
+<div id="outline-container-orgf462b35" class="outline-3">
+<h3 id="orgf462b35">为 skill 预先批准工具</h3>
+<div class="outline-text-3" id="text-orgf462b35">
+<p>
+<span class="underline">allowed-tools</span> 字段在 skill 处于活动状态时授予对列出的工具的权限，因此 Claude 可以使用它们而无需提示你获得批准。它不限制哪些工具可用：每个工具仍然可调用，你的权限设置仍然管理不在列表中的工具
+</p>
+<ul class="org-ul">
+<li>对于检入项目的 .claude/skills/ 目录的 skills，allowed-tools 在接受该文件夹的工作区信任对话后生效，与 .claude/settings.json 中的权限规则相同</li>
+<li>在信任存储库之前查看项目 skills，因为 skill 可以授予自己广泛的工具访问权限</li>
+</ul>
+
+<p>
+让 Claude 在调用Skill 时运行 git 命令而无需每次使用批准：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">commit</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Stage and commit the current changes</span>
+<span style="color: #eedd82;">disable-model-invocation</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">true</span>
+<span style="color: #eedd82;">allowed-tools</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Bash(git add *) Bash(git commit *) Bash(git status *)</span>
+<span style="color: #b3b3b3;">---</span>
+</pre>
+</div>
+
+<p>
+要在 skill 处于活动状态时从 Claude 的可用工具池中移除某些工具，请在 skill 的 frontmatter 中的 disallowed-tools 中列出它们。当发送下一条消息时，限制会清除
+</p>
+
+<pre class="example" id="org8019521">
+要在所有 skills 和提示中阻止工具，请在权限设置中添加拒绝规则
+
+https://code.claude.com/docs/zh-CN/permissions
+</pre>
+</div>
+</div>
+<div id="outline-container-org33c6625" class="outline-3">
+<h3 id="org33c6625">将参数传递给 skills</h3>
+<div class="outline-text-3" id="text-org33c6625">
+<p>
+你和 Claude 都可以在调用 skill 时传递参数。参数可通过 $ARGUMENTS 占位符获得。下面 skill 按编号修复 GitHub 问题。$ARGUMENTS 占位符被替换为 skill 名称后面的任何内容：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">fix-issue</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Fix a GitHub issue</span>
+<span style="color: #eedd82;">disable-model-invocation</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">true</span>
+<span style="color: #b3b3b3;">---</span>
+
+Fix GitHub issue $ARGUMENTS following our coding standards.
+
+<span style="color: #b3b3b3;">1.</span> Read the issue description
+<span style="color: #b3b3b3;">2.</span> Understand the requirements
+<span style="color: #b3b3b3;">3.</span> Implement the fix
+<span style="color: #b3b3b3;">4.</span> Write tests
+<span style="color: #b3b3b3;">5.</span> Create a commit
+</pre>
+</div>
+
+<pre class="example" id="orgc65aa2e">
+当运行 /fix-issue 123 时，Claude 收到”Fix GitHub issue 123 following our coding standards…”
+</pre>
+
+<p>
+如果使用参数调用 skill 但 skill 不包含 $ARGUMENTS，Claude Code 会将 ARGUMENTS: &lt;your input&gt; 追加到 skill 内容的末尾，以便 Claude 仍然看到输入的内容
+</p>
+
+<pre class="example" id="org792375f">
+也可以在一条消息的开头堆叠多个 skills
+
+从 v2.1.199 开始，输入 /code-review /fix-issue 123 会加载两个 skills 并将尾部文本 123 作为 $ARGUMENTS 传递给每个 skills
+
+在早期版本中，只有第一个 skill 加载并接收 /fix-issue 123 作为文字参数文本
+
+Claude Code 扩展第一个 skill 加上最多五个堆叠在其后的 skills，扩展在第一个不是内联用户可调用 skill 的令牌处停止
+
+因此作为分叉 subagent 运行的 skill 或其参数本身可能以斜杠命令开头的 skill（如 /loop）也会在那里结束
+
+该令牌及其后的所有内容成为每个扩展 skill 的参数文本
+</pre>
+
+
+<p>
+要按位置访问单个参数，使用 $ARGUMENTS[N] 或较短的 $N：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">migrate-component</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Migrate a component from one framework to another</span>
+<span style="color: #b3b3b3;">---</span>
+
+Migrate the $ARGUMENTS[0] component from $ARGUMENTS[1] to $ARGUMENTS[2].
+Preserve all existing behavior and tests.
+</pre>
+</div>
+
+<pre class="example" id="org27142c1">
+运行 /migrate-component SearchBar React Vue 会将 $ARGUMENTS[0] 替换为 SearchBar
+
+$ARGUMENTS[1] 替换为 React，$ARGUMENTS[2] 替换为 Vue
+</pre>
+<p>
+使用 $N 简写的相同 skill：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">migrate-component</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">Migrate a component from one framework to another</span>
+<span style="color: #b3b3b3;">---</span>
+
+Migrate the $0 component from $1 to $2.
+Preserve all existing behavior and tests.
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org88b1f87" class="outline-2">
+<h2 id="org88b1f87">高级模式</h2>
+<div class="outline-text-2" id="text-org88b1f87">
+</div>
+<div id="outline-container-org0aa16bc" class="outline-3">
+<h3 id="org0aa16bc">注入动态上下文</h3>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
