@@ -378,7 +378,7 @@ Skills 可以在其目录中包含多个文件。这使 SKILL.md 专注于要点
   ├── reference.md (detailed API docs - loaded when needed)
   ├── examples.md (usage examples - loaded when needed)
   └── scripts/
-      └── helper.py (utility script - executed, not loaded)
+  └── helper.py (utility script - executed, not loaded)
 #+end_src
 
 #+begin_example
@@ -562,4 +562,458 @@ _allowed-tools_ 字段在 skill 处于活动状态时授予对列出的工具的
 * 高级模式
 
 ** 注入动态上下文
+*!`<command>`* 语法在将 skill 内容发送给 Claude 之前运行 shell 命令。命令输出替换占位符，因此 Claude 接收实际数据，而不是命令本身。此 skill 通过使用 GitHub CLI 获取实时 PR 数据来总结拉取请求。 _!`gh pr diff`_ 和其他命令首先运行，其输出被插入到提示中：
 
+#+begin_src markdown 
+
+  ---
+  name: pr-summary
+  description: Summarize changes in a pull request
+  context: fork
+  agent: Explore
+  allowed-tools: Bash(gh *)
+  ---
+
+  ## Pull request context
+  - PR diff: !`gh pr diff`
+  - PR comments: !`gh pr view --comments`
+  - Changed files: !`gh pr diff --name-only`
+
+  ## Your task
+  Summarize this pull request...
+#+end_src
+
+当此 skill 运行时：
+1. 每个 !`<command>` 立即执行（在 Claude 看到任何内容之前）
+2. 输出替换 skill 内容中的占位符
+3. Claude 接收带有实际 PR 数据的完全呈现的提示
+
+#+begin_example
+  这是预处理，不是 Claude 执行的内容。Claude 只看到最终结果
+
+  替换对原始文件运行一次。命令输出作为纯文本插入，不会重新扫描以查找进一步的 !`<command>` 占位符，因此命令不能发出占位符供后续传递展开
+#+end_example
+
+内联形式仅在 ! 出现在行首或紧跟在空白之后时被识别
+#+begin_example
+如果 ! 跟在另一个字符之后，如 KEY=!`cmd`，占位符将保留为字面文本，命令不会运行
+#+end_example
+
+对于多行命令，使用以 *```!* 开头的围栏代码块而不是内联形式：
+#+begin_src markdown 
+  ## Environment
+  ```!
+  node --version
+  npm --version
+  git status --short
+  ```
+#+end_src
+
+要禁用来自用户、项目、插件或其他目录源的 skills 和自定义命令的此行为，请在设置中设置 "disableSkillShellExecution": true。每个命令都被替换为 [shell command execution disabled by policy] 而不是被运行
+#+begin_example
+  捆绑和托管 skills 不受影响
+
+  此设置在托管设置中最有用，用户无法覆盖它
+#+end_example
+
+要在 skill 运行时请求更深入的推理，在 skill 内容中的任何地方包含 ultrathink。请参阅使用 [[https://code.claude.com/docs/zh-CN/model-config#use-ultrathink-for-one-off-deep-reasoning][ultrathink 进行一次性深度推理]] 
+
+** 在 subagent 中运行 skills
+当想让 skill 在隔离中运行时，在 frontmatter 中添加 _context: fork_ 。skill 内容变成驱动 subagent 的提示。它将无法访问你的对话历史
+#+begin_example
+  context: fork 仅对具有明确说明的 skills 有意义
+
+  如果你的 skill 包含”使用这些 API 约定”之类的指南而没有任务，subagent 会收到指南但没有可操作的提示，并返回而没有有意义的输出
+#+end_example
+
+Skills 和 subagents 以两个方向协同工作：
+
+| 方法                       | 系统提示                  | 任务             | 也加载                               |
+| 带有 context: fork 的 Skill | 来自代理类型               | SKILL.md 内容    | CLAUDE.md，除非代理是 Explore 或 Plan |
+| 带有 skills 字段的 Subagent | Subagent 的 markdown 正文 | Claude 的委派消息 | 预加载的 skills + CLAUDE.md          |
+
+使用 context: fork，在你的 skill 中编写任务并选择一个代理类型来执行它。内置的 Explore 和 Plan 代理跳过 CLAUDE.md 和 git 状态以保持其上下文较小，因此使用 agent: Explore 的分叉 skill 仅看到 SKILL.md 内容和代理自己的系统提示
+#+begin_example
+  对于反向情况，其中定义使用 skills 作为参考资料的自定义 subagent，请参阅 Subagents
+#+end_example
+
+*** 示例：使用 Explore 代理的研究 skill
+此 skill 在分叉的 Explore 代理中运行研究。skill 内容变成任务，代理提供针对代码库探索优化的只读工具：
+#+begin_src markdown 
+  ---
+  name: deep-research
+  description: Research a topic thoroughly
+  context: fork
+  agent: Explore
+  ---
+
+  Research $ARGUMENTS thoroughly:
+
+  1. Find relevant files using Glob and Grep
+  2. Read and analyze the code
+  3. Summarize findings with specific file references
+#+end_src
+当此 skill 运行时：
+1. 创建一个新的隔离上下文
+2. Subagent 接收 skill 内容作为其提示（“Research $ARGUMENTS thoroughly…”）
+3. agent 字段确定执行环境（模型、工具和权限）
+4. 结果被总结并返回到你的主对话
+
+agent 字段指定要使用的 subagent 配置
+#+begin_example
+  选项包括内置代理（Explore、Plan、general-purpose）或来自 .claude/agents/ 的任何自定义 subagent
+
+  如果省略，使用 general-purpose
+#+end_example
+
+** 限制 Claude 的 skill 访问
+默认情况下，Claude 可以调用任何没有设置 disable-model-invocation: true 的 skill。定义 allowed-tools 的 Skills 在 skill 处于活动状态时向 Claude 授予对这些工具的访问权限，无需每次使用批准。权限设置仍然管理所有其他工具的基线批准行为。一些内置命令也可通过 Skill 工具获得，包括 /init、/review 和 /security-review。其他内置命令如 /compact 则不能
+
+控制 Claude 可以调用哪些 skills 的三种方式
+1. 通过在 /permissions 中拒绝 Skill 工具来禁用所有 skills
+   #+begin_src sh 
+     # Add to deny rules:
+     Skill
+   #+end_src
+2. 使用权限规则允许或拒绝特定 skills：
+   #+begin_src sh 
+     # Allow only specific skills
+     Skill(commit)
+     Skill(review-pr *)
+
+     # Deny specific skills
+     Skill(deploy *)
+   #+end_src
+   + 权限语法：Skill(name) 用于精确匹配
+   + Skill(name *) 用于带有任何参数的前缀匹配
+3. 通过在其 frontmatter 中添加 disable-model-invocation: true 来隐藏单个 skills。这会从 Claude 的上下文中完全删除该 skill
+   #+begin_example
+     user-invocable 字段仅控制菜单可见性，不控制 Skill 工具访问
+
+     使用 disable-model-invocation: true 来阻止程序调用
+   #+end_example
+
+** 从设置覆盖 skill 可见性
+skillOverrides 设置从设置控制 skill 可见性，而不是从 skill 自己的 frontmatter。将其用于不想编辑 SKILL.md 的 skills
+#+begin_example
+  例如检入共享项目仓库或由 MCP 服务器提供的 skills
+
+  /skills 菜单为你编写它：突出显示一个 skill 并按 Space 循环切换状态，然后按 Enter 保存到 .claude/settings.local.json
+#+end_example
+
+每个键是一个 skill 名称，每个值是以下四种状态之一：
+| 值                    | 列出给 Claude | 在 / 菜单中 |
+| "on"                  | 名称和描述    | 是         |
+| "name-only"           | 仅名称        | 是         |
+| "user-invocable-only" | 隐藏         | 是         |
+| "off"                 | 隐藏         | 隐藏       |
+
+#+begin_example
+  从 v2.1.199 开始，"off" 也会从广告给 Remote Control 客户端和 Agent SDK 调用者的命令列表中隐藏该 skill，而不仅仅是终端 / 菜单
+
+  按其全名调用隐藏的 skill 仍然返回 skillOverrides 错误而不是运行它
+#+end_example
+
+skillOverrides 中不存在的 skill 被视为 "on"。下面的示例将一个 skill 折叠为其名称，并完全关闭另一个：
+#+begin_src js 
+  {
+      "skillOverrides": {
+  	"legacy-context": "name-only",
+  	"deploy": "off"
+      }
+  }
+#+end_src
+
+插件 skills 不受 skillOverrides 影响。通过 /plugin 管理这些
+
+* 评估和迭代 skill
+看到 skill 触发告诉 Claude 找到了它，而不是它做了你想要的。要知道 skill 是否有效，分别测量两件事：
+1. Claude 是否在它应该的提示上调用它
+2. 当它确实调用时输出是否与你期望的相匹配
+   
+#+begin_example
+  两者的检查都是基线比较
+
+  收集一些现实的提示，在一个新会话中运行每个提示，skill 可用，然后再次运行它禁用，并比较结果
+
+  新会话很重要，因为编写 skill 的剩余上下文会掩盖书面说明中的差距
+#+end_example
+
+** 使用 skill-creator 运行 evals
+[[https://github.com/anthropics/claude-plugins-official/tree/main/plugins/skill-creator][skill-creator 插件]] 在 Claude Code 内自动化比较循环。从官方市场安装它：
+
+#+begin_src sh 
+  /plugin install skill-creator@claude-plugins-official
+#+end_src
+
+#+begin_example
+  如果 Claude Code 报告在任何市场中找不到该插件，你的市场要么缺失，要么已过期
+
+  运行 /plugin marketplace update claude-plugins-official 来刷新它
+
+  或 /plugin marketplace add anthropics/claude-plugins-official（如果之前没有添加过）
+
+  然后重试安装
+#+end_example
+
+安装后，运行 */reload-plugins* 以在当前会话中使插件的 skills 可用。然后要求 Claude 评估现有 skill
+#+begin_example
+  例如 evaluate my summarize-changes skill with skill-creator
+#+end_example
+
+插件引导用户编写测试用例并运行循环：
++ 测试用例：在 skill 目录内的 evals/evals.json 中存储提示、输入文件和预期行为
++ 隔离运行：为每个测试用例生成一个 subagent，以便每次运行都从干净的上下文开始，并记录令牌计数和持续时间
++ 评分：检查每个断言与输出，并将通过或失败与证据写入 grading.json
++ 基准：将通过率、时间和令牌聚合为有 skill 与无 skill 的情况，放入 benchmark.json，以便你可以将通过率改进与令牌和时间开销进行比较
++ 版本比较：在两个版本的 skill 之间运行盲 A/B，以便你可以在提交之前确认编辑是一个改进
++ 描述调整：生成应该触发和不应该触发的提示，测量命中率，并在 skill 在错误的请求上激活时提议描述编辑
++ 审查查看器：打开一个 HTML 报告，可以在其中检查每个输出并记录定性反馈，下一次迭代会读取
+￼
+#+begin_example
+  对于 eval 文件格式和完整迭代工作流，请参阅 agentskills.io 上的评估 skill 输出质量
+  https://agentskills.io/skill-creation/evaluating-skills
+
+  有关基准和比较模式的背景，请参阅 skill-creator 公告
+  https://claude.com/blog/improving-skill-creator-test-measure-and-refine-agent-skills
+#+end_example
+
+* 共享 skills
+Skills 可以根据用户受众在不同范围内分发：
++ 项目 skills：将 .claude/skills/ 提交到版本控制
++ 插件：在你的插件中创建 skills/ 目录
++ 托管：通过托管设置部署组织范围内
+
+** 生成视觉输出
+Skills 可以捆绑并运行任何语言的脚本，为 Claude 提供单个提示中不可能的功能。一个强大的模式是生成视觉输出：在浏览器中打开的交互式 HTML 文件，用于探索数据、调试或创建报告
+
+#+begin_example
+  此示例创建一个代码库浏览器：一个交互式树视图，可以在其中展开和折叠目录、一目了然地查看文件大小，并按颜色识别文件类型
+#+end_example
+
+创建 Skill 目录：
+
+#+begin_src sh
+  mkdir -p ~/.claude/skills/codebase-visualizer/scripts
+#+end_src
+
+保存到 ~/.claude/skills/codebase-visualizer/SKILL.md。描述告诉 Claude 何时激活此 Skill，说明告诉 Claude 运行捆绑的脚本。脚本路径使用 ${CLAUDE_SKILL_DIR}，因此无论 skill 是在个人、项目还是插件级别安装，它都能正确解析：
+
+#+begin_src markdown 
+  ---
+  name: codebase-visualizer
+  description: Generate an interactive collapsible tree visualization of your codebase. Use when exploring a new repo, understanding project structure, or identifying large files.
+  allowed-tools: Bash(python3 *)
+  ---
+
+  # Codebase Visualizer
+
+  Generate an interactive HTML tree view that shows your project's file structure with collapsible directories.
+
+  ## Usage
+
+  Run the visualization script from your project root:
+
+  ```bash
+  python3 ${CLAUDE_SKILL_DIR}/scripts/visualize.py .
+  ```
+
+  This creates `codebase-map.html` in the current directory and opens it in your default browser.
+
+  ## What the visualization shows
+
+  - **Collapsible directories**: Click folders to expand/collapse
+  - **File sizes**: Displayed next to each file
+  - **Colors**: Different colors for different file types
+  - **Directory totals**: Shows aggregate size of each folder
+#+end_src
+
+保存到 ~/.claude/skills/codebase-visualizer/scripts/visualize.py。此脚本扫描目录树并生成一个自包含的 HTML 文件，包含：
++ 一个摘要侧边栏，显示文件计数、目录计数、总大小和文件类型数量
++ 一个条形图，按文件类型（按大小排名前 8）分解代码库
++ 一个可折叠树，可以在其中展开和折叠目录，带有颜色编码的文件类型指示器
+
+该脚本需要 Python 3，但仅使用内置库，因此无需安装包：
+#+begin_src python 
+  #!/usr/bin/env python3
+  """Generate an interactive collapsible tree visualization of a codebase."""
+
+  import json
+  import sys
+  import webbrowser
+  from html import escape
+  from pathlib import Path
+  from collections import Counter
+
+  IGNORE = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'dist', 'build'}
+
+  def scan(path: Path, stats: dict) -> dict:
+      result = {"name": path.name, "children": [], "size": 0}
+      try:
+          for item in sorted(path.iterdir()):
+              if item.name in IGNORE or item.name.startswith('.'):
+                  continue
+              if item.is_file():
+                  size = item.stat().st_size
+                  ext = item.suffix.lower() or '(no ext)'
+                  result["children"].append({"name": item.name, "size": size, "ext": ext})
+                  result["size"] += size
+                  stats["files"] += 1
+                  stats["extensions"][ext] += 1
+                  stats["ext_sizes"][ext] += size
+              elif item.is_dir():
+                  stats["dirs"] += 1
+                  child = scan(item, stats)
+                  if child["children"]:
+                      result["children"].append(child)
+                      result["size"] += child["size"]
+      except PermissionError:
+          pass
+      return result
+
+  def generate_html(data: dict, stats: dict, output: Path) -> None:
+      ext_sizes = stats["ext_sizes"]
+      total_size = sum(ext_sizes.values()) or 1
+      sorted_exts = sorted(ext_sizes.items(), key=lambda x: -x[1])[:8]
+      colors = {
+          '.js': '#f7df1e', '.ts': '#3178c6', '.py': '#3776ab', '.go': '#00add8',
+          '.rs': '#dea584', '.rb': '#cc342d', '.css': '#264de4', '.html': '#e34c26',
+          '.json': '#6b7280', '.md': '#083fa1', '.yaml': '#cb171e', '.yml': '#cb171e',
+          '.mdx': '#083fa1', '.tsx': '#3178c6', '.jsx': '#61dafb', '.sh': '#4eaa25',
+      }
+      lang_bars = "".join(
+          f'<div class="bar-row"><span class="bar-label">{ext}</span>'
+          f'<div class="bar" style="width:{(size/total_size)*100}%;background:{colors.get(ext,"#6b7280")}"></div>'
+          f'<span class="bar-pct">{(size/total_size)*100:.1f}%</span></div>'
+          for ext, size in sorted_exts
+      )
+      def fmt(b):
+          if b < 1024: return f"{b} B"
+          if b < 1048576: return f"{b/1024:.1f} KB"
+          return f"{b/1048576:.1f} MB"
+
+      html = f'''<!DOCTYPE html>
+  <html><head>
+    <meta charset="utf-8"><title>Codebase Explorer</title>
+    <style>
+      body {{ font: 14px/1.5 system-ui, sans-serif; margin: 0; background: #1a1a2e; color: #eee; }}
+      .container {{ display: flex; height: 100vh; }}
+      .sidebar {{ width: 280px; background: #252542; padding: 20px; border-right: 1px solid #3d3d5c; overflow-y: auto; flex-shrink: 0; }}
+      .main {{ flex: 1; padding: 20px; overflow-y: auto; }}
+      h1 {{ margin: 0 0 10px 0; font-size: 18px; }}
+      h2 {{ margin: 20px 0 10px 0; font-size: 14px; color: #888; text-transform: uppercase; }}
+      .stat {{ display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #3d3d5c; }}
+      .stat-value {{ font-weight: bold; }}
+      .bar-row {{ display: flex; align-items: center; margin: 6px 0; }}
+      .bar-label {{ width: 55px; font-size: 12px; color: #aaa; }}
+      .bar {{ height: 18px; border-radius: 3px; }}
+      .bar-pct {{ margin-left: 8px; font-size: 12px; color: #666; }}
+      .tree {{ list-style: none; padding-left: 20px; }}
+      details {{ cursor: pointer; }}
+      summary {{ padding: 4px 8px; border-radius: 4px; }}
+      summary:hover {{ background: #2d2d44; }}
+      .folder {{ color: #ffd700; }}
+      .file {{ display: flex; align-items: center; padding: 4px 8px; border-radius: 4px; }}
+      .file:hover {{ background: #2d2d44; }}
+      .size {{ color: #888; margin-left: auto; font-size: 12px; }}
+      .dot {{ width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }}
+    </style>
+  </head><body>
+    <div class="container">
+      <div class="sidebar">
+        <h1>📊 Summary</h1>
+        <div class="stat"><span>Files</span><span class="stat-value">{stats["files"]:,}</span></div>
+        <div class="stat"><span>Directories</span><span class="stat-value">{stats["dirs"]:,}</span></div>
+        <div class="stat"><span>Total size</span><span class="stat-value">{fmt(data["size"])}</span></div>
+        <div class="stat"><span>File types</span><span class="stat-value">{len(stats["extensions"])}</span></div>
+        <h2>By file type</h2>
+        {lang_bars}
+      </div>
+      <div class="main">
+        <h1>📁 {escape(data["name"])}</h1>
+        <ul class="tree" id="root"></ul>
+      </div>
+    </div>
+    <script>
+      const data = {json.dumps(data)};
+      const colors = {json.dumps(colors)};
+      function fmt(b) {{ if (b < 1024) return b + ' B'; if (b < 1048576) return (b/1024).toFixed(1) + ' KB'; return (b/1048576).toFixed(1) + ' MB'; }}
+      function esc(s) {{ return s.replace(/[&<>"']/g, c => ({{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}}[c])); }}
+      function render(node, parent) {{
+        if (node.children) {{
+          const det = document.createElement('details');
+          det.open = parent === document.getElementById('root');
+          det.innerHTML = `<summary><span class="folder">📁 ${{esc(node.name)}}</span><span class="size">${{fmt(node.size)}}</span></summary>`;
+          const ul = document.createElement('ul'); ul.className = 'tree';
+          node.children.sort((a,b) => (b.children?1:0)-(a.children?1:0) || a.name.localeCompare(b.name));
+          node.children.forEach(c => render(c, ul));
+          det.appendChild(ul);
+          const li = document.createElement('li'); li.appendChild(det); parent.appendChild(li);
+        }} else {{
+          const li = document.createElement('li'); li.className = 'file';
+          li.innerHTML = `<span class="dot" style="background:${{colors[node.ext]||'#6b7280'}}"></span>${{esc(node.name)}}<span class="size">${{fmt(node.size)}}</span>`;
+          parent.appendChild(li);
+        }}
+      }}
+      data.children.forEach(c => render(c, document.getElementById('root')));
+    </script>
+  </body></html>'''
+      output.write_text(html)
+
+  if __name__ == '__main__':
+      target = Path(sys.argv[1] if len(sys.argv) > 1 else '.').resolve()
+      stats = {"files": 0, "dirs": 0, "extensions": Counter(), "ext_sizes": Counter()}
+      data = scan(target, stats)
+      out = Path('codebase-map.html')
+      generate_html(data, stats, out)
+      print(f'Generated {out.absolute()}')
+      webbrowser.open(f'file://{out.absolute()}')
+#+end_src
+要测试，在任何项目中打开 Claude Code 并询问”Visualize this codebase.”Claude 运行脚本，生成 codebase-map.html，并在浏览器中打开它
+
+#+begin_example
+  此模式适用于任何视觉输出：依赖关系图、测试覆盖率报告、API 文档或数据库架构可视化
+
+  捆绑的脚本完成繁重工作，而 Claude 处理编排
+#+end_example
+
+* 故障排除
+** Skill 未触发
+如果 Claude 在预期时不使用 skill：
+1. 检查描述是否包含用户会自然说的关键字
+2. 验证 skill 是否出现在 What skills are available? 中
+3. 尝试重新表述你的请求以更接近描述
+4. 如果 skill 是用户可调用的，使用 /skill-name 直接调用它
+
+如果 frontmatter YAML 格式不正确，Claude Code 会加载 skill 主体但元数据为空，因此 /skill-name 仍然有效，但 Claude 没有 description 来匹配。使用 --debug 运行以查看解析错误
+
+** Skill 触发过于频繁
+如果 Claude 在不想要时使用 skill：
+1. 使描述更具体
+2. 如果只想手动调用，添加 disable-model-invocation: true
+
+** Skill 描述被截断
+Claude Code 将 skill 名称和描述的列表加载到上下文中，以便 Claude 知道什么可用。列表始终包含每个 skill 名称，但如果有许多 skills，Claude Code 会缩短描述以适应列表的字符预算，这可能会删除 Claude 需要匹配你的请求的关键字
+#+begin_example
+预算按模型上下文窗口的 1% 进行扩展
+#+end_example
+
+当列表超出预算时，Claude Code 会从你调用最少的 skills 开始删除描述，因此使用最多的 skills 会保留其完整文本。
+
+运行 /doctor 以估计列表的上下文成本及其最大贡献者
+#+begin_example
+当列表超出预算时，Claude Code 会向调试日志写入警告，可通过 --debug 查看
+#+end_example
+
+/context 中的 Skills 行报告应用预算后的列表大小，因此它与模型接收的内容相匹配
+#+begin_example
+在 v2.1.196 之前，该行计算每个描述的完整文本，可能显示的值比配置的预算大几倍
+#+end_example
+
++ 要提高预算，设置 skillListingBudgetFraction 设置（例如 0.02 = 2%）或 SLASH_COMMAND_TOOL_CHAR_BUDGET 环境变量为固定字符数
++ 要为其他 skills 释放预算，在 skillOverrides 中将低优先级条目设置为 "name-only"，以便它们列出而不显示描述
++ 也可以在源处修剪 description 和 when_to_use 文本：前置关键用例，因为每个条目的组合文本被限制为 1,536 个字符，无论预算如何
+  + 该限制可通过 skillListingMaxDescChars 进行配置
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:../plugin/plugin.org][Next: 插件]] | [[file:../mcp/mcp.org][Previous: MCP]] | [[file:../claude.org][Home: Claude 指南]] |
