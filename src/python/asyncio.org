@@ -1,0 +1,141 @@
+#+TITLE: 使用asyncio
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil *:nil
+
+#+begin_example
+asyncio是Python 3.4版本引入的标准库，直接内置了对异步IO的支持
+#+end_example
+
+asyncio的编程模型就是一个 *消息循环* 。asyncio模块内部实现了 _EventLoop_ ，把需要执行的协程扔到EventLoop中执行，就实现了异步IO
+1. 用asyncio提供的 _@asyncio.coroutine_ 可以把一个 _generator_ 标记为 *coroutine类型*
+2. 在coroutine内部用 *yield* from调用另一个coroutine实现异步操作
+
+为了简化并更好地标识异步IO，从Python 3.5开始引入了新的语法 *async* 和 *await* ，可以让coroutine的代码更简洁易读
+
+用asyncio实现Hello world代码如下：
+#+begin_src python 
+  import asyncio
+
+  async def hello():
+      print("Hello world!")
+      # 异步调用asyncio.sleep(1):
+      await asyncio.sleep(1)
+      print("Hello again!")
+
+  asyncio.run(hello())
+#+end_src
+
+async把一个函数变成coroutine类型，然后，就把这个async函数扔到asyncio.run()中执行。执行结果如下：
+
+#+begin_src sh 
+  Hello!
+  (等待约1秒)
+  Hello again!
+#+end_src
+
+1. hello()会首先打印出Hello world!，然后，await语法可以更方便地调用另一个async函数
+2. 由于asyncio.sleep()也是一个async函数，所以线程不会等待asyncio.sleep()，而是直接中断并执行下一个消息循环
+3. 当asyncio.sleep()返回时，就接着执行下一行语句
+
+#+begin_example
+  把asyncio.sleep(1)看成是一个耗时1秒的IO操作
+
+  在此期间，主线程并未等待，而是去执行EventLoop中其他可以执行的async函数了，因此可以实现并发执行
+#+end_example
+
+上述hello()还没有看出并发执行的特点，改写一下，让两个hello()同时并发执行：
+#+begin_src python 
+  # 传入name参数:
+  async def hello(name):
+      # 打印name和当前线程:
+      print("Hello %s! (%s)" % (name, threading.current_thread))
+      # 异步调用asyncio.sleep(1):
+      await asyncio.sleep(1)
+      print("Hello %s again! (%s)" % (name, threading.current_thread))
+      return name
+#+end_src
+
+用asyncio.gather()同时调度多个async函数：
+
+#+begin_src python 
+  async def main():
+      L = await asyncio.gather(hello("Bob"), hello("Alice"))
+      print(L)
+
+  asyncio.run(main())
+#+end_src
+
+执行结果如下：
+#+begin_src sh 
+  Hello Bob! (<function current_thread at 0x10387d260>)
+  Hello Alice! (<function current_thread at 0x10387d260>)
+  (等待约1秒)
+  Hello Bob again! (<function current_thread at 0x10387d260>)
+  Hello Alice again! (<function current_thread at 0x10387d260>)
+  ['Bob', 'Alice']
+#+end_src
+
+从结果可知，用asyncio.run()执行async函数，所有函数均由同一个线程执行。两个hello()是并发执行的，并且可以拿到async函数执行的结果（即return的返回值）
+
+#+begin_example
+如果把asyncio.sleep()换成真正的IO操作，则多个并发的IO操作实际上可以由一个线程并发执行
+#+end_example
+
+用asyncio的异步网络连接来获取sina、sohu和163的网站首页：
+
+#+begin_src python 
+  import asyncio
+
+  async def wget(host):
+      print(f"wget {host}...")
+      # 连接80端口:
+      reader, writer = await asyncio.open_connection(host, 80)
+      # 发送HTTP请求:
+      header = f"GET / HTTP/1.0\r\nHost: {host}\r\n\r\n"
+      writer.write(header.encode("utf-8"))
+      await writer.drain()
+
+      # 读取HTTP响应:
+      while True:
+          line = await reader.readline()
+          if line == b"\r\n":
+              break
+          print("%s header > %s" % (host, line.decode("utf-8").rstrip()))
+          # Ignore the body, close the socket
+      writer.close()
+      await writer.wait_closed()
+      print(f"Done {host}.")
+
+  async def main():
+      await asyncio.gather(wget("www.sina.com.cn"), wget("www.sohu.com"), wget("www.163.com"))
+
+  asyncio.run(main())
+#+end_src
+
+执行结果如下：
+#+begin_src sh 
+  wget www.sohu.com...
+  wget www.sina.com.cn...
+  wget www.163.com...
+  (等待一段时间)
+  (打印出sohu的header)
+  www.sohu.com header > HTTP/1.1 200 OK
+  www.sohu.com header > Content-Type: text/html
+  ...
+  (打印出sina的header)
+  www.sina.com.cn header > HTTP/1.1 200 OK
+  www.sina.com.cn header > Date: Wed, 20 May 2015 04:56:33 GMT
+  ...
+  (打印出163的header)
+  www.163.com header > HTTP/1.0 302 Moved Temporarily
+  www.163.com header > Server: Cdn Cache Server V2.0
+  ...
+#+end_src
+
+#+begin_example
+可见3个连接由一个线程并发执行3个async函数完成
+#+end_example
+* 小结
+asyncio提供了完善的异步IO支持，用asyncio.run()调度一个coroutine
++ 在一个async函数内部，通过await可以调用另一个async函数，这个调用看起来是串行执行的，但实际上是由asyncio内部的消息循环控制
++ 在一个async函数内部，通过await asyncio.gather()可以并发执行若干个async函数
