@@ -201,6 +201,637 @@
  <a accesskey="H" href="./automation.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">按计划运行提示词</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgde2e1bb">比较调度选项</a></li>
+<li><a href="#org87bd714">使用 /loop 重复运行提示词</a>
+<ul>
+<li><a href="#org33ed06e">在固定间隔上运行</a></li>
+<li><a href="#orgcacc81a">让 Claude 选择间隔</a></li>
+<li><a href="#org201b787">运行内置维护提示词</a></li>
+<li><a href="#org5e926c8">使用 loop.md 自定义默认提示词</a></li>
+<li><a href="#org0965be2">停止循环</a></li>
+</ul>
+</li>
+<li><a href="#org5a21b55">设置一次性提醒</a></li>
+<li><a href="#org82d83de">管理计划任务</a></li>
+<li><a href="#org1206dea">计划任务如何运行</a>
+<ul>
+<li><a href="#org44bb799">抖动</a></li>
+<li><a href="#org2304256">七天过期</a></li>
+</ul>
+</li>
+<li><a href="#org0fa17ec">Cron 表达式参考</a></li>
+<li><a href="#org2e20847">禁用计划任务</a></li>
+<li><a href="#orga87f78f">限制</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org51f77fb">
+使用 /loop 和 cron 调度工具在 Claude Code 会话中重复运行提示词、轮询状态或设置一次性提醒
+</pre>
+
+<p>
+<b>计划任务</b> 让 Claude 按间隔自动重新运行提示词。使用它们来轮询 <span class="underline">部署</span> 、 <span class="underline">监督 PR</span> 、 <span class="underline">检查长时间运行的构建</span> ，或在会话中稍后提醒自己做某事。要对事件进行实时反应而不是轮询，请参阅 <a href="https://code.claude.com/docs/zh-CN/channels">Channels</a>：CI 可以直接将失败推送到会话中。要保持会话工作转向转向直到满足条件而不是按间隔，请参阅 <a href="https://code.claude.com/docs/zh-CN/goal">/goal</a>
+</p>
+
+<p>
+任务是会话范围的：它们存在于当前对话中，当启动新对话时就会停止。使用 <span class="underline">&#x2013;resume</span> 或 <span class="underline">&#x2013;continue</span> 恢复会带回任何尚未过期的任务：在过去 7 天内创建的重复任务，或计划时间尚未到达的一次性任务
+</p>
+<pre class="example" id="org64d0fd0">
+对于独立于任何会话而存在的调度，请使用 Routines 在 Anthropic 管理的基础设施上创建例程
+
+设置 Desktop 计划任务 或 使用 GitHub Actions
+</pre>
+<div id="outline-container-orgde2e1bb" class="outline-2">
+<h2 id="orgde2e1bb">比较调度选项</h2>
+<div class="outline-text-2" id="text-orgde2e1bb">
+<p>
+Claude Code offers three ways to schedule recurring or one-off work:
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">&#xa0;</td>
+<td class="org-left">Cloud</td>
+<td class="org-left">Desktop</td>
+<td class="org-left">/loop</td>
+</tr>
+
+<tr>
+<td class="org-left">Runs on</td>
+<td class="org-left">Cloud, Anthropic-managed by default</td>
+<td class="org-left">Your machine</td>
+<td class="org-left">Your machine</td>
+</tr>
+
+<tr>
+<td class="org-left">Requires machine on</td>
+<td class="org-left">No</td>
+<td class="org-left">Yes</td>
+<td class="org-left">Yes</td>
+</tr>
+
+<tr>
+<td class="org-left">Requires open session</td>
+<td class="org-left">No</td>
+<td class="org-left">No</td>
+<td class="org-left">Yes</td>
+</tr>
+
+<tr>
+<td class="org-left">Persistent across restarts</td>
+<td class="org-left">Yes</td>
+<td class="org-left">Yes</td>
+<td class="org-left">Restored on &#x2013;resume if unexpired</td>
+</tr>
+
+<tr>
+<td class="org-left">Access to local files</td>
+<td class="org-left">No (fresh clone)</td>
+<td class="org-left">Yes</td>
+<td class="org-left">Yes</td>
+</tr>
+
+<tr>
+<td class="org-left">MCP servers</td>
+<td class="org-left">Connectors configured per task</td>
+<td class="org-left">Config files and connectors</td>
+<td class="org-left">Inherits from session</td>
+</tr>
+
+<tr>
+<td class="org-left">Permission prompts</td>
+<td class="org-left">No (runs autonomously)</td>
+<td class="org-left">Configurable per task</td>
+<td class="org-left">Inherits from session</td>
+</tr>
+
+<tr>
+<td class="org-left">Customizable schedule</td>
+<td class="org-left">Via /schedule in the CLI</td>
+<td class="org-left">Yes</td>
+<td class="org-left">Yes</td>
+</tr>
+
+<tr>
+<td class="org-left">Minimum interval</td>
+<td class="org-left">1 hour</td>
+<td class="org-left">1 minute</td>
+<td class="org-left">1 minute</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org45cb2ec">
+Use cloud tasks for work that should run reliably without your machine
+
+Use Desktop tasks when you need access to local files and tools
+
+Use /loop for quick polling during a session
+</pre>
+</div>
+</div>
+<div id="outline-container-org87bd714" class="outline-2">
+<h2 id="org87bd714">使用 /loop 重复运行提示词</h2>
+<div class="outline-text-2" id="text-org87bd714">
+<p>
+<b>/loop</b> <a href="https://code.claude.com/docs/zh-CN/commands">bundled skill</a> 是在会话保持打开时重复运行提示词的最快方式。间隔和提示词都是可选的，用户提供的内容决定了循环的行为方式：
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">您提供的内容</td>
+<td class="org-left">示例</td>
+<td class="org-left">发生的情况</td>
+</tr>
+
+<tr>
+<td class="org-left">间隔和提示词</td>
+<td class="org-left">/loop 5m check the deploy</td>
+<td class="org-left">您的提示词在固定计划上运行</td>
+</tr>
+
+<tr>
+<td class="org-left">仅提示词</td>
+<td class="org-left">/loop check the deploy</td>
+<td class="org-left">您的提示词在 Claude 选择的间隔上运行，每次迭代</td>
+</tr>
+
+<tr>
+<td class="org-left">仅间隔或无</td>
+<td class="org-left">/loop</td>
+<td class="org-left">内置维护提示词运行，或您的 loop.md（如果存在）</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+也可以将 skill 作为提示词传递，例如 /loop 20m /review-pr 1234，以在每次迭代时重新运行该 skill
+</p>
+<pre class="example" id="org3d5c90f">
+从 v2.1.196 开始，计划的触发仅运行 Claude 允许自己调用的 skill
+</pre>
+
+<p>
+以下内容作为纯文本到达 Claude，而不是执行：
+</p>
+<ul class="org-ul">
+<li>内置命令，例如 /permissions、/model 或 /clear</li>
+<li>标记为 disable-model-invocation: true 的 skill</li>
+<li>由 skillOverrides 设置或 Skill deny rule 从 Claude 扣留的 skill</li>
+<li>MCP prompts，例如 /mcp__github__list_prs MCP 服务器公开的 skill 仍然运行</li>
+</ul>
+</div>
+<div id="outline-container-org33ed06e" class="outline-3">
+<h3 id="org33ed06e">在固定间隔上运行</h3>
+<div class="outline-text-3" id="text-org33ed06e">
+<p>
+当提供间隔时，Claude 将其转换为 cron 表达式，计划作业，并确认频率和作业 ID
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">/loop 5m check if the deployment finished and tell me what happened
+</pre>
+</div>
+
+<p>
+间隔可以作为裸令牌（如 30m）在提示词前面，或作为子句（如 every 2 hours）在后面。支持的单位是 s 表示秒、m 表示分钟、h 表示小时、d 表示天
+</p>
+
+<pre class="example" id="org368e50e">
+秒数向上舍入到最近的分钟，因为 cron 的粒度为一分钟。不能均匀映射到干净 cron 步长的间隔
+
+例如 7m 或 90m，会舍入到最近的间隔，Claude 会告诉您它选择了什么
+</pre>
+</div>
+</div>
+<div id="outline-container-orgcacc81a" class="outline-3">
+<h3 id="orgcacc81a">让 Claude 选择间隔</h3>
+<div class="outline-text-3" id="text-orgcacc81a">
+<p>
+当您省略间隔时，Claude 会动态选择一个，而不是在固定 cron 计划上运行。在每次迭代后，它会根据观察到的情况选择一个一分钟到一小时之间的延迟：在构建完成或 PR 活跃时等待较短时间，当没有待处理项时等待较长时间
+</p>
+<pre class="example" id="org41660cf">
+选择的延迟和原因会在每次迭代结束时打印
+</pre>
+
+<p>
+下面的示例检查 CI 和审查评论，Claude 在 PR 变得安静后在迭代之间等待更长时间：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">/loop check whether CI passed and address any review comments
+</pre>
+</div>
+
+<p>
+当要求动态 /loop 计划时，Claude 可能会直接使用 Monitor tool
+</p>
+<pre class="example" id="org9471dba">
+Monitor 运行后台脚本并流式传输每个输出行，这完全避免了轮询
+
+通常比在间隔上重新运行提示词更节省令牌且响应更快
+</pre>
+<p>
+动态计划的循环出现在计划任务列表中，就像任何其他任务一样，所以可以以相同的方式列出或取消它
+</p>
+<pre class="example" id="org5c87e84">
+抖动规则不适用于它，但七天过期适用：循环在启动它七天后自动结束
+</pre>
+</div>
+</div>
+<div id="outline-container-org201b787" class="outline-3">
+<h3 id="org201b787">运行内置维护提示词</h3>
+<div class="outline-text-3" id="text-org201b787">
+<p>
+当省略提示词时，Claude 使用内置维护提示词而不是提供的提示词。在每次迭代中，它按顺序处理以下内容：
+</p>
+<ul class="org-ul">
+<li>继续对话中的任何未完成工作</li>
+<li>照顾当前分支的拉取请求：审查评论、失败的 CI 运行、合并冲突</li>
+<li>运行清理通过，例如当没有其他待处理项时的错误搜索或简化</li>
+</ul>
+
+<p>
+Claude 不会启动该范围之外的新举措，不可逆的操作（如推送或删除）仅在继续转录已授权的内容时进行
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">/loop
+</pre>
+</div>
+
+<p>
+裸 /loop 在 <a href="https://code.claude.com/docs/zh-CN/scheduled-tasks#let-claude-choose-the-interval">动态选择</a> 的间隔上运行此提示词。添加间隔，例如 /loop 15m，以在固定计划上运行它。要用自己的默认值替换内置提示词，请参阅 <a href="https://code.claude.com/docs/zh-CN/scheduled-tasks#customize-the-default-prompt-with-loop-md">使用 loop.md 自定义默认提示词</a>
+</p>
+</div>
+</div>
+<div id="outline-container-org5e926c8" class="outline-3">
+<h3 id="org5e926c8">使用 loop.md 自定义默认提示词</h3>
+<div class="outline-text-3" id="text-org5e926c8">
+<p>
+loop.md 文件用您自己的说明替换内置维护提示词。它为裸 /loop 定义单个默认提示词，而不是单独计划任务的列表，并且在命令行上提供提示词时被忽略
+</p>
+<pre class="example" id="org51997d4">
+要在其旁边计划其他提示词，请使用 /loop &lt;prompt&gt; 或直接询问 Claude
+
+https://code.claude.com/docs/zh-CN/scheduled-tasks#manage-scheduled-tasks
+</pre>
+
+<p>
+Claude 在两个位置查找文件，并使用它找到的第一个
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">路径</td>
+<td class="org-left">范围</td>
+</tr>
+
+<tr>
+<td class="org-left">.claude/loop.md</td>
+<td class="org-left">项目级别：当两个文件都存在时优先</td>
+</tr>
+
+<tr>
+<td class="org-left">~/.claude/loop.md</td>
+<td class="org-left">用户级别：适用于任何未定义自己的项目</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+该文件是纯 Markdown，没有必需的结构。像您直接输入 /loop 提示词一样编写它。以下示例保持发布分支健康：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown">Check the <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">release/next</span><span style="color: #b3b3b3;">`</span> PR. If CI is red, pull the failing job log,
+diagnose, and push a minimal fix. If new review comments have arrived,
+address each one and resolve the thread. If everything is green and
+quiet, say so in one line.
+</pre>
+</div>
+
+<p>
+对 loop.md 的编辑在下一次迭代时生效，所以可以在循环运行时优化说明
+</p>
+<ul class="org-ul">
+<li>当任一位置都不存在 loop.md 时，循环回退到内置维护提示词</li>
+<li>保持文件简洁：超过 25,000 字节的内容会被截断</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org0965be2" class="outline-3">
+<h3 id="org0965be2">停止循环</h3>
+<div class="outline-text-3" id="text-org0965be2">
+<p>
+要在 /loop 等待下一次迭代时停止它，请按 Esc。这会清除待处理的唤醒，所以循环不会再次触发
+</p>
+<pre class="example" id="orgba27410">
+通过直接询问 Claude计划的任务不受 Esc 影响，会保留在原位，直到您删除它们
+</pre>
+
+<p>
+在<a href="https://code.claude.com/docs/zh-CN/scheduled-tasks#let-claude-choose-the-interval">自主进行模式</a>中，Claude 也可以在任务完成后通过调用 <a href="https://code.claude.com/docs/zh-CN/tools-reference">ScheduleWakeup tool</a> 并设置 stop: true 来自己结束循环，这会立即取消待处理的唤醒。如果迭代结束时既没有重新计划也没有停止，Claude Code 会在大约 20 分钟后计划一个备用唤醒，并在该迭代也不重新计划时结束循环
+</p>
+
+<pre class="example" id="orgfaf2fc9">
+在 v2.1.202 之前，不重新计划是 Claude 自己结束循环的唯一方式
+</pre>
+
+<p>
+固定间隔上的循环会一直运行，直到停止它们或七天过去
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org5a21b55" class="outline-2">
+<h2 id="org5a21b55">设置一次性提醒</h2>
+<div class="outline-text-2" id="text-org5a21b55">
+<p>
+对于一次性提醒，用自然语言描述想要的内容，而不是使用 /loop。Claude 计划一个单次触发的任务，该任务在运行后删除自己
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">remind me at 3pm to push the release branch
+
+<span style="color: #00ffff;">in</span> 45 minutes, check whether the integration tests passed
+</pre>
+</div>
+
+<p>
+Claude 使用 cron 表达式将触发时间固定到特定的分钟和小时，并确认何时触发
+</p>
+</div>
+</div>
+<div id="outline-container-org82d83de" class="outline-2">
+<h2 id="org82d83de">管理计划任务</h2>
+<div class="outline-text-2" id="text-org82d83de">
+<p>
+用自然语言要求 Claude 列出或取消任务，或直接引用底层工具
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">what scheduled tasks<span style="color: #00ffff;"> do</span> I have?
+
+cancel the deploy check job
+</pre>
+</div>
+
+<p>
+在幕后，Claude 使用这些工具：
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">工具</td>
+<td class="org-left">目的</td>
+</tr>
+
+<tr>
+<td class="org-left">CronCreate</td>
+<td class="org-left">计划新任务。接受 5 字段 cron 表达式、要运行的提示词以及是否重复或仅触发一次</td>
+</tr>
+
+<tr>
+<td class="org-left">CronList</td>
+<td class="org-left">列出所有计划任务及其 ID、计划和提示词</td>
+</tr>
+
+<tr>
+<td class="org-left">CronDelete</td>
+<td class="org-left">按 ID 取消任务</td>
+</tr>
+</tbody>
+</table>
+
+<ul class="org-ul">
+<li>每个计划任务都有一个 8 字符的 ID，可以将其传递给 CronDelete</li>
+<li>一个会话最多可以同时保存 50 个计划任务</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org1206dea" class="outline-2">
+<h2 id="org1206dea">计划任务如何运行</h2>
+<div class="outline-text-2" id="text-org1206dea">
+<p>
+调度程序每秒检查一次到期的任务，并以低优先级将其加入队列
+</p>
+<ul class="org-ul">
+<li>计划的提示词在您的回合之间触发，而不是在 Claude 正在响应时</li>
+<li>如果 Claude 在任务到期时忙碌，提示词会等到当前回合结束。</li>
+</ul>
+
+<p>
+所有时间都在本地时区中解释
+</p>
+<pre class="example" id="org11ec5b0">
+像 0 9 * * * 这样的 cron 表达式意味着 9am 在运行 Claude Code 的任何地方，而不是 UTC
+</pre>
+</div>
+<div id="outline-container-org44bb799" class="outline-3">
+<h3 id="org44bb799">抖动</h3>
+<div class="outline-text-3" id="text-org44bb799">
+<p>
+为了避免每个会话在同一个时刻击中 API，调度程序会向触发时间添加一个确定性偏移：
+</p>
+<ul class="org-ul">
+<li>重复任务最多在计划时间之后 30 分钟触发（或对于运行频率超过每小时的任务，最多为间隔的一半）。为 :00 计划的每小时作业可能在 :00 到 :30 之间的任何时间触发</li>
+<li>为小时顶部或底部计划的一次性任务最多提前 90 秒触发</li>
+</ul>
+
+<p>
+偏移是从任务 ID 派生的，所以相同的任务总是获得相同的偏移。如果精确的时间很重要，选择不是 :00 或 :30 的分钟
+</p>
+<pre class="example" id="org18b004d">
+例如 3 9 * * * 而不是 0 9 * * *，一次性抖动将不适用
+</pre>
+</div>
+</div>
+<div id="outline-container-org2304256" class="outline-3">
+<h3 id="org2304256">七天过期</h3>
+<div class="outline-text-3" id="text-org2304256">
+<p>
+重复任务在创建后 7 天自动过期。任务最后触发一次，然后删除自己。这限制了被遗忘的循环可以运行多长时间
+</p>
+<pre class="example" id="orgd7033cd">
+如果需要重复任务持续更长时间，请在过期前取消并重新创建它
+
+或使用 Routines 或 Desktop 计划任务 进行持久调度
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org0fa17ec" class="outline-2">
+<h2 id="org0fa17ec">Cron 表达式参考</h2>
+<div class="outline-text-2" id="text-org0fa17ec">
+<p>
+CronCreate 接受标准 5 字段 cron 表达式：minute hour day-of-month month day-of-week。所有字段都支持
+</p>
+<ul class="org-ul">
+<li>通配符 (*)</li>
+<li>单个值 (5)</li>
+<li>步长 (*/15)</li>
+<li>范围 (1-5)</li>
+<li>逗号分隔的列表 (1,15,30)</li>
+</ul>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">示例</td>
+<td class="org-left">含义</td>
+</tr>
+
+<tr>
+<td class="org-left">*/5 * * * *</td>
+<td class="org-left">每 5 分钟</td>
+</tr>
+
+<tr>
+<td class="org-left">0 * * * *</td>
+<td class="org-left">每小时整点</td>
+</tr>
+
+<tr>
+<td class="org-left">7 * * * *</td>
+<td class="org-left">每小时的第 7 分钟</td>
+</tr>
+
+<tr>
+<td class="org-left">0 9 * * *</td>
+<td class="org-left">每天本地时间 9am</td>
+</tr>
+
+<tr>
+<td class="org-left">0 9 * * 1-5</td>
+<td class="org-left">工作日本地时间 9am</td>
+</tr>
+
+<tr>
+<td class="org-left">30 14 15 3 *</td>
+<td class="org-left">3 月 15 日本地时间下午 2:30</td>
+</tr>
+</tbody>
+</table>
+
+
+<p>
+星期几使用 0 或 7 表示星期日，6 表示星期六
+</p>
+<pre class="example" id="orgf7d744d">
+不支持扩展语法如 L、W、? 和名称别名如 MON 或 JAN
+</pre>
+
+<p>
+当月份日期和星期几都受到限制时，如果任一字段匹配，日期就匹配
+</p>
+<pre class="example" id="org4412130">
+这遵循标准的 vixie-cron 语义
+</pre>
+</div>
+</div>
+<div id="outline-container-org2e20847" class="outline-2">
+<h2 id="org2e20847">禁用计划任务</h2>
+<div class="outline-text-2" id="text-org2e20847">
+<p>
+设置 <span class="underline">CLAUDE_CODE_DISABLE_CRON=1</span> 以完全禁用调度程序。cron 工具和 /loop 变得不可用，任何已计划的任务都停止触发
+</p>
+
+<pre class="example" id="org210611c">
+有关禁用标志的完整列表，请参阅环境变量
+
+https://code.claude.com/docs/zh-CN/env-vars
+</pre>
+</div>
+</div>
+<div id="outline-container-orga87f78f" class="outline-2">
+<h2 id="orga87f78f">限制</h2>
+<div class="outline-text-2" id="text-orga87f78f">
+<p>
+会话范围的调度有固有的限制：
+</p>
+<ul class="org-ul">
+<li>任务仅在 Claude Code 运行且空闲时触发。关闭终端或让会话退出会停止它们触发
+<ul class="org-ul">
+<li>将会话放在后台会将 /loop 任务转移到后台会话，该会话继续运行而无需终端</li>
+</ul></li>
+<li>没有错过触发的追赶。如果任务的计划时间在 Claude 忙于长时间运行的请求时经过，它会在 Claude 变为空闲时触发一次，而不是每个错过的间隔触发一次</li>
+<li>启动新对话会清除所有会话范围的任务
+<ul class="org-ul">
+<li>使用 claude &#x2013;resume 或 claude &#x2013;continue 恢复会恢复尚未过期的任务：创建后七天内的重复任务，以及计划时间尚未到达的一次性任务</li>
+<li>后台 Bash 和监视器任务在恢复时永远不会被恢复</li>
+</ul></li>
+</ul>
+
+<p>
+对于需要无人值守运行的 cron 驱动自动化：
+</p>
+<ul class="org-ul">
+<li>Routines：在 Anthropic 管理的基础设施上按计划运行、通过 API 调用或在 GitHub 事件上运行</li>
+<li>GitHub Actions：在 CI 中使用 schedule 触发器</li>
+<li>Desktop 计划任务：在机器上本地运行</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="hook.html">Previous：Hook</a></td>
+<td class="org-left"><a href="automation.html">Home: 自动化</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
