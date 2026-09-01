@@ -205,11 +205,47 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org26af61e">本指南涵盖的内容</a></li>
+<li><a href="#org2e8a55a">涵盖的内容</a>
+<ul>
+<li><a href="#orgf016185">设置</a></li>
+<li><a href="#org54712c2">示例</a></li>
+</ul>
+</li>
+<li><a href="#orge316834">选择从哪里启动 Claude</a></li>
+<li><a href="#orgda33e94">按目录分层 CLAUDE.md 文件</a>
+<ul>
+<li><a href="#org09d00a1">在按目录 CLAUDE.md 和路径范围规则之间选择</a></li>
+<li><a href="#org60ca839">排除不相关的 CLAUDE.md 文件</a></li>
+</ul>
+</li>
+<li><a href="#orged67ea4">减少 Claude 读取的内容</a>
+<ul>
+<li><a href="#org49ae6d4">阻止读取生成的和供应商代码</a></li>
+<li><a href="#org70b86eb">使用代码智能减少文件读取</a></li>
+</ul>
+</li>
+<li><a href="#org7dfcc63">范围 worktrees 和文件访问</a>
+<ul>
+<li><a href="#org01622a9">仅检出需要的目录</a></li>
+<li><a href="#orgb2cadcb">跨包或存储库授予访问权限</a></li>
+</ul>
+</li>
+<li><a href="#org3305666">添加按目录 skills</a>
+<ul>
+<li><a href="#org6807261">保持 skills 可发现</a></li>
+</ul>
+</li>
+<li><a href="#orgc024019">当分层停止扩展时集中约定</a>
+<ul>
+<li><a href="#org58c7d49">在会话启动时推荐正确的插件</a></li>
+</ul>
+</li>
+<li><a href="#orgbeafeb6">将其整合在一起</a></li>
+<li><a href="#org5fa1315">范围和计划跨包的更改</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org1c1a11d">
+<pre class="example" id="org8a77ad2">
 为 monorepo 和大型单树代码库配置 Claude Code
 
 使用嵌套的 CLAUDE.md 文件、稀疏 worktrees、代码智能和按包技能
@@ -221,13 +257,1013 @@
 大型代码库可以是拥有数百万行代码的单个存储库，也可以是包含许多包的 monorepo。Claude Code 可以在任何规模下工作，但随着代码库的增长，为较小项目调整的默认设置可能会用与任务无关的指令和文件读取填满上下文窗口，浪费 tokens 并降低 Claude 的性能
 </p>
 
-<pre class="example" id="orgfeddc35">
+<pre class="example" id="org9c6fe85">
 本指南向个人开发者和工程团队展示如何将 Claude 的范围限制在任务涉及的代码库部分
 
 每个部分都说明该设置是个人的还是提交到存储库的
 </pre>
-<div id="outline-container-org26af61e" class="outline-2">
-<h2 id="org26af61e">本指南涵盖的内容</h2>
+<div id="outline-container-org2e8a55a" class="outline-2">
+<h2 id="org2e8a55a">涵盖的内容</h2>
+<div class="outline-text-2" id="text-org2e8a55a">
+<p>
+下面的表格列出了每个设置及其作用。之后的文件树是本页面每个代码示例所引用的示例 monorepo
+</p>
+</div>
+<div id="outline-container-orgf016185" class="outline-3">
+<h3 id="orgf016185">设置</h3>
+<div class="outline-text-3" id="text-orgf016185">
+<p>
+下面的每个设置都是独立的。它们相互叠加而不是相互替换，因此应用适合你的存储库的任何设置
+</p>
+<ul class="org-ul">
+<li><b>选择从哪里启动 Claude</b> ： 决定了设置文件的位置，所以先阅读它</li>
+<li><b>将其整合在一起</b> ：展示了所有这些设置的组合</li>
+</ul>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">我想要</td>
+<td class="org-left">使用</td>
+</tr>
+
+<tr>
+<td class="org-left">仅加载你接触的代码的约定，而不是一个根文件覆盖每个子系统</td>
+<td class="org-left">按 <b>目录</b> 的 <span class="underline">CLAUDE.md 文件</span></td>
+</tr>
+
+<tr>
+<td class="org-left">排除从不处理的包的 CLAUDE.md 文件</td>
+<td class="org-left"><span class="underline">claudeMdExcludes</span></td>
+</tr>
+
+<tr>
+<td class="org-left">阻止 Claude 打开构建输出、生成的代码和供应商依赖</td>
+<td class="org-left"><span class="underline">permissions.deny</span> 中的 <span class="underline">Read</span>  <b>拒绝规则</b></td>
+</tr>
+
+<tr>
+<td class="org-left">通过语言服务器而不是扫描文件来查找符号的定义或调用者</td>
+<td class="org-left"><b>代码智能插件</b></td>
+</tr>
+
+<tr>
+<td class="org-left">当 Claude 创建 worktree 时仅检出任务需要的目录</td>
+<td class="org-left"><span class="underline">worktree.sparsePaths</span></td>
+</tr>
+
+<tr>
+<td class="org-left">从同一会话中读取和编辑同级包或另一个存储库</td>
+<td class="org-left"><span class="underline">&#x2013;add-dir</span> 或 <span class="underline">additionalDirectories</span></td>
+</tr>
+
+<tr>
+<td class="org-left">给 Claude 特定于一个区域的程序，仅在相关时加载</td>
+<td class="org-left">按目录的 <b>skills</b></td>
+</tr>
+
+<tr>
+<td class="org-left">用一套每个人都安装的约定替换许多按目录的 CLAUDE.md 文件</td>
+<td class="org-left">内部市场中的 <b>plugin</b></td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org46bc8de">
+有关在任何存储库中保持上下文较小的工作流技术，例如在子代理中运行探索以使文件读取不会进入主对话
+
+请参阅 Claude Code 的最佳实践 https://code.claude.com/docs/zh-CN/best-practices
+
+要向组织中的每个开发者推出基线配置，请参阅为你的组织设置 Claude Code
+
+https://code.claude.com/docs/zh-CN/admin-setup
+</pre>
+</div>
+</div>
+<div id="outline-container-org54712c2" class="outline-3">
+<h3 id="org54712c2">示例</h3>
+<div class="outline-text-3" id="text-org54712c2">
+<p>
+本页面的示例引用了一个包含三个包的 monorepo。相同的模式适用于大型单树代码库
+</p>
+
+<pre class="example" id="org040020f">
+monorepo/
+  CLAUDE.md                     # 根指令
+  packages/
+    api/
+      CLAUDE.md                 # API 特定指令
+      .claude/skills/
+      src/
+    web/
+      CLAUDE.md                 # 前端特定指令
+      .claude/skills/
+      src/
+    shared/
+      CLAUDE.md                 # 共享库指令
+      src/
+</pre>
+
+<pre class="example" id="org14725be">
+示例使用 packages/api/，替换为自己的子系统目录，例如 src/backend/ 或 lib/core/
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orge316834" class="outline-2">
+<h2 id="orge316834">选择从哪里启动 Claude</h2>
+<div class="outline-text-2" id="text-orge316834">
+<p>
+启动 claude 的位置决定了 Claude 可以读取和编辑哪些文件而无需额外权限授予、在启动时加载哪些 CLAUDE.md 文件，以及哪些项目设置适用
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">从以下位置启动</td>
+<td class="org-left">文件访问</td>
+<td class="org-left">启动时加载的 CLAUDE.md</td>
+<td class="org-left">使用场景</td>
+</tr>
+
+<tr>
+<td class="org-left">存储库根目录</td>
+<td class="org-left">每个文件</td>
+<td class="org-left">仅根目录；当 Claude 在那里读取时，子目录文件按需加载</td>
+<td class="org-left">任务跨越多个包或子系统</td>
+</tr>
+
+<tr>
+<td class="org-left">子目录</td>
+<td class="org-left">仅该子树，直到授予更多权限</td>
+<td class="org-left">该目录的加上每个祖先的</td>
+<td class="org-left">工作范围限于一个包或子系统</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+.claude/settings.json 中的项目设置仅从启动目录加载，不像 CLAUDE.md 文件那样从父目录继承：
+</p>
+<ul class="org-ul">
+<li>存储库根目录的 .claude/settings.json 仅在从根目录启动时适用</li>
+</ul>
+
+<pre class="example" id="org4cd753a">
+下面的每个部分都说明其设置文件应该位于存储库根目录还是启动的子目录中，以及它是提交的还是保持本地的
+</pre>
+</div>
+</div>
+<div id="outline-container-orgda33e94" class="outline-2">
+<h2 id="orgda33e94">按目录分层 CLAUDE.md 文件</h2>
+<div class="outline-text-2" id="text-orgda33e94">
+<pre class="example" id="orgb0a1ccb">
+在大型代码库中，存储库根目录的单个 CLAUDE.md 往往要么增长到覆盖每个子系统的约定
+
+在与当前任务无关的指令上浪费上下文，要么保持太通用而无用
+</pre>
+
+<p>
+将指令分散在按目录的文件中意味着 Claude 加载存储库范围的规则加上仅正在处理的代码的约定
+</p>
+
+<p>
+Claude Code 在启动时从 <span class="underline">工作目录</span> 和 <span class="underline">每个父目录</span> 加载每个 CLAUDE.md 文件，然后当它在那里读取文件时 <b>按需加载</b> 每个子目录的文件
+</p>
+<ul class="org-ul">
+<li>根文件设置存储库范围的规则</li>
+<li>每个子目录添加自己的规则</li>
+</ul>
+
+<p>
+常见的分割是两个级别：
+</p>
+<ul class="org-ul">
+<li><p>
+<b>根 CLAUDE.md</b> ：适用于任何地方的指令
+</p>
+<pre class="example" id="orge7254ca">
+例如编码标准、提交约定和存储库布局
+</pre></li>
+<li><p>
+<b>按子目录 CLAUDE.md</b> ：特定于该区域堆栈的约定
+</p>
+<pre class="example" id="orgced4b33">
+在 monorepo 中，这是每个包一个
+
+在大型单树中，它是每个子系统一个，例如 src/db/ 或 src/api/
+</pre></li>
+</ul>
+
+<pre class="example" id="orged047d5">
+将这些文件提交到存储库，以便队友继承它们。每个目录的所有者通常维护其文件
+</pre>
+
+<p>
+根 CLAUDE.md 将 Claude 定向到存储库结构：
+</p>
+<div class="org-src-container">
+<pre class="src src-markdown">&#36825;&#26159;&#19968;&#20010; monorepo&#65292;&#22312; packages/ &#19979;&#26377;&#19977;&#20010;&#21253;&#65306;
+
+<span style="color: #b3b3b3;">-</span> packages/api&#65306;&#20351;&#29992; Express&#12289;TypeScript &#21644; PostgreSQL &#30340; Node.js REST API
+<span style="color: #b3b3b3;">-</span> packages/web&#65306;&#20351;&#29992; Vite&#12289;TypeScript &#21644; TailwindCSS &#30340; React &#21069;&#31471;
+<span style="color: #b3b3b3;">-</span> packages/shared&#65306;&#30001; api &#21644; web &#37117;&#20351;&#29992;&#30340;&#20849;&#20139; TypeScript &#23454;&#29992;&#31243;&#24207;
+
+&#20174;&#21253;&#30446;&#24405;&#36816;&#34892;&#21629;&#20196;&#65292;&#32780;&#19981;&#26159;&#20174; monorepo &#26681;&#30446;&#24405;&#12290;
+&#27599;&#20010;&#21253;&#37117;&#26377;&#33258;&#24049;&#30340; tsconfig.json&#12289;package.json &#21644;&#27979;&#35797;&#22871;&#20214;&#12290;
+</pre>
+</div>
+
+<p>
+每个子目录的 CLAUDE.md，这里是 packages/api/CLAUDE.md，添加特定于该区域堆栈的上下文：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown">&#36825;&#20010;&#21253;&#26159; REST API &#26381;&#21153;&#22120;&#12290;
+
+<span style="color: #b3b3b3;">-</span> &#36816;&#34892;&#27979;&#35797;&#65306;<span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">npm test</span><span style="color: #b3b3b3;">`</span>&#65288;&#20351;&#29992; Vitest&#65289;
+<span style="color: #b3b3b3;">-</span> &#36816;&#34892;&#24320;&#21457;&#26381;&#21153;&#22120;&#65306;<span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">npm run dev</span><span style="color: #b3b3b3;">`</span>&#65288;&#31471;&#21475; 3001&#65289;
+<span style="color: #b3b3b3;">-</span> &#25968;&#25454;&#24211;&#36801;&#31227;&#65306;<span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">npm run migrate</span><span style="color: #b3b3b3;">`</span>
+<span style="color: #b3b3b3;">-</span> &#29615;&#22659;&#21464;&#37327;&#65306;&#23558; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">.env.example</span><span style="color: #b3b3b3;">`</span> &#22797;&#21046;&#21040; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">.env</span><span style="color: #b3b3b3;">`</span>
+
+API &#36335;&#30001;&#22312; src/routes/ &#20013;&#12290;&#27599;&#20010;&#36335;&#30001;&#25991;&#20214;&#23548;&#20986;&#19968;&#20010; Express &#36335;&#30001;&#22120;&#12290;
+&#25968;&#25454;&#24211;&#26597;&#35810;&#22312; src/db/ &#20013;&#20351;&#29992; Knex&#12290;&#27704;&#36828;&#19981;&#35201;&#22312;&#36335;&#30001;&#22788;&#29702;&#31243;&#24207;&#20013;&#20889;&#21407;&#22987; SQL &#23383;&#31526;&#20018;&#12290;
+</pre>
+</div>
+
+<pre class="example" id="org4f2fad8">
+当从 packages/api/ 启动 Claude 时，它加载 packages/api/CLAUDE.md 和根 CLAUDE.md
+
+Claude 看到本地指令与存储库范围的规则一起，上下文中没有来自 packages/web/ 的指令
+
+对于非 monorepo 树中的任何子目录也是如此
+</pre>
+
+<p>
+保持文件随着代码库和模型变化而最新的几种方法：
+</p>
+<ul class="org-ul">
+<li><b>在拉取请求中审查</b> ：像对待任何其他文档更改一样对待 CLAUDE.md 编辑，以便约定跟踪代码</li>
+<li><p>
+<b>在主要模型发布后重新访问</b> ：适用于较旧模型限制的指令一旦较新模型自己处理该情况，可能会变成开销
+</p>
+<pre class="example" id="org6049266">
+例如，强制单文件重构的规则一旦限制消失就可以删除
+</pre></li>
+<li><b>添加一个 Stop hook 来提议更新</b> ：Stop hook 在 Claude 完成响应时接收会话记录的路径，所以脚本可以审查会话并在暴露的差距仍然新鲜时提议 CLAUDE.md 更新</li>
+</ul>
+
+<p>
+有关 CLAUDE.md 文件如何加载和交互的更多信息，请参阅 <a href="https://code.claude.com/docs/zh-CN/memory">内存和项目指令</a>
+</p>
+</div>
+<div id="outline-container-org09d00a1" class="outline-3">
+<h3 id="org09d00a1">在按目录 CLAUDE.md 和路径范围规则之间选择</h3>
+<div class="outline-text-3" id="text-org09d00a1">
+<p>
+按目录的 CLAUDE.md 文件和 .claude/rules/ 下的 <a href="https://code.claude.com/docs/zh-CN/memory#path-specific-rules">路径范围规则</a> 都允许将指令定向到树的一部分。它们在文件位置和加载时间上有所不同
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">方法</td>
+<td class="org-left">文件位置</td>
+<td class="org-left">加载时间</td>
+<td class="org-left">使用场景</td>
+</tr>
+
+<tr>
+<td class="org-left">按目录 CLAUDE.md</td>
+<td class="org-left">在目录内，与其代码一起</td>
+<td class="org-left">从该目录启动时在启动时，或当 Claude 在那里读取文件时按需</td>
+<td class="org-left">目录所有者维护自己的约定；指令与代码一起版本化</td>
+</tr>
+
+<tr>
+<td class="org-left">.claude/rules/ 中的路径范围规则</td>
+<td class="org-left">存储库根目录的中央 .claude/</td>
+<td class="org-left">当 Claude 处理与规则的 paths: glob 匹配的文件时</td>
+<td class="org-left">想要一个地方的所有约定，或相同的规则适用于许多分散的路径</td>
+</tr>
+</tbody>
+</table>
+
+<pre class="example" id="org2c988c6">
+有关也涵盖 skills 的比较，请参阅比较相似功能
+
+https://code.claude.com/docs/zh-CN/features-overview#compare-similar-features
+</pre>
+</div>
+</div>
+<div id="outline-container-org60ca839" class="outline-3">
+<h3 id="org60ca839">排除不相关的 CLAUDE.md 文件</h3>
+<div class="outline-text-3" id="text-org60ca839">
+<pre class="example" id="orge49f074">
+当从存储库根目录启动 Claude 时，每个子目录的 CLAUDE.md 在 Claude 读取该目录中的文件时立即加载
+</pre>
+
+<p>
+claudeMdExcludes 设置按路径或 glob 模式跳过特定文件，以便它们永远不会加载
+</p>
+<pre class="example" id="org3eac578">
+对从不处理的目录使用此功能，例如其他团队的包、遗留代码或供应商子树
+</pre>
+
+<p>
+排除列表是静态的，不是按任务的开关
+</p>
+<pre class="example" id="orgf1b7844">
+。要今天专注于一个包，明天专注于另一个包，从该包的目录启动 Claude 而不是编辑排除
+</pre>
+
+<p>
+如果只想为自己排除这些，将设置放在 <b>.claude/settings.local.json</b> 中
+</p>
+<ul class="org-ul">
+<li>Claude Code 在创建它时会 gitignore 该文件；由于在这里手动创建它，请将其添加到 gitignore</li>
+<li>模式使用 glob 语法与绝对文件路径匹配，所以以相对样式模式开头的 **/ 以在树中的任何地方匹配</li>
+</ul>
+
+<p>
+下面的示例排除其他团队拥有的包：
+</p>
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"claudeMdExcludes"</span>: [
+        <span style="color: #ffa07a;">"**/packages/admin-dashboard/**"</span>,
+        <span style="color: #ffa07a;">"**/packages/legacy-*/**"</span>
+    ]
+}
+</pre>
+</div>
+
+<pre class="example" id="org37a0f00">
+这跳过这些包下的每个 CLAUDE.md 和规则文件
+
+根 CLAUDE.md 和你处理的包仍然正常加载
+</pre>
+
+<p>
+这些模式涵盖其他常见情况：
+</p>
+<ul class="org-ul">
+<li>"**/packages/*/CLAUDE.md"：排除每个包的 CLAUDE.md，同时保留根目录</li>
+<li>"<b><b><i>packages/web</i></b></b>"：排除 web 包下的所有内容，包括规则</li>
+<li>"/home/user/monorepo/legacy/CLAUDE.md"：按绝对路径排除一个特定文件</li>
+</ul>
+
+<p>
+托管策略 CLAUDE.md 文件无法排除，因此组织范围的指令始终适用
+</p>
+<pre class="example" id="orgdd946f8">
+可以在任何设置范围设置 claudeMdExcludes：用户、项目、本地或托管
+
+数组在范围内合并，所以团队可以设置项目级别的默认值，同时个人添加本地覆盖
+</pre>
+
+<p>
+有关完整的排除文档，请参阅<a href="https://code.claude.com/docs/zh-CN/memory#exclude-specific-claude-md-files">排除特定 CLAUDE.md 文件</a> 
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orged67ea4" class="outline-2">
+<h2 id="orged67ea4">减少 Claude 读取的内容</h2>
+<div class="outline-text-2" id="text-orged67ea4">
+<p>
+指令只是最终进入 Claude 上下文的一部分。文件读取是另一个随着代码库增长而增加的成本。下面的设置阻止读取不相关的路径，并用语言服务器查找替换详尽的文件扫描
+</p>
+</div>
+<div id="outline-container-org49ae6d4" class="outline-3">
+<h3 id="org49ae6d4">阻止读取生成的和供应商代码</h3>
+<div class="outline-text-3" id="text-org49ae6d4">
+<ol class="org-ol">
+<li>Claude 的内容搜索默认尊重 .gitignore，所以已列在其中的路径，例如 node_modules/、dist/ 和 build/，无需额外配置就会保持在搜索结果之外</li>
+<li>对于已检入的路径，例如供应商 SDK 或提交的生成代码，在 <span class="underline">permissions.deny</span> 中 <b>添加</b> <span class="underline">Read 拒绝规则</span> 以阻止 Claude 打开这些文件，即使搜索列出了它们</li>
+<li>要为在存储库中工作的每个人应用这些排除，将它们提交到 <span class="underline">.claude/settings.json</span></li>
+<li>要保持个人，改用 <span class="underline">.claude/settings.local.json</span></li>
+<li>与本页面的其他项目设置一样，这些文件仅从启动目录加载
+<ul class="org-ul">
+<li>如果从那里启动 Claude，将它们放在存储库根目录</li>
+<li><p>
+如果从子目录启动，放在每个包的 .claude/ 中
+</p>
+<pre class="example" id="org8ba5046">
+要在任何启动目录的每个会话中强制执行相同的拒绝规则，在托管设置中设置它们，用户和项目设置无法覆盖
+</pre></li>
+</ul></li>
+</ol>
+
+<p>
+下面的示例阻止构建工件和供应商 SDK：
+</p>
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"permissions"</span>: {
+        <span style="color: #ffa07a;">"deny"</span>: [
+            <span style="color: #ffa07a;">"Read(./**/dist/**)"</span>,
+            <span style="color: #ffa07a;">"Read(./**/build/**)"</span>,
+            <span style="color: #ffa07a;">"Read(./**/*.generated.*)"</span>,
+            <span style="color: #ffa07a;">"Read(./vendor/**)"</span>
+        ]
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="org58aad69">
+拒绝规则涵盖 Claude 的内置文件工具和识别的 Bash 文件命令，包括 cat、head、grep 和 find，当拒绝的路径作为参数传递时
+
+它们不会从递归搜索的输出中过滤拒绝的路径，也不涵盖自己打开文件的任意子进程
+
+有关完整的模式语法，请参阅Read 和 Edit 权限规则
+
+https://code.claude.com/docs/zh-CN/permissions#read-and-edit
+</pre>
+</div>
+</div>
+<div id="outline-container-org70b86eb" class="outline-3">
+<h3 id="org70b86eb">使用代码智能减少文件读取</h3>
+<div class="outline-text-3" id="text-org70b86eb">
+<p>
+在大型代码库中，查找符号的定义或使用位置可能需要许多文件读取和 grep 调用。代码智能插件将 Claude 连接到语言服务器，以便它可以跳转到定义、查找引用和直接显示类型错误，而不是扫描树
+</p>
+
+<p>
+官方市场有 TypeScript、Python、Go、Rust 和其他常见语言的插件。下面的示例安装 TypeScript 插件：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">/plugin install typescript-lsp@claude-plugins-official
+</pre>
+</div>
+
+<pre class="example" id="orgc4c7a86">
+要为存储库中的每个人启用插件而不是自己安装，将其添加到 enabledPlugins 项目设置
+
+https://code.claude.com/docs/zh-CN/settings#plugin-settings
+</pre>
+
+<p>
+代码智能插件需要每个开发者机器上的语言的语言服务器二进制文件。查看每种语言需要哪个二进制文件
+</p>
+<pre class="example" id="org52e3c2e">
+从官方市场安装需要网络访问 GitHub，市场在那里托管
+
+在受限网络上，从内部 Git 主机或本地路径添加市场
+</pre>
+
+<p>
+这与上面的 claudeMdExcludes 和 Read 拒绝规则配对良好。那些保持不相关的内容不进入上下文，代码智能保持 Claude 不读取剩余的内容来定位定义
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org7dfcc63" class="outline-2">
+<h2 id="org7dfcc63">范围 worktrees 和文件访问</h2>
+<div class="outline-text-2" id="text-org7dfcc63">
+<p>
+这些设置控制 worktrees 中磁盘上的内容以及 Claude 可以读取和写入的超出启动点的目录
+</p>
+</div>
+<div id="outline-container-org01622a9" class="outline-3">
+<h3 id="org01622a9">仅检出需要的目录</h3>
+<div class="outline-text-3" id="text-org01622a9">
+<p>
+<span class="underline">&#x2013;worktree</span> 标志在新的 git worktree 中启动会话，以便更改与主检出隔离。默认情况下，它检出整个存储库。在大型存储库中， <b>worktree.sparsePaths</b> 设置使用 git sparse-checkout 仅将列出的目录加上根级文件写入磁盘，以便 worktrees 启动更快并使用更少空间
+</p>
+<ul class="org-ul">
+<li>如果在此目录中工作的每个人都需要相同的路径，将设置提交到 .claude/settings.json</li>
+<li>要为自己添加路径，使用 .claude/settings.local.json：列表在范围内合并，所以本地文件可以向提交的列表添加路径但不能删除它们</li>
+</ul>
+
+<p>
+下面的示例显示提交的文件：
+</p>
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"worktree"</span>: {
+        <span style="color: #ffa07a;">"sparsePaths"</span>: [
+            <span style="color: #ffa07a;">".claude"</span>,
+            <span style="color: #ffa07a;">"packages/api"</span>,
+            <span style="color: #ffa07a;">"packages/shared"</span>
+        ]
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="org3b49bd9">
+当 Claude 创建 worktree 时，它仅检出 .claude/、packages/api/ 和 packages/shared/ 而不是完整树
+
+sparsePaths 中的路径相对于存储库根目录，无论从哪个子目录启动 Claude
+
+任何目录路径都可以在这里工作，不仅仅是根目录
+</pre>
+
+<p>
+这对于 <b>子代理</b> worktree 隔离特别有用。子代理是为子任务生成的并行 Claude 实例，每个在 worktree 中运行的都获得轻量级检出而不是完整树
+</p>
+<pre class="example" id="orgbd6d741">
+会话中的所有 worktrees 共享相同的 sparsePaths
+
+所以如果一个子代理需要 packages/api/ 而另一个需要 packages/web/，在配置文件里把两者都加入
+</pre>
+
+<p>
+在 sparsePaths 中列出目录，而不是单个文件
+</p>
+<ul class="org-ul">
+<li>根级文件如 package.json、tsconfig.base.json 和锁文件始终与列出的目录一起检出</li>
+<li>根级目录不是，所以如果想要存储库根目录的 .claude/settings.json、.claude/rules/ 或 .claude/skills/ 在 worktree 内可用，请在列表中包含 .claude</li>
+</ul>
+
+<p>
+Sparse checkout 需要 git 在存在 sparse worktree 时在存储库的共享 .git/config 中启用 <b>extensions.worktreeConfig</b> 。Claude Code 在删除最后一个 worktree 后会删除该条目，但仅当 Claude Code 添加了它时。它永远不会删除用户设置的值
+</p>
+<pre class="example" id="org3878152">
+在 v2.1.207 之前，该条目在删除最后一个 worktree 后仍然存在
+
+基于 go-git 的工具（如 tea）无法打开存储库，直到运行 git config --unset extensions.worktreeConfig
+</pre>
+
+<p>
+要避免在 worktrees 中复制大型目录如 node_modules，将 <b>sparsePaths</b> 与同一 .claude/settings.json 中的 <b>symlinkDirectories</b> 配对：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"worktree"</span>: {
+        <span style="color: #ffa07a;">"sparsePaths"</span>: [
+            <span style="color: #ffa07a;">".claude"</span>,
+            <span style="color: #ffa07a;">"packages/api"</span>,
+            <span style="color: #ffa07a;">"packages/shared"</span>
+        ],
+        <span style="color: #ffa07a;">"symlinkDirectories"</span>: [
+            <span style="color: #ffa07a;">"node_modules"</span>
+        ]
+    }
+}
+</pre>
+</div>
+
+<p>
+这创建了一个从每个 worktree 的 node_modules/ 回到主存储库副本的符号链接，而不是在磁盘上复制它
+</p>
+
+<pre class="example" id="org52497b4">
+sparsePaths 和 symlinkDirectories 设置在创建 worktree 之前从启动目录读取
+
+创建后，会话的工作目录是 worktree 根，而不是启动的子目录
+
+因此，worktree 内的项目设置从 worktree 根的 .claude/settings.json（存储库根文件的检出副本）加载
+
+将在 worktrees 内需要的任何其他设置（例如权限规则或 hooks）放在存储库根的 .claude/settings.json 中
+</pre>
+
+<p>
+有关完整的 worktree 设置参考，请参阅 <a href="https://code.claude.com/docs/zh-CN/settings#worktree-settings">Worktree 设置</a> 
+</p>
+</div>
+</div>
+<div id="outline-container-orgb2cadcb" class="outline-3">
+<h3 id="orgb2cadcb">跨包或存储库授予访问权限</h3>
+<div class="outline-text-3" id="text-orgb2cadcb">
+<pre class="example" id="org37141cd">
+当从子目录启动 Claude 时，或当任务跨越多个检出时，本部分适用
+
+如果在单个大型树中从存储库根目录启动，Claude 已经可以访问每个文件，可以跳过此部分
+</pre>
+
+<p>
+当从 packages/api/ 启动 Claude 时，它可以读取和写入该目录内的文件。如果任务需要跨包更改，例如更新 api 和 web 都导入的共享类型，需要授予对同级目录的访问权限
+</p>
+<pre class="example" id="org029c9b8">
+相同的机制授予对单独检出的存储库的访问权限
+</pre>
+
+<p>
+.claude/settings.json 中的 <b>additionalDirectories</b> 设置给 Claude 访问工作目录。下面的示例授予对两个同级包的访问权限：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"permissions"</span>: {
+        <span style="color: #ffa07a;">"additionalDirectories"</span>: [
+            <span style="color: #ffa07a;">"../shared"</span>,
+            <span style="color: #ffa07a;">"../web"</span>
+        ]
+    }
+}
+</pre>
+</div>
+
+<pre class="example" id="orgced5d89">
+相对路径相对于启动 Claude 的目录解析
+
+使用此配置，Claude 可以在从 packages/api/ 工作时读取和编辑 packages/shared/ 和 packages/web/ 中的文件
+</pre>
+
+<p>
+也可以在运行时不编辑设置而授予访问权限，通过在启动 Claude 时传递 <span class="underline">&#x2013;add-dir</span> ：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">claude --add-dir ../shared
+</pre>
+</div>
+
+<p>
+无论如何添加目录，Claude 都可以读取和编辑其中的文件。目录的 CLAUDE.md、.claude/rules/ 文件和 skills 是否也加载取决于如何添加它：
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">添加方式</td>
+<td class="org-left">加载 CLAUDE.md 和规则</td>
+<td class="org-left">加载 skills</td>
+</tr>
+
+<tr>
+<td class="org-left">additionalDirectories 设置</td>
+<td class="org-left">从不</td>
+<td class="org-left">从不</td>
+</tr>
+
+<tr>
+<td class="org-left">&#x2013;add-dir 标志或 /add-dir 命令</td>
+<td class="org-left">仅使用下面的环境变量</td>
+<td class="org-left">是</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+要从使用 &#x2013;add-dir 或 /add-dir 添加的目录加载 CLAUDE.md 和规则文件，设置 CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD 环境变量：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #eedd82;">CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD</span>=1 claude --add-dir ../shared
+</pre>
+</div>
+
+<pre class="example" id="orga934bea">
+环境变量对 additionalDirectories 设置中列出的目录没有影响
+
+详见从其他目录加载 https://code.claude.com/docs/zh-CN/memory#load-from-additional-directories
+</pre>
+
+<ul class="org-ul">
+<li>对于此区域中的每个人都需要的同级目录，将 additionalDirectories 提交到 .claude/settings.json</li>
+<li>对于个人选择或一次性访问，使用 .claude/settings.local.json 或在启动时传递 &#x2013;add-dir</li>
+</ul>
+</div>
+</div>
+</div>
+<div id="outline-container-org3305666" class="outline-2">
+<h2 id="org3305666">添加按目录 skills</h2>
+<div class="outline-text-2" id="text-org3305666">
+<p>
+任何子目录都可以定义skills范围限于其自己的堆栈。skill 在 Claude 确定其相关时按需加载，所以 API 特定的工具在前端工作期间不会消耗上下文
+</p>
+
+<p>
+Skills 位于目录内的 .claude/skills/ 下。将它们与该区域的代码一起提交，以便克隆存储库的任何人都能获得它们。在 monorepo 中，这可以是每个包一套 skills
+</p>
+<pre class="example" id="orgc2a6074">
+在大型单树代码库中，它是每个子系统一套，例如 src/db/.claude/skills/
+</pre>
+
+<p>
+在子目录内创建一个 skill 目录：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">mkdir -p packages/api/.claude/skills/api-testing
+</pre>
+</div>
+
+<p>
+然后在该目录内写 SKILL.md，这里是 packages/api/.claude/skills/api-testing/SKILL.md。此示例教 Claude API 包的测试模式：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-markdown"><span style="color: #b3b3b3;">---</span>
+<span style="color: #eedd82;">name</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">api-testing</span>
+<span style="color: #eedd82;">description</span><span style="color: #b3b3b3;">: </span><span style="color: #ffa07a;">API &#21253;&#30340;&#27979;&#35797;&#27169;&#24335;&#12290;&#22312; packages/api/ &#20013;&#32534;&#20889;&#25110;&#20462;&#25913;&#27979;&#35797;&#26102;&#20351;&#29992;&#12290;</span>
+<span style="color: #b3b3b3;">---</span>
+
+<span style="color: #b3b3b3;">## </span><span style="color: #87cefa; font-weight: bold;">&#27979;&#35797;&#32467;&#26500;</span>
+
+&#27979;&#35797;&#22312; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">src/__tests__/</span><span style="color: #b3b3b3;">`</span> &#20013;&#65292;&#38236;&#20687; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">src/</span><span style="color: #b3b3b3;">`</span> &#30446;&#24405;&#32467;&#26500;&#12290;
+&#27599;&#20010;&#36335;&#30001;&#25991;&#20214;&#37117;&#26377;&#19968;&#20010;&#23545;&#24212;&#30340; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">.test.ts</span><span style="color: #b3b3b3;">`</span> &#25991;&#20214;&#12290;
+
+<span style="color: #b3b3b3;">## </span><span style="color: #87cefa; font-weight: bold;">&#36816;&#34892;&#27979;&#35797;</span>
+
+<span style="color: #b3b3b3;">-</span> &#25152;&#26377;&#27979;&#35797;&#65306;<span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">npm test</span><span style="color: #b3b3b3;">`</span>
+<span style="color: #b3b3b3;">-</span> &#21333;&#20010;&#25991;&#20214;&#65306;<span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">npm test -- src/__tests__/routes/users.test.ts</span><span style="color: #b3b3b3;">`</span>
+<span style="color: #b3b3b3;">-</span> &#30417;&#35270;&#27169;&#24335;&#65306;<span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">npm test -- --watch</span><span style="color: #b3b3b3;">`</span>
+
+<span style="color: #b3b3b3;">## </span><span style="color: #87cefa; font-weight: bold;">&#27979;&#35797;&#23454;&#29992;&#31243;&#24207;</span>
+
+<span style="color: #b3b3b3;">-</span> <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">src/__tests__/helpers/db.ts</span><span style="color: #b3b3b3;">`</span>&#65306;&#25552;&#20379; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">setupTestDb()</span><span style="color: #b3b3b3;">`</span> &#21644; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">teardownTestDb()</span><span style="color: #b3b3b3;">`</span> &#29992;&#20110;&#25968;&#25454;&#24211;&#27979;&#35797;
+<span style="color: #b3b3b3;">-</span> <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">src/__tests__/helpers/auth.ts</span><span style="color: #b3b3b3;">`</span>&#65306;&#25552;&#20379; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">createTestUser()</span><span style="color: #b3b3b3;">`</span> &#21644; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">getAuthToken()</span><span style="color: #b3b3b3;">`</span> &#29992;&#20110;&#35748;&#35777;&#31471;&#28857;
+
+<span style="color: #b3b3b3;">## </span><span style="color: #87cefa; font-weight: bold;">&#27169;&#24335;</span>
+
+<span style="color: #b3b3b3;">-</span> &#20351;&#29992; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">supertest</span><span style="color: #b3b3b3;">`</span> &#36827;&#34892; HTTP &#26029;&#35328;&#65292;&#32780;&#19981;&#26159;&#21407;&#22987; fetch
+<span style="color: #b3b3b3;">-</span> &#22987;&#32456;&#22312;&#22238;&#28378;&#30340;&#20107;&#21153;&#20013;&#21253;&#35013;&#25968;&#25454;&#24211;&#27979;&#35797;
+<span style="color: #b3b3b3;">-</span> &#22312; <span style="color: #b3b3b3;">`</span><span style="color: #7fffd4;">src/__tests__/mocks/</span><span style="color: #b3b3b3;">`</span> &#20013;&#27169;&#25311;&#22806;&#37096;&#26381;&#21153;
+</pre>
+</div>
+
+<p>
+不同的子目录以相同的方式保存不同的 skills：packages/web/.claude/skills/component-patterns/ 描述前端的组件约定而不是测试
+</p>
+
+<pre class="example" id="org3f3f3cb">
+当 Claude 处理 packages/api/ 中的文件时，它加载 api-testing skill
+
+当它在 packages/web/ 中工作时，它加载 component-patterns 代替
+
+在另一个的任务期间，两个目录的 skills 都不加载
+</pre>
+
+<p>
+也可以按文件模式而不是按位置范围 skill
+</p>
+<ul class="org-ul">
+<li>paths frontmatter 字段采用 glob 模式，Claude 仅在处理匹配文件时自动加载 skill</li>
+<li><p>
+对于位于存储库根目录的 .claude/skills/ 中但仅适用于某些文件（无论它们出现在哪里）的 skill，使用此功能
+</p>
+<pre class="example" id="orgb9ce916">
+例如范围限于 **/migrations/** 的数据库迁移 skill
+</pre></li>
+</ul>
+
+<pre class="example" id="org1b13661">
+有关创建和组织 skills 的更多信息，请参阅 Skills
+
+https://code.claude.com/docs/zh-CN/skills
+</pre>
+</div>
+<div id="outline-container-org6807261" class="outline-3">
+<h3 id="org6807261">保持 skills 可发现</h3>
+<div class="outline-text-3" id="text-org6807261">
+<pre class="example" id="org2061cb8">
+随着 skills 分散在许多目录中，Claude 选择的列表可能会增长很大
+
+Claude 通过读取每个发现的 skill 的名称和描述来选择 skill，只有选定的 skill 的完整内容加载到上下文中
+
+本部分涵盖如何保持该列表较小以及编写在缩短时幸存的描述
+</pre>
+
+<p>
+哪些 skills 在范围内取决于你从哪里启动 Claude：
+</p>
+<ul class="org-ul">
+<li>从子目录如 packages/api/：来自该目录、每个父目录直到存储库根目录以及用户和企业级别的 skills</li>
+<li>从存储库根目录：来自 Claude 在会话期间接触的每个子目录的 skills，可能累积到数百个</li>
+<li>在使用 &#x2013;add-dir 添加同级后：该同级的 skills 也加载
+<ul class="org-ul">
+<li>additionalDirectories 设置仅授予文件访问权限，不加载 skills</li>
+</ul></li>
+</ul>
+
+<p>
+名称始终加载，但当有许多时描述被缩短，这可能会剥离 Claude 用来决定 skill 是否适用的关键字
+</p>
+<pre class="example" id="org7775fde">
+保持描述简短并以请求会包含的词开头，例如”在 packages/api/ 中编写或修改测试”
+</pre>
+
+<p>
+对于许多目录共享的 skills，例如 PR 约定或部署检查清单，将它们放在存储库根目录的 .claude/skills/ 中，以便从任何启动目录加载
+</p>
+<pre class="example" id="org535eb68">
+当共享 skills 需要自己的版本历史或必须跨存储库工作时，改为将它们打包为插件
+
+插件 skills 使用 plugin-name:skill-name 命名空间，所以它们永远不会与按目录的 skills 冲突
+
+平台团队可以在一个地方对它们进行版本化和更新
+</pre>
+
+<p>
+要查找哪些 skills 未被使用，启用 <b>OpenTelemetry</b> 日志导出器并设置 <span class="underline">OTEL_LOG_TOOL_DETAILS=1</span> 以便 skill 名称被逐字记录而不是被编辑
+</p>
+<ul class="org-ul">
+<li>skill_activated 事件在其 skill.name 属性中记录每个调用</li>
+<li>invocation_trigger 记录命令、Claude 或嵌套 skill 是否调用它，这告诉你要合并或停用什么</li>
+</ul>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc024019" class="outline-2">
+<h2 id="orgc024019">当分层停止扩展时集中约定</h2>
+<div class="outline-text-2" id="text-orgc024019">
+<pre class="example" id="orge7d42d3">
+随着代码库的增长，按目录的 CLAUDE.md 文件可能变得难以管理
+
+约定漂移，文件变得陈旧，没有人拥有根目录
+
+解决这个问题通常落在维护存储库 Claude Code 设置的团队身上，而不是在自己的区域中工作的每个开发者
+</pre>
+
+<p>
+将约定和参考内容从始终加载的 CLAUDE.md 移出到按需加载的机制中：
+</p>
+<ul class="org-ul">
+<li>Skills：Claude 仅在与任务相关时加载的参考材料</li>
+<li>Plugins：平台团队集中拥有的 skills、hooks 和命令的版本化包</li>
+<li>MCP servers：如果组织已经在存储库上运行代码搜索或 RAG 索引，将其公开为 MCP 工具，以便 Claude 查询它而不是直接读取文件</li>
+</ul>
+
+<pre class="example" id="org9eb9f5a">
+有关平台团队如何集中强制这些的信息，请参阅服务器管理或端点管理的设置
+
+https://code.claude.com/docs/zh-CN/server-managed-settings#choose-between-server-managed-and-endpoint-managed-settings
+</pre>
+</div>
+<div id="outline-container-org58c7d49" class="outline-3">
+<h3 id="org58c7d49">在会话启动时推荐正确的插件</h3>
+<div class="outline-text-3" id="text-org58c7d49">
+<pre class="example" id="org79ece8d">
+一旦约定位于插件中，启动 Claude 的队友就没有关于该区域所有者维护哪个插件的信息
+</pre>
+
+<p>
+SessionStart hook 可以弥补这个差距，因为 hook 打印到 stdout 的任何内容都会在第一个提示之前添加到 Claude 的上下文中
+</p>
+
+<pre class="example" id="org1d4fdf0">
+例如，可以编写一个脚本，从hook 输入读取启动目录
+
+在提交到存储库的路径到插件映射中查找它，并打印建议供 Claude 在其第一个回复中中继
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgbeafeb6" class="outline-2">
+<h2 id="orgbeafeb6">将其整合在一起</h2>
+<div class="outline-text-2" id="text-orgbeafeb6">
+<pre class="example" id="org1d1e8b9">
+下面的组合配置使用 monorepo 布局。相同的文件适用于大型单树中的任何子目录
+
+项目设置仅从启动 Claude 的目录加载，所以每个子目录的 .claude/settings.json 必须是自包含的而不是分层在根文件上
+</pre>
+
+<p>
+示例在 .claude/settings.json 中提交 worktree、additionalDirectories 和 Read 拒绝规则，以便 packages/api/ 中的每个开发者获得相同的同级访问、稀疏路径和排除。下面的文件是 packages/api/ 的提交的按区域设置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"worktree"</span>: {
+        <span style="color: #ffa07a;">"sparsePaths"</span>: [
+            <span style="color: #ffa07a;">".claude"</span>,
+            <span style="color: #ffa07a;">"packages/api"</span>,
+            <span style="color: #ffa07a;">"packages/shared"</span>
+        ],
+        <span style="color: #ffa07a;">"symlinkDirectories"</span>: [
+            <span style="color: #ffa07a;">"node_modules"</span>
+        ]
+    },
+    <span style="color: #ffa07a;">"permissions"</span>: {
+        <span style="color: #ffa07a;">"additionalDirectories"</span>: [
+            <span style="color: #ffa07a;">"../shared"</span>
+        ],
+        <span style="color: #ffa07a;">"deny"</span>: [
+            <span style="color: #ffa07a;">"Read(./**/dist/**)"</span>,
+            <span style="color: #ffa07a;">"Read(./**/build/**)"</span>
+        ]
+    }
+}
+</pre>
+</div>
+
+<p>
+因为此会话从 packages/api/ 启动，同级包的 CLAUDE.md 文件已经超出范围，所以这里不需要 claudeMdExcludes。如果也从根目录启动会话，改为将其添加到存储库根目录的 .claude/settings.local.json
+</p>
+
+<p>
+additionalDirectories 条目在直接从 packages/api/ 启动 Claude 时适用。在从此会话创建的 worktree 内，工作目录是 worktree 根，所以此设置文件不加载。同级包已经在 worktree 内可达而无需它，但拒绝规则需要在存储库根目录的 .claude/settings.json 中的第二个副本，以便 worktree 会话获取它们，如worktree 设置注释所述：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">{
+    <span style="color: #ffa07a;">"permissions"</span>: {
+        <span style="color: #ffa07a;">"deny"</span>: [
+            <span style="color: #ffa07a;">"Read(./**/dist/**)"</span>,
+            <span style="color: #ffa07a;">"Read(./**/build/**)"</span>
+        ]
+    }
+}
+</pre>
+</div>
+
+<p>
+设置后，存储库具有此布局：
+</p>
+<pre class="example" id="org5a4400a">
+monorepo/
+  CLAUDE.md
+  .claude/settings.json                           # worktree 会话的拒绝规则
+  packages/
+    api/
+      CLAUDE.md
+      .claude/settings.json                       # worktree、additionalDirectories、拒绝规则
+      .claude/skills/api-testing/SKILL.md
+    web/
+      CLAUDE.md
+      .claude/skills/component-patterns/SKILL.md
+    shared/
+      CLAUDE.md
+</pre>
+
+<p>
+使用此设置，从 packages/api/ 启动 Claude：
+</p>
+<ul class="org-ul">
+<li>加载根 CLAUDE.md 和 packages/api/CLAUDE.md，跳过 packages/web/CLAUDE.md</li>
+<li>可以读取和编辑 packages/api/ 和 packages/shared/ 中的文件</li>
+<li>跳过 packages/api/ 中 dist/ 和 build/ 下的构建输出读取</li>
+<li>有 api-testing skill 按需可用</li>
+<li>创建包含 .claude/、packages/api/、packages/shared/ 和根级文件的 worktrees，拒绝规则从根设置文件应用于整个 worktree</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org5fa1315" class="outline-2">
+<h2 id="org5fa1315">范围和计划跨包的更改</h2>
+<div class="outline-text-2" id="text-org5fa1315">
+<pre class="example" id="org96371df">
+上面的配置控制 Claude 看到的内容。当单个更改涉及多个包时
+
+例如更新共享类型以及使用它的每个调用站点，如何范围和排序任务也会影响结果
+</pre>
+
+<p>
+两种技术帮助保持跨包更改的一致性：
+</p>
+<ul class="org-ul">
+<li><b>在一个会话中给 Claude 整个更改</b> ：将共享编辑及其调用站点一起交付保持每个编辑背后的决策一致，而不是按包重新推导它们</li>
+<li><b>在编辑前将计划保存到文件</b> ：先计划并要求 Claude 将计划写入存储库中的 markdown 文件。长的跨包会话在进行中<a href="https://code.claude.com/docs/zh-CN/context-window#what-survives-compaction">压缩其上下文</a>，保存的计划在对话历史可能不会的地方幸存</li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="../automation/automation.html">Previous：自动化</a></td>
+<td class="org-left"><a href="../claude.html">Home: Claude 指南</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
