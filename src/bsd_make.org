@@ -1,0 +1,209 @@
+#+TITLE: BSD Make
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="css/main.css" />
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+* Using BSD Make
+
+#+begin_example
+Makefiles are nice, but typing the same lines all the time can get very annoying, even if you use SUFFIXES
+#+end_example
+
+BSD's Make is a very nice Make, which comes pre-packed with some files which can make your life a lot easier and your Makefiles more elegant
+
+#+begin_example
+  but it is not compatible with GNU make
+
+  Some things are even incompatible between the Makes of different versions of BSD
+#+end_example
+
+Now we got that out of the way, let's see an example:
+
+#+begin_src makefile 
+  PROG=   test
+  SRCS=   test_a.c test_b.c
+  # We have written no manpage yet, so tell Make not to try and
+  # build it from nroff sources.  If you do have a manpage, you
+  #  usually won't need this line since the default name
+  #  of the manpage is ${PROG}.1 .
+  MAN=
+
+  .include <bsd.prog.mk>
+#+end_src
+
+#+begin_example
+  That's all there's to it!
+
+  Put this in the same directory as the 'test' program's sources and you're good to go!
+#+end_example
+
+If you're on a non-BSD system, chances are that the normal 'make' program will choke on this file. In that case, the BSD Make might be installed as _pmake_ , or _bmake_ . On Mac OS X, BSD make is called _bsdmake_ , the default 'make' is GNU Make
+#+begin_example
+If you can't find make on your particular system, ask your administrator about it
+#+end_example
+
+The *bsd.prog.mk* file (in _/usr/share/mk_ ) does all the work of building the program, taking care of dependencies etc. This file also makes available a plethora of targets, like _all_ , _clean_ , _distclean_ and even _install_
+
+#+begin_example
+A good BSD Make implementation will even call 'lint' on your source files to ensure your code is nice and clean
+#+end_example
+
+If you wish to add flags to the C compiler, the clean way to do it is like this:
+
+#+begin_src makefile 
+  CFLAGS+= -I/usr/X11R6/include
+#+end_src
+
+For the linker, this is done by
+
+#+begin_src makefile 
+  LDADD=  -lX11
+#+end_src
+
+If you're adding libraries or include paths, be sure to make lint know about them:
+#+begin_src makefile 
+  LINTFLAGS+= -lX11 -I/usr/X11R6/include
+#+end_src
+
+If you're creating a library, the Makefile looks slightly different:
+
+#+begin_src makefile 
+  LIB=    mylib
+  SRCS=   mylib_a.c mylib_b.c
+
+  .include <bsd.lib.mk>
+#+end_src
+
+#+begin_example
+A library doesn't have a manpage by default. You can force one to be built by supplying a MAN line, of course
+#+end_example
+
+As you can see, the BSD Make system is extremely elegant for large projects. For simple projects also, but only if you have one program per directory. The system *does not handle multiple programs in one directory* at all. Of course, in large projects, using directories for each program is a must to keep the project structured, so this shouldn't be a major problem.
+
+The main directory of a project should contain this Makefile:
+
+#+begin_src makefile 
+  SUBDIR=         test mylib
+
+  .include <bsd.subdir.mk>
+#+end_src
+
+Additionally, bsd.prog.mk and bsd.lib.mk always include the file ../Makefile.inc, so you can keep *golobal* settings (like DEBUG switches etc) in a _Makefile.inc_ file at toplevel
+
+#+begin_example
+Tip: Use LaTeX-mk if you want to build LaTeX sources with this type of BSD Makefiles
+#+end_example
+
+* Miscellaneous
+
++ _Whitespacing_ is *significant* in Make
+  + All commands must be indented *one tab*
+  + Spaces are not the same as tabs
+  + Targets are not indented
++ *../Makefile.inc* is automatically included if you include any _bsd.*.mk_ , but never _../../Makefile.inc_ or _./Makefile.inc_ , unless you include these *explicitly* of course
++ You can include files optionally with *.-include "filename"* . You won't get an error if the file doesn't exist.
+  + .sinclude is an alias for .-include
++ always list non-file targets in a _.PHONY:-line_
+  + If there ever will be a file of the same name as your phony targets, make would otherwise immediately stop claiming that 'foo is up to date'
+  + Also, if someone updates modification and creation times with make -t, the 'file' won't get created
++ Installing neatly to a user-customisable path can be done most cleanly like this:
+  #+begin_src makefile 
+    PREFIX?=        /usr/local
+    BINDIR=         ${PREFIX}/bin
+    LIBDIR=         ${PREFIX}/lib
+    MANDIR=         ${PREFIX}/man
+    FILESDIR=       ${PREFIX}/share/misc
+  #+end_src
+  #+begin_example
+    Added advantage is that this will work out-of-the-box on pkgsrc and FreeBSD's ports
+
+    since these define PREFIX to be their installation paths
+  #+end_example
++ Switch manpage generation/installation on and off with *MKMAN* , by setting it to _yes_ or _no_
+
+* Make include files (types of projects)
+
+** bsd.prog.mk (programs)
+Expects a manpage of the name ${PROG}.1, if *MAN* is not defined. Initialise MAN to an empty value if you do not have a manpage:
+#+begin_src makefile 
+  PROG=foo
+  SRCS=foo.c
+  MAN=
+  .include <bsd.prog.mk>
+#+end_src
+
+** bsd.lib.mk (libraries)
+Does not create shared libraries unless you define *SHLIB_MAJOR* variable:
+
+#+begin_src makefile 
+  LIB=this
+  SHLIB_MAJOR=1
+  SHLIB_MINOR=0
+  .include <bsd.lib.mk>
+#+end_src
+#+begin_example
+You may define SHLIB_TEENY variable too
+#+end_example
+
+Alternatively, you may define variables in "shlib_version" file:
+
+#+begin_src makefile 
+  major=0
+  minor=1
+#+end_src
+
+where the 0 and 1 are replaced by the appropriate version numbers, of course.
+
+** bsd.man.mk (manpage stuff)
+You can automatically have BSD Make create symlinks to your base manpages by defining *MLINKS* as a list of manpage.1 linkname.1 tuples separated by spaces. Example:
+#+begin_src makefile 
+  MLINKS = real_foo.3 foo.3  real_foo.3 other_foo.3
+#+end_src
+
+#+begin_example
+  Here, real_foo.3 is a real file, the rest are all links that will be created in the installation path'
+#+end_example
+
+Manpages must have an extension to identify their category, or installation will fail.*
+
+* Special constructs
+Special constructs ( _.if_ , _.for_ , _.include_ etc) must have their dot flush left aligned. The word after the dot may be indented, however. You can check the current target being built by make with:
+
+#+begin_src makefile 
+  .if make(targname)
+  blah
+  .endif
+#+end_src
+
+#+begin_example
+where targname is the target you're checking for
+#+end_example
+
+When you check the contents of a variable, if it does not exist (it hasn't been defined), you will get 'strange' errors:
+
+#+begin_src makefile 
+  .if ${VAR} == "yes"
+  blah
+  .endif
+#+end_src
+
+will get you:
+#+begin_src sh 
+  make: "/home/foo/src/libfoo" line 7: Malformed conditional (${VAR} == "yes")
+  make: "/home/foo/src/libfoo" line 7: Need an operator
+  make: "/home/foo/src/libfoo" line 9: if-less endif
+  make: "/home/foo/src/libfoo" line 9: Need an operator
+  make: Fatal errors encountered -- cannot continue
+#+end_src
+
+This kind of error is quite subtle since it might never occur on your system because you happen to always have the variable defined. To fix this, enclose the tested variable in quotes:
+
+#+begin_src makefile 
+  .if "${VAR}" == "yes"
+  blah
+  .endif
+#+end_src
+
+#+begin_example
+(The first example evaluates to .if == "yes" while the second to something slightly different: .if "" == "yes")
+#+end_example
+
