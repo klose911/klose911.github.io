@@ -1,0 +1,142 @@
+#+TITLE: 系统代理
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_HOME: ./network.html
+#+HTML_LINK_UP: ./wireless.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+*代理* _Proxy_ 技术是计算机网络中的基础概念，其核心原理是在客户端与目标服务器之间引入中间节点，由中间节点代为转发请求和响应
+* 代理工作原理
+代理的工作流程可概括为：
+1. 客户端发起请求
+2. 请求重定向至代理服务器
+3. 代理服务器将请求转发至目标服务器
+4. 目标服务器响应代理服务器
+5. 代理服务器将响应返回客户端
+
+#+begin_example
+在此过程中，目标服务器获知的是代理服务器的地址，而非客户端的真实地址
+#+end_example
+
+代理按部署模式可分为三类：
+
+#+CAPTION: 代理模式
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 类型                           | 说明                                                       | 典型用途                         |
+| *正向代理* _Forward Proxy_     | 客户端显式配置代理地址，代理代表客户端向外部服务器发起请求 | 突破网络访问限制和缓存加速       |
+| *反向代理* _Reverse Proxy_     | 代理代表服务器接收客户端请求，客户端不知道真实服务器的地址 | 负载均衡、SSL 终结和静态内容缓存 |
+| *透明代理* _Transparent Proxy_ | 客户端无需配置，网络设备（如路由器）将流量重定向至代理     | 企业网络的内容过滤和流量监控     |
+
+三种代理模式的数据流对比：
+#+begin_example
+  代理模式对比
+
+    正向代理（Forward Proxy）
+    客户端 ──→ 代理服务器 ──→ 目标服务器
+    (已知代理)  (代表客户端)  (只看到代理 IP)
+
+    反向代理（Reverse Proxy）
+    客户端 ──→ 代理服务器 ──→ 真实服务器
+    (不知真实服务器)  (代表服务器)  (隐藏在后端)
+
+    透明代理（Transparent Proxy）
+    客户端 ──→ 网关/路由器 ──→ 代理 ──→ 目标服务器
+    (无感知)    (流量重定向)   (透明拦截)
+#+end_example
+
+配置系统代理前，需了解 FreeBSD 提供的环境变量配置方式
+* 配置 HTTP_PROXY 代理
+通过设置 *HTTP_PROXY* 、 *HTTPS_PROXY* 、 *ALL_PROXY* 等环境变量，可使多数命令行工具通过代理转发流量。以下为配置方法。
+** 临时设置
+在当前 shell 会话中临时设置代理环境变量：
+#+begin_src sh 
+  $ export HTTP_PROXY=http://192.168.X.X:7890
+#+end_src
+
+#+begin_example
+示例中的 IP 地址和端口号 192.168.X.X:7890 需替换为实际的代理服务端点
+#+end_example
+
+取消已设置的 HTTP 代理环境变量：
+#+begin_src sh 
+  $ unset HTTP_PROXY
+#+end_src
+** 持久化配置（用户分级方法）
+通过用户分级方法持久化配置，使代理环境变量在每次登录时自动生效，且与 Shell 类型无关。编辑 *~/.login_conf* 文件：
+
+#+begin_example
+  me:\
+  	:setenv=HTTP_PROXY=http://192.168.X.X:7890,HTTPS_PROXY=http://192.168.X.X:7890:
+#+end_example
+
+编辑后，需要执行以下命令来更新登录能力数据库：
+
+#+begin_src sh 
+  $ cap_mkdb ~/.login_conf
+#+end_src
+
+重新登录后生效
+
+* 配置 Git 代理
+Git 支持通过 _http.proxy_ 和 _core.gitProxy_ 等配置项设置代理
+
+* 为浏览器配置代理
+
+** Chrome 命令选项
+#+begin_example
+chromium 是 Google Chrome 浏览器的开源版本，支持多种命令行参数
+#+end_example
+
+Chromium 浏览器在 ~/.config 等目录下并无独立的代理配置界面，但支持通过 http_proxy/https_proxy 环境变量（非 Gnome/KDE 环境下）及启动参数设置代理:
+#+begin_example
+--proxy-server="<IP 地址>:<端口>"
+#+end_example
+
+启动 Chrome 并使用指定的本地代理服务器：
+#+begin_src sh 
+  $ chrome --proxy-server="127.0.0.1:1234"
+#+end_src
+
+#+begin_example
+默认使用 HTTP 协议
+#+end_example
+
+指定 SOCKS 代理服务器和端口：
+
+#+begin_example
+--proxy-server="socks://<IP 地址>:<端口>"
+#+end_example
+
+指定 SOCKS4 代理服务器和端口：
+#+begin_example
+--proxy-server="socks4://<IP 地址>:<端口>"
+#+end_example
+
+要使 Chromium 在图形界面中默认通过代理启动，可修改桌面启动文件以实现持久化配置
+1. 找到桌面环境为 Chromium 创建的 desktop 文件，通常位于 ~/.local/share/applications/ 目录
+2. 使用编辑器打开 Chromium desktop 文件 chromium-browser.desktop，找到 Exec=chrome %U 一行并在其后添加所需参数：
+   #+begin_example
+     Comment[zh_CN]=Google web browser based on WebKit
+     Comment=Google web browser based on WebKit
+     Encoding=UTF-8
+     Exec=chrome %U
+     GenericName[zh_CN]=
+     ......
+   #+end_example
+3. 启动 Chromium 并使用指定的代理服务器：
+   #+begin_example
+     Exec=chrome %U --proxy-server="192.168.2.163:20172"
+   #+end_example
+#+begin_example
+上述示例中的 192.168.2.163、20172 为占位符，须替换为实际的值
+#+end_example
+
+** 为 Firefox 单独配置代理
+Firefox 浏览器的设置页面中，网络设置选项卡提供了图形化代理配置模块
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:tcp.org][Next：TCP/IP 协议栈]] | [[file:wireless.org][Previous：无线网络]] | [[file:network.org][Home: 高级网络]] |
+
+
+
+
+

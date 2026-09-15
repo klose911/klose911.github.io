@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>TCP/IP 协议栈</title>
+<title>系统代理</title>
 <meta name="author" content="Wu, Shanliang" />
 <meta name="generator" content="Org Mode" />
 <style type="text/css">
@@ -196,176 +196,263 @@
 </head>
 <body>
 <div id="org-div-home-and-up">
- <a accesskey="h" href="./proxy.html"> UP </a>
+ <a accesskey="h" href="./wireless.html"> UP </a>
  |
  <a accesskey="H" href="./network.html"> HOME </a>
 </div><div id="content" class="content">
-<h1 class="title">TCP/IP 协议栈</h1>
+<h1 class="title">系统代理</h1>
 <div id="table-of-contents" role="doc-toc">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org67457b4">TCP/IP 协议栈</a></li>
-<li><a href="#org3205d91">使用 RACK 栈</a></li>
-<li><a href="#orgbd40e36">BBR 拥塞控制算法</a>
+<li><a href="#org4205134">代理工作原理</a></li>
+<li><a href="#org6ce2df3">配置 HTTP_PROXY 代理</a>
 <ul>
-<li><a href="#org4a988b5">BBR 在 FreeBSD 中的实现与应用</a></li>
+<li><a href="#orgad8477a">临时设置</a></li>
+<li><a href="#org34f30f8">持久化配置（用户分级方法）</a></li>
 </ul>
 </li>
-<li><a href="#orgaf41732">故障排除与未竟事宜</a></li>
+<li><a href="#org88e41f2">配置 Git 代理</a></li>
+<li><a href="#org4f47cfe">为浏览器配置代理</a>
+<ul>
+<li><a href="#orge6475db">Chrome 命令选项</a></li>
+<li><a href="#org33bda8f">为 Firefox 单独配置代理</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
-<div id="outline-container-org67457b4" class="outline-2">
-<h2 id="org67457b4">TCP/IP 协议栈</h2>
-<div class="outline-text-2" id="text-org67457b4">
 <p>
-<b>传输控制协议</b> <span class="underline">Transmission Control Protocol，TCP</span> 是互联网协议族 <span class="underline">Internet Protocol Suite</span> 中的核心传输层协议，软件实现体系称作 <span class="underline">TCP 栈</span>
+<b>代理</b> <span class="underline">Proxy</span> 技术是计算机网络中的基础概念，其核心原理是在客户端与目标服务器之间引入中间节点，由中间节点代为转发请求和响应
 </p>
+<div id="outline-container-org4205134" class="outline-2">
+<h2 id="org4205134">代理工作原理</h2>
+<div class="outline-text-2" id="text-org4205134">
+<p>
+代理的工作流程可概括为：
+</p>
+<ol class="org-ol">
+<li>客户端发起请求</li>
+<li>请求重定向至代理服务器</li>
+<li>代理服务器将请求转发至目标服务器</li>
+<li>目标服务器响应代理服务器</li>
+<li>代理服务器将响应返回客户端</li>
+</ol>
 
-<pre class="example" id="org253bbd9">
-采用层次化结构进行组织，因此称“栈”
-
-Vint Cerf 和 Bob Kahn 于 1974 年在论文《A Protocol for Packet Network Intercommunication》中首次提出 TCP 的核心思想（当时为传输与网络转发合一的单一协议）
-
-后经迭代，约在 1978 至 1979 年间决定将 TCP 与 IP 拆分为两个独立协议，并于 1981 年 9 月分别发布为 RFC 791（IP）和 RFC 793（TCP）
-
-RFC 9293 已于 2022 年 8 月取代了 RFC 793，前者为当前 TCP 协议的最新标准规范
+<pre class="example" id="orgaec445d">
+在此过程中，目标服务器获知的是代理服务器的地址，而非客户端的真实地址
 </pre>
 
 <p>
-TCP 栈提供 <span class="underline">端到端</span> 的 <b>可靠数据传输</b> 、 <b>拥塞控制</b> 、 <b>流量控制</b> 等关键功能。不同于其他主流操作系统，FreeBSD 创新性地实现了多 TCP 栈共存架构，该架构允许系统同时加载多个 TCP 协议栈实现，并可为不同的网络连接或系统全局选用不同的 TCP 栈
+代理按部署模式可分为三类：
 </p>
 
-<pre class="example" id="org0f6ce71">
-当前主要开发与维护工作集中于 RACK 栈, RACK 算法最初出自 Google
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+<caption class="t-above"><span class="table-number">Table 1:</span> 代理模式</caption>
 
-FreeBSD 的 tcp_rack 栈实现出自 Netflix 的 Randall Stewart
+<colgroup>
+<col  class="org-left" />
 
-以及TCP基础栈 基于 4.4BSD 经典栈实现演化而来，默认拥塞算法是 CUBIC
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">类型</td>
+<td class="org-left">说明</td>
+<td class="org-left">典型用途</td>
+</tr>
+
+<tr>
+<td class="org-left"><b>正向代理</b> <span class="underline">Forward Proxy</span></td>
+<td class="org-left">客户端显式配置代理地址，代理代表客户端向外部服务器发起请求</td>
+<td class="org-left">突破网络访问限制和缓存加速</td>
+</tr>
+
+<tr>
+<td class="org-left"><b>反向代理</b> <span class="underline">Reverse Proxy</span></td>
+<td class="org-left">代理代表服务器接收客户端请求，客户端不知道真实服务器的地址</td>
+<td class="org-left">负载均衡、SSL 终结和静态内容缓存</td>
+</tr>
+
+<tr>
+<td class="org-left"><b>透明代理</b> <span class="underline">Transparent Proxy</span></td>
+<td class="org-left">客户端无需配置，网络设备（如路由器）将流量重定向至代理</td>
+<td class="org-left">企业网络的内容过滤和流量监控</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+三种代理模式的数据流对比：
+</p>
+<pre class="example" id="org00d7719">
+代理模式对比
+
+  正向代理（Forward Proxy）
+  客户端 ──→ 代理服务器 ──→ 目标服务器
+  (已知代理)  (代表客户端)  (只看到代理 IP)
+
+  反向代理（Reverse Proxy）
+  客户端 ──→ 代理服务器 ──→ 真实服务器
+  (不知真实服务器)  (代表服务器)  (隐藏在后端)
+
+  透明代理（Transparent Proxy）
+  客户端 ──→ 网关/路由器 ──→ 代理 ──→ 目标服务器
+  (无感知)    (流量重定向)   (透明拦截)
 </pre>
 
 <p>
-FreeBSD 多 TCP 栈共存架构示意如下：
-</p>
-
-
-<div id="orgd7b341c" class="figure">
-<p><img src="../pic/tcp_ip_stack.png" alt="tcp_ip_stack.png" width="70%" /> 
+配置系统代理前，需了解 FreeBSD 提供的环境变量配置方式
 </p>
 </div>
 </div>
-</div>
-<div id="outline-container-org3205d91" class="outline-2">
-<h2 id="org3205d91">使用 RACK 栈</h2>
-<div class="outline-text-2" id="text-org3205d91">
+<div id="outline-container-org6ce2df3" class="outline-2">
+<h2 id="org6ce2df3">配置 HTTP_PROXY 代理</h2>
+<div class="outline-text-2" id="text-org6ce2df3">
 <p>
-如需启用 RACK 栈，先确认加载内核模块 <b>tcp_rack.ko</b> 并即时切换默认 TCP 栈：
+通过设置 <b>HTTP_PROXY</b> 、 <b>HTTPS_PROXY</b> 、 <b>ALL_PROXY</b> 等环境变量，可使多数命令行工具通过代理转发流量。以下为配置方法。
+</p>
+</div>
+<div id="outline-container-orgad8477a" class="outline-3">
+<h3 id="orgad8477a">临时设置</h3>
+<div class="outline-text-3" id="text-orgad8477a">
+<p>
+在当前 shell 会话中临时设置代理环境变量：
 </p>
 <div class="org-src-container">
-<pre class="src src-sh">$ kldload tcp_rack
-$ sysctl net.inet.tcp.functions_default=rack
+<pre class="src src-sh">$ export <span style="color: #eedd82;">HTTP_PROXY</span>=http://192.168.X.X:7890
 </pre>
 </div>
 
+<pre class="example" id="org827908b">
+示例中的 IP 地址和端口号 192.168.X.X:7890 需替换为实际的代理服务端点
+</pre>
+
 <p>
-如需重启后保持配置，将以下内容分别写入 /boot/loader.conf 与 /etc/sysctl.conf：
+取消已设置的 HTTP 代理环境变量：
+</p>
+<div class="org-src-container">
+<pre class="src src-sh">$ unset HTTP_PROXY
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org34f30f8" class="outline-3">
+<h3 id="org34f30f8">持久化配置（用户分级方法）</h3>
+<div class="outline-text-3" id="text-org34f30f8">
+<p>
+通过用户分级方法持久化配置，使代理环境变量在每次登录时自动生效，且与 Shell 类型无关。编辑 <b>~/.login_conf</b> 文件：
+</p>
+
+<pre class="example" id="orgb4d4d35">
+me:\
+	:setenv=HTTP_PROXY=http://192.168.X.X:7890,HTTPS_PROXY=http://192.168.X.X:7890:
+</pre>
+
+<p>
+编辑后，需要执行以下命令来更新登录能力数据库：
 </p>
 
 <div class="org-src-container">
-<pre class="src src-sh">$ echo <span style="color: #ffa07a;">'tcp_rack_load="YES"'</span> &gt;&gt; /boot/loader.conf
-$ echo <span style="color: #ffa07a;">'net.inet.tcp.functions_default=rack'</span> &gt;&gt; /etc/sysctl.conf
+<pre class="src src-sh">$ cap_mkdb ~/.login_conf
 </pre>
 </div>
 
 <p>
-重启系统或加载内核模块后，用以下命令显示系统中可用 TCP 栈列表：
+重新登录后生效
 </p>
-
-<div class="org-src-container">
-<pre class="src src-sh">$ sysctl net.inet.tcp.functions_available
-net.inet.tcp.functions_available:
-Stack                           D Alias                            PCB count
-freebsd                           freebsd                          3
-rack                            * rack                             0
-</pre>
-</div>
-
-<pre class="example" id="org6ac0a33">
-输出中标记 * 的栈为当前系统默认使用的 TCP 协议栈
-</pre>
 </div>
 </div>
-<div id="outline-container-orgbd40e36" class="outline-2">
-<h2 id="orgbd40e36">BBR 拥塞控制算法</h2>
-<div class="outline-text-2" id="text-orgbd40e36">
+</div>
+<div id="outline-container-org88e41f2" class="outline-2">
+<h2 id="org88e41f2">配置 Git 代理</h2>
+<div class="outline-text-2" id="text-org88e41f2">
 <p>
-<b>BBR</b> <span class="underline">Bottleneck Bandwidth and Round-trip propagation time，瓶颈带宽与往返传播时间</span> 目标包括：
+Git 支持通过 <span class="underline">http.proxy</span> 和 <span class="underline">core.gitProxy</span> 等配置项设置代理
 </p>
-<ul class="org-ul">
-<li>充分利用可用网络带宽</li>
-<li>最小化网络传输延迟。</li>
-</ul>
-
-<p>
-BBR 不以丢包为拥塞信号，而是根据探测到的带宽和延迟动态调整发送速率，在高带宽长延迟的网络环境中更具优势
-</p>
-
-<pre class="example" id="orgb3e337d">
-BBR 在 Linux 中作为拥塞控制模块实现
-
-但在 FreeBSD 中被实现为独立的 TCP 栈 tcp_bbr，通过 net.inet.tcp.functions_default 进行切换
-</pre>
 </div>
-<div id="outline-container-org4a988b5" class="outline-3">
-<h3 id="org4a988b5">BBR 在 FreeBSD 中的实现与应用</h3>
-<div class="outline-text-3" id="text-org4a988b5">
-<p>
-将 <b>tcp_bbr</b> 模块加载并设为默认 TCP 栈：
-</p>
-
-<div class="org-src-container">
-<pre class="src src-sh">$ kldload tcp_bbr
-$ sysctl net.inet.tcp.functions_default=bbr
-</pre>
 </div>
+<div id="outline-container-org4f47cfe" class="outline-2">
+<h2 id="org4f47cfe">为浏览器配置代理</h2>
+<div class="outline-text-2" id="text-org4f47cfe">
+</div>
+<div id="outline-container-orge6475db" class="outline-3">
+<h3 id="orge6475db">Chrome 命令选项</h3>
+<div class="outline-text-3" id="text-orge6475db">
+<pre class="example" id="org26eb309">
+chromium 是 Google Chrome 浏览器的开源版本，支持多种命令行参数
+</pre>
 
 <p>
-持久化配置：
+Chromium 浏览器在 ~/.config 等目录下并无独立的代理配置界面，但支持通过 http_proxy/https_proxy 环境变量（非 Gnome/KDE 环境下）及启动参数设置代理:
+</p>
+<pre class="example" id="orgdfc713d">
+--proxy-server="&lt;IP 地址&gt;:&lt;端口&gt;"
+</pre>
+
+<p>
+启动 Chrome 并使用指定的本地代理服务器：
 </p>
 <div class="org-src-container">
-<pre class="src src-sh">$ echo <span style="color: #ffa07a;">'tcp_bbr_load="YES"'</span> &gt;&gt; /boot/loader.conf
-$ echo <span style="color: #ffa07a;">'net.inet.tcp.functions_default=bbr'</span> &gt;&gt; /etc/sysctl.conf
+<pre class="src src-sh">$ chrome --proxy-server=<span style="color: #ffa07a;">"127.0.0.1:1234"</span>
 </pre>
 </div>
+
+<pre class="example" id="orgdee86fe">
+默认使用 HTTP 协议
+</pre>
 
 <p>
-重启系统后，查看当前系统使用的默认 TCP 栈：
+指定 SOCKS 代理服务器和端口：
 </p>
-<div class="org-src-container">
-<pre class="src src-sh">$ sysctl net.inet.tcp.functions_default
-</pre>
-</div>
 
-<pre class="example" id="org882c816">
-如果输出结果为 net.inet.tcp.functions_default: bbr，则 TCP BBR 启用成功
+<pre class="example" id="org41964fb">
+--proxy-server="socks://&lt;IP 地址&gt;:&lt;端口&gt;"
 </pre>
-</div>
-</div>
-</div>
-<div id="outline-container-orgaf41732" class="outline-2">
-<h2 id="orgaf41732">故障排除与未竟事宜</h2>
-<div class="outline-text-2" id="text-orgaf41732">
+
 <p>
-在测试环境中，RACK 和 BBR 在局域网中表现良好，但在互联网环境下带宽显著下降：RACK 约为默认栈的三分之一，BBR 约为默认栈的六分之一
+指定 SOCKS4 代理服务器和端口：
 </p>
-<pre class="example" id="org28df99b">
-该测试在特定网络条件下完成（如高延迟跨境链路），实际性能可能因网络环境而异
-
-需注意，RACK 与 BBR 的设计目标是提升而非降低吞吐量
-
-上述结果可能源于特定丢包/延迟环境的系统性偏差，不代表这些栈在典型部署场景中的表现
+<pre class="example" id="org60b3306">
+--proxy-server="socks4://&lt;IP 地址&gt;:&lt;端口&gt;"
 </pre>
+
+<p>
+要使 Chromium 在图形界面中默认通过代理启动，可修改桌面启动文件以实现持久化配置
+</p>
+<ol class="org-ol">
+<li>找到桌面环境为 Chromium 创建的 desktop 文件，通常位于 ~/.local/share/applications/ 目录</li>
+<li><p>
+使用编辑器打开 Chromium desktop 文件 chromium-browser.desktop，找到 Exec=chrome %U 一行并在其后添加所需参数：
+</p>
+<pre class="example" id="orga08433c">
+Comment[zh_CN]=Google web browser based on WebKit
+Comment=Google web browser based on WebKit
+Encoding=UTF-8
+Exec=chrome %U
+GenericName[zh_CN]=
+......
+</pre></li>
+<li><p>
+启动 Chromium 并使用指定的代理服务器：
+</p>
+<pre class="example" id="org34c0708">
+Exec=chrome %U --proxy-server="192.168.2.163:20172"
+</pre></li>
+</ol>
+<pre class="example" id="orgab64bda">
+上述示例中的 192.168.2.163、20172 为占位符，须替换为实际的值
+</pre>
+</div>
+</div>
+<div id="outline-container-org33bda8f" class="outline-3">
+<h3 id="org33bda8f">为 Firefox 单独配置代理</h3>
+<div class="outline-text-3" id="text-org33bda8f">
+<p>
+Firefox 浏览器的设置页面中，网络设置选项卡提供了图形化代理配置模块
+</p>
 
 <table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
 
@@ -379,12 +466,13 @@ $ echo <span style="color: #ffa07a;">'net.inet.tcp.functions_default=bbr'</span>
 </colgroup>
 <tbody>
 <tr>
-<td class="org-left"><a href="bridge.html">Next：网桥</a></td>
-<td class="org-left"><a href="proxy.html">Previous：系统代理</a></td>
+<td class="org-left"><a href="tcp.html">Next：TCP/IP 协议栈</a></td>
+<td class="org-left"><a href="wireless.html">Previous：无线网络</a></td>
 <td class="org-left"><a href="network.html">Home: 高级网络</a></td>
 </tr>
 </tbody>
 </table>
+</div>
 </div>
 </div>
 </div>
