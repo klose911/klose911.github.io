@@ -1,0 +1,174 @@
+#+TITLE: LangGraph 入门
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../css/main.css" />
+#+HTML_LINK_UP: ./langgraph.html   
+#+HTML_LINK_HOME: ./langgraph.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+LangGraph 为 任何 *长时间运行* 、 *有状态* 的工作流或智能体提供底层支持基础设施。LangGraph 不抽象提示或架构，并提供以下核心优势：
++ *持久执行* ：构建能够抵御故障并长时间运行的智能体，可从上次中断的地方自动恢复
++ *人机协作* ：在执行的任何时间点检查和修改智能体状态，无缝地融入人工监督
++ *全面记忆* ：创建真正有状态的智能体，既具备用于持续推理的短期工作记忆，也具备跨会话的长期持久记忆
++ *使用 LangSmith 进行调试* ：利用可视化工具深入了解复杂的智能体行为，这些工具可以追踪执行路径、捕获状态转换并提供详细的运行时指标
++ *生产就绪部署* ：利用可扩展的基础设施，自信地部署复杂的智能体系统，该基础设施旨在处理有状态、长时间运行工作流的独特挑战
+
+本指南展示如何设置和使用 LangGraph 的 *预构建* 、 *可重用* 组件，这些组件旨在帮助快速可靠地构建代理系统
+* 安装依赖
+如果还没有安装 LangGraph 和 LangChain
+
+#+begin_src sh 
+  pip install -U langgraph "langchain[anthropic]"
+#+end_src
+* 创建一个代理
+要创建一个代理，请使用 [[https://langgraph.com.cn/reference/agents.1.html#langgraph.prebuilt.chat_agent_executor.create_react_agent][create_react_agent]]
+
+#+begin_src python 
+  from langgraph.prebuilt import create_react_agent
+
+  def get_weather(city: str) -> str:  
+      """Get weather for a given city."""
+      return f"It's always sunny in {city}!"
+
+  agent = create_react_agent(
+      model="anthropic:claude-3-7-sonnet-latest",  
+      tools=[get_weather],  
+      prompt="You are a helpful assistant"  
+  )
+
+  # Run the agent
+  agent.invoke(
+      {"messages": [{"role": "user", "content": "what is the weather in sf"}]}
+  );
+#+end_src
+* 配置 LLM
+要配置具有特定参数（如温度）的 LLM，请使用 [[https://python.langchain.ac.cn/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html][init_chat_model]]
+
+#+begin_src python 
+  from langchain.chat_models import init_chat_model
+  from langgraph.prebuilt import create_react_agent
+
+  model = init_chat_model(
+      "anthropic:claude-3-7-sonnet-latest",
+      temperature=0
+  )
+
+  agent = create_react_agent(
+      model=model,
+      tools=[get_weather],
+  )
+#+end_src
+
+有关如何配置 LLM 的更多信息，请参见 [[https://langgraph.com.cn/agents/models/index.html][模型]] 
+
+* 添加自定义提示
+提示指导 LLM 如何行为。添加以下类型的提示之一
++ *静态* ：字符串被解释为系统消息
+  #+begin_src python 
+    from langgraph.prebuilt import create_react_agent
+
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+        # A static prompt that never changes
+        prompt="Never answer questions about the weather."
+    )
+
+    agent.invoke(
+        {"messages": [{"role": "user", "content": "what is the weather in sf"}]}
+    )
+  #+end_src
+  #+begin_example
+    定义固定提示字符串或消息列表
+  #+end_example
++ *动态* ：在运行时根据输入或配置生成的消息列表
+  #+begin_src python 
+    from langchain_core.messages import AnyMessage
+    from langchain_core.runnables import RunnableConfig
+    from langgraph.prebuilt.chat_agent_executor import AgentState
+    from langgraph.prebuilt import create_react_agent
+
+    def prompt(state: AgentState, config: RunnableConfig) -> list[AnyMessage]:  
+        user_name = config["configurable"].get("user_name")
+        system_msg = f"You are a helpful assistant. Address the user as {user_name}."
+        return [{"role": "system", "content": system_msg}] + state["messages"]
+
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+        prompt=prompt
+    )
+
+    agent.invoke(
+        {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+        config={"configurable": {"user_name": "John Smith"}}
+    )
+  #+end_src
+  #+begin_example
+    定义一个函数，根据代理的状态和配置返回消息列表
+  #+end_example
+
+有关更多信息，请参见 [[https://langgraph.com.cn/agents/context/index.html][上下文]] 
+
+* 添加记忆
+为了允许与代理进行多轮对话，需要通过在创建代理时提供一个 _checkpointer_ 来启用 *持久化* 。在运行时，需要提供一个包含 _thread_id_ *对话（会话）的唯一标识符* 的配置
+
+#+begin_src python 
+  from langgraph.prebuilt import create_react_agent
+  from langgraph.checkpoint.memory import InMemorySaver
+
+  checkpointer = InMemorySaver()
+
+  agent = create_react_agent(
+      model="anthropic:claude-3-7-sonnet-latest",
+      tools=[get_weather],
+      checkpointer=checkpointer  
+  )
+
+  # Run the agent
+  config = {"configurable": {"thread_id": "1"}}
+  sf_response = agent.invoke(
+      {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+      config  
+  )
+
+  ny_response = agent.invoke(
+      {"messages": [{"role": "user", "content": "what about new york?"}]},
+      config
+  )
+#+end_src
+
+当启用检查点时，它会在提供的检查点数据库中（如果使用 InMemorySaver，则在内存中）的每一步存储代理状态
+#+begin_example
+在上述示例中，当代理第二次使用相同的 thread_id 被调用时，第一次对话的原始消息历史记录将自动包含在内，以及新的用户输入
+#+end_example
+
+有关更多信息，请参见 [[https://langgraph.com.cn/agents/memory/index.html][记忆]]
+
+* 配置结构化输出
+要生成符合模式的结构化响应，请使用 *response_format* 参数。模式可以使用 _Pydantic 模型_ 或 _TypedDict 定义_ 。结果将通过 *structured_response* 字段访问
+
+#+begin_src python 
+  from pydantic import BaseModel
+  from langgraph.prebuilt import create_react_agent
+
+  class WeatherResponse(BaseModel):
+      conditions: str
+
+  agent = create_react_agent(
+      model="anthropic:claude-3-7-sonnet-latest",
+      tools=[get_weather],
+      response_format=WeatherResponse  
+  )
+
+  response = agent.invoke(
+      {"messages": [{"role": "user", "content": "what is the weather in sf"}]}
+  )
+
+  response["structured_response"]
+#+end_src
+
+#+begin_example
+结构化输出需要额外调用 LLM 以根据模式格式化响应
+#+end_example
+
+
+

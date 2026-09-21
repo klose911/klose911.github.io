@@ -1,0 +1,394 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>使用 LCEL 构建一个简单的 LLM 应用</title>
+<meta name="author" content="Wu, Shanliang" />
+<meta name="generator" content="Org Mode" />
+<style type="text/css">
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: auto;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    padding: 3px;
+    color: #555;
+    background-color: #f2f2f299;
+  }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { }
+</style>
+<link rel="stylesheet" type="text/css" href="../../css/main.css" />
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="tutorial.html"> UP </a>
+ |
+ <a accesskey="H" href="tutorial.html"> HOME </a>
+</div><div id="content" class="content">
+<h1 class="title">使用 LCEL 构建一个简单的 LLM 应用</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org4f9f5be">安装</a>
+<ul>
+<li><a href="#orge097893">LangSmith</a></li>
+</ul>
+</li>
+<li><a href="#org2c680d3">使用语言模型</a>
+<ul>
+<li><a href="#orga752122">Anthropic</a></li>
+</ul>
+</li>
+<li><a href="#org2c7ecdf">输出解析器</a></li>
+<li><a href="#orgb870b95">提示词模板</a></li>
+<li><a href="#orgd232fc8">使用 LCEL 连接组件</a></li>
+<li><a href="#org944bf3d">使用 LangServe 提供服务</a></li>
+</ul>
+</div>
+</div>
+<p>
+在这个快速入门中，将展示如何使用 LangChain 构建一个简单的 LLM 应用
+</p>
+<pre class="example" id="org88d2401">
+这个应用将把文本从英语翻译成另一种语言
+
+这是一个相对简单的 LLM 应用，只需一次 LLM 调用加上一些提示
+
+尽管如此，这是一个很好的开始使用 LangChain 的方式
+
+许多功能只需一些提示和一次 LLM 调用就可以构建！
+</pre>
+
+<p>
+阅读完本教程后，您将对以下内容有一个高层次的概述：
+</p>
+<ul class="org-ul">
+<li>使用 <a href="https://www.langchain.com.cn/docs/concepts/#chat-models">聊天模型</a></li>
+<li>使用 <a href="https://www.langchain.com.cn/docs/concepts/#prompt-templates">提示词模板</a> 和 <a href="https://www.langchain.com.cn/docs/concepts/#output-parsers">输出解析器</a></li>
+<li>使用 <a href="https://www.langchain.com.cn/docs/concepts/#langchain-expression-language-lcel">LangChain 表达式</a> <b>LCEL</b> 将组件串联在一起</li>
+<li>使用 <a href="https://www.langchain.com.cn/docs/concepts/#langsmith">LangSmith</a> 调试和追踪您的应用</li>
+<li>使用 <a href="https://www.langchain.com.cn/docs/concepts/#langserve">LangServe</a> 部署您的应用</li>
+</ul>
+<div id="outline-container-org4f9f5be" class="outline-2">
+<h2 id="org4f9f5be">安装</h2>
+<div class="outline-text-2" id="text-org4f9f5be">
+<p>
+要安装 LangChain，请运行：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">pip install langchain
+</pre>
+</div>
+</div>
+<div id="outline-container-orge097893" class="outline-3">
+<h3 id="orge097893">LangSmith</h3>
+<div class="outline-text-3" id="text-orge097893">
+<pre class="example" id="orgb001b8c">
+使用 LangChain 构建的许多应用程序将包含多个步骤和多次调用大型语言模型
+
+随着这些应用变得越来越复杂，能够检查您的链或代理内部究竟发生了什么变得至关重要
+</pre>
+<p>
+做到这一点的最佳方法是使用 LangSmith
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh"><span style="color: #b0c4de;">export</span> <span style="color: #eedd82;">LANGCHAIN_TRACING_V2</span>=<span style="color: #ffa07a;">"true"</span>
+<span style="color: #b0c4de;">export</span> <span style="color: #eedd82;">LANGCHAIN_API_KEY</span>=<span style="color: #ffa07a;">"..."</span>
+</pre>
+</div>
+
+<p>
+或者 在python中，可以使用以下方式设置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">import</span> getpass
+<span style="color: #00ffff;">import</span> os
+
+os.<span style="color: #eedd82;">environ</span>[<span style="color: #ffa07a;">"LANGCHAIN_TRACING_V2"</span>] = <span style="color: #ffa07a;">"true"</span>
+os.<span style="color: #eedd82;">environ</span>[<span style="color: #ffa07a;">"LANGCHAIN_API_KEY"</span>] = getpass.getpass()
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org2c680d3" class="outline-2">
+<h2 id="org2c680d3">使用语言模型</h2>
+<div class="outline-text-2" id="text-org2c680d3">
+<pre class="example" id="org9bba5d4">
+首先，让我们学习如何单独使用语言模型
+</pre>
+<p>
+LangChain支持许多不同的语言模型，可以互换使用
+</p>
+</div>
+<div id="outline-container-orga752122" class="outline-3">
+<h3 id="orga752122">Anthropic</h3>
+<div class="outline-text-3" id="text-orga752122">
+<div class="org-src-container">
+<pre class="src src-sh">pip install -qU langchain-anthropic
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">import</span> getpass
+<span style="color: #00ffff;">import</span> os
+
+os.<span style="color: #eedd82;">environ</span>[<span style="color: #ffa07a;">"ANTHROPIC_API_KEY"</span>] = getpass.getpass()
+
+<span style="color: #00ffff;">from</span> langchain_anthropic <span style="color: #00ffff;">import</span> ChatAnthropic
+
+<span style="color: #eedd82;">model</span> = ChatAnthropic(model=<span style="color: #ffa07a;">"claude-3-5-sonnet-20240620"</span>)
+</pre>
+</div>
+
+<p>
+首先直接使用模型。*ChatModel* 是 LangChain <span class="underline">运行接口</span> 的实例，这意味着它们提供了一个标准接口供我们与之交互。要简单地调用模型，可以将消息列表传递给 <span class="underline">.invoke</span> 方法
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> langchain_core.messages <span style="color: #00ffff;">import</span> HumanMessage, SystemMessage
+
+<span style="color: #eedd82;">messages</span> = [
+    SystemMessage(content=<span style="color: #ffa07a;">"Translate the following from English into Italian"</span>),
+    HumanMessage(content=<span style="color: #ffa07a;">"hi!"</span>),
+]
+
+model.invoke(messages)
+</pre>
+</div>
+
+<pre class="example" id="org3b5900e">
+AIMessage(content='ciao!', response_metadata={'token_usage': {'completion_tokens': 3, 'prompt_tokens': 20, 'total_tokens': 23}, 'model_name': 'gpt-4', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None}, id='run-fc5d7c88-9615-48ab-a3c7-425232b562c5-0')
+</pre>
+
+<p>
+如果启用了LangSmith，可以看到此运行已记录到LangSmith
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org2c7ecdf" class="outline-2">
+<h2 id="org2c7ecdf">输出解析器</h2>
+</div>
+
+<div id="outline-container-orgb870b95" class="outline-2">
+<h2 id="orgb870b95">提示词模板</h2>
+</div>
+
+<div id="outline-container-orgd232fc8" class="outline-2">
+<h2 id="orgd232fc8">使用 LCEL 连接组件</h2>
+</div>
+
+<div id="outline-container-org944bf3d" class="outline-2">
+<h2 id="org944bf3d">使用 LangServe 提供服务</h2>
+</div>
+</div>
+<div id="postamble" class="status">
+
+		  <br/>
+		  <div class='ds-thread'></div>
+		  <script>
+		  var duoshuoQuery = {short_name:'klose911'};
+		  (function() {
+					  var dsThread = document.getElementsByClassName('ds-thread')[0];
+					  dsThread.setAttribute('data-thread-key', document.title);
+					  dsThread.setAttribute('data-title', document.title);
+					  dsThread.setAttribute('data-url', window.location.href);
+					  var ds = document.createElement('script');
+					  ds.type = 'text/javascript';ds.async = true;
+					  ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+					  ds.charset = 'UTF-8';
+					  (document.getElementsByTagName('head')[0] 
+						|| document.getElementsByTagName('body')[0]).appendChild(ds);
+					  })();
+		  </script>
+		  <script>
+		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+			(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+			m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+			})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+		  ga('create', 'UA-90850421-1', 'auto');
+		  ga('send', 'pageview');
+		  </script>
+</div>
+</body>
+</html>
