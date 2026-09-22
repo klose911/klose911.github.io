@@ -206,6 +206,11 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org3f4fba8">创建一个 StateGraph</a></li>
+<li><a href="#orgce180fd">添加一个节点</a></li>
+<li><a href="#org021efd7">添加一个入口点</a></li>
+<li><a href="#org05674cb">编译图</a></li>
+<li><a href="#orgbf601be">可视化图（可选）</a></li>
+<li><a href="#orgd893707">运行聊天机器人</a></li>
 </ul>
 </div>
 </div>
@@ -213,13 +218,220 @@
 在本教程中，构建一个基本聊天机器人
 </p>
 
-<pre class="example" id="orge6cf490">
+<pre class="example" id="org85bdbff">
 这个聊天机器人是后续系列教程的基础，在这些教程中，将逐步添加更复杂的功能
 
 并在此过程中了解 LangGraph 的关键概念。让我们开始吧！
 </pre>
 <div id="outline-container-org3f4fba8" class="outline-2">
 <h2 id="org3f4fba8">创建一个 StateGraph</h2>
+<div class="outline-text-2" id="text-org3f4fba8">
+<pre class="example" id="orgfaba051">
+现在可以使用 LangGraph 创建一个基本聊天机器人。这个聊天机器人将直接回复用户的消息。
+</pre>
+
+<p>
+首先创建一个 <span class="underline">StateGraph</span> 。一个 StateGraph 对象将聊天机器人结构定义为 <b>状态机</b>
+</p>
+<ol class="org-ol">
+<li>添加 <b>节点</b> 来表示 LLM 和聊天机器人可以调用的函数</li>
+<li>添加 <b>边</b> 来指定机器人应如何在这些函数之间进行转换</li>
+</ol>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> typing <span style="color: #00ffff;">import</span> Annotated
+
+<span style="color: #00ffff;">from</span> typing_extensions <span style="color: #00ffff;">import</span> TypedDict
+
+<span style="color: #00ffff;">from</span> langgraph.graph <span style="color: #00ffff;">import</span> StateGraph, START
+<span style="color: #00ffff;">from</span> langgraph.graph.message <span style="color: #00ffff;">import</span> add_messages
+
+
+<span style="color: #00ffff;">class</span> <span style="color: #98fb98;">State</span>(TypedDict):
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Messages have the type "list". The `add_messages` function
+</span>    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">in the annotation defines how this state key should be updated
+</span>    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">(in this case, it appends messages to the list, rather than overwriting them)
+</span>    messages: Annotated[<span style="color: #b0c4de;">list</span>, add_messages]
+
+
+<span style="color: #eedd82;">graph_builder</span> = StateGraph(State)
+</pre>
+</div>
+
+<p>
+现在可以处理两个关键任务
+</p>
+<ul class="org-ul">
+<li>每个 <span class="underline">节点</span> 都可以 <b>接收</b> 当前 <span class="underline">状态</span> 作为输入，并 <b>输出</b> <span class="underline">状态的更新</span></li>
+<li><p>
+对 <span class="underline">消息</span> 的更新将 <b>追加</b> 到现有列表而不是覆盖它
+</p>
+<pre class="example" id="org329507d">
+这得益于与 Annotated 语法一起使用的预构建 add_messages 函数
+</pre></li>
+</ul>
+
+<p>
+定义图时：第一步是定义其 <b>状态</b> 。状态 包括图的模式和处理状态更新的 reducer 函数
+</p>
+
+<pre class="example" id="org49d3b6a">
+在我们的示例中，状态 是一个具有一个键：messages 的 TypedDict
+
+add_messages reducer 函数用于将新消息追加到列表中，而不是覆盖它
+
+没有 reducer 注解的键将覆盖先前的值
+</pre>
+
+<p>
+要了解有关状态、reducer 和相关概念的更多信息，请参阅 <a href="https://langgraph.com.cn/reference/graphs/index.html#langgraph.graph.message.add_messages">LangGraph 参考文档</a> 
+</p>
+</div>
+</div>
+<div id="outline-container-orgce180fd" class="outline-2">
+<h2 id="orgce180fd">添加一个节点</h2>
+<div class="outline-text-2" id="text-orgce180fd">
+<p>
+接下来，添加一个“chatbot”节点。 <b>节点</b> 表示工作单元，通常是普通的 Python 函数
+</p>
+
+<p>
+首先选择一个聊天模型：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">import</span> os
+<span style="color: #00ffff;">from</span> langchain.chat_models <span style="color: #00ffff;">import</span> init_chat_model
+
+os.<span style="color: #eedd82;">environ</span>[<span style="color: #ffa07a;">"ANTHROPIC_API_KEY"</span>] = <span style="color: #ffa07a;">"sk-..."</span>
+
+<span style="color: #eedd82;">llm</span> = init_chat_model(<span style="color: #ffa07a;">"anthropic:claude-3-5-sonnet-latest"</span>)
+</pre>
+</div>
+
+<p>
+现在可以将聊天模型集成到一个简单的节点中
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">chatbot</span>(state: State):
+    <span style="color: #00ffff;">return</span> {<span style="color: #ffa07a;">"messages"</span>: [llm.invoke(state[<span style="color: #ffa07a;">"messages"</span>])]}
+
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">The first argument is the unique node name
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">The second argument is the function or object that will be called whenever
+</span><span style="color: #ff4500;"># </span><span style="color: #ff4500;">the node is used.
+</span>graph_builder.add_node(<span style="color: #ffa07a;">"chatbot"</span>, chatbot)
+</pre>
+</div>
+
+<p>
+注意 <span class="underline">chatbot 节点函数</span> :
+</p>
+<ul class="org-ul">
+<li>将当前 <b>状态</b> 作为 <span class="underline">输入</span></li>
+<li>返回一个包含更新的 <b>消息</b> 列表的 <span class="underline">字典</span>
+<ul class="org-ul">
+<li>键为 <span class="underline">messages</span></li>
+</ul></li>
+</ul>
+
+<pre class="example" id="org9586fb2">
+这是所有 LangGraph 节点函数的基本模式
+</pre>
+
+<p>
+<span class="underline">状态</span> 中的 <b>add_messages</b> 函数会将 <span class="underline">LLM 的响应消息</span> <b>追加</b> 到 <span class="underline">状态中已有的消息之后</span> 
+</p>
+</div>
+</div>
+<div id="outline-container-org021efd7" class="outline-2">
+<h2 id="org021efd7">添加一个入口点</h2>
+<div class="outline-text-2" id="text-org021efd7">
+<p>
+添加一个 <b>入口</b> 点，以告诉图每次运行时 <span class="underline">从何处开始工作</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python">graph_builder.add_edge(START, <span style="color: #ffa07a;">"chatbot"</span>)
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org05674cb" class="outline-2">
+<h2 id="org05674cb">编译图</h2>
+<div class="outline-text-2" id="text-org05674cb">
+<p>
+在运行图之前，需要对其进行编译。可以通过在图构建器上调用 <b>compile()</b> 来完成。这将创建一个 <span class="underline">CompiledGraph</span> ，可以在我们的状态上调用它
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">graph</span> = graph_builder.<span style="color: #b0c4de;">compile</span>()
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgbf601be" class="outline-2">
+<h2 id="orgbf601be">可视化图（可选）</h2>
+<div class="outline-text-2" id="text-orgbf601be">
+<p>
+可以使用 get_graph 方法和其中一个“绘图”方法（例如 draw_ascii 或 draw_png）来可视化图
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> IPython.display <span style="color: #00ffff;">import</span> Image, display
+
+<span style="color: #00ffff;">try</span>:
+    display(Image(graph.get_graph().draw_mermaid_png()))
+<span style="color: #00ffff;">except</span> <span style="color: #98fb98;">Exception</span>:
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">This requires some extra dependencies and is optional
+</span>    <span style="color: #00ffff;">pass</span>
+</pre>
+</div>
+
+<pre class="example" id="orgc8d8a99">
+这些 draw 方法都需要额外的依赖项
+</pre>
+
+
+<div id="org9d0cf42" class="figure">
+<p><img src="../pic/basic-chatbot.png" alt="basic-chatbot.png" width="30%" /> 
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgd893707" class="outline-2">
+<h2 id="orgd893707">运行聊天机器人</h2>
+<div class="outline-text-2" id="text-orgd893707">
+<pre class="example" id="org9954334">
+可以随时通过键入 quit、exit 或 q 来退出聊天循环
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">def</span> <span style="color: #87cefa;">stream_graph_updates</span>(user_input: <span style="color: #b0c4de;">str</span>):
+    <span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> graph.stream({<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: user_input}]}):
+        <span style="color: #00ffff;">for</span> value <span style="color: #00ffff;">in</span> event.values():
+            <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Assistant:"</span>, value[<span style="color: #ffa07a;">"messages"</span>][-1].content)
+
+
+<span style="color: #00ffff;">while</span> <span style="color: #7fffd4;">True</span>:
+    <span style="color: #00ffff;">try</span>:
+        <span style="color: #eedd82;">user_input</span> = <span style="color: #b0c4de;">input</span>(<span style="color: #ffa07a;">"User: "</span>)
+        <span style="color: #00ffff;">if</span> user_input.lower() <span style="color: #00ffff;">in</span> [<span style="color: #ffa07a;">"quit"</span>, <span style="color: #ffa07a;">"exit"</span>, <span style="color: #ffa07a;">"q"</span>]:
+            <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Goodbye!"</span>)
+            <span style="color: #00ffff;">break</span>
+        stream_graph_updates(user_input)
+    <span style="color: #00ffff;">except</span>:
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">fallback if input() is not available
+</span>        <span style="color: #eedd82;">user_input</span> = <span style="color: #ffa07a;">"What do you know about LangGraph?"</span>
+        <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"User: "</span> + user_input)
+        stream_graph_updates(user_input)
+        <span style="color: #00ffff;">break</span>
+</pre>
+</div>
+
+<p>
+恭喜！ 已经使用 LangGraph 构建了第一个聊天机器人。这个机器人可以通过接收用户输入并使用 LLM 生成响应来参与基本对话
+</p>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
