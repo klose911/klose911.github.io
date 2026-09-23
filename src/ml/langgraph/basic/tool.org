@@ -1,0 +1,324 @@
+#+TITLE: 添加工具
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="../../css/main.css" />
+#+HTML_LINK_UP: ./chatbot.html   
+#+HTML_LINK_HOME: ./basic.html
+#+OPTIONS: num:nil timestamp:nil ^:nil
+
+为了处理聊天机器人“凭记忆”无法回答的查询，请集成一个网页搜索工具。聊天机器人可以使用此工具查找相关信息并提供更好的回复
+
+#+begin_example
+本教程基于构建一个基本聊天机器人
+#+end_example
+* 先决条件
+在开始本教程之前，请确保具备以下条件：
++ Tavily搜索引擎的API密钥
+
+* 安装搜索引擎
+
+安装使用Tavily搜索引擎所需的依赖
+
+#+begin_src sh 
+  pip install -U langchain-tavily
+#+end_src
+
+* 配置您的环境
+使用搜索引擎API密钥配置环境
+
+#+begin_src python 
+  import getpass
+  import os
+
+  if not os.environ.get("TAVILY_API_KEY"):
+      os.environ["TAVILY_API_KEY"] = getpass.getpass("Tavily API key:\n")
+#+end_src
+
+* 定义工具
+定义网页搜索工具
+
+#+begin_src python 
+  from langchain_tavily import TavilySearch
+
+  tool = TavilySearch(max_results=2)
+  tools = [tool]
+  tool.invoke("What's a 'node' in LangGraph?")
+#+end_src
+
+结果是可以用来回答问题的页面摘要
+
+#+begin_src js
+  {'query': "What's a 'node' in LangGraph?",
+   'follow_up_questions': None,
+   'answer': None,
+   'images': [],
+   'results': [{'title': "Introduction to LangGraph: A Beginner's Guide - Medium",
+  	      'url': 'https://medium.com/@cplog/introduction-to-langgraph-a-beginners-guide-14f9be027141',
+  	      'content': 'Stateful Graph: LangGraph revolves around the concept of a stateful graph, where each node in the graph represents a step in your computation, and the graph maintains a state that is passed around and updated as the computation progresses. LangGraph supports conditional edges, allowing you to dynamically determine the next node to execute based on the current state of the graph. We define nodes for classifying the input, handling greetings, and handling search queries. def classify_input_node(state): LangGraph is a versatile tool for building complex, stateful applications with LLMs. By understanding its core concepts and working through simple examples, beginners can start to leverage its power for their projects. Remember to pay attention to state management, conditional edges, and ensuring there are no dead-end nodes in your graph.',
+  	      'score': 0.7065353,
+  	      'raw_content': None},
+  	     {'title': 'LangGraph Tutorial: What Is LangGraph and How to Use It?',
+  	      'url': 'https://www.datacamp.com/tutorial/langgraph-tutorial',
+  	      'content': 'LangGraph is a library within the LangChain ecosystem that provides a framework for defining, coordinating, and executing multiple LLM agents (or chains) in a structured and efficient manner. By managing the flow of data and the sequence of operations, LangGraph allows developers to focus on the high-level logic of their applications rather than the intricacies of agent coordination. Whether you need a chatbot that can handle various types of user requests or a multi-agent system that performs complex tasks, LangGraph provides the tools to build exactly what you need. LangGraph significantly simplifies the development of complex LLM applications by providing a structured framework for managing state and coordinating agent interactions.',
+  	      'score': 0.5008063,
+  	      'raw_content': None}],
+   'response_time': 1.38}
+#+end_src
+
+* 定义图
+对于在第一个教程中创建的StateGraph，在LLM上添加 *bind_tools* 。这让LLM知道如果它想使用搜索引擎，应使用正确的JSON格式
+
+#+begin_src python 
+  from typing import Annotated
+
+  from typing_extensions import TypedDict
+
+  from langgraph.graph import StateGraph, START, END
+  from langgraph.graph.message import add_messages
+
+  class State(TypedDict):
+      messages: Annotated[list, add_messages]
+
+  graph_builder = StateGraph(State)
+
+  # Modification: tell the LLM which tools it can call
+  # highlight-next-line
+  llm_with_tools = llm.bind_tools(tools)
+
+  def chatbot(state: State):
+      return {"messages": [llm_with_tools.invoke(state["messages"])]}
+
+  graph_builder.add_node("chatbot", chatbot)
+#+end_src
+
+* 创建一个运行工具的函数
+
+现在，创建一个函数来运行被调用的工具。通过将工具添加到一个名为 *BasicToolNode* 的新节点来完成，该节点检查状态中的最新消息：
++ 如果消息包含tool_calls，则调用工具
+
+#+begin_example
+它依赖于LLM的tool_calling支持，该支持在Anthropic、OpenAI、Google Gemini以及许多其他LLM提供商中可用
+#+end_example
+
+#+begin_src python 
+  import json
+
+  from langchain_core.messages import ToolMessage
+
+
+  class BasicToolNode:
+      """A node that runs the tools requested in the last AIMessage."""
+
+      def __init__(self, tools: list) -> None:
+          self.tools_by_name = {tool.name: tool for tool in tools}
+
+      def __call__(self, inputs: dict):
+          if messages := inputs.get("messages", []):
+              message = messages[-1]
+          else:
+              raise ValueError("No message found in input")
+          outputs = []
+          for tool_call in message.tool_calls:
+              tool_result = self.tools_by_name[tool_call["name"]].invoke(
+                  tool_call["args"]
+              )
+              outputs.append(
+                  ToolMessage(
+                      content=json.dumps(tool_result),
+                      name=tool_call["name"],
+                      tool_call_id=tool_call["id"],
+                  )
+              )
+          return {"messages": outputs}
+
+  tool_node = BasicToolNode(tools=[tool])
+  graph_builder.add_node("tools", tool_node)
+#+end_src
+
+#+begin_example
+如果将来不想自己构建，可以使用LangGraph预构建的ToolNode
+#+end_example
+
+* 定义conditional_edges
+
+添加了工具节点后，现在可以定义 *conditional_edges* , *边* _Edges_ 将控制流从一个节点路由到下一个节点
++ *条件边*  _Conditional edges_ 从单个节点开始，通常包含 _if_ 语句
++ 根据当前图状态路由到不同的节点。这些函数接收 _当前的图state_ 并返回一个 _字符串或字符串列表_ ，指示 _接下来要调用哪个（或哪些）节点_ 
+
+接下来，定义一个名为 *route_tools* 的路由函数，它检查聊天机器人输出中的tool_calls。通过调用*add_conditional_edges* 将此函数提供给图，这会告诉图，无论何时chatbot节点完成，都要检查此函数以确定下一步去哪里
+
+#+begin_example
+  如果存在工具调用，条件将路由到tools
+
+  如果不存在，则路由到END
+
+  由于条件可以返回END，因此这次您不需要明确设置finish_point
+#+end_example
+
+#+begin_src python 
+  def route_tools(
+          state: State,
+  ):
+      """
+      Use in the conditional_edge to route to the ToolNode if the last message
+      has tool calls. Otherwise, route to the end.
+      """
+      if isinstance(state, list):
+          ai_message = state[-1]
+      elif messages := state.get("messages", []):
+          ai_message = messages[-1]
+      else:
+          raise ValueError(f"No messages found in input state to tool_edge: {state}")
+      if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
+          return "tools"
+      return END
+
+
+  # The `tools_condition` function returns "tools" if the chatbot asks to use a tool, and "END" if
+  # it is fine directly responding. This conditional routing defines the main agent loop.
+  graph_builder.add_conditional_edges(
+      "chatbot",
+      route_tools,
+      # The following dictionary lets you tell the graph to interpret the condition's outputs as a specific node
+      # It defaults to the identity function, but if you
+      # want to use a node named something else apart from "tools",
+      # You can update the value of the dictionary to something else
+      # e.g., "tools": "my_tools"
+      {"tools": "tools", END: END},
+  )
+  # Any time a tool is called, we return to the chatbot to decide the next step
+  graph_builder.add_edge("tools", "chatbot")
+  graph_builder.add_edge(START, "chatbot")
+  graph = graph_builder.compile()
+#+end_src
+
+#+begin_example
+可以将其替换为预构建的tools_condition以使其更简洁
+#+end_example
+* 可视化图（可选）
+
+可以使用get_graph方法和其中一种 _draw_ 方法（例如draw_ascii或draw_png）来可视化图
+
+#+begin_src python 
+  from IPython.display import Image, display
+
+  try:
+      display(Image(graph.get_graph().draw_mermaid_png()))
+  except Exception:
+      # This requires some extra dependencies and is optional
+      pass
+#+end_src
+
+#+ATTR_HTML: image :width 30% 
+[[file:../pic/chatbot-with-tools.png]]
+
+* 向机器人提问
+现在可以向聊天机器人提出超出其训练数据范围的问题
+
+#+begin_src python 
+  def stream_graph_updates(user_input: str):
+      for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
+          for value in event.values():
+              print("Assistant:", value["messages"][-1].content)
+
+  while True:
+      try:
+          user_input = input("User: ")
+          if user_input.lower() in ["quit", "exit", "q"]:
+              print("Goodbye!")
+              break
+
+          stream_graph_updates(user_input)
+      except:
+          # fallback if input() is not available
+          user_input = "What do you know about LangGraph?"
+          print("User: " + user_input)
+          stream_graph_updates(user_input)
+          break
+#+end_src
+
+#+begin_example
+  Assistant: [{'text': "To provide you with accurate and up-to-date information about LangGraph, I'll need to search for the latest details. Let me do that for you.", 'type': 'text'}, {'id': 'toolu_01Q588CszHaSvvP2MxRq9zRD', 'input': {'query': 'LangGraph AI tool information'}, 'name': 'tavily_search_results_json', 'type': 'tool_use'}]
+  Assistant: [{"url": "https://langchain.ac.cn/langgraph", "content": "LangGraph sets the foundation for how we can build and scale AI workloads \u2014 from conversational agents, complex task automation, to custom LLM-backed experiences that 'just work'. The next chapter in building complex production-ready features with LLMs is agentic, and with LangGraph and LangSmith, LangChain delivers an out-of-the-box solution ..."}, {"url": "https://github.com/langchain-ai/langgraph", "content": "Overview. LangGraph is a library for building stateful, multi-actor applications with LLMs, used to create agent and multi-agent workflows. Compared to other LLM frameworks, it offers these core benefits: cycles, controllability, and persistence. LangGraph allows you to define flows that involve cycles, essential for most agentic architectures ..."}]
+  Assistant: Based on the search results, I can provide you with information about LangGraph:
+
+  1. Purpose:
+     LangGraph is a library designed for building stateful, multi-actor applications with Large Language Models (LLMs). It's particularly useful for creating agent and multi-agent workflows.
+
+  2. Developer:
+     LangGraph is developed by LangChain, a company known for its tools and frameworks in the AI and LLM space.
+
+  3. Key Features:
+     - Cycles: LangGraph allows the definition of flows that involve cycles, which is essential for most agentic architectures.
+     - Controllability: It offers enhanced control over the application flow.
+     - Persistence: The library provides ways to maintain state and persistence in LLM-based applications.
+
+  4. Use Cases:
+     LangGraph can be used for various applications, including:
+     - Conversational agents
+     - Complex task automation
+     - Custom LLM-backed experiences
+
+  5. Integration:
+     LangGraph works in conjunction with LangSmith, another tool by LangChain, to provide an out-of-the-box solution for building complex, production-ready features with LLMs.
+
+  6. Significance:
+  ...
+     LangGraph is noted to offer unique benefits compared to other LLM frameworks, particularly in its ability to handle cycles, provide controllability, and maintain persistence.
+
+  LangGraph appears to be a significant tool in the evolving landscape of LLM-based application development, offering developers new ways to create more complex, stateful, and interactive AI systems.
+  Goodbye!
+  Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+#+end_example
+
+* 使用预构建组件
+为了方便使用，将以下内容替换为LangGraph预构建组件。这些组件具有内置功能，例如并行API执行。
++ BasicToolNode替换为预构建的[[https://langgraph.com.cn/reference/prebuilt/index.html#toolnode][ToolNode]]
++ route_tools替换为预构建的[[https://langgraph.com.cn/reference/prebuilt/index.html#tools_condition][tools_condition]]
+
+#+begin_src python 
+  from typing import Annotated
+
+  from langchain_tavily import TavilySearch
+  from langchain_core.messages import BaseMessage
+  from typing_extensions import TypedDict
+
+  from langgraph.graph import StateGraph, START, END
+  from langgraph.graph.message import add_messages
+  from langgraph.prebuilt import ToolNode, tools_condition
+
+  class State(TypedDict):
+      messages: Annotated[list, add_messages]
+
+  graph_builder = StateGraph(State)
+
+  tool = TavilySearch(max_results=2)
+  tools = [tool]
+  llm_with_tools = llm.bind_tools(tools)
+
+  def chatbot(state: State):
+      return {"messages": [llm_with_tools.invoke(state["messages"])]}
+
+  graph_builder.add_node("chatbot", chatbot)
+
+  tool_node = ToolNode(tools=[tool])
+  graph_builder.add_node("tools", tool_node)
+
+  graph_builder.add_conditional_edges(
+      "chatbot",
+      tools_condition,
+  )
+  # Any time a tool is called, we return to the chatbot to decide the next step
+  graph_builder.add_edge("tools", "chatbot")
+  graph_builder.add_edge(START, "chatbot")
+  graph = graph_builder.compile()
+#+end_src
+
+恭喜！您已经在LangGraph中创建了一个会话代理，它可以在需要时使用搜索引擎检索更新的信息。现在它能够处理更广泛的用户查询
+
+#+begin_example
+  聊天机器人无法自行记住过去的交互，这限制了其进行连贯多轮对话的能力
+
+  在下一部分中，将添加记忆来解决这个问题
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:memory.org][Next：添加记忆]]   | [[file:basic.org][Home: 基础知识]]   |
