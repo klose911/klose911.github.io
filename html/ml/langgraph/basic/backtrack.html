@@ -205,7 +205,11 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org798be50"></a></li>
+<li><a href="#orgc7ea5e7">回溯你的图</a></li>
+<li><a href="#org736e4c9">添加步骤</a></li>
+<li><a href="#org1011111">重播完整状态历史</a></li>
+<li><a href="#org886af9f">从检查点恢复</a></li>
+<li><a href="#org27250d7">从某个时间点加载状态</a></li>
 </ul>
 </div>
 </div>
@@ -213,7 +217,7 @@
 在典型的聊天机器人工作流程中，用户与机器人交互一次或多次以完成任务。<a href="https://langgraph.com.cn/tutorials/get-started/3-add-memory/index.html">内存</a>和<a href="https://langgraph.com.cn/tutorials/get-started/4-human-in-the-loop/index.html">人工干预</a> 可在图状态中启用检查点并控制未来的响应
 </p>
 
-<pre class="example" id="org3d99d6e">
+<pre class="example" id="orgca41ca3">
 如果希望用户能够从之前的响应开始，探索不同的结果怎么办？
 
 或者，如果希望用户能够回溯聊天机器人的工作以纠正错误或尝试不同的策略，就像自主软件工程师等应用程序中常见的那样，该怎么办？
@@ -222,8 +226,313 @@
 <p>
 可以使用LangGraph内置的 <b>时间旅行</b> 功能创建这类体验
 </p>
-<div id="outline-container-org798be50" class="outline-2">
-<h2 id="org798be50"></h2>
+<div id="outline-container-orgc7ea5e7" class="outline-2">
+<h2 id="orgc7ea5e7">回溯你的图</h2>
+<div class="outline-text-2" id="text-orgc7ea5e7">
+<p>
+通过使用图的 <b>get_state_history</b> 方法获取 <span class="underline">检查点</span> 来 <b>回溯</b> 图。然后可以在这个之前的时间点恢复执行
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> typing <span style="color: #00ffff;">import</span> Annotated
+
+<span style="color: #00ffff;">from</span> langchain_tavily <span style="color: #00ffff;">import</span> TavilySearch
+<span style="color: #00ffff;">from</span> langchain_core.messages <span style="color: #00ffff;">import</span> BaseMessage
+<span style="color: #00ffff;">from</span> typing_extensions <span style="color: #00ffff;">import</span> TypedDict
+
+<span style="color: #00ffff;">from</span> langgraph.checkpoint.memory <span style="color: #00ffff;">import</span> MemorySaver
+<span style="color: #00ffff;">from</span> langgraph.graph <span style="color: #00ffff;">import</span> StateGraph, START, END
+<span style="color: #00ffff;">from</span> langgraph.graph.message <span style="color: #00ffff;">import</span> add_messages
+<span style="color: #00ffff;">from</span> langgraph.prebuilt <span style="color: #00ffff;">import</span> ToolNode, tools_condition
+
+<span style="color: #00ffff;">class</span> <span style="color: #98fb98;">State</span>(TypedDict):
+    messages: Annotated[<span style="color: #b0c4de;">list</span>, add_messages]
+
+<span style="color: #eedd82;">graph_builder</span> = StateGraph(State)
+
+<span style="color: #eedd82;">tool</span> = TavilySearch(max_results=2)
+<span style="color: #eedd82;">tools</span> = [tool]
+<span style="color: #eedd82;">llm_with_tools</span> = llm.bind_tools(tools)
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">chatbot</span>(state: State):
+    <span style="color: #00ffff;">return</span> {<span style="color: #ffa07a;">"messages"</span>: [llm_with_tools.invoke(state[<span style="color: #ffa07a;">"messages"</span>])]}
+
+graph_builder.add_node(<span style="color: #ffa07a;">"chatbot"</span>, chatbot)
+
+<span style="color: #eedd82;">tool_node</span> = ToolNode(tools=[tool])
+graph_builder.add_node(<span style="color: #ffa07a;">"tools"</span>, tool_node)
+
+graph_builder.add_conditional_edges(
+    <span style="color: #ffa07a;">"chatbot"</span>,
+    tools_condition,
+)
+graph_builder.add_edge(<span style="color: #ffa07a;">"tools"</span>, <span style="color: #ffa07a;">"chatbot"</span>)
+graph_builder.add_edge(START, <span style="color: #ffa07a;">"chatbot"</span>)
+
+<span style="color: #eedd82;">memory</span> = MemorySaver()
+<span style="color: #eedd82;">graph</span> = graph_builder.<span style="color: #b0c4de;">compile</span>(checkpointer=memory)
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org736e4c9" class="outline-2">
+<h2 id="org736e4c9">添加步骤</h2>
+<div class="outline-text-2" id="text-org736e4c9">
+<p>
+每个步骤都将在其状态历史中被检查点化
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">config</span> = {<span style="color: #ffa07a;">"configurable"</span>: {<span style="color: #ffa07a;">"thread_id"</span>: <span style="color: #ffa07a;">"1"</span>}}
+<span style="color: #eedd82;">events</span> = graph.stream(
+    {
+        <span style="color: #ffa07a;">"messages"</span>: [
+            {
+                <span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>,
+                <span style="color: #ffa07a;">"content"</span>: (
+                    <span style="color: #ffa07a;">"I'm learning LangGraph. "</span>
+                    <span style="color: #ffa07a;">"Could you do some research on it for me?"</span>
+                ),
+            },
+        ],
+    },
+    config,
+    stream_mode=<span style="color: #ffa07a;">"values"</span>,
+)
+<span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> events:
+    <span style="color: #00ffff;">if</span> <span style="color: #ffa07a;">"messages"</span> <span style="color: #00ffff;">in</span> event:
+        event[<span style="color: #ffa07a;">"messages"</span>][-1].pretty_print()
+</pre>
+</div>
+
+<pre class="example" id="org89822a7">
+================================ Human Message =================================
+
+I'm learning LangGraph. Could you do some research on it for me?
+================================== Ai Message ==================================
+
+[{'text': "Certainly! I'd be happy to research LangGraph for you. To get the most up-to-date and accurate information, I'll use the Tavily search engine to look this up. Let me do that for you now.", 'type': 'text'}, {'id': 'toolu_01BscbfJJB9EWJFqGrN6E54e', 'input': {'query': 'LangGraph latest information and features'}, 'name': 'tavily_search_results_json', 'type': 'tool_use'}]
+Tool Calls:
+  tavily_search_results_json (toolu_01BscbfJJB9EWJFqGrN6E54e)
+ Call ID: toolu_01BscbfJJB9EWJFqGrN6E54e
+  Args:
+    query: LangGraph latest information and features
+================================= Tool Message =================================
+Name: tavily_search_results_json
+
+[{"url": "https://blockchain.news/news/langchain-new-features-upcoming-events-update", "content": "LangChain, a leading platform in the AI development space, has released its latest updates, showcasing new use cases and enhancements across its ecosystem. According to the LangChain Blog, the updates cover advancements in LangGraph Platform, LangSmith's self-improving evaluators, and revamped documentation for LangGraph."}, {"url": "https://blog.langchain.ac.cn/langgraph-platform-announce/", "content": "With these learnings under our belt, we decided to couple some of our latest offerings under LangGraph Platform. LangGraph Platform today includes LangGraph Server, LangGraph Studio, plus the CLI and SDK. ... we added features in LangGraph Server to deliver on a few key value areas. Below, we'll focus on these aspects of LangGraph Platform."}]
+================================== Ai Message ==================================
+
+Thank you for your patience. I've found some recent information about LangGraph for you. Let me summarize the key points:
+
+1. LangGraph is part of the LangChain ecosystem, which is a leading platform in AI development.
+
+2. Recent updates and features of LangGraph include:
+
+   a. LangGraph Platform: This seems to be a cloud-based version of LangGraph, though specific details weren't provided in the search results.
+...
+3. Keep an eye on LangGraph Platform developments, as cloud-based solutions often provide an easier starting point for learners.
+4. Consider how LangGraph fits into the broader LangChain ecosystem, especially its interaction with tools like LangSmith.
+
+Is there any specific aspect of LangGraph you'd like to know more about? I'd be happy to do a more focused search on particular features or use cases.
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">events</span> = graph.stream(
+    {
+        <span style="color: #ffa07a;">"messages"</span>: [
+            {
+                <span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>,
+                <span style="color: #ffa07a;">"content"</span>: (
+                    <span style="color: #ffa07a;">"Ya that's helpful. Maybe I'll "</span>
+                    <span style="color: #ffa07a;">"build an autonomous agent with it!"</span>
+                ),
+            },
+        ],
+    },
+    config,
+    stream_mode=<span style="color: #ffa07a;">"values"</span>,
+)
+<span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> events:
+    <span style="color: #00ffff;">if</span> <span style="color: #ffa07a;">"messages"</span> <span style="color: #00ffff;">in</span> event:
+        event[<span style="color: #ffa07a;">"messages"</span>][-1].pretty_print()
+</pre>
+</div>
+
+<pre class="example" id="org9195359">
+================================ Human Message =================================
+
+Ya that's helpful. Maybe I'll build an autonomous agent with it!
+================================== Ai Message ==================================
+
+[{'text': "That's an exciting idea! Building an autonomous agent with LangGraph is indeed a great application of this technology. LangGraph is particularly well-suited for creating complex, multi-step AI workflows, which is perfect for autonomous agents. Let me gather some more specific information about using LangGraph for building autonomous agents.", 'type': 'text'}, {'id': 'toolu_01QWNHhUaeeWcGXvA4eHT7Zo', 'input': {'query': 'Building autonomous agents with LangGraph examples and tutorials'}, 'name': 'tavily_search_results_json', 'type': 'tool_use'}]
+Tool Calls:
+  tavily_search_results_json (toolu_01QWNHhUaeeWcGXvA4eHT7Zo)
+ Call ID: toolu_01QWNHhUaeeWcGXvA4eHT7Zo
+  Args:
+    query: Building autonomous agents with LangGraph examples and tutorials
+================================= Tool Message =================================
+Name: tavily_search_results_json
+
+[{"url": "https://towardsdatascience.com/building-autonomous-multi-tool-agents-with-gemini-2-0-and-langgraph-ad3d7bd5e79d", "content": "Building Autonomous Multi-Tool Agents with Gemini 2.0 and LangGraph | by Youness Mansar | Jan, 2025 | Towards Data Science Building Autonomous Multi-Tool Agents with Gemini 2.0 and LangGraph A practical tutorial with full code examples for building and running multi-tool agents Towards Data Science LLMs are remarkable — they can memorize vast amounts of information, answer general knowledge questions, write code, generate stories, and even fix your grammar. In this tutorial, we are going to build a simple LLM agent that is equipped with four tools that it can use to answer a user’s question. This Agent will have the following specifications: Follow Published in Towards Data Science --------------------------------- Your home for data science and AI. Follow Follow Follow"}, {"url": "https://github.com/anmolaman20/Tools_and_Agents", "content": "GitHub - anmolaman20/Tools_and_Agents: This repository provides resources for building AI agents using Langchain and Langgraph. This repository provides resources for building AI agents using Langchain and Langgraph. This repository provides resources for building AI agents using Langchain and Langgraph. This repository serves as a comprehensive guide for building AI-powered agents using Langchain and Langgraph. It provides hands-on examples, practical tutorials, and resources for developers and AI enthusiasts to master building intelligent systems and workflows. AI Agent Development: Gain insights into creating intelligent systems that think, reason, and adapt in real time. This repository is ideal for AI practitioners, developers exploring language models, or anyone interested in building intelligent systems. This repository provides resources for building AI agents using Langchain and Langgraph."}]
+================================== Ai Message ==================================
+
+Great idea! Building an autonomous agent with LangGraph is definitely an exciting project. Based on the latest information I've found, here are some insights and tips for building autonomous agents with LangGraph:
+
+1. Multi-Tool Agents: LangGraph is particularly well-suited for creating autonomous agents that can use multiple tools. This allows your agent to have a diverse set of capabilities and choose the right tool for each task.
+
+2. Integration with Large Language Models (LLMs): You can combine LangGraph with powerful LLMs like Gemini 2.0 to create more intelligent and capable agents. The LLM can serve as the "brain" of your agent, making decisions and generating responses.
+
+3. Workflow Management: LangGraph excels at managing complex, multi-step AI workflows. This is crucial for autonomous agents that need to break down tasks into smaller steps and execute them in the right order.
+...
+6. Pay attention to how you structure the agent's decision-making process and workflow.
+7. Don't forget to implement proper error handling and safety measures, especially if your agent will be interacting with external systems or making important decisions.
+
+Building an autonomous agent is an iterative process, so be prepared to refine and improve your agent over time. Good luck with your project! If you need any more specific information as you progress, feel free to ask.
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+</pre>
+</div>
+</div>
+<div id="outline-container-org1011111" class="outline-2">
+<h2 id="org1011111">重播完整状态历史</h2>
+<div class="outline-text-2" id="text-org1011111">
+<p>
+现在已经为聊天机器人添加了步骤，可以重播完整状态历史以查看发生的一切
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">to_replay</span> = <span style="color: #7fffd4;">None</span>
+<span style="color: #00ffff;">for</span> state <span style="color: #00ffff;">in</span> graph.get_state_history(config):
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Num Messages: "</span>, <span style="color: #b0c4de;">len</span>(state.values[<span style="color: #ffa07a;">"messages"</span>]), <span style="color: #ffa07a;">"Next: "</span>, state.<span style="color: #b0c4de;">next</span>)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"-"</span> * 80)
+    <span style="color: #00ffff;">if</span> <span style="color: #b0c4de;">len</span>(state.values[<span style="color: #ffa07a;">"messages"</span>]) == 6:
+        <span style="color: #ff4500;"># </span><span style="color: #ff4500;">We are somewhat arbitrarily selecting a specific state based on the number of chat messages in the state.
+</span>        <span style="color: #eedd82;">to_replay</span> = state
+</pre>
+</div>
+
+<pre class="example" id="org227dd7d">
+Num Messages:  8 Next:  ()
+--------------------------------------------------------------------------------
+Num Messages:  7 Next:  ('chatbot',)
+--------------------------------------------------------------------------------
+Num Messages:  6 Next:  ('tools',)
+--------------------------------------------------------------------------------
+Num Messages:  5 Next:  ('chatbot',)
+--------------------------------------------------------------------------------
+Num Messages:  4 Next:  ('__start__',)
+--------------------------------------------------------------------------------
+Num Messages:  4 Next:  ()
+--------------------------------------------------------------------------------
+Num Messages:  3 Next:  ('chatbot',)
+--------------------------------------------------------------------------------
+Num Messages:  2 Next:  ('tools',)
+--------------------------------------------------------------------------------
+Num Messages:  1 Next:  ('chatbot',)
+--------------------------------------------------------------------------------
+Num Messages:  0 Next:  ('__start__',)
+--------------------------------------------------------------------------------
+</pre>
+
+<p>
+图的每一步都会保存检查点。这 <b>跨越了调用</b> ，因此可以在完整线程的历史中回溯
+</p>
+</div>
+</div>
+<div id="outline-container-org886af9f" class="outline-2">
+<h2 id="org886af9f">从检查点恢复</h2>
+<div class="outline-text-2" id="text-org886af9f">
+<p>
+从 <span class="underline">to_replay状态</span> 恢复，该状态位于第二次图调用中chatbot节点之后。从这一点恢复将接着调用action节点
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #b0c4de;">print</span>(to_replay.<span style="color: #b0c4de;">next</span>)
+<span style="color: #b0c4de;">print</span>(to_replay.config)
+</pre>
+</div>
+
+<pre class="example" id="orgbc8f32f">
+('tools',)
+{'configurable': {'thread_id': '1', 'checkpoint_ns': '', 'checkpoint_id': '1efd43e3-0c1f-6c4e-8006-891877d65740'}}
+</pre>
+</div>
+</div>
+<div id="outline-container-org27250d7" class="outline-2">
+<h2 id="org27250d7">从某个时间点加载状态</h2>
+<div class="outline-text-2" id="text-org27250d7">
+<p>
+检查点的to_replay.config包含一个 <span class="underline">checkpoint_id时间戳</span> 。提供此checkpoint_id值会告诉LangGraph的检查器加载该时间点的状态
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">The `checkpoint_id` in the `to_replay.config` corresponds to a state we've persisted to our checkpointer.
+</span><span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> graph.stream(<span style="color: #7fffd4;">None</span>, to_replay.config, stream_mode=<span style="color: #ffa07a;">"values"</span>):
+    <span style="color: #00ffff;">if</span> <span style="color: #ffa07a;">"messages"</span> <span style="color: #00ffff;">in</span> event:
+        event[<span style="color: #ffa07a;">"messages"</span>][-1].pretty_print()
+</pre>
+</div>
+
+<pre class="example" id="orgd71a18b">
+================================== Ai Message ==================================
+
+[{'text': "That's an exciting idea! Building an autonomous agent with LangGraph is indeed a great application of this technology. LangGraph is particularly well-suited for creating complex, multi-step AI workflows, which is perfect for autonomous agents. Let me gather some more specific information about using LangGraph for building autonomous agents.", 'type': 'text'}, {'id': 'toolu_01QWNHhUaeeWcGXvA4eHT7Zo', 'input': {'query': 'Building autonomous agents with LangGraph examples and tutorials'}, 'name': 'tavily_search_results_json', 'type': 'tool_use'}]
+Tool Calls:
+  tavily_search_results_json (toolu_01QWNHhUaeeWcGXvA4eHT7Zo)
+ Call ID: toolu_01QWNHhUaeeWcGXvA4eHT7Zo
+  Args:
+    query: Building autonomous agents with LangGraph examples and tutorials
+================================= Tool Message =================================
+Name: tavily_search_results_json
+
+[{"url": "https://towardsdatascience.com/building-autonomous-multi-tool-agents-with-gemini-2-0-and-langgraph-ad3d7bd5e79d", "content": "Building Autonomous Multi-Tool Agents with Gemini 2.0 and LangGraph | by Youness Mansar | Jan, 2025 | Towards Data Science Building Autonomous Multi-Tool Agents with Gemini 2.0 and LangGraph A practical tutorial with full code examples for building and running multi-tool agents Towards Data Science LLMs are remarkable — they can memorize vast amounts of information, answer general knowledge questions, write code, generate stories, and even fix your grammar. In this tutorial, we are going to build a simple LLM agent that is equipped with four tools that it can use to answer a user’s question. This Agent will have the following specifications: Follow Published in Towards Data Science --------------------------------- Your home for data science and AI. Follow Follow Follow"}, {"url": "https://github.com/anmolaman20/Tools_and_Agents", "content": "GitHub - anmolaman20/Tools_and_Agents: This repository provides resources for building AI agents using Langchain and Langgraph. This repository provides resources for building AI agents using Langchain and Langgraph. This repository provides resources for building AI agents using Langchain and Langgraph. This repository serves as a comprehensive guide for building AI-powered agents using Langchain and Langgraph. It provides hands-on examples, practical tutorials, and resources for developers and AI enthusiasts to master building intelligent systems and workflows. AI Agent Development: Gain insights into creating intelligent systems that think, reason, and adapt in real time. This repository is ideal for AI practitioners, developers exploring language models, or anyone interested in building intelligent systems. This repository provides resources for building AI agents using Langchain and Langgraph."}]
+================================== Ai Message ==================================
+
+Great idea! Building an autonomous agent with LangGraph is indeed an excellent way to apply and deepen your understanding of the technology. Based on the search results, I can provide you with some insights and resources to help you get started:
+
+1. Multi-Tool Agents:
+   LangGraph is well-suited for building autonomous agents that can use multiple tools. This allows your agent to have a variety of capabilities and choose the appropriate tool based on the task at hand.
+
+2. Integration with Large Language Models (LLMs):
+   There's a tutorial that specifically mentions using Gemini 2.0 (Google's LLM) with LangGraph to build autonomous agents. This suggests that LangGraph can be integrated with various LLMs, giving you flexibility in choosing the language model that best fits your needs.
+
+3. Practical Tutorials:
+   There are tutorials available that provide full code examples for building and running multi-tool agents. These can be invaluable as you start your project, giving you a concrete starting point and demonstrating best practices.
+...
+
+Remember, building an autonomous agent is an iterative process. Start simple and gradually increase complexity as you become more comfortable with LangGraph and its capabilities.
+
+Would you like more information on any specific aspect of building your autonomous agent with LangGraph?
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+</pre>
+
+<p>
+图从action节点恢复执行。可以从上面打印的第一个值是我们搜索引擎工具的响应来判断是这种情况
+</p>
+
+<pre class="example" id="orgb7d3cdd">
+现在已经在LangGraph中使用了时间旅行检查点遍历
+
+能够回溯和探索替代路径为调试、实验和交互式应用程序打开了无限可能
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="state.html">Previous：自定义状态</a></td>
+<td class="org-left"><a href="basic.html">Home: 基础知识</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
