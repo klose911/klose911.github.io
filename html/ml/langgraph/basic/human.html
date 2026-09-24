@@ -201,6 +201,339 @@
  <a accesskey="H" href="./basic.html"> HOME </a>
 </div><div id="content" class="content">
 <h1 class="title">人工干预</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org84d683b">添加 human_assistance 工具</a></li>
+<li><a href="#org55d6bd7">编译图</a></li>
+<li><a href="#org5ec0121">可视化图</a></li>
+<li><a href="#orga37c3a3">提示聊天机器人</a></li>
+<li><a href="#org07b3aad">恢复执行</a></li>
+</ul>
+</div>
+</div>
+<pre class="example" id="org3d7c96b">
+代理可能不可靠，可能需要人工输入才能成功完成任务
+
+同样，对于某些操作，可能需要在运行前要求人工批准，以确保一切按预期运行
+</pre>
+
+<p>
+LangGraph 的  <a href="https://langgraph.com.cn/concepts/persistence.1.html">持久化</a> 层支持 <b>人工在环</b> 工作流，允许根据用户反馈暂停和恢复执行。此功能的主要接口是 <a href="https://langgraph.com.cn/how-tos/human_in_the_loop/add-human-in-the-loop/index.html">interrupt</a> 函数。在节点内部调用 interrupt 将暂停执行
+</p>
+<ul class="org-ul">
+<li>可以通过传入一个 <a href="https://langgraph.com.cn/concepts/low_level.1.html#command">Command</a> 对象来恢复执行，并伴随来自人工的新输入</li>
+</ul>
+
+<pre class="example" id="org14b1c87">
+interrupt 在人体工程学上类似于 Python 的内置 input() 函数
+</pre>
+<div id="outline-container-org84d683b" class="outline-2">
+<h2 id="org84d683b">添加 human_assistance 工具</h2>
+<div class="outline-text-2" id="text-org84d683b">
+<p>
+为聊天机器人添加 <b>human_assistance</b> 工具。此工具使用 <span class="underline">interrupt</span> 来接收来自人工的信息
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> typing <span style="color: #00ffff;">import</span> Annotated
+
+<span style="color: #00ffff;">from</span> langchain_tavily <span style="color: #00ffff;">import</span> TavilySearch
+<span style="color: #00ffff;">from</span> langchain_core.tools <span style="color: #00ffff;">import</span> tool
+<span style="color: #00ffff;">from</span> typing_extensions <span style="color: #00ffff;">import</span> TypedDict
+
+<span style="color: #00ffff;">from</span> langgraph.checkpoint.memory <span style="color: #00ffff;">import</span> MemorySaver
+<span style="color: #00ffff;">from</span> langgraph.graph <span style="color: #00ffff;">import</span> StateGraph, START, END
+<span style="color: #00ffff;">from</span> langgraph.graph.message <span style="color: #00ffff;">import</span> add_messages
+<span style="color: #00ffff;">from</span> langgraph.prebuilt <span style="color: #00ffff;">import</span> ToolNode, tools_condition
+
+<span style="color: #00ffff;">from</span> langgraph.types <span style="color: #00ffff;">import</span> Command, interrupt
+
+<span style="color: #00ffff;">class</span> <span style="color: #98fb98;">State</span>(TypedDict):
+    messages: Annotated[<span style="color: #b0c4de;">list</span>, add_messages]
+
+<span style="color: #eedd82;">graph_builder</span> = StateGraph(State)
+
+<span style="color: #98fb98;">@tool</span>
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">human_assistance</span>(query: <span style="color: #b0c4de;">str</span>) -&gt; <span style="color: #b0c4de;">str</span>:
+    <span style="color: #ffa07a;">"""Request assistance from a human."""</span>
+    <span style="color: #eedd82;">human_response</span> = interrupt({<span style="color: #ffa07a;">"query"</span>: query})
+    <span style="color: #00ffff;">return</span> human_response[<span style="color: #ffa07a;">"data"</span>]
+
+<span style="color: #eedd82;">tool</span> = TavilySearch(max_results=2)
+<span style="color: #eedd82;">tools</span> = [tool, human_assistance]
+<span style="color: #eedd82;">llm_with_tools</span> = llm.bind_tools(tools)
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">chatbot</span>(state: State):
+    <span style="color: #eedd82;">message</span> = llm_with_tools.invoke(state[<span style="color: #ffa07a;">"messages"</span>])
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">Because we will be interrupting during tool execution,
+</span>    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">we disable parallel tool calling to avoid repeating any
+</span>    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">tool invocations when we resume.
+</span>    <span style="color: #00ffff;">assert</span> <span style="color: #b0c4de;">len</span>(message.tool_calls) &lt;= 1
+    <span style="color: #00ffff;">return</span> {<span style="color: #ffa07a;">"messages"</span>: [message]}
+
+graph_builder.add_node(<span style="color: #ffa07a;">"chatbot"</span>, chatbot)
+
+<span style="color: #eedd82;">tool_node</span> = ToolNode(tools=tools)
+graph_builder.add_node(<span style="color: #ffa07a;">"tools"</span>, tool_node)
+
+graph_builder.add_conditional_edges(
+    <span style="color: #ffa07a;">"chatbot"</span>,
+    tools_condition,
+)
+graph_builder.add_edge(<span style="color: #ffa07a;">"tools"</span>, <span style="color: #ffa07a;">"chatbot"</span>)
+graph_builder.add_edge(START, <span style="color: #ffa07a;">"chatbot"</span>)
+</pre>
+</div>
+
+<p>
+将 额外的 human_assistance 工具集成到 StateGraph 中
+</p>
+</div>
+</div>
+<div id="outline-container-org55d6bd7" class="outline-2">
+<h2 id="org55d6bd7">编译图</h2>
+<div class="outline-text-2" id="text-org55d6bd7">
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">memory</span> = MemorySaver()
+
+<span style="color: #eedd82;">graph</span> = graph_builder.<span style="color: #b0c4de;">compile</span>(checkpointer=memory)
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org5ec0121" class="outline-2">
+<h2 id="org5ec0121">可视化图</h2>
+<div class="outline-text-2" id="text-org5ec0121">
+<p>
+可视化图后，会得到与之前相同的布局，只是多了一个工具！
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> IPython.display <span style="color: #00ffff;">import</span> Image, display
+
+<span style="color: #00ffff;">try</span>:
+    display(Image(graph.get_graph().draw_mermaid_png()))
+<span style="color: #00ffff;">except</span> <span style="color: #98fb98;">Exception</span>:
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">This requires some extra dependencies and is optional
+</span>    <span style="color: #00ffff;">pass</span>
+</pre>
+</div>
+
+
+<div id="org288355b" class="figure">
+<p><img src="../pic/chatbot-with-human.png" alt="chatbot-with-human.png" width="30%" />
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orga37c3a3" class="outline-2">
+<h2 id="orga37c3a3">提示聊天机器人</h2>
+<div class="outline-text-2" id="text-orga37c3a3">
+<p>
+现在，向聊天机器人提问一个将使用新的 human_assistance 工具的问题
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">user_input</span> = <span style="color: #ffa07a;">"I need some expert guidance for building an AI agent. Could you request assistance for me?"</span>
+<span style="color: #eedd82;">config</span> = {<span style="color: #ffa07a;">"configurable"</span>: {<span style="color: #ffa07a;">"thread_id"</span>: <span style="color: #ffa07a;">"1"</span>}}
+
+<span style="color: #eedd82;">events</span> = graph.stream(
+    {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: user_input}]},
+    config,
+    stream_mode=<span style="color: #ffa07a;">"values"</span>,
+)
+<span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> events:
+    <span style="color: #00ffff;">if</span> <span style="color: #ffa07a;">"messages"</span> <span style="color: #00ffff;">in</span> event:
+        event[<span style="color: #ffa07a;">"messages"</span>][-1].pretty_print()
+</pre>
+</div>
+
+<pre class="example" id="orgf768717">
+================================ Human Message =================================
+
+I need some expert guidance for building an AI agent. Could you request assistance for me?
+================================== Ai Message ==================================
+
+[{'text': "Certainly! I'd be happy to request expert assistance for you regarding building an AI agent. To do this, I'll use the human_assistance function to relay your request. Let me do that for you now.", 'type': 'text'}, {'id': 'toolu_01ABUqneqnuHNuo1vhfDFQCW', 'input': {'query': 'A user is requesting expert guidance for building an AI agent. Could you please provide some expert advice or resources on this topic?'}, 'name': 'human_assistance', 'type': 'tool_use'}]
+Tool Calls:
+  human_assistance (toolu_01ABUqneqnuHNuo1vhfDFQCW)
+ Call ID: toolu_01ABUqneqnuHNuo1vhfDFQCW
+  Args:
+    query: A user is requesting expert guidance for building an AI agent. Could you please provide some expert advice or resources on this topic?
+</pre>
+
+<p>
+聊天机器人生成了一个工具调用，但随后执行被中断。如果检查图状态，会看到它停止在工具节点
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">snapshot</span> = graph.get_state(config)
+snapshot.<span style="color: #b0c4de;">next</span>
+</pre>
+</div>
+
+<pre class="example" id="org7848b26">
+('tools',)
+</pre>
+
+<p>
+仔细查看 human_assistance 工具
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #98fb98;">@tool</span>
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">human_assistance</span>(query: <span style="color: #b0c4de;">str</span>) -&gt; <span style="color: #b0c4de;">str</span>:
+    <span style="color: #ffa07a;">"""Request assistance from a human."""</span>
+    <span style="color: #eedd82;">human_response</span> = interrupt({<span style="color: #ffa07a;">"query"</span>: query})
+    <span style="color: #00ffff;">return</span> human_response[<span style="color: #ffa07a;">"data"</span>]
+</pre>
+</div>
+
+<p>
+与 Python 的内置 input() 函数类似，在工具内部调用 interrupt 将暂停执行。进度会根据 检查点器 进行持久化；因此，如果使用 Postgres 进行持久化，只要数据库处于活动状态，它就可以随时恢复
+</p>
+<pre class="example" id="orgbb6eb0a">
+在此示例中，它使用内存检查点器进行持久化，并且只要 Python 内核正在运行，就可以随时恢复
+</pre>
+</div>
+</div>
+<div id="outline-container-org07b3aad" class="outline-2">
+<h2 id="org07b3aad">恢复执行</h2>
+<div class="outline-text-2" id="text-org07b3aad">
+<p>
+要恢复执行，请传入一个包含工具所需数据的 <span class="underline">Command</span> 对象。此数据的格式可以根据需要进行定制。在此示例中，使用一个带有键 "data" 的字典
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">human_response</span> = (
+    <span style="color: #ffa07a;">"We, the experts are here to help! We'd recommend you check out LangGraph to build your agent."</span>
+    <span style="color: #ffa07a;">" It's much more reliable and extensible than simple autonomous agents."</span>
+)
+
+<span style="color: #eedd82;">human_command</span> = Command(resume={<span style="color: #ffa07a;">"data"</span>: human_response})
+
+<span style="color: #eedd82;">events</span> = graph.stream(human_command, config, stream_mode=<span style="color: #ffa07a;">"values"</span>)
+<span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> events:
+    <span style="color: #00ffff;">if</span> <span style="color: #ffa07a;">"messages"</span> <span style="color: #00ffff;">in</span> event:
+        event[<span style="color: #ffa07a;">"messages"</span>][-1].pretty_print()
+</pre>
+</div>
+
+<pre class="example" id="org2dfb867">
+================================== Ai Message ==================================
+
+[{'text': "Certainly! I'd be happy to request expert assistance for you regarding building an AI agent. To do this, I'll use the human_assistance function to relay your request. Let me do that for you now.", 'type': 'text'}, {'id': 'toolu_01ABUqneqnuHNuo1vhfDFQCW', 'input': {'query': 'A user is requesting expert guidance for building an AI agent. Could you please provide some expert advice or resources on this topic?'}, 'name': 'human_assistance', 'type': 'tool_use'}]
+Tool Calls:
+  human_assistance (toolu_01ABUqneqnuHNuo1vhfDFQCW)
+ Call ID: toolu_01ABUqneqnuHNuo1vhfDFQCW
+  Args:
+    query: A user is requesting expert guidance for building an AI agent. Could you please provide some expert advice or resources on this topic?
+================================= Tool Message =================================
+Name: human_assistance
+
+We, the experts are here to help! We'd recommend you check out LangGraph to build your agent. It's much more reliable and extensible than simple autonomous agents.
+================================== Ai Message ==================================
+
+Thank you for your patience. I've received some expert advice regarding your request for guidance on building an AI agent. Here's what the experts have suggested:
+
+The experts recommend that you look into LangGraph for building your AI agent. They mention that LangGraph is a more reliable and extensible option compared to simple autonomous agents.
+
+LangGraph is likely a framework or library designed specifically for creating AI agents with advanced capabilities. Here are a few points to consider based on this recommendation:
+
+1. Reliability: The experts emphasize that LangGraph is more reliable than simpler autonomous agent approaches. This could mean it has better stability, error handling, or consistent performance.
+
+2. Extensibility: LangGraph is described as more extensible, which suggests that it probably offers a flexible architecture that allows you to easily add new features or modify existing ones as your agent's requirements evolve.
+
+3. Advanced capabilities: Given that it's recommended over "simple autonomous agents," LangGraph likely provides more sophisticated tools and techniques for building complex AI agents.
+...
+2. Look for tutorials or guides specifically focused on building AI agents with LangGraph.
+3. Check if there are any community forums or discussion groups where you can ask questions and get support from other developers using LangGraph.
+
+If you'd like more specific information about LangGraph or have any questions about this recommendation, please feel free to ask, and I can request further assistance from the experts.
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+</pre>
+
+<p>
+输入已作为工具消息接收和处理。完整代码如下：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> typing <span style="color: #00ffff;">import</span> Annotated
+
+<span style="color: #00ffff;">from</span> langchain_tavily <span style="color: #00ffff;">import</span> TavilySearch
+<span style="color: #00ffff;">from</span> langchain_core.tools <span style="color: #00ffff;">import</span> tool
+<span style="color: #00ffff;">from</span> typing_extensions <span style="color: #00ffff;">import</span> TypedDict
+
+<span style="color: #00ffff;">from</span> langgraph.checkpoint.memory <span style="color: #00ffff;">import</span> MemorySaver
+<span style="color: #00ffff;">from</span> langgraph.graph <span style="color: #00ffff;">import</span> StateGraph, START, END
+<span style="color: #00ffff;">from</span> langgraph.graph.message <span style="color: #00ffff;">import</span> add_messages
+<span style="color: #00ffff;">from</span> langgraph.prebuilt <span style="color: #00ffff;">import</span> ToolNode, tools_condition
+<span style="color: #00ffff;">from</span> langgraph.types <span style="color: #00ffff;">import</span> Command, interrupt
+
+<span style="color: #00ffff;">class</span> <span style="color: #98fb98;">State</span>(TypedDict):
+    messages: Annotated[<span style="color: #b0c4de;">list</span>, add_messages]
+
+<span style="color: #eedd82;">graph_builder</span> = StateGraph(State)
+
+<span style="color: #98fb98;">@tool</span>
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">human_assistance</span>(query: <span style="color: #b0c4de;">str</span>) -&gt; <span style="color: #b0c4de;">str</span>:
+    <span style="color: #ffa07a;">"""Request assistance from a human."""</span>
+    <span style="color: #eedd82;">human_response</span> = interrupt({<span style="color: #ffa07a;">"query"</span>: query})
+    <span style="color: #00ffff;">return</span> human_response[<span style="color: #ffa07a;">"data"</span>]
+
+<span style="color: #eedd82;">tool</span> = TavilySearch(max_results=2)
+<span style="color: #eedd82;">tools</span> = [tool, human_assistance]
+<span style="color: #eedd82;">llm_with_tools</span> = llm.bind_tools(tools)
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">chatbot</span>(state: State):
+    <span style="color: #eedd82;">message</span> = llm_with_tools.invoke(state[<span style="color: #ffa07a;">"messages"</span>])
+    <span style="color: #00ffff;">assert</span>(<span style="color: #b0c4de;">len</span>(message.tool_calls) &lt;= 1)
+    <span style="color: #00ffff;">return</span> {<span style="color: #ffa07a;">"messages"</span>: [message]}
+
+graph_builder.add_node(<span style="color: #ffa07a;">"chatbot"</span>, chatbot)
+
+<span style="color: #eedd82;">tool_node</span> = ToolNode(tools=tools)
+graph_builder.add_node(<span style="color: #ffa07a;">"tools"</span>, tool_node)
+
+graph_builder.add_conditional_edges(
+    <span style="color: #ffa07a;">"chatbot"</span>,
+    tools_condition,
+)
+graph_builder.add_edge(<span style="color: #ffa07a;">"tools"</span>, <span style="color: #ffa07a;">"chatbot"</span>)
+graph_builder.add_edge(START, <span style="color: #ffa07a;">"chatbot"</span>)
+
+<span style="color: #eedd82;">memory</span> = MemorySaver()
+<span style="color: #eedd82;">graph</span> = graph_builder.<span style="color: #b0c4de;">compile</span>(checkpointer=memory)
+</pre>
+</div>
+
+<pre class="example" id="orgd60182a">
+至今为止教程示例都依赖于一个只包含一个条目的简单状态：消息列表
+
+这种简单状态可以完成很多工作，但如果想在不依赖消息列表的情况下定义复杂行为，可以向状态添加其他字段
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="state.html">Next：自定义状态</a></td>
+<td class="org-left"><a href="memory.html">Previous：添加记忆</a></td>
+<td class="org-left"><a href="basic.html">Home: 基础知识</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 <div id="postamble" class="status">
 
