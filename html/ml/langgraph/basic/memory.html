@@ -206,10 +206,14 @@
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
 <li><a href="#org442197e">创建 MemorySaver 检查点</a></li>
+<li><a href="#org7082220">编译图</a></li>
+<li><a href="#orgd04bfe9">与聊天机器人互动</a></li>
+<li><a href="#org737a46a">提出后续问题</a></li>
+<li><a href="#org7112737">检查状态</a></li>
 </ul>
 </div>
 </div>
-<pre class="example" id="org15e2b81">
+<pre class="example" id="orgb660fdb">
 现在，聊天机器人可以使用工具来回答用户问题，但它不记得之前交互的上下文
 
 这限制了它进行连贯多轮对话的能力
@@ -219,7 +223,7 @@
 LangGraph 通过 <b>持久性检查点</b> 解决了这个问题。如果在编译图时提供一个 <span class="underline">checkpointer</span> ，并在调用图时提供一个 <span class="underline">thread_id</span> ，LangGraph 会在每一步之后自动保存状态。当使用相同的thread_id再次调用图时，图会加载其保存的状态，允许聊天机器人从上次中断的地方继续。
 </p>
 
-<pre class="example" id="orgd34b255">
+<pre class="example" id="orge4521cb">
 稍后会看到，检查点比简单的聊天记忆功能强大得多
 
 它允许您随时保存和恢复复杂状态，用于错误恢复、人工干预工作流、时间旅行交互等
@@ -228,6 +232,260 @@ LangGraph 通过 <b>持久性检查点</b> 解决了这个问题。如果在编�
 </pre>
 <div id="outline-container-org442197e" class="outline-2">
 <h2 id="org442197e">创建 MemorySaver 检查点</h2>
+<div class="outline-text-2" id="text-org442197e">
+<p>
+创建 MemorySaver 检查点
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> langgraph.checkpoint.memory <span style="color: #00ffff;">import</span> MemorySaver
+
+<span style="color: #eedd82;">memory</span> = MemorySaver()
+</pre>
+</div>
+
+<pre class="example" id="org13087af">
+这是一个内存中的检查点，方便本教程使用
+
+然而，在生产应用程序中，可能会将其更改为使用 SqliteSaver 或 PostgresSaver 并连接数据库
+</pre>
+</div>
+</div>
+<div id="outline-container-org7082220" class="outline-2">
+<h2 id="org7082220">编译图</h2>
+<div class="outline-text-2" id="text-org7082220">
+<p>
+使用提供的检查点编译图，图在遍历每个节点时将对 State 进行检查点
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">graph</span> = graph_builder.<span style="color: #b0c4de;">compile</span>(checkpointer=memory)
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> IPython.display <span style="color: #00ffff;">import</span> Image, display
+
+<span style="color: #00ffff;">try</span>:
+    display(Image(graph.get_graph().draw_mermaid_png()))
+<span style="color: #00ffff;">except</span> <span style="color: #98fb98;">Exception</span>:
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">This requires some extra dependencies and is optional
+</span>    <span style="color: #00ffff;">pass</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgd04bfe9" class="outline-2">
+<h2 id="orgd04bfe9">与聊天机器人互动</h2>
+<div class="outline-text-2" id="text-orgd04bfe9">
+<p>
+现在可以与机器人互动了：
+</p>
+<ol class="org-ol">
+<li><p>
+选择一个线程作为此对话的键
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">config</span> = {<span style="color: #ffa07a;">"configurable"</span>: {<span style="color: #ffa07a;">"thread_id"</span>: <span style="color: #ffa07a;">"1"</span>}}
+</pre>
+</div></li>
+<li><p>
+调用聊天机器人
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">user_input</span> = <span style="color: #ffa07a;">"Hi there! My name is Will."</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">The config is the **second positional argument** to stream() or invoke()!
+</span><span style="color: #eedd82;">events</span> = graph.stream(
+    {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: user_input}]},
+    config,
+    stream_mode=<span style="color: #ffa07a;">"values"</span>,
+)
+<span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> events:
+    event[<span style="color: #ffa07a;">"messages"</span>][-1].pretty_print()
+</pre>
+</div>
+<pre class="example" id="orgc0fd45b">
+================================ Human Message =================================
+
+Hi there! My name is Will.
+================================== Ai Message ==================================
+
+Hello Will! It's nice to meet you. How can I assist you today? Is there anything specific you'd like to know or discuss?
+</pre></li>
+</ol>
+
+<pre class="example" id="org704fe63">
+在调用图时，配置作为第二个位置参数提供
+
+重要的是，它不嵌套在图输入中 ({'messages': []})
+</pre>
+</div>
+</div>
+<div id="outline-container-org737a46a" class="outline-2">
+<h2 id="org737a46a">提出后续问题</h2>
+<div class="outline-text-2" id="text-org737a46a">
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">user_input</span> = <span style="color: #ffa07a;">"Remember my name?"</span>
+
+<span style="color: #ff4500;"># </span><span style="color: #ff4500;">The config is the **second positional argument** to stream() or invoke()!
+</span><span style="color: #eedd82;">events</span> = graph.stream(
+    {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: user_input}]},
+    config,
+    stream_mode=<span style="color: #ffa07a;">"values"</span>,
+)
+<span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> events:
+    event[<span style="color: #ffa07a;">"messages"</span>][-1].pretty_print()
+</pre>
+</div>
+
+<pre class="example" id="org7a6a278">
+================================ Human Message =================================
+
+Remember my name?
+================================== Ai Message ==================================
+
+Of course, I remember your name, Will. I always try to pay attention to important details that users share with me. Is there anything else you'd like to talk about or any questions you have? I'm here to help with a wide range of topics or tasks.
+</pre>
+
+<p>
+请注意，没有使用外部列表来处理记忆：这一切都由检查点器处理！
+</p>
+
+<p>
+尝试使用不同的配置：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #ff4500;"># </span><span style="color: #ff4500;">The only difference is we change the `thread_id` here to "2" instead of "1"
+</span><span style="color: #eedd82;">events</span> = graph.stream(
+    {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: user_input}]},
+    {<span style="color: #ffa07a;">"configurable"</span>: {<span style="color: #ffa07a;">"thread_id"</span>: <span style="color: #ffa07a;">"2"</span>}},
+    stream_mode=<span style="color: #ffa07a;">"values"</span>,
+)
+<span style="color: #00ffff;">for</span> event <span style="color: #00ffff;">in</span> events:
+    event[<span style="color: #ffa07a;">"messages"</span>][-1].pretty_print()
+</pre>
+</div>
+
+<pre class="example" id="org9e48c13">
+================================ Human Message =================================
+
+Remember my name?
+================================== Ai Message ==================================
+
+I apologize, but I don't have any previous context or memory of your name. As an AI assistant, I don't retain information from past conversations. Each interaction starts fresh. Could you please tell me your name so I can address you properly in this conversation?
+</pre>
+
+<p>
+所做的唯一更改是修改了配置中的thread_id
+</p>
+</div>
+</div>
+<div id="outline-container-org7112737" class="outline-2">
+<h2 id="org7112737">检查状态</h2>
+<div class="outline-text-2" id="text-org7112737">
+<pre class="example" id="orgac0f963">
+到现在为止，已经在两个不同的线程中创建了一些检查点
+
+但是检查点中包含什么呢？
+</pre>
+
+<p>
+要随时检查给定配置的图的 state，请调用 <span class="underline">get_state(config)</span>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #eedd82;">snapshot</span> = graph.get_state(config)
+snapshot
+</pre>
+</div>
+
+<pre class="example" id="org5636afd">
+StateSnapshot(values={'messages': [HumanMessage(content='Hi there! My name is Will.', additional_kwargs={}, response_metadata={}, id='8c1ca919-c553-4ebf-95d4-b59a2d61e078'), AIMessage(content="Hello Will! It's nice to meet you. How can I assist you today? Is there anything specific you'd like to know or discuss?", additional_kwargs={}, response_metadata={'id': 'msg_01WTQebPhNwmMrmmWojJ9KXJ', 'model': 'claude-3-5-sonnet-20240620', 'stop_reason': 'end_turn', 'stop_sequence': None, 'usage': {'input_tokens': 405, 'output_tokens': 32}}, id='run-58587b77-8c82-41e6-8a90-d62c444a261d-0', usage_metadata={'input_tokens': 405, 'output_tokens': 32, 'total_tokens': 437}), HumanMessage(content='Remember my name?', additional_kwargs={}, response_metadata={}, id='daba7df6-ad75-4d6b-8057-745881cea1ca'), AIMessage(content="Of course, I remember your name, Will. I always try to pay attention to important details that users share with me. Is there anything else you'd like to talk about or any questions you have? I'm here to help with a wide range of topics or tasks.", additional_kwargs={}, response_metadata={'id': 'msg_01E41KitY74HpENRgXx94vag', 'model': 'claude-3-5-sonnet-20240620', 'stop_reason': 'end_turn', 'stop_sequence': None, 'usage': {'input_tokens': 444, 'output_tokens': 58}}, id='run-ffeaae5c-4d2d-4ddb-bd59-5d5cbf2a5af8-0', usage_metadata={'input_tokens': 444, 'output_tokens': 58, 'total_tokens': 502})]}, next=(), config={'configurable': {'thread_id': '1', 'checkpoint_ns': '', 'checkpoint_id': '1ef7d06e-93e0-6acc-8004-f2ac846575d2'}}, metadata={'source': 'loop', 'writes': {'chatbot': {'messages': [AIMessage(content="Of course, I remember your name, Will. I always try to pay attention to important details that users share with me. Is there anything else you'd like to talk about or any questions you have? I'm here to help with a wide range of topics or tasks.", additional_kwargs={}, response_metadata={'id': 'msg_01E41KitY74HpENRgXx94vag', 'model': 'claude-3-5-sonnet-20240620', 'stop_reason': 'end_turn', 'stop_sequence': None, 'usage': {'input_tokens': 444, 'output_tokens': 58}}, id='run-ffeaae5c-4d2d-4ddb-bd59-5d5cbf2a5af8-0', usage_metadata={'input_tokens': 444, 'output_tokens': 58, 'total_tokens': 502})]}}, 'step': 4, 'parents': {}}, created_at='2024-09-27T19:30:10.820758+00:00', parent_config={'configurable': {'thread_id': '1', 'checkpoint_ns': '', 'checkpoint_id': '1ef7d06e-859f-6206-8003-e1bd3c264b8f'}}, tasks=())
+</pre>
+
+<p>
+上述快照包含当前状态值、相应的配置以及要处理的 next 节点
+</p>
+
+<pre class="example" id="org40c7a80">
+在我们的例子中，图已达到 END 状态，因此 next 为空
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-python">snapshot.<span style="color: #b0c4de;">next</span>  <span style="color: #ff4500;"># </span><span style="color: #ff4500;">(since the graph ended this turn, `next` is empty. If you fetch a state from within a graph invocation, next tells which node will execute next) </span>
+</pre>
+</div>
+
+<p>
+聊天机器人现在可以通过 LangGraph 的检查点系统维护会话状态。这为更自然、上下文相关的交互打开了激动人心的可能性：
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #00ffff;">from</span> typing <span style="color: #00ffff;">import</span> Annotated
+
+<span style="color: #00ffff;">from</span> langchain.chat_models <span style="color: #00ffff;">import</span> init_chat_model
+<span style="color: #00ffff;">from</span> langchain_tavily <span style="color: #00ffff;">import</span> TavilySearch
+<span style="color: #00ffff;">from</span> langchain_core.messages <span style="color: #00ffff;">import</span> BaseMessage
+<span style="color: #00ffff;">from</span> typing_extensions <span style="color: #00ffff;">import</span> TypedDict
+
+<span style="color: #00ffff;">from</span> langgraph.checkpoint.memory <span style="color: #00ffff;">import</span> MemorySaver
+<span style="color: #00ffff;">from</span> langgraph.graph <span style="color: #00ffff;">import</span> StateGraph
+<span style="color: #00ffff;">from</span> langgraph.graph.message <span style="color: #00ffff;">import</span> add_messages
+<span style="color: #00ffff;">from</span> langgraph.prebuilt <span style="color: #00ffff;">import</span> ToolNode, tools_condition
+
+<span style="color: #00ffff;">class</span> <span style="color: #98fb98;">State</span>(TypedDict):
+    messages: Annotated[<span style="color: #b0c4de;">list</span>, add_messages]
+
+<span style="color: #eedd82;">graph_builder</span> = StateGraph(State)
+
+<span style="color: #eedd82;">tool</span> = TavilySearch(max_results=2)
+<span style="color: #eedd82;">tools</span> = [tool]
+<span style="color: #eedd82;">llm_with_tools</span> = llm.bind_tools(tools)
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">chatbot</span>(state: State):
+    <span style="color: #00ffff;">return</span> {<span style="color: #ffa07a;">"messages"</span>: [llm_with_tools.invoke(state[<span style="color: #ffa07a;">"messages"</span>])]}
+
+graph_builder.add_node(<span style="color: #ffa07a;">"chatbot"</span>, chatbot)
+
+<span style="color: #eedd82;">tool_node</span> = ToolNode(tools=[tool])
+graph_builder.add_node(<span style="color: #ffa07a;">"tools"</span>, tool_node)
+
+graph_builder.add_conditional_edges(
+    <span style="color: #ffa07a;">"chatbot"</span>,
+    tools_condition,
+)
+graph_builder.add_edge(<span style="color: #ffa07a;">"tools"</span>, <span style="color: #ffa07a;">"chatbot"</span>)
+graph_builder.set_entry_point(<span style="color: #ffa07a;">"chatbot"</span>)
+<span style="color: #eedd82;">memory</span> = MemorySaver()
+<span style="color: #eedd82;">graph</span> = graph_builder.<span style="color: #b0c4de;">compile</span>(checkpointer=memory)
+</pre>
+</div>
+
+<pre class="example" id="org6e4c62a">
+在下一个教程中，将为聊天机器人添加人工干预，以处理可能需要指导或验证才能继续的情况
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="human.html">Next：人工干预</a></td>
+<td class="org-left"><a href="./tool.html">Previous：添加工具</a></td>
+<td class="org-left"><a href="./basic.html">Home: 基础知识</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
