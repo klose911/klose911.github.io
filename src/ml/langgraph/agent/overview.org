@@ -10,4 +10,94 @@ LangGraph 提供了 _低级原语_ 和 _高级预构建组件_ ，用于构建�
 本节重点介绍旨在帮助快速可靠地构建代理系统而无需从头实现编排、内存或人工反馈处理的预构建、可重用组件
 #+end_example
 * 什么是代理？
+一个代理由三个组件组成：
+1. 一个 *大型语言模型* _LLM_
+2. 一套可供其使用的 *工具* 
+3. 一个提供指令的 *提示*
 
+LLM 在一个循环中运行。在每次迭代中，它会选择一个要调用的工具，提供输入，接收结果（一个观察），并利用该观察来指导下一个动作。循环会一直持续，直到满足停止条件，通常是代理收集到足够的信息来响应用户时
+
+#+ATTR_HTML: image :width 70% 
+[[file:../pic/agent.png]] 
+
+* 主要功能
+LangGraph 包含构建健壮、可投入生产的代理系统所需的几项基本功能
++ [[https://langgraph.com.cn/agents/memory/index.html][内存集成]] ：原生支持短期（基于会话）和长期（跨会话持久）内存，实现在聊天机器人和助手中的有状态行为
++ [[https://langgraph.com.cn/agents/human-in-the-loop/index.html][人机协作]]：执行可以无限期暂停以等待人工反馈
+  #+begin_example
+    这与仅限于实时交互的基于 WebSocket 的解决方案不同
+
+    这允许在工作流的任何点进行异步审批、纠正或干预
+  #+end_example
++ [[https://langgraph.com.cn/agents/streaming/index.html][流式传输支持]]：实时流式传输代理状态、模型令牌、工具输出或组合流
++ [[https://langgraph.com.cn/agents/deployment/index.html][部署工具]]：包含无需基础设施的部署工具。LangGraph 平台支持测试、调试和部署
+  + Studio：用于检查和调试工作流的可视化 IDE
+  + 支持多种生产环境下的部署选项
+
+* 高级构建块
+LangGraph 附带了一组预构建组件，可实现常见的代理行为和工作流。这些抽象构建在 LangGraph 框架之上，提供了更快的生产路径，同时在高级定制方面保持灵活性。
+
+#+begin_example
+使用 LangGraph 进行代理开发能够专注于应用程序的逻辑和行为，而不是构建和维护状态、内存和人工反馈的支持基础设施
+#+end_example
+
+* 包生态系统
+高级组件被组织成几个包，每个包都有特定的重点
+#+CAPTION: langgraph 包生态系统
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| 包                                  | 描述                               | 安装                                  |
+| langgraph-prebuilt (属于 langgraph) | 预构建组件，用于创建代理           | pip install -U langgraph langchain    |
+| langgraph-supervisor                | 用于构建主管代理的工具             | pip install -U langgraph-supervisor   |
+| langgraph-swarm                     | 用于构建蜂群多代理系统的工具       | pip install -U langgraph-swarm        |
+| langchain-mcp-adapters              | 用于工具和资源集成的MCP 服务器接口 | pip install -U langchain-mcp-adapters |
+| langmem                             | 代理内存管理：短期和长期           | pip install -U langmem                |
+| agentevals                          | 用于评估代理性能的实用工具         | pip install -U agentevals             |
+
+* 可视化代理图
+使用以下工具可视化由 [[https://langgraph.com.cn/reference/agents.1.html#langgraph.prebuilt.chat_agent_executor.create_react_agent][create_react_agent]] 生成的图，并查看相应代码的概述。它允许您探索代理的基础设施，该基础设施由以下内容的存在定义：
++ [[https://langgraph.com.cn/agents/tools.1.html][tools]]：代理可用于执行任务的工具列表（函数、API 或其他可调用对象）
++ [[https://langgraph.com.cn/how-tos/create-react-agent-manage-message-history/index.html][pre_model_hook]]：在模型调用之前调用的函数。它可用于精简消息或执行其他预处理任务
++ post_model_hook：在模型调用之后调用的函数。它可用于实现防护措施、人在回路流程或其他后处理任务
++ [[https://langgraph.com.cn/agents/agents.1.html#6-configure-structured-output][response_format]]：用于约束最终输出类型的数据结构
+  #+begin_example
+    例如 `pydantic` `BaseModel`
+  #+end_example
+
+以下代码片段展示了如何使用 create_react_agent 创建上述代理（及底层图）
+
+#+begin_src python 
+  from langgraph.prebuilt import create_react_agent
+  from langchain_openai import ChatOpenAI
+  from pydantic import BaseModel
+
+  model = ChatOpenAI("o4-mini")
+
+  def tool() -> None:
+      """Testing tool."""
+      ...
+
+  def pre_model_hook() -> None:
+      """Pre-model hook."""
+      ...
+
+  def post_model_hook() -> None:
+      """Post-model hook."""
+      ...
+
+  class ResponseFormat(BaseModel):
+      """Response format for the agent."""
+      result: str
+
+  agent = create_react_agent(
+      model,
+      tools=[tool],
+      pre_model_hook=pre_model_hook,
+      post_model_hook=post_model_hook,
+      response_format=ResponseFormat,
+  )
+
+  agent.get_graph().draw_mermaid_png()
+#+end_src
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:run_agents.org][Next：运行代理]] | [[file:agent.org][Home: 构建代理]] |
