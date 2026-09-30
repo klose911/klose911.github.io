@@ -12,4 +12,132 @@
 本节将解释如何提供输入、解释输出、启用流式传输以及控制执行限制
 #+end_example
 * 基本用法
+代理可以在两种主要模式下执行
++ *同步* 使用 _.invoke()_ 或 _.stream()_
+  #+begin_src python 
+    from langgraph.prebuilt import create_react_agent
 
+    agent = create_react_agent(...)
+
+    response = agent.invoke({"messages": [{"role": "user", "content": "what is the weather in sf"}]})
+  #+end_src
++ *异步* 使用 _await .ainvoke()_ 或 _async for 与 .astream()_
+  #+begin_src python 
+    from langgraph.prebuilt import create_react_agent
+
+    agent = create_react_agent(...)
+    response = await agent.ainvoke({"messages": [{"role": "user", "content": "what is the weather in sf"}]})
+  #+end_src
+
+* 输入和输出
+代理使用语言模型，该模型期望一个 _messages 列表_ 作为输入。因此，代理的输入和输出以 messages 列表的形式存储在代理[[https://langgraph.com.cn/concepts/low_level.1.html#working-with-messages-in-graph-state][状态]]的 _messages 键_ 下
+
+* 输入格式
+代理输入必须是包含 messages 键的字典。支持的格式有
+
+| 格式         | 示例                                                                                                   |
+| 字符串       | {"messages": "Hello"} 解释为 HumanMessage                                                              |
+| 消息字典     | {"messages": {"role": "user", "content": "Hello"}}                                                     |
+| 消息列表     | {"messages": [{"role": "user", "content": "Hello"}]}                                                   |
+| 带自定义状态 | {"messages": [{"role": "user", "content": "Hello"}], "user_name": "Alice"} 如果使用自定义 state_schema |
+
+消息会自动转换为 LangChain 的内部消息格式。可以在 LangChain 文档中阅读更多关于LangChain 消息的信息
+
+#+begin_example
+  messages 的字符串输入会转换为 HumanMessage
+
+  此行为与 create_react_agent 中的 prompt 参数不同，后者在作为字符串传入时会被解释为 SystemMessage
+#+end_example
+
+#+begin_example
+  可以在输入字典中直接提供代理状态模式中定义的额外字段，这允许根据运行时数据或先前的工具输出来实现动态行为
+
+  详情请参见上下文指南：https://langgraph.com.cn/agents/context/index.html
+#+end_example
+
+* 输出格式
+代理输出是一个 *字典* ，包含
++ messages：执行期间交换的所有消息列表（用户输入、助手回复、工具调用）
++ 可选地，如果配置了[[https://langgraph.com.cn/agents/agents.1.html#6-configure-structured-output][结构化输出]]，则包含 structured_response
++ 如果使用自定义 state_schema，输出中还可能包含与自定义的字段对应的额外键
+  #+begin_example
+    这些键可以保存工具执行或提示逻辑更新后的状态值
+  #+end_example
+
+有关使用自定义状态模式和访问上下文的更多详细信息，请参见[[https://langgraph.com.cn/agents/context/index.html][上下文指南]]
+
+* 流式输出
+代理支持流式响应，以实现更具响应性的应用程序。这包括
++ 每一步之后的 *进度更新*
++ 生成时的 *LLM 令牌*
++ 执行期间的 *自定义工具消息*
+  
+流式传输在同步和异步模式下均可用
++ 同步：
+  #+begin_src python 
+    for chunk in agent.stream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode="updates"
+    ):
+        print(chunk)
+  #+end_src
++ 异步：
+  #+begin_src python 
+    async for chunk in agent.astream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode="updates"
+    ):
+        print(chunk)
+  #+end_src
+
+#+begin_example
+  有关完整详细信息，请参阅流式传输指南
+
+  https://langgraph.com.cn/agents/streaming/index.html
+#+end_example
+
+* 最大迭代次数
+要控制代理执行并避免无限循环，请设置 *递归限制* 。这定义了代理在引发 GraphRecursionError 之前可以执行的最大步骤数。可以在运行时或通过 _.with_config()_ 定义代理时配置 _recursion_limit_ : 
++ 运行时：
+  #+begin_src python 
+    from langgraph.errors import GraphRecursionError
+    from langgraph.prebuilt import create_react_agent
+
+    max_iterations = 3
+    recursion_limit = 2 * max_iterations + 1
+    agent = create_react_agent(
+        model="anthropic:claude-3-5-haiku-latest",
+        tools=[get_weather]
+    )
+
+    try:
+        response = agent.invoke(
+            {"messages": [{"role": "user", "content": "what's the weather in sf"}]},
+            {"recursion_limit": recursion_limit},
+        )
+    except GraphRecursionError:
+        print("Agent stopped due to max iterations.")
+  #+end_src
++ 定义时：
+  #+begin_src python 
+    from langgraph.errors import GraphRecursionError
+    from langgraph.prebuilt import create_react_agent
+
+    max_iterations = 3
+    recursion_limit = 2 * max_iterations + 1
+    agent = create_react_agent(
+        model="anthropic:claude-3-5-haiku-latest",
+        tools=[get_weather]
+    )
+    agent_with_recursion_limit = agent.with_config(recursion_limit=recursion_limit)
+
+    try:
+        response = agent_with_recursion_limit.invoke(
+            {"messages": [{"role": "user", "content": "what's the weather in sf"}]},
+        )
+    except GraphRecursionError:
+        print("Agent stopped due to max iterations.")
+  #+end_src
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:streaming.org][Next：流式传输]] | [[file:overview.org][Previous：代理概述]] | [[file:agent.org][Home: 构建代理]] |

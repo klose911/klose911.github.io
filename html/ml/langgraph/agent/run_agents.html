@@ -206,7 +206,12 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#orgf71f9a9">基本用法</a></li>
+<li><a href="#org27c17bb">基本用法</a></li>
+<li><a href="#orgc5057b5">输入和输出</a></li>
+<li><a href="#org68e8f3d">输入格式</a></li>
+<li><a href="#org9ac7ef0">输出格式</a></li>
+<li><a href="#orga287931">流式输出</a></li>
+<li><a href="#orgc6185b9">最大迭代次数</a></li>
 </ul>
 </div>
 </div>
@@ -218,11 +223,251 @@
 <li>或使用 .stream() / .astream() 获取增量流式输出</li>
 </ul>
 
-<pre class="example" id="orgac3676e">
+<pre class="example" id="org4353cb6">
 本节将解释如何提供输入、解释输出、启用流式传输以及控制执行限制
 </pre>
-<div id="outline-container-orgf71f9a9" class="outline-2">
-<h2 id="orgf71f9a9">基本用法</h2>
+<div id="outline-container-org27c17bb" class="outline-2">
+<h2 id="org27c17bb">基本用法</h2>
+<div class="outline-text-2" id="text-org27c17bb">
+<p>
+代理可以在两种主要模式下执行
+</p>
+<ul class="org-ul">
+<li><p>
+<b>同步</b> 使用 <span class="underline">.invoke()</span> 或 <span class="underline">.stream()</span>
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #00ffff;">from</span> langgraph.prebuilt <span style="color: #00ffff;">import</span> create_react_agent
+
+<span style="color: #eedd82;">agent</span> = create_react_agent(...)
+
+<span style="color: #eedd82;">response</span> = agent.invoke({<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]})
+</code></pre>
+</div></li>
+<li><p>
+<b>异步</b> 使用 <span class="underline">await .ainvoke()</span> 或 <span class="underline">async for 与 .astream()</span>
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #00ffff;">from</span> langgraph.prebuilt <span style="color: #00ffff;">import</span> create_react_agent
+
+<span style="color: #eedd82;">agent</span> = create_react_agent(...)
+<span style="color: #eedd82;">response</span> = <span style="color: #00ffff;">await</span> agent.ainvoke({<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]})
+</code></pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgc5057b5" class="outline-2">
+<h2 id="orgc5057b5">输入和输出</h2>
+<div class="outline-text-2" id="text-orgc5057b5">
+<p>
+代理使用语言模型，该模型期望一个 <span class="underline">messages 列表</span> 作为输入。因此，代理的输入和输出以 messages 列表的形式存储在代理<a href="https://langgraph.com.cn/concepts/low_level.1.html#working-with-messages-in-graph-state">状态</a>的 <span class="underline">messages 键</span> 下
+</p>
+</div>
+</div>
+<div id="outline-container-org68e8f3d" class="outline-2">
+<h2 id="org68e8f3d">输入格式</h2>
+<div class="outline-text-2" id="text-org68e8f3d">
+<p>
+代理输入必须是包含 messages 键的字典。支持的格式有
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">格式</td>
+<td class="org-left">示例</td>
+</tr>
+
+<tr>
+<td class="org-left">字符串</td>
+<td class="org-left">{"messages": "Hello"} 解释为 HumanMessage</td>
+</tr>
+
+<tr>
+<td class="org-left">消息字典</td>
+<td class="org-left">{"messages": {"role": "user", "content": "Hello"}}</td>
+</tr>
+
+<tr>
+<td class="org-left">消息列表</td>
+<td class="org-left">{"messages": [{"role": "user", "content": "Hello"}]}</td>
+</tr>
+
+<tr>
+<td class="org-left">带自定义状态</td>
+<td class="org-left">{"messages": [{"role": "user", "content": "Hello"}], "user_name": "Alice"} 如果使用自定义 state_schema</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+消息会自动转换为 LangChain 的内部消息格式。可以在 LangChain 文档中阅读更多关于LangChain 消息的信息
+</p>
+
+<pre class="example" id="orge3b78ff">
+messages 的字符串输入会转换为 HumanMessage
+
+此行为与 create_react_agent 中的 prompt 参数不同，后者在作为字符串传入时会被解释为 SystemMessage
+</pre>
+
+<pre class="example" id="orga0cef20">
+可以在输入字典中直接提供代理状态模式中定义的额外字段，这允许根据运行时数据或先前的工具输出来实现动态行为
+
+详情请参见上下文指南：https://langgraph.com.cn/agents/context/index.html
+</pre>
+</div>
+</div>
+<div id="outline-container-org9ac7ef0" class="outline-2">
+<h2 id="org9ac7ef0">输出格式</h2>
+<div class="outline-text-2" id="text-org9ac7ef0">
+<p>
+代理输出是一个 <b>字典</b> ，包含
+</p>
+<ul class="org-ul">
+<li>messages：执行期间交换的所有消息列表（用户输入、助手回复、工具调用）</li>
+<li>可选地，如果配置了<a href="https://langgraph.com.cn/agents/agents.1.html#6-configure-structured-output">结构化输出</a>，则包含 structured_response</li>
+<li><p>
+如果使用自定义 state_schema，输出中还可能包含与自定义的字段对应的额外键
+</p>
+<pre class="example" id="org84b2028">
+这些键可以保存工具执行或提示逻辑更新后的状态值
+</pre></li>
+</ul>
+
+<p>
+有关使用自定义状态模式和访问上下文的更多详细信息，请参见<a href="https://langgraph.com.cn/agents/context/index.html">上下文指南</a>
+</p>
+</div>
+</div>
+<div id="outline-container-orga287931" class="outline-2">
+<h2 id="orga287931">流式输出</h2>
+<div class="outline-text-2" id="text-orga287931">
+<p>
+代理支持流式响应，以实现更具响应性的应用程序。这包括
+</p>
+<ul class="org-ul">
+<li>每一步之后的 <b>进度更新</b></li>
+<li>生成时的 <b>LLM 令牌</b></li>
+<li>执行期间的 <b>自定义工具消息</b></li>
+</ul>
+
+<p>
+流式传输在同步和异步模式下均可用
+</p>
+<ul class="org-ul">
+<li><p>
+同步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #00ffff;">for</span> chunk <span style="color: #00ffff;">in</span> agent.stream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=<span style="color: #ffa07a;">"updates"</span>
+):
+    <span style="color: #b0c4de;">print</span>(chunk)
+</code></pre>
+</div></li>
+<li><p>
+异步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #00ffff;">async for</span> chunk <span style="color: #00ffff;">in</span> agent.astream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=<span style="color: #ffa07a;">"updates"</span>
+):
+    <span style="color: #b0c4de;">print</span>(chunk)
+</code></pre>
+</div></li>
+</ul>
+
+<pre class="example" id="org4b793c3">
+有关完整详细信息，请参阅流式传输指南
+
+https://langgraph.com.cn/agents/streaming/index.html
+</pre>
+</div>
+</div>
+<div id="outline-container-orgc6185b9" class="outline-2">
+<h2 id="orgc6185b9">最大迭代次数</h2>
+<div class="outline-text-2" id="text-orgc6185b9">
+<p>
+要控制代理执行并避免无限循环，请设置 <b>递归限制</b> 。这定义了代理在引发 GraphRecursionError 之前可以执行的最大步骤数。可以在运行时或通过 <span class="underline">.with_config()</span> 定义代理时配置 <span class="underline">recursion_limit</span> : 
+</p>
+<ul class="org-ul">
+<li><p>
+运行时：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #00ffff;">from</span> langgraph.errors <span style="color: #00ffff;">import</span> GraphRecursionError
+<span style="color: #00ffff;">from</span> langgraph.prebuilt <span style="color: #00ffff;">import</span> create_react_agent
+
+<span style="color: #eedd82;">max_iterations</span> = 3
+<span style="color: #eedd82;">recursion_limit</span> = 2 * max_iterations + 1
+<span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-5-haiku-latest"</span>,
+    tools=[get_weather]
+)
+
+<span style="color: #00ffff;">try</span>:
+    <span style="color: #eedd82;">response</span> = agent.invoke(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what's the weather in sf"</span>}]},
+        {<span style="color: #ffa07a;">"recursion_limit"</span>: recursion_limit},
+    )
+<span style="color: #00ffff;">except</span> GraphRecursionError:
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Agent stopped due to max iterations."</span>)
+</code></pre>
+</div></li>
+<li><p>
+定义时：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #00ffff;">from</span> langgraph.errors <span style="color: #00ffff;">import</span> GraphRecursionError
+<span style="color: #00ffff;">from</span> langgraph.prebuilt <span style="color: #00ffff;">import</span> create_react_agent
+
+<span style="color: #eedd82;">max_iterations</span> = 3
+<span style="color: #eedd82;">recursion_limit</span> = 2 * max_iterations + 1
+<span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-5-haiku-latest"</span>,
+    tools=[get_weather]
+)
+<span style="color: #eedd82;">agent_with_recursion_limit</span> = agent.with_config(recursion_limit=recursion_limit)
+
+<span style="color: #00ffff;">try</span>:
+    <span style="color: #eedd82;">response</span> = agent_with_recursion_limit.invoke(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what's the weather in sf"</span>}]},
+    )
+<span style="color: #00ffff;">except</span> GraphRecursionError:
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Agent stopped due to max iterations."</span>)
+</code></pre>
+</div></li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="streaming.html">Next：流式传输</a></td>
+<td class="org-left"><a href="overview.html">Previous：代理概述</a></td>
+<td class="org-left"><a href="agent.html">Home: 构建代理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
