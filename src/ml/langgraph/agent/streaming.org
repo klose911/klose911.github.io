@@ -12,3 +12,165 @@
 可以同时流式传输[[https://langgraph.com.cn/agents/streaming/index.html#stream-multiple-modes][多种类型的数据]]
 
 * 代理进度
+要流式传输代理进度，请使用带有 _stream_mode="updates" 的 stream()_ 或 _astream()_ 方法。这会在每个代理步骤后发出一个事件。
+
+#+begin_example
+  例如，如果有一个代理调用工具一次，应该会看到以下更新：
+
+  LLM 节点：带有工具调用请求的 AI 消息
+  工具节点：带有执行结果的工具消息
+  LLM 节点：最终 AI 响应
+#+end_example
+
++ 同步：
+  #+begin_src python 
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+    )
+    for chunk in agent.stream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode="updates"
+    ):
+        print(chunk)
+        print("\n")
+  #+end_src
++ 异步：
+  #+begin_src python 
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+    )
+    async for chunk in agent.astream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode="updates"
+    ):
+        print(chunk)
+        print("\n")
+  #+end_src
+
+* LLM 令牌
+要流式传输 LLM 生成的令牌，请使用 _stream_mode="messages"_ ：
++ 同步：
+  #+begin_src python 
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+    )
+    for token, metadata in agent.stream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode="messages"
+    ):
+        print("Token", token)
+        print("Metadata", metadata)
+        print("\n")
+  #+end_src
++ 异步：
+  #+begin_src python 
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+    )
+    async for token, metadata in agent.astream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode="messages"
+    ):
+        print("Token", token)
+        print("Metadata", metadata)
+        print("\n")
+  #+end_src
+
+* 工具更新
+要流式传输工具执行时的更新，可以使用 [[https://langgraph.com.cn/reference/config/index.html#langgraph.config.get_stream_writer][get_stream_writer]] ：
++ 同步：
+  #+begin_src python 
+    from langgraph.config import get_stream_writer
+
+    def get_weather(city: str) -> str:
+        """Get weather for a given city."""
+        writer = get_stream_writer()
+        # stream any arbitrary data
+        writer(f"Looking up data for city: {city}")
+        return f"It's always sunny in {city}!"
+
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+    )
+
+    for chunk in agent.stream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode="custom"
+    ):
+        print(chunk)
+        print("\n")
+  #+end_src
++ 异步：
+  #+begin_src python 
+    from langgraph.config import get_stream_writer
+
+    def get_weather(city: str) -> str:
+        """Get weather for a given city."""
+        writer = get_stream_writer()
+        # stream any arbitrary data
+        writer(f"Looking up data for city: {city}")
+        return f"It's always sunny in {city}!"
+
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+    )
+
+    async for chunk in agent.astream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode="custom"
+    ):
+        print(chunk)
+        print("\n")
+  #+end_src
+
+#+begin_example
+注意：如果在工具内部添加 get_stream_writer，将无法在 LangGraph 执行上下文之外调用该工具
+#+end_example
+
+* 流式传输多种模式
+可以通过将流模式作为列表传递来指定多种流式传输模式：stream_mode=["updates", "messages", "custom"]:
++ 同步：
+  #+begin_src python 
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+    )
+
+    for stream_mode, chunk in agent.stream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode=["updates", "messages", "custom"]
+    ):
+        print(chunk)
+        print("\n")
+  #+end_src
++ 异步：
+  #+begin_src python 
+    agent = create_react_agent(
+        model="anthropic:claude-3-7-sonnet-latest",
+        tools=[get_weather],
+    )
+
+    async for stream_mode, chunk in agent.astream(
+            {"messages": [{"role": "user", "content": "what is the weather in sf"}]},
+            stream_mode=["updates", "messages", "custom"]
+    ):
+        print(chunk)
+        print("\n")
+  #+end_src
+
+* 禁用流式传输
+在某些应用程序中，可能需要禁用给定模型的单个令牌流式传输
+#+begin_example
+这在多代理系统中很有用，用于控制哪些代理流式传输其输出
+
+请参阅模型指南以了解如何禁用流式传输：https://langgraph.com.cn/agents/models/index.html#disable-streaming
+#+end_example
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:model.org][Next：模型]] | [[file:run_agents.org][Previous：运行代理]] | [[file:agent.org][Home: 构建代理]] |

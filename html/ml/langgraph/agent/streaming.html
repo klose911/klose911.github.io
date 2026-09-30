@@ -206,7 +206,11 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org3cbc085">代理进度</a></li>
+<li><a href="#org35f432b">代理进度</a></li>
+<li><a href="#org319f92e">LLM 令牌</a></li>
+<li><a href="#org2b1c843">工具更新</a></li>
+<li><a href="#org713b6e6">流式传输多种模式</a></li>
+<li><a href="#org539b4b6">禁用流式传输</a></li>
 </ul>
 </div>
 </div>
@@ -222,8 +226,242 @@
 <p>
 可以同时流式传输<a href="https://langgraph.com.cn/agents/streaming/index.html#stream-multiple-modes">多种类型的数据</a>
 </p>
-<div id="outline-container-org3cbc085" class="outline-2">
-<h2 id="org3cbc085">代理进度</h2>
+<div id="outline-container-org35f432b" class="outline-2">
+<h2 id="org35f432b">代理进度</h2>
+<div class="outline-text-2" id="text-org35f432b">
+<p>
+要流式传输代理进度，请使用带有 <span class="underline">stream_mode="updates" 的 stream()</span> 或 <span class="underline">astream()</span> 方法。这会在每个代理步骤后发出一个事件。
+</p>
+
+<pre class="example" id="orgc57a70c">
+例如，如果有一个代理调用工具一次，应该会看到以下更新：
+
+LLM 节点：带有工具调用请求的 AI 消息
+工具节点：带有执行结果的工具消息
+LLM 节点：最终 AI 响应
+</pre>
+
+<ul class="org-ul">
+<li><p>
+同步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-7-sonnet-latest"</span>,
+    tools=[get_weather],
+)
+<span style="color: #00ffff;">for</span> chunk <span style="color: #00ffff;">in</span> agent.stream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=<span style="color: #ffa07a;">"updates"</span>
+):
+    <span style="color: #b0c4de;">print</span>(chunk)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">\n</span><span style="color: #ffa07a;">"</span>)
+</code></pre>
+</div></li>
+<li><p>
+异步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-7-sonnet-latest"</span>,
+    tools=[get_weather],
+)
+<span style="color: #00ffff;">async for</span> chunk <span style="color: #00ffff;">in</span> agent.astream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=<span style="color: #ffa07a;">"updates"</span>
+):
+    <span style="color: #b0c4de;">print</span>(chunk)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">\n</span><span style="color: #ffa07a;">"</span>)
+</code></pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org319f92e" class="outline-2">
+<h2 id="org319f92e">LLM 令牌</h2>
+<div class="outline-text-2" id="text-org319f92e">
+<p>
+要流式传输 LLM 生成的令牌，请使用 <span class="underline">stream_mode="messages"</span> ：
+</p>
+<ul class="org-ul">
+<li><p>
+同步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-7-sonnet-latest"</span>,
+    tools=[get_weather],
+)
+<span style="color: #00ffff;">for</span> token, metadata <span style="color: #00ffff;">in</span> agent.stream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=<span style="color: #ffa07a;">"messages"</span>
+):
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Token"</span>, token)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Metadata"</span>, metadata)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">\n</span><span style="color: #ffa07a;">"</span>)
+</code></pre>
+</div></li>
+<li><p>
+异步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-7-sonnet-latest"</span>,
+    tools=[get_weather],
+)
+<span style="color: #00ffff;">async for</span> token, metadata <span style="color: #00ffff;">in</span> agent.astream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=<span style="color: #ffa07a;">"messages"</span>
+):
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Token"</span>, token)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"Metadata"</span>, metadata)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">\n</span><span style="color: #ffa07a;">"</span>)
+</code></pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org2b1c843" class="outline-2">
+<h2 id="org2b1c843">工具更新</h2>
+<div class="outline-text-2" id="text-org2b1c843">
+<p>
+要流式传输工具执行时的更新，可以使用 <a href="https://langgraph.com.cn/reference/config/index.html#langgraph.config.get_stream_writer">get_stream_writer</a> ：
+</p>
+<ul class="org-ul">
+<li><p>
+同步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #00ffff;">from</span> langgraph.config <span style="color: #00ffff;">import</span> get_stream_writer
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">get_weather</span>(city: <span style="color: #b0c4de;">str</span>) -&gt; <span style="color: #b0c4de;">str</span>:
+    <span style="color: #ffa07a;">"""Get weather for a given city."""</span>
+    <span style="color: #eedd82;">writer</span> = get_stream_writer()
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">stream any arbitrary data
+</span>    writer(f<span style="color: #ffa07a;">"Looking up data for city: </span>{city}<span style="color: #ffa07a;">"</span>)
+    <span style="color: #00ffff;">return</span> f<span style="color: #ffa07a;">"It's always sunny in </span>{city}<span style="color: #ffa07a;">!"</span>
+
+<span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-7-sonnet-latest"</span>,
+    tools=[get_weather],
+)
+
+<span style="color: #00ffff;">for</span> chunk <span style="color: #00ffff;">in</span> agent.stream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=<span style="color: #ffa07a;">"custom"</span>
+):
+    <span style="color: #b0c4de;">print</span>(chunk)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">\n</span><span style="color: #ffa07a;">"</span>)
+</code></pre>
+</div></li>
+<li><p>
+异步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #00ffff;">from</span> langgraph.config <span style="color: #00ffff;">import</span> get_stream_writer
+
+<span style="color: #00ffff;">def</span> <span style="color: #87cefa;">get_weather</span>(city: <span style="color: #b0c4de;">str</span>) -&gt; <span style="color: #b0c4de;">str</span>:
+    <span style="color: #ffa07a;">"""Get weather for a given city."""</span>
+    <span style="color: #eedd82;">writer</span> = get_stream_writer()
+    <span style="color: #ff4500;"># </span><span style="color: #ff4500;">stream any arbitrary data
+</span>    writer(f<span style="color: #ffa07a;">"Looking up data for city: </span>{city}<span style="color: #ffa07a;">"</span>)
+    <span style="color: #00ffff;">return</span> f<span style="color: #ffa07a;">"It's always sunny in </span>{city}<span style="color: #ffa07a;">!"</span>
+
+<span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-7-sonnet-latest"</span>,
+    tools=[get_weather],
+)
+
+<span style="color: #00ffff;">async for</span> chunk <span style="color: #00ffff;">in</span> agent.astream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=<span style="color: #ffa07a;">"custom"</span>
+):
+    <span style="color: #b0c4de;">print</span>(chunk)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">\n</span><span style="color: #ffa07a;">"</span>)
+</code></pre>
+</div></li>
+</ul>
+
+<pre class="example" id="orgeea68b7">
+注意：如果在工具内部添加 get_stream_writer，将无法在 LangGraph 执行上下文之外调用该工具
+</pre>
+</div>
+</div>
+<div id="outline-container-org713b6e6" class="outline-2">
+<h2 id="org713b6e6">流式传输多种模式</h2>
+<div class="outline-text-2" id="text-org713b6e6">
+<p>
+可以通过将流模式作为列表传递来指定多种流式传输模式：stream_mode=["updates", "messages", "custom"]:
+</p>
+<ul class="org-ul">
+<li><p>
+同步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-7-sonnet-latest"</span>,
+    tools=[get_weather],
+)
+
+<span style="color: #00ffff;">for</span> stream_mode, chunk <span style="color: #00ffff;">in</span> agent.stream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=[<span style="color: #ffa07a;">"updates"</span>, <span style="color: #ffa07a;">"messages"</span>, <span style="color: #ffa07a;">"custom"</span>]
+):
+    <span style="color: #b0c4de;">print</span>(chunk)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">\n</span><span style="color: #ffa07a;">"</span>)
+</code></pre>
+</div></li>
+<li><p>
+异步：
+</p>
+<div class="org-src-container">
+<pre class="src src-python"><code><span style="color: #eedd82;">agent</span> = create_react_agent(
+    model=<span style="color: #ffa07a;">"anthropic:claude-3-7-sonnet-latest"</span>,
+    tools=[get_weather],
+)
+
+<span style="color: #00ffff;">async for</span> stream_mode, chunk <span style="color: #00ffff;">in</span> agent.astream(
+        {<span style="color: #ffa07a;">"messages"</span>: [{<span style="color: #ffa07a;">"role"</span>: <span style="color: #ffa07a;">"user"</span>, <span style="color: #ffa07a;">"content"</span>: <span style="color: #ffa07a;">"what is the weather in sf"</span>}]},
+        stream_mode=[<span style="color: #ffa07a;">"updates"</span>, <span style="color: #ffa07a;">"messages"</span>, <span style="color: #ffa07a;">"custom"</span>]
+):
+    <span style="color: #b0c4de;">print</span>(chunk)
+    <span style="color: #b0c4de;">print</span>(<span style="color: #ffa07a;">"</span><span style="color: #7fffd4;">\n</span><span style="color: #ffa07a;">"</span>)
+</code></pre>
+</div></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org539b4b6" class="outline-2">
+<h2 id="org539b4b6">禁用流式传输</h2>
+<div class="outline-text-2" id="text-org539b4b6">
+<p>
+在某些应用程序中，可能需要禁用给定模型的单个令牌流式传输
+</p>
+<pre class="example" id="orgdbd19a5">
+这在多代理系统中很有用，用于控制哪些代理流式传输其输出
+
+请参阅模型指南以了解如何禁用流式传输：https://langgraph.com.cn/agents/models/index.html#disable-streaming
+</pre>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="model.html">Next：模型</a></td>
+<td class="org-left"><a href="run_agents.html">Previous：运行代理</a></td>
+<td class="org-left"><a href="agent.html">Home: 构建代理</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
