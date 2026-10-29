@@ -31,5 +31,133 @@ SQLite 对 SQL92 标准的支持包括 _索引_ 、 _限制_ 、 _触发_ 和 _�
 #+end_example
 
 * 特性
+SQLite的特性主要有：
+1. ACID事务
+2. 零配置:无需安装和管理配置
+3. 支持大多数SQL92标准
+   #+begin_example
+     比如：ATTACH DATABASE，BEGIN TRANSACTION，COMMENT等等，同时它还支持事务处理功能
+   #+end_example
+4. 单个数据库的所有信息储存在单一磁盘文件中
+   #+begin_example
+     适用于作为应用程序文件的存储格式
+   #+end_example
+5. 支持数据库大小扩展至2TB
+6. 源码代码量小, 大致13万行C代码, 4.43M
+7. 简单易用的API
+8. 用ANSI-C编写，同时加入TCL绑定。可通过Wrapper支持其他语言的绑定
+9. 良好注释的源代码, 并且有着90%以上的测试覆盖率
+10. 可作为单独头文件包，编译简单，易于添加到大型项目中
+11. 独立: 没有额外依赖。
+12. 支持多平台多开发语言: UNIX(Linux, Mac OS-X, Android, IOS), Windows(Win32, WinCE, WinRT), C, PHP, Perl, Java, C#,Python, Ruby
+13. 源码完全的开源, 你可以用于任何用途, 包括出售它
+14. 命令行接口，可通过命令行来管理数据库
+
+* 推荐使用SQLite的场景
+1. 作为应用程序文件格式
+   #+begin_example
+     相对于使用fopen()以XML，JSON，CSV或者其他序列化方法将应用程序数据写入到磁盘
+
+     使用SQLite数据库来保存数据不仅可以避免写入过程中的解析器故障,而且数据将具有良好的跨平台性
+
+     另一方面,对数据库的事务特点可以保证数据更新的一致性
+   #+end_example
+2. 作为小程序的数据库
+   #+begin_example
+     SQLite具有较小的代码量,拥有较好的内存和磁盘管理机制,而且不需要维护,可靠
+
+     因此适合作为手机,PDA,MP3播放器等设备的数据库引擎
+   #+end_example
+3. 作为网页站点的数据库
+   #+begin_example
+     由于网站通常需要将一些无配置信息存放在磁盘上, SQLite适合于作为中小型站点的数据库
+   #+end_example
+4. 作为企业数据库管理系统
 
 
+* 快速上手
+这里简要介绍了SQLite的使用方法
+
+** 建立一个新的数据库
+在shell或者DOS命令行下输入:
+#+begin_src sh 
+  $ sqlite3 test.db 
+#+end_src
+
+这将建立一个新的名为 _test.db_ 的数据库文件.(可以使用不同的数据库名)，在命令行提示符中输入SQL命令创建并分配数据库空间
+
+#+begin_example
+更多相关内容请参考接下来的内容
+#+end_example
+
+** 编写一个使用SQLite的示例程序
+以下是一个演示如何使用 SQLite 的 TCL接口的TCL程序.该程序通过执行SQL语句建立一个由两个参数定义的数据库：
+1. 首先程序定位并执行第7行sqlite3命令打开并创建一个db对象
+2. 通过eval方法将SQL语句绑定到db对象并执行
+3. 最后关闭数据库连接
+
+   #+begin_src tcl 
+     #!/usr/bin/tclsh
+     if {$argc!=2} {
+         puts stderr "Usage: %s DATABASE SQL-STATEMENT"
+         exit 1
+     }
+
+     package require sqlite3
+
+     sqlite3 db [lindex $argv 0]
+
+     db eval [lindex $argv 1] x {
+         foreach v $x(*) {
+     	puts "$v = $x($v)"
+         }
+         puts ""
+     }
+
+     db close
+   #+end_src
+
+下面是一个演示如何使用SQLite C/C++接口的C程序
++ 第一个参数表示数据库的名称
++ 第二个参数表示需要执行的SQL语句
+
+#+begin_src c 
+  #include "sqlite.h"
+  #include <stdio.h>
+
+  static int callback(void *NotUsed, int argc, char **argv, char **azColName){
+    int i;
+    for(i=0; i<argc; i++){
+      printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+    }
+    printf("\n");
+    return 0;
+  }
+
+  int main(int argc, char **argv){
+    sqlite3 *db;
+    char *zErrMsg = 0;
+    int rc;
+
+    if(argc != 3){
+      fprintf(stderr, "Usage: %s DATABASE SQL-STATEMENT\n", argv[0]);
+      return(1);
+    }
+    rc = sqlite3_open(argv[1], &db);
+    if( rc ){
+      fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+      sqlite3_close(db);
+      return(1);
+    }
+    rc = sqlite3_exec(db, argv[2], callback, 0, &zErrMsg);
+    if( rc!=SQLITE_OK ){
+      fprintf(stderr, "SQL error: %s\n", zErrMsg);
+      sqlite3_free(zErrMsg);
+    }
+    sqlite3_close(db);
+    return 0;
+  }
+#+end_src
+
+#+ATTR_HTML: :border 1 :rules all :frame boader
+| [[file:architecture.org][Next: 架构]] | [[file:sqlite.org][Home: SQLite 源码分析]] |
