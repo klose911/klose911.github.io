@@ -206,8 +206,21 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#org304d9fb">体系结构</a></li>
-<li><a href="#org21cea34">模块作用</a></li>
+<li><a href="#org418a83b">体系结构</a>
+<ul>
+<li><a href="#org15bf83f">公共接口Interface</a></li>
+<li><a href="#orgf611a90">词法分析器Tokenizer</a></li>
+<li><a href="#org716f036">语法分析器Parser</a></li>
+<li><a href="#orgacf5ae9">代码生成器Code Generator</a></li>
+<li><a href="#org3a00f25">虚拟机Virtual Machine</a></li>
+<li><a href="#org56c2c2b">B-树B-Tree</a></li>
+<li><a href="#orgc59e999">页面高速缓存Page Cache</a></li>
+<li><a href="#orgf87dc52">OS接口</a></li>
+<li><a href="#org771f6b9">实用工具 Utilities</a></li>
+<li><a href="#orga6088cd">测试代码</a></li>
+</ul>
+</li>
+<li><a href="#org1f5f9d6">模块作用</a></li>
 </ul>
 </div>
 </div>
@@ -216,7 +229,7 @@ SQLite拥有一个精致的、模块化的体系结构，并引进了一些独�
 </p>
 
 
-<div id="org9d0011b" class="figure">
+<div id="orgb9074fc" class="figure">
 <p><img src="pic/2.jpg" alt="2.jpg" width="90%" />
 </p>
 </div>
@@ -237,22 +250,251 @@ SQLite拥有一个精致的、模块化的体系结构，并引进了一些独�
 <li><p>
 操作系统交界面
 </p>
-<pre class="example" id="org98aa287">
+<pre class="example" id="org1b41838">
 后端实现了 sqlite3_bind_*, sqlite3_setp, sqlite3_coloumn_*, sqlite3_reset和sqlite3_finalize 等API函数
 </pre></li>
 </ol></li>
 </ul>
 
-<pre class="example" id="org0cc96be">
+<pre class="example" id="orge237eb0">
 这个模型将查询过程划分为几个不连续的任务，就像在流水线上工作一样
 
 在体系结构栈的顶部编译查询语句，在中部执行它，在底部处理操作系统的存储和接口
 </pre>
-<div id="outline-container-org304d9fb" class="outline-2">
-<h2 id="org304d9fb">体系结构</h2>
+<div id="outline-container-org418a83b" class="outline-2">
+<h2 id="org418a83b">体系结构</h2>
+<div class="outline-text-2" id="text-org418a83b">
+<p>
+在内部，SQLite由以下几个组件组成：内核、SQL编译器、后端以及附件
+</p>
+<ul class="org-ul">
+<li>SQLite通过利用 <b>虚拟机和虚拟数据库引擎</b> <span class="underline">VDBE</span> ，使调试、修改和扩展SQLite的内核变得更加方便
+<ul class="org-ul">
+<li>所有SQL语句都被编译成易读的、可以在SQLite虚拟机中执行的程序集</li>
+</ul></li>
+<li>SQLite支持大小高达2 TB的数据库，每个数据库完全存储在单个磁盘文件中
+<ul class="org-ul">
+<li>这些磁盘文件可以在不同字节顺序的计算机之间移动</li>
+<li>这些数据以B+树（B+tree）数据结构的形式存储在磁盘上</li>
+<li>SQLite根据该文件系统获得其数据库权限</li>
+</ul></li>
+</ul>
+
+<p>
+SQLite的体系结构图，如图所示:
+</p>
+
+
+<div id="orgd8872e6" class="figure">
+<p><img src="pic/img1-1.jpg" alt="img1-1.jpg" width="90%" />
+</p>
 </div>
-<div id="outline-container-org21cea34" class="outline-2">
-<h2 id="org21cea34">模块作用</h2>
+</div>
+<div id="outline-container-org15bf83f" class="outline-3">
+<h3 id="org15bf83f">公共接口Interface</h3>
+<div class="outline-text-3" id="text-org15bf83f">
+<p>
+SQLite库的大部分公共接口由 <span class="underline">main.c</span> , <span class="underline">legacy.c</span> 和 <span class="underline">vdbeapi.c</span> 源文件中的函数来实现，这些函数依赖于分散在其他文件中的一些程序，因为在这些文件中它们可以访问有文件作用域的数据结构 
+</p>
+</div>
+</div>
+<div id="outline-container-orgf611a90" class="outline-3">
+<h3 id="orgf611a90">词法分析器Tokenizer</h3>
+<div class="outline-text-3" id="text-orgf611a90">
+<p>
+当执行一个包含SQL语句的字符串时，接口程序要把这个字符串传递给 <span class="underline">tokenizer</span>
+</p>
+<ul class="org-ul">
+<li>Tokenizer的任务是把原有字符串分割成一个个 <b>标识符</b> <span class="underline">token</span></li>
+<li>把这些标识符传递给解析器</li>
+</ul>
+
+<p>
+Tokenizer是用手工编写的，在C文件 <span class="underline">tokenize.c</span> 中 
+</p>
+</div>
+</div>
+<div id="outline-container-org716f036" class="outline-3">
+<h3 id="org716f036">语法分析器Parser</h3>
+<div class="outline-text-3" id="text-org716f036">
+<p>
+语法分析器的工作是在指定的上下文中赋予标识符具体的含义。SQLite的 <b>语法分析器</b> 使用 <span class="underline">Lemon LALR(1)</span> 分析程序生成器来产生
+</p>
+<ul class="org-ul">
+<li>Lemon做的工作与YACC/BISON相同，但它使用不同的输入句法，这种句法更不易出错</li>
+<li>Lemon还产生可重入的并且线程安全的语法分析器</li>
+<li>Lemon定义了非终结析构器的概念，当遇到语法错误时它不会泄露内存</li>
+</ul>
+
+<p>
+驱动Lemon的源文件可在 <span class="underline">parse.y</span> 中找到
+</p>
+</div>
+</div>
+<div id="outline-container-orgacf5ae9" class="outline-3">
+<h3 id="orgacf5ae9">代码生成器Code Generator</h3>
+<div class="outline-text-3" id="text-orgacf5ae9">
+<p>
+语法分析器在把标识符组装成完整的SQL语句后，就调用代码生成器产生虚拟机代码，以执行SQL语句请求的工作。代码生成器包含许多文件：
+</p>
+<ul class="org-ul">
+<li>attach.c</li>
+<li>auth.c</li>
+<li>build.c</li>
+<li>delete.c</li>
+<li>expr.c</li>
+<li>insert.c</li>
+<li>pragma.c</li>
+<li>select.c</li>
+<li>trigger.c</li>
+<li>update.c</li>
+<li>vacuum.c</li>
+<li>where.c</li>
+</ul>
+
+<p>
+这些文件涵盖了大部分最重要、最有意义的事情
+</p>
+<ol class="org-ol">
+<li>expr.c处理SQL中表达式的代码生成</li>
+<li>where.c处理SELECT、UPDATE和DELETE语句中WHERE子句的代码生成</li>
+<li>attach.c, delete.c, insert.c, select.c, trigger.c, update.c和vacuum.c处理同名SQL语句的代码生成（这些文件在必要时都调用expr.c和where.c中的例程）</li>
+<li>所有其他SQL语句的代码由build.c生成。文件auth.c实现sqlite3_set_authorizer()的功能</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org3a00f25" class="outline-3">
+<h3 id="org3a00f25">虚拟机Virtual Machine</h3>
+<div class="outline-text-3" id="text-org3a00f25">
+<p>
+代码生成器生成的代码由虚拟机来执行。总的来说，虚拟机实现一个专为操作数据库文件而设计的 <b>抽象计算引擎</b>
+</p>
+<ul class="org-ul">
+<li>它有一个存储中间数据的 <span class="underline">存储栈</span></li>
+<li>每条指令包含 <span class="underline">一个操作码</span> 和 <span class="underline">不超过三个额外的操作数</span></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org56c2c2b" class="outline-3">
+<h3 id="org56c2c2b">B-树B-Tree</h3>
+<div class="outline-text-3" id="text-org56c2c2b">
+<p>
+一个SQLite数据库使用 <b>B-树</b> 的形式存储在磁盘上，B-树的实现位于源文件 <span class="underline">btree.c</span> 中
+</p>
+<ul class="org-ul">
+<li>数据库中的 <span class="underline">每个表</span> 和 <span class="underline">索引</span> 使用一棵 <b>单独的</b> B-树</li>
+<li>所有的B-树存放在 <span class="underline">同一个磁盘文件</span> 中</li>
+<li>文件格式的细节被记录在 <span class="underline">btree.c开头的备注</span> 里</li>
+<li>B-树子系统的接口在头文件 <span class="underline">btree.h</span> 中定义</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgc59e999" class="outline-3">
+<h3 id="orgc59e999">页面高速缓存Page Cache</h3>
+<div class="outline-text-3" id="text-orgc59e999">
+<p>
+B-树模块以固定大小的数据块形式从磁盘上请求信息，默认的块大小是 <span class="underline">1024</span> 个字节，但是可以在512和65536个字节之间变化
+</p>
+<ul class="org-ul">
+<li>页面高速缓存负责 <span class="underline">读</span> 、 <span class="underline">写</span> 和 <span class="underline">缓存</span> 这些数据块</li>
+<li>页面高速缓存还提供 <span class="underline">回滚</span> 和 <span class="underline">原子提交</span> 的抽象，并且管理数据文件的 <span class="underline">锁定</span></li>
+<li>B-树驱动模块从页面高速缓存中请求特定的页</li>
+<li><p>
+当它想修改页面、想提交或回滚当前修改时，它也会通知页面高速缓存
+</p>
+<pre class="example" id="org4c2be02">
+页面高速缓存处理所有麻烦的细节，以确保请求能够快速、安全而有效地被处理
+</pre></li>
+</ul>
+<p>
+页面高速缓存的代码实现被包含在单一的C源文件 <span class="underline">pager.c</span> 中。页面高速缓存子系统的接口在头文件 <span class="underline">pager.h</span> 中定义
+</p>
+</div>
+</div>
+<div id="outline-container-orgf87dc52" class="outline-3">
+<h3 id="orgf87dc52">OS接口</h3>
+<div class="outline-text-3" id="text-orgf87dc52">
+<p>
+为了在POSIX和Win32操作系统之间提供移植性，SQLite使用一个 <b>抽象层</b> 来提供操作系统接口
+</p>
+<ul class="org-ul">
+<li>OS抽象层的接口在 <span class="underline">os.h</span> 中定义</li>
+<li>每种支持的操作系统有各自的实现：
+<ul class="org-ul">
+<li>Unix使用os_unix.c</li>
+<li>Windows使用os_win.c，等等</li>
+<li>每个特定操作系统的实现通常都有自己的头文件，如os_unix.h, os_win.h等</li>
+</ul></li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org771f6b9" class="outline-3">
+<h3 id="org771f6b9">实用工具 Utilities</h3>
+<div class="outline-text-3" id="text-org771f6b9">
+<ul class="org-ul">
+<li>内存分配和字符串比较函数位于 <span class="underline">util.c</span> 中</li>
+<li>语法分析器使用的符号表用Hash表来维护，其实现位于 <span class="underline">hash.c</span> 中</li>
+<li>源文件 <span class="underline">utf.c</span> 包含Unicode转换子程序</li>
+<li>SQLite有自己的printf()实现（带一些扩展功能），在 <span class="underline">printf.c</span> 中</li>
+<li>还有自己的随机数生成器，在 <span class="underline">random.c</span> 中</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orga6088cd" class="outline-3">
+<h3 id="orga6088cd">测试代码</h3>
+<div class="outline-text-3" id="text-orga6088cd">
+<p>
+如果计算回归测试脚本，超过一半的SQLite代码将被测试
+</p>
+<ul class="org-ul">
+<li>主要代码文件中有许多assert()语句</li>
+<li>源文件test1.c通过test5.c和md5.c实现只用于测试目的的一些扩展</li>
+<li>os_test.c后端接口用来模拟断电，以验证页面高速缓存的崩溃恢复机制</li>
+</ul>
+</div>
+</div>
+</div>
+<div id="outline-container-org1f5f9d6" class="outline-2">
+<h2 id="org1f5f9d6">模块作用</h2>
+<div class="outline-text-2" id="text-org1f5f9d6">
+<p>
+SQLite 由以下几个主要模块组成：SQL 编译器、内核、后端。
+</p>
+<ul class="org-ul">
+<li><b>接口</b> ：接口由SQLite C API组成，程序可以通过API与SQLite数据库进行交互</li>
+<li><b>编译器</b> ：
+<ol class="org-ol">
+<li><b>分词器</b> <span class="underline">Tokenizer</span> 和 <b>分析器</b> <span class="underline">Parser</span> 对执行的SQL语句进行语法检查</li>
+<li>生成 <b>语法树</b> 方便 <b>VDBE代码生成器</b> 使用</li>
+<li>把语法树传给 <b>VDBE代码生成器</b> <span class="underline">Code Generator</span> 处理</li>
+<li>代码生成器根据语法树生成 <b>VDBE的类汇编语言操作码</b></li>
+</ol></li>
+<li><b>后端</b> ：由 <b>B-树</b> <span class="underline">B-tree</span> ， <b>页缓存管理</b> <span class="underline">pager</span> 和 <b>操作系统接口</b> 构成。B-tree和Pager共同对数据进行管理
+<ul class="org-ul">
+<li>B-tree用与对数据建立索引，它维护着各个页面之间的复杂的关系，便于快速找到所需数据</li>
+<li>Pager的主要作用就是通过OS接口在B-tree和硬盘之间传递页面</li>
+</ul></li>
+</ul>
+
+<table border="1" cellspacing="0" cellpadding="6" rules="all" frame="boader">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left"><a href="vbde/vbde.html">Next: 进程</a></td>
+<td class="org-left"><a href="introduction.html">Previous：简介</a></td>
+<td class="org-left"><a href="sqlite.html">Home: SQLite 源码分析</a></td>
+</tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 <div id="postamble" class="status">
